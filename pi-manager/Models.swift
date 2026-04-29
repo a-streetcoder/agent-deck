@@ -1,5 +1,45 @@
 import Foundation
 
+struct SubagentControlConfig: Hashable {
+    var enabled: Bool?
+    var needsAttentionAfterMs: Int?
+    var notifyChannels: [String]
+}
+
+struct SubagentParallelConfig: Hashable {
+    var maxTasks: Int?
+    var concurrency: Int?
+}
+
+struct SubagentIntercomBridgeConfig: Hashable {
+    var mode: String?
+    var instructionFile: String?
+}
+
+struct SubagentExtensionConfig: Hashable {
+    var asyncByDefault: Bool?
+    var forceTopLevelAsync: Bool?
+    var defaultSessionDir: String?
+    var maxSubagentDepth: Int?
+    var control: SubagentControlConfig
+    var parallel: SubagentParallelConfig
+    var worktreeSetupHook: String?
+    var worktreeSetupHookTimeoutMs: Int?
+    var intercomBridge: SubagentIntercomBridgeConfig
+
+    static let empty = SubagentExtensionConfig(
+        asyncByDefault: nil,
+        forceTopLevelAsync: nil,
+        defaultSessionDir: nil,
+        maxSubagentDepth: nil,
+        control: SubagentControlConfig(enabled: nil, needsAttentionAfterMs: nil, notifyChannels: []),
+        parallel: SubagentParallelConfig(maxTasks: nil, concurrency: nil),
+        worktreeSetupHook: nil,
+        worktreeSetupHookTimeoutMs: nil,
+        intercomBridge: SubagentIntercomBridgeConfig(mode: nil, instructionFile: nil)
+    )
+}
+
 enum ResourceScopeKind: String, CaseIterable, Codable {
     case builtin = "Builtin"
     case global = "Global"
@@ -186,6 +226,12 @@ struct MCPConfigRecord: Identifiable, Hashable {
     let serverNames: [String]
 }
 
+struct SubagentConfigRecord: Identifiable, Hashable {
+    let id: String
+    let path: String
+    let config: SubagentExtensionConfig
+}
+
 struct AvailableModel: Identifiable, Hashable {
     let provider: String
     let model: String
@@ -213,6 +259,7 @@ struct ScanSnapshot: Hashable {
     let settings: [SettingsSummary]
     let envKeys: [EnvKeyRecord]
     let mcpConfigs: [MCPConfigRecord]
+    let subagentConfig: SubagentConfigRecord?
     let warnings: [DiagnosticWarning]
 
     static let empty = ScanSnapshot(
@@ -227,6 +274,7 @@ struct ScanSnapshot: Hashable {
         settings: [],
         envKeys: [],
         mcpConfigs: [],
+        subagentConfig: nil,
         warnings: []
     )
 }

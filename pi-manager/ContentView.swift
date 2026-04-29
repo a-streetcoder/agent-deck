@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var builtinOverrideTargetAgent: EffectiveAgentRecord?
     @State private var chainDraft: ChainEditorDraft?
     @State private var envDraft: EnvEditorDraft?
+    @State private var subagentConfigDraft: SubagentConfigDraft?
 
     var body: some View {
         NavigationSplitView {
@@ -120,6 +121,16 @@ struct ContentView: View {
                 }
             )
         }
+        .sheet(item: $subagentConfigDraft) { draft in
+            SubagentConfigEditorSheet(
+                draft: draft,
+                onCancel: { subagentConfigDraft = nil },
+                onSave: { updated in
+                    try viewModel.saveSubagentConfigDraft(updated)
+                    subagentConfigDraft = nil
+                }
+            )
+        }
         .confirmationDialog("Choose override scope", isPresented: Binding(
             get: { builtinOverrideTargetAgent != nil },
             set: { if !$0 { builtinOverrideTargetAgent = nil } }
@@ -187,6 +198,10 @@ struct ContentView: View {
             SkillsScreen(viewModel: viewModel)
         case .models:
             ModelsScreen(viewModel: viewModel)
+        case .subagents:
+            SubagentsScreen(viewModel: viewModel, onEditConfig: {
+                subagentConfigDraft = viewModel.makeSubagentConfigDraft()
+            })
         case .environment:
             EnvironmentScreen(
                 snapshot: viewModel.snapshot,
@@ -402,6 +417,72 @@ private struct ModelsScreen: View {
                 (provider, models.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending })
             }
             .sorted { $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending }
+    }
+}
+
+private struct SubagentsScreen: View {
+    @ObservedObject var viewModel: AppViewModel
+    let onEditConfig: () -> Void
+
+    var body: some View {
+        AppPage("Subagents", subtitle: "Global pi-subagents runtime defaults and package behavior") {
+            AppCard(title: "What You Can Edit Here") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• These settings control default runtime behavior for pi-subagents on this machine.")
+                    Text("• This is the package config file, not an agent markdown file.")
+                    Text("• Things like async defaults, intercom bridge behavior, control notices, parallel limits, and worktree hooks live here.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Config File", trailing: {
+                HStack(spacing: 10) {
+                    if let config = viewModel.snapshot.subagentConfig {
+                        Button("Open") { openFile(config.path) }
+                        Button("Reveal") { revealInFinder(config.path) }
+                    }
+                    Button("Edit Config") { onEditConfig() }
+                }
+            }) {
+                let config = viewModel.snapshot.subagentConfig?.config ?? .empty
+                AppKeyValueList(rows: [
+                    ("Path", viewModel.snapshot.subagentConfig?.path ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions/subagent/config.json").path),
+                    ("Async By Default", boolLabel(config.asyncByDefault)),
+                    ("Force Top-Level Async", boolLabel(config.forceTopLevelAsync)),
+                    ("Default Session Dir", config.defaultSessionDir ?? "—"),
+                    ("Max Subagent Depth", config.maxSubagentDepth.map(String.init) ?? "—"),
+                    ("Control Enabled", boolLabel(config.control.enabled)),
+                    ("Needs Attention After", config.control.needsAttentionAfterMs.map { "\($0) ms" } ?? "—"),
+                    ("Notify Channels", config.control.notifyChannels.isEmpty ? "—" : config.control.notifyChannels.joined(separator: ", ")),
+                    ("Parallel Max Tasks", config.parallel.maxTasks.map(String.init) ?? "—"),
+                    ("Parallel Concurrency", config.parallel.concurrency.map(String.init) ?? "—"),
+                    ("Worktree Setup Hook", config.worktreeSetupHook ?? "—"),
+                    ("Worktree Hook Timeout", config.worktreeSetupHookTimeoutMs.map { "\($0) ms" } ?? "—"),
+                    ("Intercom Bridge Mode", config.intercomBridge.mode ?? "—"),
+                    ("Intercom Instruction File", config.intercomBridge.instructionFile ?? "—")
+                ])
+            }
+
+            AppCard(title: "How These Settings Affect Runs") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• `asyncByDefault` makes runs go to the background unless a request says otherwise.")
+                    Text("• `forceTopLevelAsync` pushes top-level runs to background and skips clarify UI for them.")
+                    Text("• `control` decides whether long quiet runs raise needs-attention notices.")
+                    Text("• `parallel` sets default task limits for top-level parallel runs.")
+                    Text("• `intercomBridge` controls when child agents get automatic intercom coordination instructions.")
+                    Text("• `worktreeSetupHook` prepares each created worktree before a parallel isolated run starts.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func openFile(_ path: String) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    private func revealInFinder(_ path: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 }
 
@@ -1829,6 +1910,135 @@ private struct EnvEditorSheet: View {
         }
         .padding(20)
         .frame(minWidth: 620, minHeight: 240)
+    }
+}
+
+private struct SubagentConfigEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var draft: SubagentConfigDraft
+    let onCancel: () -> Void
+    let onSave: (SubagentConfigDraft) throws -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Edit Subagents Config")
+                .font(.title2.bold())
+                .fontWidth(.expanded)
+
+            ScrollView {
+                Form {
+                    Section("Runtime Defaults") {
+                        Toggle("Async By Default", isOn: optionalBoolBinding(\ .asyncByDefault))
+                        Toggle("Force Top-Level Async", isOn: optionalBoolBinding(\ .forceTopLevelAsync))
+                        TextField("Default Session Dir", text: optionalStringBinding(\ .defaultSessionDir))
+                        Stepper("Max Subagent Depth: \(draft.config.maxSubagentDepth ?? 0)", value: optionalIntBinding(\ .maxSubagentDepth), in: 0...10)
+                    }
+
+                    Section("Control Notices") {
+                        Toggle("Control Enabled", isOn: optionalControlBoolBinding(\ .enabled))
+                        Stepper("Needs Attention After: \(draft.config.control.needsAttentionAfterMs ?? 60000) ms", value: optionalControlIntBinding(\ .needsAttentionAfterMs, defaultValue: 60000), in: 1000...600000, step: 1000)
+                        TextField("Notify Channels", text: notifyChannelsBinding)
+                    }
+
+                    Section("Parallel Defaults") {
+                        Stepper("Max Tasks: \(draft.config.parallel.maxTasks ?? 8)", value: optionalParallelIntBinding(\ .maxTasks, defaultValue: 8), in: 1...32)
+                        Stepper("Concurrency: \(draft.config.parallel.concurrency ?? 4)", value: optionalParallelIntBinding(\ .concurrency, defaultValue: 4), in: 1...32)
+                    }
+
+                    Section("Intercom Bridge") {
+                        TextField("Mode", text: optionalIntercomStringBinding(\ .mode))
+                        TextField("Instruction File", text: optionalIntercomStringBinding(\ .instructionFile))
+                    }
+
+                    Section("Worktree Hook") {
+                        TextField("Setup Hook", text: optionalStringBinding(\ .worktreeSetupHook))
+                        Stepper("Hook Timeout: \(draft.config.worktreeSetupHookTimeoutMs ?? 30000) ms", value: optionalIntBinding(\ .worktreeSetupHookTimeoutMs, defaultValue: 30000), in: 1000...300000, step: 1000)
+                    }
+
+                    Section("Notes") {
+                        Text("Use `always`, `fork-only`, or `off` for intercom bridge mode. Notify channels are comma-separated, for example `event, async, intercom`.")
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                }
+                .formStyle(.grouped)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    onCancel()
+                    dismiss()
+                }
+                Button("Save") {
+                    do {
+                        draft.config.control.notifyChannels = draft.config.control.notifyChannels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                        try onSave(draft)
+                        dismiss()
+                    } catch {
+                        NSSound.beep()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 720, minHeight: 620)
+    }
+
+    private var notifyChannelsBinding: Binding<String> {
+        Binding(
+            get: { draft.config.control.notifyChannels.joined(separator: ", ") },
+            set: { draft.config.control.notifyChannels = $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
+        )
+    }
+
+    private func optionalBoolBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, Bool?>) -> Binding<Bool> {
+        Binding(
+            get: { draft.config[keyPath: keyPath] ?? false },
+            set: { draft.config[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func optionalIntBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, Int?>, defaultValue: Int = 0) -> Binding<Int> {
+        Binding(
+            get: { draft.config[keyPath: keyPath] ?? defaultValue },
+            set: { draft.config[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func optionalStringBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, String?>) -> Binding<String> {
+        Binding(
+            get: { draft.config[keyPath: keyPath] ?? "" },
+            set: { draft.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private func optionalControlBoolBinding(_ keyPath: WritableKeyPath<SubagentControlConfig, Bool?>) -> Binding<Bool> {
+        Binding(
+            get: { draft.config.control[keyPath: keyPath] ?? false },
+            set: { draft.config.control[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func optionalControlIntBinding(_ keyPath: WritableKeyPath<SubagentControlConfig, Int?>, defaultValue: Int) -> Binding<Int> {
+        Binding(
+            get: { draft.config.control[keyPath: keyPath] ?? defaultValue },
+            set: { draft.config.control[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func optionalParallelIntBinding(_ keyPath: WritableKeyPath<SubagentParallelConfig, Int?>, defaultValue: Int) -> Binding<Int> {
+        Binding(
+            get: { draft.config.parallel[keyPath: keyPath] ?? defaultValue },
+            set: { draft.config.parallel[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func optionalIntercomStringBinding(_ keyPath: WritableKeyPath<SubagentIntercomBridgeConfig, String?>) -> Binding<String> {
+        Binding(
+            get: { draft.config.intercomBridge[keyPath: keyPath] ?? "" },
+            set: { draft.config.intercomBridge[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
+        )
     }
 }
 

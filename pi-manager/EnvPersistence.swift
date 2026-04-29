@@ -1,5 +1,55 @@
 import Foundation
 
+struct SubagentConfigPersistence {
+    func makeDraft(path: String, config: SubagentExtensionConfig) -> SubagentConfigDraft {
+        SubagentConfigDraft(path: path, config: config)
+    }
+
+    func save(_ draft: SubagentConfigDraft) throws {
+        let fileURL = URL(fileURLWithPath: draft.path)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var root: [String: Any] = [:]
+        if let value = draft.config.asyncByDefault { root["asyncByDefault"] = value }
+        if let value = draft.config.forceTopLevelAsync { root["forceTopLevelAsync"] = value }
+        if let value = normalizedOptionalString(draft.config.defaultSessionDir) { root["defaultSessionDir"] = value }
+        if let value = draft.config.maxSubagentDepth { root["maxSubagentDepth"] = value }
+
+        var control: [String: Any] = [:]
+        if let value = draft.config.control.enabled { control["enabled"] = value }
+        if let value = draft.config.control.needsAttentionAfterMs { control["needsAttentionAfterMs"] = value }
+        let notifyChannels = draft.config.control.notifyChannels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if !notifyChannels.isEmpty { control["notifyChannels"] = notifyChannels }
+        if !control.isEmpty { root["control"] = control }
+
+        var parallel: [String: Any] = [:]
+        if let value = draft.config.parallel.maxTasks { parallel["maxTasks"] = value }
+        if let value = draft.config.parallel.concurrency { parallel["concurrency"] = value }
+        if !parallel.isEmpty { root["parallel"] = parallel }
+
+        if let value = normalizedOptionalString(draft.config.worktreeSetupHook) { root["worktreeSetupHook"] = value }
+        if let value = draft.config.worktreeSetupHookTimeoutMs { root["worktreeSetupHookTimeoutMs"] = value }
+
+        var intercomBridge: [String: Any] = [:]
+        if let value = normalizedOptionalString(draft.config.intercomBridge.mode) { intercomBridge["mode"] = value }
+        if let value = normalizedOptionalString(draft.config.intercomBridge.instructionFile) { intercomBridge["instructionFile"] = value }
+        if !intercomBridge.isEmpty { root["intercomBridge"] = intercomBridge }
+
+        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: fileURL)
+        if let handle = try? FileHandle(forWritingTo: fileURL) {
+            try? handle.seekToEnd()
+            handle.write(Data("\n".utf8))
+            try? handle.close()
+        }
+    }
+
+    private func normalizedOptionalString(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+}
+
 struct EnvPersistence {
     private let fileManager = FileManager.default
 

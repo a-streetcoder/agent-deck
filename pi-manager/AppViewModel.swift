@@ -21,6 +21,7 @@ final class AppViewModel: ObservableObject {
     private let agentPersistence = AgentPersistence()
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
+    private let subagentConfigPersistence = SubagentConfigPersistence()
     private var globalSnapshot: ScanSnapshot = .empty
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
@@ -253,6 +254,17 @@ final class AppViewModel: ObservableObject {
         refresh(includeModels: false)
     }
 
+    func makeSubagentConfigDraft() -> SubagentConfigDraft {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
+        return subagentConfigPersistence.makeDraft(path: path, config: snapshot.subagentConfig?.config ?? .empty)
+    }
+
+    func saveSubagentConfigDraft(_ draft: SubagentConfigDraft) throws {
+        try subagentConfigPersistence.save(draft)
+        refresh(includeModels: false)
+    }
+
     func warnings(for agent: EffectiveAgentRecord) -> [DiagnosticWarning] {
         snapshot.warnings.filter { warning in
             warning.message.contains("Agent \(agent.name) ") || warning.message.contains("Agent \(agent.name)")
@@ -301,6 +313,7 @@ final class AppViewModel: ObservableObject {
             settings: settings,
             envKeys: envKeys,
             mcpConfigs: mcpConfigs,
+            subagentConfig: globalSnapshot.subagentConfig,
             warnings: warnings
         )
     }
@@ -330,6 +343,7 @@ final class AppViewModel: ObservableObject {
             settings: globalSnapshot.settings + projectSnapshot.settings,
             envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
             mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,
+            subagentConfig: globalSnapshot.subagentConfig,
             warnings: globalSnapshot.warnings + projectSnapshot.warnings
         )
     }
@@ -504,6 +518,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case chains = "Chains"
     case skills = "Skills"
     case models = "Models"
+    case subagents = "Subagents"
     case environment = "Environment"
     case mcp = "MCP"
     case diagnostics = "Diagnostics"
@@ -517,6 +532,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
         case .models: return "cpu"
+        case .subagents: return "slider.horizontal.3"
         case .environment: return "key"
         case .mcp: return "cable.connector"
         case .diagnostics: return "stethoscope"

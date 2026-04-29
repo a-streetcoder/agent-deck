@@ -12,6 +12,7 @@ struct PiScanner {
         let globalMCP = homeDirectory().appendingPathComponent(".pi/agent/mcp.json")
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
+        let subagentConfig = homeDirectory().appendingPathComponent(".pi/agent/extensions/subagent/config.json")
 
         let projectAgentDirectory = projectRoot?.appendingPathComponent(".pi/agents", isDirectory: true)
         let legacyProjectAgentDirectory = projectRoot?.appendingPathComponent(".agents", isDirectory: true)
@@ -53,6 +54,8 @@ struct PiScanner {
             scanMCP(at: projectPiMCP, scope: .project)
         ].compactMap { $0 }
 
+        let parsedSubagentConfig = scanSubagentConfig(at: subagentConfig)
+
         let globalSettingsSummary = settings.first(where: { $0.path == globalSettings.path })
         let projectSettingsSummary = settings.first(where: { $0.path == projectSettings?.path })
 
@@ -93,6 +96,7 @@ struct PiScanner {
             settings: settings,
             envKeys: envKeys,
             mcpConfigs: mcpConfigs,
+            subagentConfig: parsedSubagentConfig,
             warnings: warnings
         )
     }
@@ -233,6 +237,43 @@ struct PiScanner {
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         let servers = ((json?["mcpServers"] as? [String: Any]) ?? [:]).keys.sorted()
         return MCPConfigRecord(id: "\(scope.rawValue):\(file.path)", path: file.path, source: ScopeID(kind: scope, path: file.path), serverNames: servers)
+    }
+
+    private func scanSubagentConfig(at file: URL) -> SubagentConfigRecord? {
+        guard let data = try? Data(contentsOf: file),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let control = (json["control"] as? [String: Any]) ?? [:]
+        let parallel = (json["parallel"] as? [String: Any]) ?? [:]
+        let intercomBridge = (json["intercomBridge"] as? [String: Any]) ?? [:]
+
+        return SubagentConfigRecord(
+            id: file.path,
+            path: file.path,
+            config: SubagentExtensionConfig(
+                asyncByDefault: json["asyncByDefault"] as? Bool,
+                forceTopLevelAsync: json["forceTopLevelAsync"] as? Bool,
+                defaultSessionDir: json["defaultSessionDir"] as? String,
+                maxSubagentDepth: json["maxSubagentDepth"] as? Int,
+                control: SubagentControlConfig(
+                    enabled: control["enabled"] as? Bool,
+                    needsAttentionAfterMs: control["needsAttentionAfterMs"] as? Int,
+                    notifyChannels: control["notifyChannels"] as? [String] ?? []
+                ),
+                parallel: SubagentParallelConfig(
+                    maxTasks: parallel["maxTasks"] as? Int,
+                    concurrency: parallel["concurrency"] as? Int
+                ),
+                worktreeSetupHook: json["worktreeSetupHook"] as? String,
+                worktreeSetupHookTimeoutMs: json["worktreeSetupHookTimeoutMs"] as? Int,
+                intercomBridge: SubagentIntercomBridgeConfig(
+                    mode: intercomBridge["mode"] as? String,
+                    instructionFile: intercomBridge["instructionFile"] as? String
+                )
+            )
+        )
     }
 
     private func resolveAgents(
