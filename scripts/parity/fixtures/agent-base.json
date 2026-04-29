@@ -1,0 +1,11 @@
+{
+  "name": "delegate",
+  "description": "base",
+  "fallbackModels": [],
+  "systemPromptMode": "append",
+  "inheritProjectContext": true,
+  "inheritSkills": false,
+  "skills": [],
+  "systemPrompt": "Base prompt",
+  "unknownFields": {}
+}

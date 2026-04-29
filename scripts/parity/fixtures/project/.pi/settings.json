@@ -1,0 +1,18 @@
+{
+  "subagents": {
+    "disableBuiltins": false,
+    "agentOverrides": {
+      "delegate": {
+        "disabled": true,
+        "systemPrompt": "Project delegate prompt"
+      },
+      "researcher": {
+        "tools": false,
+        "skills": false,
+        "fallbackModels": false,
+        "thinking": false,
+        "disabled": false
+      }
+    }
+  }
+}

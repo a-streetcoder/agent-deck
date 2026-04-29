@@ -1,0 +1,23 @@
+{
+  "name": "fixture-serialize",
+  "description": "serialize custom agent",
+  "model": "openai/gpt-4.1",
+  "fallbackModels": ["openai/gpt-4o-mini", "openai/gpt-4.1-mini"],
+  "thinking": "medium",
+  "systemPromptMode": "replace",
+  "inheritProjectContext": false,
+  "inheritSkills": true,
+  "tools": ["read", "write"],
+  "mcpDirectTools": ["astro", "docs"],
+  "extensions": [],
+  "skills": ["one", "two"],
+  "output": "result.md",
+  "defaultReads": ["README.md", "SPEC.md"],
+  "defaultProgress": true,
+  "interactive": true,
+  "maxSubagentDepth": 4,
+  "systemPrompt": "# Title\n\nBody.",
+  "unknownFields": {
+    "customField": "custom"
+  }
+}

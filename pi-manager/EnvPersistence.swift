@@ -1,0 +1,98 @@
+import Foundation
+
+struct EnvPersistence {
+    private let fileManager = FileManager.default
+
+    func makeDraft(for record: EnvKeyRecord) -> EnvEditorDraft {
+        EnvEditorDraft(
+            originalKey: record.key,
+            key: record.key,
+            value: record.value ?? "",
+            path: record.source.path,
+            scope: record.source.kind
+        )
+    }
+
+    func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> EnvEditorDraft {
+        let path = switch scope {
+        case .global:
+            fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env").path
+        case .project:
+            URL(fileURLWithPath: projectRoot ?? "").appendingPathComponent(".pi/.env").path
+        }
+
+        return EnvEditorDraft(
+            originalKey: nil,
+            key: "NEW_KEY",
+            value: "",
+            path: path,
+            scope: scope == .project ? .project : .global
+        )
+    }
+
+    func save(_ draft: EnvEditorDraft) throws {
+        guard isWritableEnvPath(draft.path) else {
+            throw PersistenceError.invalidWriteTarget(draft.path)
+        }
+
+        let url = URL(fileURLWithPath: draft.path)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let existingText = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let originalKey = draft.originalKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = draft.key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newLine = "\(key)=\(draft.value)"
+
+        var output: [String] = []
+        var wroteNewLine = false
+        var sawOriginalKey = false
+
+        for line in existingText.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
+            let raw = String(line)
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let lineKey = envKey(from: trimmed)
+
+            if let originalKey, lineKey == originalKey {
+                sawOriginalKey = true
+                if !wroteNewLine {
+                    output.append(newLine)
+                    wroteNewLine = true
+                }
+                continue
+            }
+
+            if originalKey != key, lineKey == key {
+                if !wroteNewLine {
+                    output.append(newLine)
+                    wroteNewLine = true
+                }
+                continue
+            }
+
+            output.append(raw)
+        }
+
+        if !wroteNewLine {
+            if !output.isEmpty, output.last?.isEmpty == false {
+                output.append("")
+            }
+            output.append(newLine)
+        } else if !sawOriginalKey && !existingText.isEmpty && !output.contains(newLine) {
+            output.append(newLine)
+        }
+
+        var text = output.joined(separator: "\n")
+        if !text.hasSuffix("\n") { text.append("\n") }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func envKey(from line: String) -> String? {
+        guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
+        return line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init)
+    }
+
+    private func isWritableEnvPath(_ path: String) -> Bool {
+        let home = fileManager.homeDirectoryForCurrentUser.path
+        if path == URL(fileURLWithPath: home).appendingPathComponent(".pi/agent/.env").path { return true }
+        return path.contains("/.pi/.env")
+    }
+}
