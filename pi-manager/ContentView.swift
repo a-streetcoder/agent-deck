@@ -567,7 +567,7 @@ private struct ProjectSidebarRow: View {
                         .background(Circle().fill(AppTheme.subtleFill.opacity(0.8)))
                 }
                 .buttonStyle(.plain)
-                .help(Text(verbatim: isFavorite ? "Remove favorite" : "Add favorite"))
+                .help(isFavorite ? "Remove favorite" : "Add favorite")
             }
         }
     }
@@ -642,7 +642,7 @@ private struct ProjectIconEditorButton: View {
                 isHovering = hovering
             }
         }
-        .help(Text(verbatim: imageURL == nil ? "Set custom icon" : "Change custom icon"))
+        .help(imageURL == nil ? "Set custom icon" : "Change custom icon")
     }
 }
 
@@ -892,7 +892,7 @@ private struct ProjectsScreen: View {
                             .background(Circle().fill(AppTheme.subtleFill))
                     }
                     .buttonStyle(.plain)
-                    .help(Text(verbatim: preference.isFavorite ? "Remove favorite" : "Add favorite"))
+                    .help(preference.isFavorite ? "Remove favorite" : "Add favorite")
 
                     if preference.customIconPath != nil {
                         Button(action: { viewModel.clearCustomIcon(for: project) }) {
@@ -920,7 +920,7 @@ private struct ProjectsScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!preference.isEnabled)
-                    .help(Text(verbatim: isSelected ? "Show all projects" : "Select project"))
+                    .help(isSelected ? "Show all projects" : "Select project")
 
                     Toggle("Enabled", isOn: Binding(
                         get: { preference.isEnabled },
@@ -929,7 +929,7 @@ private struct ProjectsScreen: View {
                     .toggleStyle(.switch)
                     .tint(.accentColor)
                     .labelsHidden()
-                    .help(Text(verbatim: preference.isEnabled ? "Disable project" : "Enable project"))
+                    .help(preference.isEnabled ? "Disable project" : "Enable project")
                 }
             }
             .opacity(preference.isEnabled ? 1 : 0.5)
@@ -1414,6 +1414,12 @@ private struct AgentsScreen: View {
                 AgentDetailView(
                     agent: agent,
                     stateBadge: viewModel.builtinStateBadge(for: agent),
+                    availableModels: viewModel.availableModels,
+                    availableTools: viewModel.availableToolNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
+                    availableSkills: viewModel.availableSkillNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
+                    availableExtensions: viewModel.availableExtensionNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
+                    makeDraft: { scope in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: scope) },
+                    onSaveDraft: { draft in try viewModel.saveAgentDraft(draft, for: agent) },
                     onEdit: { onEditAgent(agent) },
                     onSetBuiltinDisabled: { scope, isDisabled in
                         viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
@@ -1439,7 +1445,6 @@ private struct AgentDetailView: View {
         case prompt = "Prompt"
         case tools = "Tools & Extensions"
         case skills = "Skills"
-        case resolution = "Resolution"
         case sourceFiles = "Source Files"
         case advanced = "Advanced"
 
@@ -1448,9 +1453,19 @@ private struct AgentDetailView: View {
 
     let agent: EffectiveAgentRecord
     let stateBadge: (text: String, color: Color)?
+    let availableModels: [AvailableModel]
+    let availableTools: [String]
+    let availableSkills: [String]
+    let availableExtensions: [String]
+    let makeDraft: (AgentEditingTarget.OverrideScope?) -> AgentEditorDraft?
+    let onSaveDraft: (AgentEditorDraft) throws -> Void
     let onEdit: () -> Void
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     @State private var selectedTab: DetailTab = .summary
+    @State private var inlineDraft: AgentEditorDraft?
+    @State private var baselineInlineDraft: AgentEditorDraft?
+    @State private var inlineSaveMessage: String?
+    @State private var inlineOverrideScope: AgentEditingTarget.OverrideScope = .global
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
@@ -1466,7 +1481,7 @@ private struct AgentDetailView: View {
                             }
                         }
                     }
-                    Button(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "Edit Override" : "Create Override") : "Edit Agent") {
+                    Button("Prompt & Advanced…") {
                         onEdit()
                     }
                 }
@@ -1517,35 +1532,181 @@ private struct AgentDetailView: View {
                 toolsTab
             case .skills:
                 skillsTab
-            case .resolution:
-                resolutionTab
             case .sourceFiles:
                 sourceFilesTab
             case .advanced:
                 advancedTab
             }
         }
+        .task(id: agent.id) {
+            reloadInlineDraft()
+        }
     }
 
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Configuration", trailing: {
-                AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
+                HStack(spacing: 10) {
+                    if inlineHasChanges {
+                        Button("Discard") {
+                            discardInlineChanges()
+                        }
+                        .controlSize(.small)
+                    }
+
+                    Button("Save Changes") {
+                        saveInlineDraft()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!inlineHasChanges || inlineDraft == nil)
+                }
             }) {
-                AppKeyValueList(rows: [
-                    ("Model", agent.resolved.model ?? "default"),
-                    ("Fallback Models", agent.resolved.fallbackModels.isEmpty ? "—" : agent.resolved.fallbackModels.joined(separator: ", ")),
-                    ("Thinking", agent.resolved.thinking ?? "off"),
-                    ("Prompt Mode", agent.resolved.systemPromptMode ?? "—"),
-                    ("Inherit Project Context", display(agent.resolved.inheritProjectContext)),
-                    ("Inherit Skills", display(agent.resolved.inheritSkills)),
-                    ("Disabled", display(agent.resolved.disabled)),
-                    ("Output", agent.resolved.output ?? "—"),
-                    ("Default Reads", agent.resolved.defaultReads?.joined(separator: ", ") ?? "—"),
-                    ("Default Progress", display(agent.resolved.defaultProgress)),
-                    ("Interactive", display(agent.resolved.interactive)),
-                    ("Max Subagent Depth", agent.resolved.maxSubagentDepth.map(String.init) ?? "—")
-                ])
+                if let draft = inlineDraft {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(spacing: 10) {
+                            AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
+                            Text(configurationFootnote)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+
+                        settingsSection("Model & Prompt") {
+                            if isPlainBuiltin, agent.projectRoot != nil {
+                                configEditorRow("Override Scope") {
+                                    Picker("Override Scope", selection: $inlineOverrideScope) {
+                                        Text("Global").tag(AgentEditingTarget.OverrideScope.global)
+                                        Text("Project").tag(AgentEditingTarget.OverrideScope.project)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(maxWidth: 260, alignment: .leading)
+                                    .onChange(of: inlineOverrideScope) { _, newValue in
+                                        reloadInlineDraft(preferredOverrideScope: newValue)
+                                    }
+                                }
+                            }
+
+                            configEditorRow("Model") {
+                                Picker("Model", selection: inlineModelSelectionBinding) {
+                                    Text("Use Pi Default Model").tag("")
+                                    ForEach(availableModels, id: \.identifier) { model in
+                                        Text(model.identifier).tag(model.identifier)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 360, alignment: .leading)
+
+                                Text(selectedInlineModelSummary)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
+
+                            configEditorRow("Thinking") {
+                                Picker("Thinking", selection: inlineThinkingSelectionBinding) {
+                                    ForEach(inlineAvailableThinkingLevels, id: \.self) { level in
+                                        Text(level).tag(level)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 180, alignment: .leading)
+
+                                Text("Only values supported by the selected model are shown.")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
+
+                            configEditorRow("Prompt Mode") {
+                                Picker("Prompt Mode", selection: inlinePromptModeBinding) {
+                                    Text("Replace").tag("replace")
+                                    Text("Append").tag("append")
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 260, alignment: .leading)
+                            }
+
+                            configEditorRow("Fallback Models") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Menu("Add Fallback Model") {
+                                        if !availableModels.isEmpty {
+                                            Button("Use None") {
+                                                inlineDraft?.config.fallbackModels = []
+                                            }
+                                            Divider()
+                                        }
+                                        ForEach(availableModels, id: \.identifier) { model in
+                                            Button(model.identifier) {
+                                                addInlineFallbackModel(model.identifier)
+                                            }
+                                        }
+                                    }
+
+                                    inlineTokenList(draft.config.fallbackModels, remove: removeInlineFallbackModel)
+                                }
+                            }
+                        }
+
+                        settingsSection("Behavior") {
+                            configEditorRow("Project Context") {
+                                Toggle("Inherit project context", isOn: inlineDefaultedOptionalBoolBinding(for: \.inheritProjectContext) { draft.config.name == "delegate" })
+                                    .toggleStyle(.switch)
+                            }
+
+                            configEditorRow("Skills") {
+                                Toggle("Inherit skills", isOn: inlineDefaultedOptionalBoolBinding(for: \.inheritSkills, default: false))
+                                    .toggleStyle(.switch)
+                            }
+
+                            configEditorRow("Availability") {
+                                Toggle("Disabled", isOn: inlineOptionalBoolBinding(for: \.disabled))
+                                    .toggleStyle(.switch)
+                            }
+
+                            if case .custom = draft.target {
+                                configEditorRow("Progress") {
+                                    Toggle("Default progress", isOn: inlineOptionalBoolBinding(for: \.defaultProgress))
+                                        .toggleStyle(.switch)
+                                }
+
+                                configEditorRow("Interaction") {
+                                    Toggle("Interactive", isOn: inlineOptionalBoolBinding(for: \.interactive))
+                                        .toggleStyle(.switch)
+                                }
+                            }
+                        }
+
+                        if case .custom = draft.target {
+                            settingsSection("Files") {
+                                configEditorRow("Output") {
+                                    TextField("Output path", text: inlineOptionalStringBinding(for: \.output))
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(maxWidth: 360, alignment: .leading)
+                                }
+
+                                configEditorRow("Default Reads") {
+                                    TextField("fileA, fileB", text: inlineStringListBinding(for: \.defaultReads))
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(maxWidth: 360, alignment: .leading)
+                                }
+
+                                configEditorRow("Max Depth") {
+                                    Stepper(value: inlineOptionalIntBinding(for: \.maxSubagentDepth), in: 0...10) {
+                                        Text(inlineDraft?.config.maxSubagentDepth.map(String.init) ?? "0")
+                                    }
+                                    .frame(maxWidth: 180, alignment: .leading)
+                                }
+                            }
+                        }
+
+                        if let inlineSaveMessage {
+                            Text(inlineSaveMessage)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                    }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             AppCard(title: "What These Fields Mean") {
@@ -1553,7 +1714,7 @@ private struct AgentDetailView: View {
                     Text("• Prompt mode: `replace` makes a focused specialist. `append` keeps more of Pi’s normal base behavior and adds this agent on top.")
                     Text("• Inherit Project Context: keeps Pi’s project-context prompt section, including AGENTS.md / CLAUDE.md style instructions. It does not copy the full parent session history.")
                     Text("• Inherit Skills: keeps Pi’s discovered skills section in the child prompt when those skills are in scope.")
-                    Text("• Max Subagent Depth: limits how many more child delegations this agent can create below itself.")
+                    Text("• Use Prompt & Advanced for prompt text, tools, skills, extensions, and other less frequently changed fields.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1576,48 +1737,89 @@ private struct AgentDetailView: View {
 
     private var toolsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Tools & Extensions") {
-                VStack(alignment: .leading, spacing: 16) {
-                    AppKeyValueList(rows: [
-                        ("Extensions", extensionsSummary),
-                        ("Output File", agent.resolved.output ?? "—"),
-                        ("Default Reads", agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
-                    ])
+            AppCard(title: "Tools & Extensions", trailing: {
+                HStack(spacing: 10) {
+                    if inlineHasChanges {
+                        Button("Discard") {
+                            discardInlineChanges()
+                        }
+                        .controlSize(.small)
+                    }
 
-                    if let tools = agent.resolved.tools, !tools.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Built-in Tools")
-                                .font(.headline)
-                                .fontWidth(.expanded)
-                            ForEach(tools, id: \.self) { tool in
+                    Button("Save Changes") {
+                        saveInlineDraft()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!inlineHasChanges || inlineDraft == nil)
+                }
+            }) {
+                if let draft = inlineDraft {
+                    VStack(alignment: .leading, spacing: 18) {
+                        settingsSection("Tool Access") {
+                            configEditorRow("Mode") {
                                 HStack(spacing: 10) {
-                                    Image(systemName: "wrench.and.screwdriver")
-                                        .foregroundStyle(.blue)
-                                    Text(tool)
+                                    Button("Use Default Tool Access") {
+                                        inlineDraft?.config.tools = nil
+                                        inlineDraft?.config.mcpDirectTools = nil
+                                    }
+                                    .controlSize(.small)
+
+                                    Text(selectedInlineToolValues.isEmpty ? "Currently using Pi default tool access." : "Using an explicit tool allowlist.")
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                }
+                            }
+
+                            configEditorRow("Add Tool") {
+                                Menu("Choose Tool") {
+                                    ForEach(availableTools, id: \.self) { tool in
+                                        Button(tool) {
+                                            addInlineTool(tool)
+                                        }
+                                    }
+                                }
+                            }
+
+                            configEditorRow("Selected") {
+                                inlineTokenList(selectedInlineToolValues, remove: removeInlineTool)
+                            }
+                        }
+
+                        if case .custom = draft.target {
+                            settingsSection("Extensions") {
+                                configEditorRow("Mode") {
+                                    HStack(spacing: 10) {
+                                        Button("Use Default Extensions") {
+                                            inlineDraft?.config.extensions = nil
+                                        }
+                                        .controlSize(.small)
+
+                                        Text((draft.config.extensions == nil) ? "Inherits Pi’s default extension behavior." : "Using an explicit extension list.")
+                                            .font(.caption)
+                                            .foregroundStyle(AppTheme.mutedText)
+                                    }
+                                }
+
+                                configEditorRow("Add Extension") {
+                                    Menu("Choose Extension") {
+                                        ForEach(availableExtensions, id: \.self) { name in
+                                            Button(name) {
+                                                addInlineExtension(name)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                configEditorRow("Selected") {
+                                    inlineTokenList(draft.config.extensions ?? [], remove: removeInlineExtension)
                                 }
                             }
                         }
                     }
-
-                    if let mcpTools = agent.resolved.mcpDirectTools, !mcpTools.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Direct MCP Tools")
-                                .font(.headline)
-                                .fontWidth(.expanded)
-                            ForEach(mcpTools, id: \.self) { tool in
-                                HStack(spacing: 10) {
-                                    Image(systemName: "cable.connector")
-                                        .foregroundStyle(.purple)
-                                    Text("mcp:\(tool)")
-                                }
-                            }
-                        }
-                    }
-
-                    if (agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty {
-                        Text("Default Pi tool access")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
@@ -1626,7 +1828,7 @@ private struct AgentDetailView: View {
                     Text("• If `tools` is omitted, the child gets Pi’s normal default built-in tools.")
                     Text("• If `tools` is set, it acts like an allowlist for regular tool names.")
                     Text("• `mcp:name` entries are separate direct MCP tools and only make sense when that MCP server exists in config.")
-                    Text("• `output` and `defaultReads` mostly matter when this agent is used inside managed runs such as chains or parallel workflows.")
+                    Text("• Extensions are offered from installed package references Pi already knows about.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1635,27 +1837,50 @@ private struct AgentDetailView: View {
 
     private var skillsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Skills") {
-                VStack(alignment: .leading, spacing: 16) {
-                    AppKeyValueList(rows: [
-                        ("Inherit Skills", display(agent.resolved.inheritSkills)),
-                        ("Explicit Skill Count", "\(agent.resolved.skills.count)")
-                    ])
+            AppCard(title: "Skills", trailing: {
+                HStack(spacing: 10) {
+                    if inlineHasChanges {
+                        Button("Discard") {
+                            discardInlineChanges()
+                        }
+                        .controlSize(.small)
+                    }
 
-                    if agent.resolved.skills.isEmpty {
-                        Text("No explicit skills")
-                            .foregroundStyle(AppTheme.mutedText)
-                    } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(agent.resolved.skills, id: \.self) { skill in
-                                HStack(spacing: 10) {
-                                    Image(systemName: "sparkles")
-                                        .foregroundStyle(.green)
-                                    Text(skill)
+                    Button("Save Changes") {
+                        saveInlineDraft()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!inlineHasChanges || inlineDraft == nil)
+                }
+            }) {
+                if let draft = inlineDraft {
+                    VStack(alignment: .leading, spacing: 18) {
+                        settingsSection("Skill Selection") {
+                            configEditorRow("Catalog") {
+                                Text("Only skills visible in this agent’s scope are selectable here.")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
+
+                            configEditorRow("Add Skill") {
+                                Menu("Choose Skill") {
+                                    ForEach(availableSkills, id: \.self) { skill in
+                                        Button(skill) {
+                                            addInlineSkill(skill)
+                                        }
+                                    }
                                 }
+                            }
+
+                            configEditorRow("Selected") {
+                                inlineTokenList(draft.config.skills, remove: removeInlineSkill)
                             }
                         }
                     }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
@@ -1798,6 +2023,70 @@ private struct AgentDetailView: View {
         comparisonText(for: agent.resolved)
     }
 
+    private var inlineHasChanges: Bool {
+        guard let inlineDraft, let baselineInlineDraft else { return false }
+        return normalizedInlineDraft(inlineDraft) != normalizedInlineDraft(baselineInlineDraft)
+    }
+
+    private var selectedInlineModel: AvailableModel? {
+        guard let identifier = inlineDraft?.config.model else { return nil }
+        return availableModels.first(where: { $0.identifier == identifier })
+    }
+
+    private var selectedInlineModelSummary: String {
+        if let model = selectedInlineModel {
+            return "\(model.identifier) · ctx \(model.contextWindow) · out \(model.maxOutput)"
+        }
+        return "Uses Pi’s default model resolution."
+    }
+
+    private var inlineAvailableThinkingLevels: [String] {
+        selectedInlineModel?.supportedThinkingLevels ?? ["off", "minimal", "low", "medium", "high", "xhigh"]
+    }
+
+    private var inlineModelSelectionBinding: Binding<String> {
+        Binding(
+            get: { inlineDraft?.config.model ?? "" },
+            set: { newValue in
+                inlineDraft?.config.model = newValue.isEmpty ? nil : newValue
+                clampInlineThinkingSelection()
+            }
+        )
+    }
+
+    private var inlineThinkingSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let current = inlineDraft?.config.thinking ?? "off"
+                return inlineAvailableThinkingLevels.contains(current) ? current : (inlineAvailableThinkingLevels.first ?? "off")
+            },
+            set: { newValue in
+                inlineDraft?.config.thinking = newValue == "off" ? nil : newValue
+            }
+        )
+    }
+
+    private var inlinePromptModeBinding: Binding<String> {
+        Binding(
+            get: { inlineDraft?.config.systemPromptMode ?? "replace" },
+            set: { inlineDraft?.config.systemPromptMode = $0 }
+        )
+    }
+
+    private var selectedInlineToolValues: [String] {
+        ((inlineDraft?.config.tools ?? []) + (inlineDraft?.config.mcpDirectTools ?? []).map { "mcp:\($0)" })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var configurationFootnote: String {
+        if isPlainBuiltin {
+            return hasOverride
+                ? "These changes update the active builtin override settings for this agent."
+                : "Saving creates a builtin override in Pi settings for this agent."
+        }
+        return "These changes update the agent file directly."
+    }
+
     private var hasOverride: Bool {
         agent.userOverride != nil || agent.projectOverride != nil
     }
@@ -1924,6 +2213,233 @@ private struct AgentDetailView: View {
         lines.append("interactive: \(display(config.interactive))")
         lines.append("maxSubagentDepth: \(config.maxSubagentDepth.map(String.init) ?? "—")")
         return lines.joined(separator: "\n")
+    }
+
+    @ViewBuilder
+    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 12) {
+                content()
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func configEditorRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 18) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 150, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 6) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func inlineTokenList(_ values: [String], remove: @escaping (String) -> Void) -> some View {
+        if values.isEmpty {
+            Text("None")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 8)], spacing: 8) {
+                ForEach(values, id: \.self) { value in
+                    HStack(spacing: 8) {
+                        Text(value)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button {
+                            remove(value)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private func reloadInlineDraft(preferredOverrideScope: AgentEditingTarget.OverrideScope? = nil) {
+        guard let draft = makeDraft(preferredOverrideScope) else {
+            inlineDraft = nil
+            baselineInlineDraft = nil
+            return
+        }
+        inlineDraft = draft
+        baselineInlineDraft = draft
+        inlineSaveMessage = nil
+        if case let .builtinOverride(scope) = draft.target {
+            inlineOverrideScope = scope
+        }
+    }
+
+    private func discardInlineChanges() {
+        inlineDraft = baselineInlineDraft
+        inlineSaveMessage = nil
+    }
+
+    private func saveInlineDraft() {
+        guard let inlineDraft else { return }
+        do {
+            let normalized = normalizedInlineDraft(inlineDraft)
+            try onSaveDraft(normalized)
+            baselineInlineDraft = normalized
+            self.inlineDraft = normalized
+            inlineSaveMessage = "Saved"
+        } catch {
+            NSSound.beep()
+            inlineSaveMessage = nil
+        }
+    }
+
+    private func clampInlineThinkingSelection() {
+        let current = inlineDraft?.config.thinking ?? "off"
+        guard !inlineAvailableThinkingLevels.contains(current) else { return }
+        let fallback = inlineAvailableThinkingLevels.first ?? "off"
+        inlineDraft?.config.thinking = fallback == "off" ? nil : fallback
+    }
+
+    private func addInlineFallbackModel(_ model: String) {
+        guard inlineDraft?.config.fallbackModels.contains(model) == false else { return }
+        inlineDraft?.config.fallbackModels.append(model)
+    }
+
+    private func removeInlineFallbackModel(_ model: String) {
+        inlineDraft?.config.fallbackModels.removeAll { $0 == model }
+    }
+
+    private func addInlineTool(_ tool: String) {
+        var values = selectedInlineToolValues
+        guard !values.contains(tool) else { return }
+        values.append(tool)
+        applyInlineToolValues(values)
+    }
+
+    private func removeInlineTool(_ tool: String) {
+        applyInlineToolValues(selectedInlineToolValues.filter { $0 != tool })
+    }
+
+    private func applyInlineToolValues(_ values: [String]) {
+        var tools: [String] = []
+        var mcpTools: [String] = []
+        for value in values {
+            if value.hasPrefix("mcp:") {
+                let name = String(value.dropFirst(4))
+                if !name.isEmpty { mcpTools.append(name) }
+            } else {
+                tools.append(value)
+            }
+        }
+        inlineDraft?.config.tools = tools.isEmpty ? nil : tools
+        inlineDraft?.config.mcpDirectTools = mcpTools.isEmpty ? nil : mcpTools
+    }
+
+    private func addInlineExtension(_ name: String) {
+        var values = inlineDraft?.config.extensions ?? []
+        guard !values.contains(name) else { return }
+        values.append(name)
+        inlineDraft?.config.extensions = values
+    }
+
+    private func removeInlineExtension(_ name: String) {
+        inlineDraft?.config.extensions?.removeAll { $0 == name }
+    }
+
+    private func addInlineSkill(_ skill: String) {
+        guard inlineDraft?.config.skills.contains(skill) == false else { return }
+        inlineDraft?.config.skills.append(skill)
+    }
+
+    private func removeInlineSkill(_ skill: String) {
+        inlineDraft?.config.skills.removeAll { $0 == skill }
+    }
+
+    private func normalizedInlineDraft(_ draft: AgentEditorDraft) -> AgentEditorDraft {
+        var copy = draft
+        copy.config.fallbackModels = normalizedList(copy.config.fallbackModels) ?? []
+        copy.config.tools = normalizedList(copy.config.tools)
+        copy.config.mcpDirectTools = normalizedList(copy.config.mcpDirectTools)
+        copy.config.skills = normalizedList(copy.config.skills) ?? []
+        copy.config.extensions = copy.config.extensions == nil ? nil : (normalizedList(copy.config.extensions) ?? [])
+        copy.config.defaultReads = copy.config.defaultReads == nil ? nil : (normalizedList(copy.config.defaultReads) ?? [])
+        if let output = copy.config.output?.trimmingCharacters(in: .whitespacesAndNewlines), output.isEmpty {
+            copy.config.output = nil
+        }
+        if copy.config.thinking == "off" {
+            copy.config.thinking = nil
+        }
+        return copy
+    }
+
+    private func normalizedList(_ value: [String]?) -> [String]? {
+        guard let value else { return nil }
+        let items = value.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return items.isEmpty ? nil : items
+    }
+
+    private func inlineOptionalStringBinding(for keyPath: WritableKeyPath<AgentConfig, String?>) -> Binding<String> {
+        Binding(
+            get: { inlineDraft?.config[keyPath: keyPath] ?? "" },
+            set: { inlineDraft?.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private func inlineStringListBinding(for keyPath: WritableKeyPath<AgentConfig, [String]?>) -> Binding<String> {
+        Binding(
+            get: { (inlineDraft?.config[keyPath: keyPath] ?? []).joined(separator: ", ") },
+            set: { newValue in
+                let values = newValue
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                inlineDraft?.config[keyPath: keyPath] = values.isEmpty ? nil : values
+            }
+        )
+    }
+
+    private func inlineOptionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>) -> Binding<Bool> {
+        Binding(
+            get: { inlineDraft?.config[keyPath: keyPath] ?? false },
+            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func inlineDefaultedOptionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>, default defaultValue: Bool) -> Binding<Bool> {
+        Binding(
+            get: { inlineDraft?.config[keyPath: keyPath] ?? defaultValue },
+            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func inlineDefaultedOptionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>, default defaultValue: @escaping () -> Bool) -> Binding<Bool> {
+        Binding(
+            get: { inlineDraft?.config[keyPath: keyPath] ?? defaultValue() },
+            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func inlineOptionalIntBinding(for keyPath: WritableKeyPath<AgentConfig, Int?>) -> Binding<Int> {
+        Binding(
+            get: { inlineDraft?.config[keyPath: keyPath] ?? 0 },
+            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+        )
     }
 
     private func display(_ value: Bool?) -> String {

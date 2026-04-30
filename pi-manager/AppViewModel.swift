@@ -1068,6 +1068,12 @@ final class AppViewModel: ObservableObject {
         Array(Set(snapshot.settings.flatMap(\.packages))).sorted()
     }
 
+    func availableExtensionNames(for target: AgentEditingTarget) -> [String] {
+        let snapshot = scopeSnapshot(for: target)
+        return Array(Set(snapshot.settings.flatMap(\.packages)))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     func availableSkillNames(for target: AgentEditingTarget) -> [String] {
         let snapshot = scopeSnapshot(for: target)
         return Array(Set(snapshot.skills.map(\.name)))
