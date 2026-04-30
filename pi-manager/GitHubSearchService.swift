@@ -59,7 +59,7 @@ struct GitHubSearchService {
                 isPullRequest: item.pullRequest != nil,
                 state: item.state,
                 stateReason: item.stateReason,
-                type: item.type,
+                type: item.type?.name,
                 labels: item.labels.map(\.name),
                 assignees: item.assignees.map(\.login),
                 author: item.user?.login,
@@ -160,6 +160,10 @@ private struct GitHubSearchItem: Decodable {
 
     struct PullRequestMarker: Decodable {}
 
+    struct TypeInfo: Decodable {
+        let name: String
+    }
+
     struct SubIssuesSummary: Decodable {
         let total: Int
         let completed: Int
@@ -192,7 +196,7 @@ private struct GitHubSearchItem: Decodable {
     let repositoryURL: String
     let state: String
     let stateReason: String?
-    let type: String?
+    let type: TypeInfo?
     let labels: [Label]
     let assignees: [User]
     let user: User?

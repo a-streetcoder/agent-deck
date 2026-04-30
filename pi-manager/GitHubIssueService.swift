@@ -48,7 +48,7 @@ struct GitHubIssueService {
             body: issue.body ?? "",
             state: issue.state,
             stateReason: issue.stateReason,
-            type: issue.type,
+            type: issue.type?.name,
             author: issue.user?.login,
             assignees: issue.assignees.map(\.login),
             labels: issue.labels.map(\.name),
@@ -105,7 +105,7 @@ struct GitHubIssueService {
             repository: payload.repositoryName,
             url: payload.htmlURL,
             state: payload.state,
-            type: payload.type
+            type: payload.type?.name
         )
     }
 
@@ -121,10 +121,11 @@ struct GitHubIssueService {
 private struct GitHubIssuePayload: Decodable {
     struct User: Decodable { let login: String }
     struct Label: Decodable { let name: String }
+    struct TypeInfo: Decodable { let name: String }
 
     let state: String
     let stateReason: String?
-    let type: String?
+    let type: TypeInfo?
     let body: String?
     let user: User?
     let assignees: [User]
@@ -148,13 +149,15 @@ private struct GitHubIssuePayload: Decodable {
 }
 
 private struct GitHubIssueRelationshipPayload: Decodable {
+    struct TypeInfo: Decodable { let name: String }
+
     let id: Int
     let number: Int
     let title: String
     let htmlURL: URL
     let repositoryURL: String
     let state: String
-    let type: String?
+    let type: TypeInfo?
 
     enum CodingKeys: String, CodingKey {
         case id

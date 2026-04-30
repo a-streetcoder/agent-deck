@@ -61,8 +61,10 @@ final class AppViewModel: ObservableObject {
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
     private var githubIssueDetailRequestID = 0
+    private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
 
     init() {
+        selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         refresh(includeModels: true)
         lastWatchFingerprint = watchFingerprint()
         startAutoRefresh()
@@ -99,6 +101,7 @@ final class AppViewModel: ObservableObject {
         } else {
             projectRootURL = nil
             selectedProjectPath = nil
+            persistSelectedProjectPath(nil)
             snapshot = makeAggregateSnapshot()
         }
 
@@ -134,6 +137,7 @@ final class AppViewModel: ObservableObject {
         if selectingAfterAdd {
             projectRootURL = standardizedURL
             selectedProjectPath = standardizedURL.path
+            persistSelectedProjectPath(standardizedURL.path)
         }
 
         refresh(includeModels: false)
@@ -153,6 +157,7 @@ final class AppViewModel: ObservableObject {
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
         projectRootURL = standardizedURL
         selectedProjectPath = standardizedURL.path
+        persistSelectedProjectPath(standardizedURL.path)
         refresh(includeModels: false)
         refreshGitHubProjectScopedState()
     }
@@ -160,6 +165,7 @@ final class AppViewModel: ObservableObject {
     func clearProjectRoot() {
         projectRootURL = nil
         selectedProjectPath = nil
+        persistSelectedProjectPath(nil)
         refresh(includeModels: false)
         refreshGitHubProjectScopedState()
     }
@@ -175,6 +181,7 @@ final class AppViewModel: ObservableObject {
         if !isEnabled, selectedProjectPath == project.path {
             projectRootURL = nil
             selectedProjectPath = nil
+            persistSelectedProjectPath(nil)
         }
 
         refresh(includeModels: false)
@@ -211,6 +218,14 @@ final class AppViewModel: ObservableObject {
         projectPreferencesStore.clearCustomIcon(for: project.path)
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
         refresh(includeModels: false)
+    }
+
+    private func persistSelectedProjectPath(_ path: String?) {
+        if let path {
+            UserDefaults.standard.set(path, forKey: lastSelectedProjectDefaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: lastSelectedProjectDefaultsKey)
+        }
     }
 
     func refreshGitHubStatus() async {
@@ -1318,13 +1333,13 @@ final class AppViewModel: ObservableObject {
 enum SidebarItem: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case projects = "Projects"
+    case github = "GitHub"
     case agents = "Agents"
     case chains = "Chains"
     case skills = "Skills"
     case commandsAndPrompts = "Prompts"
-    case github = "GitHub"
-    case models = "Models"
     case subagents = "Subagents"
+    case models = "Models"
     case environment = "Environment"
     case mcp = "MCP"
     case diagnostics = "Diagnostics"
@@ -1335,16 +1350,35 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .overview: return "square.grid.2x2"
         case .projects: return "folder"
+        case .github: return "chevron.left.forwardslash.chevron.right"
         case .agents: return "rectangle.connected.to.line.below"
         case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
-        case .commandsAndPrompts: return "doc.text"
-        case .github: return "chevron.left.forwardslash.chevron.right"
-        case .models: return "cpu"
+        case .commandsAndPrompts: return "rectangle.and.pencil.and.ellipsis"
         case .subagents: return "slider.horizontal.3"
+        case .models: return "cpu"
         case .environment: return "key"
         case .mcp: return "cable.connector"
         case .diagnostics: return "stethoscope"
+        }
+    }
+}
+
+enum SidebarSection: String, CaseIterable, Identifiable {
+    case workspace = "Workspace"
+    case piResources = "Pi Resources"
+    case runtime = "Runtime"
+
+    var id: String { rawValue }
+
+    var items: [SidebarItem] {
+        switch self {
+        case .workspace:
+            return [.overview, .projects, .github]
+        case .piResources:
+            return [.agents, .chains, .skills, .commandsAndPrompts, .subagents]
+        case .runtime:
+            return [.models, .environment, .mcp, .diagnostics]
         }
     }
 }

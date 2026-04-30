@@ -30,25 +30,31 @@ struct ContentView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 14)
 
-                List(SidebarItem.allCases, selection: $viewModel.selectedSidebarItem) { item in
-                    HStack(spacing: 8) {
-                        if item == .github {
-                            Image("github")
-                                .resizable()
-                                .renderingMode(.template)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 16, height: 16)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Image(systemName: item.systemImage)
-                                .frame(width: 16, height: 16)
-                                .foregroundStyle(.secondary)
-                        }
+                List(selection: $viewModel.selectedSidebarItem) {
+                    ForEach(SidebarSection.allCases) { section in
+                        Section(section.rawValue) {
+                            ForEach(section.items) { item in
+                                HStack(spacing: 8) {
+                                    if item == .github {
+                                        Image("github")
+                                            .resizable()
+                                            .renderingMode(.template)
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 16, height: 16)
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Image(systemName: item.systemImage)
+                                            .frame(width: 16, height: 16)
+                                            .foregroundStyle(.secondary)
+                                    }
 
-                        Text(item.rawValue)
+                                    Text(item.rawValue)
+                                }
+                                .fontWidth(.expanded)
+                                .tag(item)
+                            }
+                        }
                     }
-                    .fontWidth(.expanded)
-                    .tag(item)
                 }
 
                 Spacer(minLength: 0)
