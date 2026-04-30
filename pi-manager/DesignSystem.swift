@@ -58,20 +58,30 @@ struct AppCard<Content: View, Trailing: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppTheme.contentSpacing) {
-            if title != nil || !(Trailing.self == EmptyView.self) {
-                HStack(alignment: .firstTextBaseline) {
-                    if let title {
-                        Text(title)
-                            .font(.headline)
-                            .fontWidth(.expanded)
-                    }
-                    Spacer()
+        Group {
+            if title == nil && !(Trailing.self == EmptyView.self) {
+                HStack(alignment: .top, spacing: AppTheme.contentSpacing) {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     trailing
                 }
-            }
+            } else {
+                VStack(alignment: .leading, spacing: AppTheme.contentSpacing) {
+                    if title != nil || !(Trailing.self == EmptyView.self) {
+                        HStack(alignment: .firstTextBaseline) {
+                            if let title {
+                                Text(title)
+                                    .font(.headline)
+                                    .fontWidth(.expanded)
+                            }
+                            Spacer()
+                            trailing
+                        }
+                    }
 
-            content
+                    content
+                }
+            }
         }
         .padding(AppTheme.cardPadding)
         .background(
