@@ -31,7 +31,7 @@ struct GitHubScreen: View {
             guard viewModel.githubSelectedSection == .projectBoard,
                   viewModel.githubConnectionState.isConnected,
                   viewModel.selectedGitHubProject?.gitHubRemote != nil else { return }
-            viewModel.refreshProjectBoard()
+            viewModel.refreshProjectBoard(force: false)
         }
         .task(id: repoRefreshKey) {
             await Task.yield()
@@ -210,7 +210,7 @@ private struct GitHubIssueListRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 8) {
                     AppLabelTag(
                         text: item.state.capitalized,
@@ -222,12 +222,7 @@ private struct GitHubIssueListRow: View {
                     Text("#\(item.number)")
                         .font(.footnote.monospaced())
                         .foregroundStyle(AppTheme.mutedText)
-                    Spacer()
-                    if item.commentCount > 0 {
-                        Label("\(item.commentCount)", systemImage: "text.bubble")
-                            .font(.footnote)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
+                    Spacer(minLength: 12)
                 }
 
                 Text(item.title)
@@ -235,32 +230,9 @@ private struct GitHubIssueListRow: View {
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
 
-                let preview = item.bodyPreview
-                if !preview.isEmpty {
-                    Text(preview)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(3)
-                        .multilineTextAlignment(.leading)
-                }
-
-                if item.subIssuesSummary?.hasSubIssues == true || item.issueDependenciesSummary?.hasRelationships == true || !item.labels.isEmpty {
+                if !item.labels.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
-                            if let summary = item.subIssuesSummary, summary.hasSubIssues {
-                                AppLabelTag(
-                                    text: summary.completed > 0 ? "\(summary.completed)/\(summary.total) sub-issues" : "\(summary.total) sub-issues",
-                                    color: .purple
-                                )
-                            }
-                            if let dependencies = item.issueDependenciesSummary {
-                                if dependencies.totalBlockedBy > 0 {
-                                    AppLabelTag(text: "Blocked by \(dependencies.totalBlockedBy)", color: .orange)
-                                }
-                                if dependencies.totalBlocking > 0 {
-                                    AppLabelTag(text: "Blocking \(dependencies.totalBlocking)", color: .blue)
-                                }
-                            }
                             ForEach(item.labels.prefix(4), id: \.self) { label in
                                 AppLabelTag(text: label, color: .secondary)
                             }
@@ -268,15 +240,10 @@ private struct GitHubIssueListRow: View {
                     }
                 }
 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     if let author = item.author {
-                        HStack(spacing: 6) {
-                            GitHubAvatarView(url: GitHubAvatarResolver.url(login: author, host: item.url.host()), size: 18)
-                            Text(author)
-                        }
-                    }
-                    if !item.assignees.isEmpty {
-                        Label(item.assignees.joined(separator: ", "), systemImage: "person.2")
+                        GitHubAvatarView(url: GitHubAvatarResolver.url(login: author, host: item.url.host()), size: 18)
+                        Text(author)
                     }
                     Spacer()
                     Text(RelativeDateTimeFormatter().localizedString(for: item.updatedAt, relativeTo: Date()))
@@ -288,11 +255,11 @@ private struct GitHubIssueListRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.16) : AppTheme.cardFill)
+                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : AppTheme.cardStroke, lineWidth: 1)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -472,6 +439,118 @@ private struct GitHubIssueDetailCard: View {
     }
 }
 
+struct GitHubIssuesWorkspace: View {
+    @ObservedObject var viewModel: AppViewModel
+    let board: GitHubBoardSnapshot?
+    let isLoading: Bool
+    let showStateFilter: Bool
+    let refreshAction: () -> Void
+
+    var body: some View {
+        if let project = viewModel.selectedGitHubProject, let remote = project.gitHubRemote {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.repositoryDisplayName)
+                            .font(.headline)
+                            .fontWidth(.expanded)
+                        Text(remote.nameWithOwner)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    Spacer()
+
+                    if showStateFilter {
+                        Picker("State", selection: $viewModel.githubIssueStateFilter) {
+                            ForEach(GitHubIssueStateFilter.allCases) { state in
+                                Text(state.rawValue).tag(state)
+                            }
+                        }
+                        .frame(maxWidth: 180)
+                    }
+
+                    Button("Open Repository") {
+                        open(remote)
+                    }
+
+                    Button("Refresh") {
+                        refreshAction()
+                    }
+                    .disabled(!viewModel.githubConnectionState.isConnected || isLoading)
+                }
+
+                if let error = viewModel.githubLastError {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+
+                if isLoading {
+                    ProgressView("Loading issues…")
+                } else if !viewModel.githubConnectionState.isConnected {
+                    Text("Connecting to your GitHub CLI session…")
+                        .foregroundStyle(AppTheme.mutedText)
+                } else if let board {
+                    if board.shownCount < board.totalCount {
+                        Text("Showing the first \(board.shownCount) of \(board.totalCount) matching issues.")
+                            .foregroundStyle(.orange)
+                    }
+
+                    if board.incompleteResults {
+                        Text("GitHub reported incomplete search results. Narrow the scope if items look missing.")
+                            .foregroundStyle(.orange)
+                    }
+
+                    if board.allItems.isEmpty {
+                        Text(showStateFilter ? "No matching issues for this repository." : "No open issues for this repository.")
+                            .foregroundStyle(AppTheme.mutedText)
+                    } else {
+                        HSplitView {
+                            AppSidebarPane(
+                                title: showStateFilter ? "Issues" : "Open Issues",
+                                subtitle: "\(board.allItems.count) shown"
+                            ) {
+                                ScrollView(showsIndicators: false) {
+                                    LazyVStack(alignment: .leading, spacing: 12) {
+                                        ForEach(board.allItems) { item in
+                                            GitHubIssueListRow(
+                                                item: item,
+                                                isSelected: viewModel.githubSelectedWorkItem == item,
+                                                onSelect: { viewModel.selectWorkItem(item) }
+                                            )
+                                        }
+                                    }
+                                    .padding(16)
+                                }
+                            }
+                            .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
+
+                            GitHubIssueDetailCard(viewModel: viewModel)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                .padding(.leading, 8)
+                        }
+                        .frame(minHeight: 720)
+                    }
+                } else {
+                    Text("Loading issues for this repository…")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+        } else if viewModel.selectedProjectPath != nil {
+            Text("Select a project with a GitHub remote to see its issues here.")
+                .foregroundStyle(AppTheme.mutedText)
+        } else {
+            Text("Choose a project from the toolbar to browse its issues.")
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+
+    private func open(_ remote: GitHubRemote) {
+        guard let url = URL(string: "https://\(remote.host)/\(remote.nameWithOwner)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
 private struct GitHubProjectPlaceholder: View {
     @ObservedObject var viewModel: AppViewModel
 
@@ -482,119 +561,14 @@ private struct GitHubProjectPlaceholder: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
         }) {
-            if let project = viewModel.selectedGitHubProject, let remote = project.gitHubRemote {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .center) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(project.repositoryDisplayName)
-                                .font(.headline)
-                            Text(remote.nameWithOwner)
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(AppTheme.mutedText)
-                        }
-
-                        Spacer()
-
-                        Picker("State", selection: $viewModel.githubIssueStateFilter) {
-                            ForEach(GitHubIssueStateFilter.allCases) { state in
-                                Text(state.rawValue).tag(state)
-                            }
-                        }
-                        .frame(maxWidth: 180)
-
-                        Button("Open Repository") {
-                            open(remote)
-                        }
-
-                        Button("Refresh") {
-                            viewModel.refreshProjectBoard()
-                        }
-                        .disabled(!viewModel.githubConnectionState.isConnected || viewModel.githubIsLoadingProjectBoard)
-                    }
-
-                    if let error = viewModel.githubLastError {
-                        Text(error)
-                            .foregroundStyle(.red)
-                    }
-
-                    if viewModel.githubIsLoadingProjectBoard {
-                        ProgressView("Loading issues…")
-                    } else if !viewModel.githubConnectionState.isConnected {
-                        Text("Connecting to your GitHub CLI session…")
-                            .foregroundStyle(AppTheme.mutedText)
-                    } else if let board = viewModel.githubProjectBoard {
-                        if board.shownCount < board.totalCount {
-                            Text("Showing the first \(board.shownCount) of \(board.totalCount) matching issues.")
-                                .foregroundStyle(.orange)
-                        }
-
-                        if board.incompleteResults {
-                            Text("GitHub reported incomplete search results. Narrow the scope if items look missing.")
-                                .foregroundStyle(.orange)
-                        }
-
-                        if board.allItems.isEmpty {
-                            Text("No matching issues for this repository.")
-                                .foregroundStyle(AppTheme.mutedText)
-                        } else {
-                            HSplitView {
-                                AppCard {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("Issue List")
-                                                .font(.title2.bold())
-                                                .fontWidth(.expanded)
-                                            Text("\(board.allItems.count) shown")
-                                                .font(.subheadline)
-                                                .foregroundStyle(AppTheme.mutedText)
-                                        }
-                                        .padding(.horizontal, 16)
-                                        .padding(.top, 16)
-                                        .padding(.bottom, 12)
-
-                                        Divider()
-
-                                        ScrollView(showsIndicators: false) {
-                                            LazyVStack(alignment: .leading, spacing: 12) {
-                                                ForEach(board.allItems) { item in
-                                                    GitHubIssueListRow(
-                                                        item: item,
-                                                        isSelected: viewModel.githubSelectedWorkItem == item,
-                                                        onSelect: { viewModel.selectWorkItem(item) }
-                                                    )
-                                                }
-                                            }
-                                            .padding(16)
-                                        }
-                                        .background(AppTheme.subtleFill.opacity(0.35))
-                                    }
-                                }
-                                .frame(minWidth: 360, idealWidth: 420, maxWidth: 520)
-
-                                GitHubIssueDetailCard(viewModel: viewModel)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                                    .padding(.leading, 4)
-                            }
-                            .frame(minHeight: 760)
-                        }
-                    } else {
-                        Text("Loading issues for this repository…")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                }
-            } else if viewModel.selectedProjectPath != nil {
-                Text("No project selected. Choose a project with a GitHub remote to see its issues here.")
-                    .foregroundStyle(AppTheme.mutedText)
-            } else {
-                Text("Choose a project from the toolbar to scope GitHub work to a single repository.")
-                    .foregroundStyle(AppTheme.mutedText)
-            }
+            GitHubIssuesWorkspace(
+                viewModel: viewModel,
+                board: viewModel.githubProjectBoard,
+                isLoading: viewModel.githubIsLoadingProjectBoard,
+                showStateFilter: true,
+                refreshAction: { viewModel.refreshProjectBoard(force: true) }
+            )
         }
-    }
-
-    private func open(_ remote: GitHubRemote) {
-        guard let url = URL(string: "https://\(remote.host)/\(remote.nameWithOwner)") else { return }
-        NSWorkspace.shared.open(url)
     }
 }
 
@@ -680,18 +654,6 @@ private func issueTypeColor(_ issueType: String) -> Color {
         return .orange
     default:
         return .secondary
-    }
-}
-
-private extension GitHubWorkItem {
-    var bodyPreview: String {
-        body
-            .replacingOccurrences(of: "```[\\s\\S]*?```", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "`", with: "")
-            .replacingOccurrences(of: "[-#>*_]+", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "\\[[^\\]]+\\]\\(([^)]+)\\)", with: "$1", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

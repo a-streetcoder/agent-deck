@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor
@@ -22,6 +23,7 @@ final class AppViewModel: ObservableObject {
     @Published var githubSelectedSection: GitHubSection = .projectBoard
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
     @Published var githubAggregateBoard: GitHubBoardSnapshot?
+    @Published var githubOverviewBoard: GitHubBoardSnapshot?
     @Published var githubProjectBoard: GitHubBoardSnapshot?
     @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
     @Published var githubSelectedChangePaths: Set<String> = []
@@ -33,6 +35,7 @@ final class AppViewModel: ObservableObject {
     @Published var githubIssueDetail: GitHubIssueDetail?
     @Published var githubCommentDraft = ""
     @Published var githubIsLoadingAggregateBoard = false
+    @Published var githubIsLoadingOverviewBoard = false
     @Published var githubIsLoadingProjectBoard = false
     @Published var githubIsLoadingRepositoryChanges = false
     @Published var githubIsLoadingIssueDetail = false
@@ -42,6 +45,7 @@ final class AppViewModel: ObservableObject {
     @Published var githubIsRefreshingEverything = false
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
+    @Published var appSettings: AppSettings = AppSettingsStore.shared.settings
 
     private let scanner = PiScanner()
     private let projectDiscovery = ProjectDiscovery()
@@ -50,6 +54,7 @@ final class AppViewModel: ObservableObject {
     private let envPersistence = EnvPersistence()
     private let subagentConfigPersistence = SubagentConfigPersistence()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
+    private let appSettingsStore = AppSettingsStore.shared
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
     private var globalSnapshot: ScanSnapshot = .empty
@@ -58,12 +63,18 @@ final class AppViewModel: ObservableObject {
     private var autoRefreshCancellable: AnyCancellable?
     private var lastWatchFingerprint: String = ""
     private var isRefreshingModels = false
+    private var githubOverviewBoardRequestID = 0
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
     private var githubIssueDetailRequestID = 0
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
+    private var githubOverviewBoardCacheKey: String?
+    private var githubOverviewBoardFetchedAt: Date?
+    private var githubProjectBoardCacheKey: String?
+    private var githubProjectBoardFetchedAt: Date?
 
     init() {
+        appSettings = appSettingsStore.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         refresh(includeModels: true)
         lastWatchFingerprint = watchFingerprint()
@@ -315,7 +326,8 @@ final class AppViewModel: ObservableObject {
 
             await MainActor.run {
                 if self.gitHubSession != nil, self.githubConnectionState.isConnected {
-                    self.refreshProjectBoard()
+                    self.refreshOverviewBoard(force: true)
+                    self.refreshProjectBoard(force: true)
                 }
 
                 if self.selectedDiscoveredProject?.isGitRepository == true {
@@ -334,11 +346,17 @@ final class AppViewModel: ObservableObject {
 
         gitHubAuthService.disconnect()
         gitHubSession = nil
+        githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
         githubRepositoryChangesRequestID += 1
         githubIssueDetailRequestID += 1
         githubAggregateBoard = nil
+        githubOverviewBoard = nil
+        githubOverviewBoardCacheKey = nil
+        githubOverviewBoardFetchedAt = nil
         githubProjectBoard = nil
+        githubProjectBoardCacheKey = nil
+        githubProjectBoardFetchedAt = nil
         githubRepositoryChanges = nil
         githubSelectedChangePaths = []
         githubSelectedDiffFilePath = nil
@@ -348,6 +366,7 @@ final class AppViewModel: ObservableObject {
         githubIssueDetail = nil
         githubCommentDraft = ""
         githubIsLoadingAggregateBoard = false
+        githubIsLoadingOverviewBoard = false
         githubIsLoadingProjectBoard = false
         githubIsLoadingRepositoryChanges = false
         githubIsLoadingIssueDetail = false
@@ -390,11 +409,88 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func refreshProjectBoard() {
+    func refreshOverviewBoard(force: Bool = false) {
+        guard let session = gitHubSession else {
+            githubIsLoadingOverviewBoard = false
+            githubLastError = "Connect GitHub first."
+            githubOverviewBoard = nil
+            githubOverviewBoardCacheKey = nil
+            githubOverviewBoardFetchedAt = nil
+            return
+        }
+
+        guard let remote = selectedGitHubProject?.gitHubRemote else {
+            githubIsLoadingOverviewBoard = false
+            githubLastError = nil
+            githubOverviewBoard = nil
+            githubOverviewBoardCacheKey = nil
+            githubOverviewBoardFetchedAt = nil
+            return
+        }
+
+        let cacheKey = boardCacheKey(for: remote, state: .open)
+        if !force,
+           githubOverviewBoard != nil,
+           githubOverviewBoardCacheKey == cacheKey,
+           !isGitHubBoardCacheStale(fetchedAt: githubOverviewBoardFetchedAt) {
+            return
+        }
+
+        githubOverviewBoardRequestID += 1
+        let requestID = githubOverviewBoardRequestID
+        githubIsLoadingOverviewBoard = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
+                let snapshot = try await service.fetchRepositoryIssues(
+                    repo: remote,
+                    state: .open
+                )
+
+                await MainActor.run {
+                    guard self.githubOverviewBoardRequestID == requestID,
+                          self.selectedGitHubProject?.gitHubRemote == remote else { return }
+
+                    self.githubOverviewBoard = snapshot
+                    self.githubOverviewBoardCacheKey = cacheKey
+                    self.githubOverviewBoardFetchedAt = Date()
+                    self.githubIsLoadingOverviewBoard = false
+
+                    let visibleItemIDs = Set(snapshot.columns.flatMap(\.items).map(\.id))
+                    if let selectedID = self.githubSelectedWorkItem?.id,
+                       !visibleItemIDs.contains(selectedID) {
+                        self.githubIssueDetailRequestID += 1
+                        self.githubSelectedWorkItem = nil
+                        self.githubIssueDetail = nil
+                        self.githubCommentDraft = ""
+                        self.githubIsLoadingIssueDetail = false
+                        self.githubIsSubmittingComment = false
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.githubOverviewBoardRequestID == requestID,
+                          self.selectedGitHubProject?.gitHubRemote == remote else { return }
+
+                    self.githubOverviewBoard = nil
+                    self.githubOverviewBoardCacheKey = nil
+                    self.githubOverviewBoardFetchedAt = nil
+                    self.githubIsLoadingOverviewBoard = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func refreshProjectBoard(force: Bool = false) {
         guard let session = gitHubSession else {
             githubIsLoadingProjectBoard = false
             githubLastError = "Connect GitHub first."
             githubProjectBoard = nil
+            githubProjectBoardCacheKey = nil
+            githubProjectBoardFetchedAt = nil
             return
         }
 
@@ -402,10 +498,20 @@ final class AppViewModel: ObservableObject {
             githubIsLoadingProjectBoard = false
             githubLastError = nil
             githubProjectBoard = nil
+            githubProjectBoardCacheKey = nil
+            githubProjectBoardFetchedAt = nil
             return
         }
 
         let state = githubIssueStateFilter
+        let cacheKey = boardCacheKey(for: remote, state: state)
+        if !force,
+           githubProjectBoard != nil,
+           githubProjectBoardCacheKey == cacheKey,
+           !isGitHubBoardCacheStale(fetchedAt: githubProjectBoardFetchedAt) {
+            return
+        }
+
         githubProjectBoardRequestID += 1
         let requestID = githubProjectBoardRequestID
         githubIsLoadingProjectBoard = true
@@ -425,6 +531,8 @@ final class AppViewModel: ObservableObject {
                           self.githubIssueStateFilter == state else { return }
 
                     self.githubProjectBoard = snapshot
+                    self.githubProjectBoardCacheKey = cacheKey
+                    self.githubProjectBoardFetchedAt = Date()
                     self.githubIsLoadingProjectBoard = false
 
                     let visibleItemIDs = Set(snapshot.columns.flatMap(\.items).map(\.id))
@@ -445,6 +553,8 @@ final class AppViewModel: ObservableObject {
                           self.githubIssueStateFilter == state else { return }
 
                     self.githubProjectBoard = nil
+                    self.githubProjectBoardCacheKey = nil
+                    self.githubProjectBoardFetchedAt = nil
                     self.githubIsLoadingProjectBoard = false
                     self.githubLastError = error.localizedDescription
                 }
@@ -798,6 +908,8 @@ final class AppViewModel: ObservableObject {
 
                     self.githubCommentDraft = ""
                     self.githubIsSubmittingComment = false
+                    self.githubOverviewBoardFetchedAt = nil
+                    self.githubProjectBoardFetchedAt = nil
                     self.loadIssueDetail(for: item)
                 }
             } catch {
@@ -815,24 +927,37 @@ final class AppViewModel: ObservableObject {
     }
 
     private func refreshGitHubConnectionScopedState() {
+        githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
         githubIssueDetailRequestID += 1
         githubAggregateBoard = nil
+        githubOverviewBoard = nil
+        githubOverviewBoardCacheKey = nil
+        githubOverviewBoardFetchedAt = nil
         githubProjectBoard = nil
+        githubProjectBoardCacheKey = nil
+        githubProjectBoardFetchedAt = nil
         githubSelectedWorkItem = nil
         githubIssueDetail = nil
         githubCommentDraft = ""
         githubIsLoadingAggregateBoard = false
+        githubIsLoadingOverviewBoard = false
         githubIsLoadingProjectBoard = false
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
     }
 
     private func refreshGitHubProjectScopedState() {
+        githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
         githubRepositoryChangesRequestID += 1
         githubIssueDetailRequestID += 1
+        githubOverviewBoard = nil
+        githubOverviewBoardCacheKey = nil
+        githubOverviewBoardFetchedAt = nil
         githubProjectBoard = nil
+        githubProjectBoardCacheKey = nil
+        githubProjectBoardFetchedAt = nil
         githubRepositoryChanges = nil
         githubSelectedChangePaths = []
         githubSelectedDiffFilePath = nil
@@ -841,10 +966,49 @@ final class AppViewModel: ObservableObject {
         githubSelectedWorkItem = nil
         githubIssueDetail = nil
         githubCommentDraft = ""
+        githubIsLoadingOverviewBoard = false
         githubIsLoadingProjectBoard = false
         githubIsLoadingRepositoryChanges = false
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
+    }
+
+    private func boardCacheKey(for remote: GitHubRemote, state: GitHubIssueStateFilter) -> String {
+        "\(remote.host.lowercased())|\(remote.nameWithOwner.lowercased())|\(state.rawValue.lowercased())"
+    }
+
+    private func isGitHubBoardCacheStale(fetchedAt: Date?) -> Bool {
+        guard let fetchedAt else { return true }
+        return Date().timeIntervalSince(fetchedAt) >= gitHubBoardCacheLifetime
+    }
+
+    private var gitHubBoardCacheLifetime: TimeInterval {
+        TimeInterval(max(appSettings.gitHubBoardCacheLifetimeMinutes, 1) * 60)
+    }
+
+    var gitHubBoardCacheLifetimeMinutes: Int {
+        max(appSettings.gitHubBoardCacheLifetimeMinutes, 1)
+    }
+
+    func setGitHubBoardCacheLifetimeMinutes(_ minutes: Int) {
+        let normalizedMinutes = max(minutes, 1)
+        guard appSettings.gitHubBoardCacheLifetimeMinutes != normalizedMinutes else { return }
+        appSettings.gitHubBoardCacheLifetimeMinutes = normalizedMinutes
+        appSettingsStore.settings = appSettings
+    }
+
+    private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {
+        switch scope {
+        case .global:
+            let path = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".pi/agent/settings.json").path
+            return snapshot.settings.first(where: { $0.path == path })
+        case .project:
+            guard let selectedProjectPath else { return nil }
+            let path = URL(fileURLWithPath: selectedProjectPath)
+                .appendingPathComponent(".pi/settings.json").path
+            return snapshot.settings.first(where: { $0.path == path })
+        }
     }
 
     var currentGitHubAccount: GitHubHostAccount? {
@@ -1073,6 +1237,56 @@ final class AppViewModel: ObservableObject {
         refresh(includeModels: false)
     }
 
+    var userDisableBuiltins: Bool {
+        settingsSummary(for: .global)?.disableBuiltins ?? false
+    }
+
+    var projectDisableBuiltins: Bool {
+        settingsSummary(for: .project)?.disableBuiltins ?? false
+    }
+
+    func setDisableBuiltins(_ isDisabled: Bool, scope: AgentEditingTarget.OverrideScope) {
+        do {
+            try agentPersistence.setDisableBuiltins(isDisabled, scope: scope, projectRoot: selectedProjectPath)
+            refresh(includeModels: false)
+        } catch {
+            githubLastError = error.localizedDescription
+        }
+    }
+
+    func setBuiltinDisabled(_ isDisabled: Bool, for agent: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope) {
+        do {
+            try agentPersistence.setBuiltinDisabled(isDisabled, for: agent, scope: scope, projectRoot: selectedProjectPath)
+            refresh(includeModels: false)
+        } catch {
+            githubLastError = error.localizedDescription
+        }
+    }
+
+    func toggleBuiltinDisabledGlobally(_ agent: EffectiveAgentRecord) {
+        setBuiltinDisabled(!(agent.resolved.disabled ?? false), for: agent, scope: .global)
+    }
+
+    func builtinStateBadge(for agent: EffectiveAgentRecord) -> (text: String, color: Color)? {
+        guard agent.builtin != nil, agent.globalCustom == nil, agent.projectCustom == nil else { return nil }
+
+        let projectOverrideDisabled = agent.projectOverride?.values["disabled"] as? Bool
+        let userOverrideDisabled = agent.userOverride?.values["disabled"] as? Bool
+
+        if agent.resolved.disabled == true {
+            if projectOverrideDisabled == true || projectDisableBuiltins {
+                return ("Disabled by project", .orange)
+            }
+            if userOverrideDisabled == true || userDisableBuiltins {
+                return ("Disabled globally", .red)
+            }
+        } else if projectOverrideDisabled == false || userOverrideDisabled == false {
+            return ("Explicitly enabled override", .green)
+        }
+
+        return nil
+    }
+
     func warnings(for agent: EffectiveAgentRecord) -> [DiagnosticWarning] {
         snapshot.warnings.filter { warning in
             warning.message.contains("Agent \(agent.name) ") || warning.message.contains("Agent \(agent.name)")
@@ -1194,26 +1408,101 @@ final class AppViewModel: ObservableObject {
             guard process.terminationStatus == 0 else { return [] }
             let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
             guard let text = String(data: data, encoding: .utf8) else { return [] }
-            return parseAvailableModels(from: text)
+            let exactThinkingLevels = loadModelThinkingLevels()
+            return parseAvailableModels(from: text, exactThinkingLevels: exactThinkingLevels)
         } catch {
             return []
         }
     }
 
-    nonisolated private static func parseAvailableModels(from text: String) -> [AvailableModel] {
+    nonisolated private static func loadModelThinkingLevels() -> [String: [String]] {
+        let script = #"""
+import { getModel, supportsXhigh } from '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js';
+const lines = [];
+for await (const chunk of process.stdin) lines.push(chunk);
+const input = JSON.parse(lines.join(''));
+const result = {};
+for (const item of input) {
+  const model = getModel(item.provider, item.model);
+  if (!model || !model.reasoning) {
+    result[`${item.provider}/${item.model}`] = ['off'];
+    continue;
+  }
+  result[`${item.provider}/${item.model}`] = supportsXhigh(model)
+    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+    : ['off', 'minimal', 'low', 'medium', 'high'];
+}
+process.stdout.write(JSON.stringify(result));
+"""#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["node", "--input-type=module", "--eval", script]
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        let knownModels = availableModelIdentifiersFromPiList().map { ["provider": $0.provider, "model": $0.model] }
+
+        do {
+            try process.run()
+            let inputData = try JSONSerialization.data(withJSONObject: knownModels)
+            inputPipe.fileHandleForWriting.write(inputData)
+            try? inputPipe.fileHandleForWriting.close()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return [:] }
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: [String]] else { return [:] }
+            return object
+        } catch {
+            return [:]
+        }
+    }
+
+    nonisolated private static func availableModelIdentifiersFromPiList() -> [(provider: String, model: String)] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-lc",
+            "if command -v pi >/dev/null 2>&1; then pi --list-models; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --list-models; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --list-models; else exit 127; fi"
+        ]
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return [] }
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            guard let text = String(data: data, encoding: .utf8) else { return [] }
+            return text.split(whereSeparator: \.isNewline).dropFirst().compactMap { line in
+                let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
+                guard parts.count >= 2 else { return nil }
+                return (provider: parts[0], model: parts[1])
+            }
+        } catch {
+            return []
+        }
+    }
+
+    nonisolated private static func parseAvailableModels(from text: String, exactThinkingLevels: [String: [String]]) -> [AvailableModel] {
         text
             .split(whereSeparator: \.isNewline)
             .dropFirst()
             .compactMap { line in
                 let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
                 guard parts.count >= 6 else { return nil }
+                let identifier = "\(parts[0])/\(parts[1])"
+                let supportsThinking = parts[4].lowercased() == "yes"
                 return AvailableModel(
                     provider: parts[0],
                     model: parts[1],
                     contextWindow: parts[2],
                     maxOutput: parts[3],
-                    supportsThinking: parts[4].lowercased() == "yes",
-                    supportsImages: parts[5].lowercased() == "yes"
+                    supportsThinking: supportsThinking,
+                    supportsImages: parts[5].lowercased() == "yes",
+                    supportedThinkingLevels: exactThinkingLevels[identifier] ?? (supportsThinking ? ["off", "minimal", "low", "medium", "high"] : ["off"])
                 )
             }
     }
@@ -1330,6 +1619,36 @@ final class AppViewModel: ObservableObject {
     }
 }
 
+struct AppSettings: Codable, Hashable {
+    var gitHubBoardCacheLifetimeMinutes: Int = 15
+}
+
+@MainActor
+final class AppSettingsStore {
+    static let shared = AppSettingsStore()
+
+    private let defaults = UserDefaults.standard
+    private let defaultsKey = "piManagerAppSettings"
+
+    var settings: AppSettings {
+        didSet { persist() }
+    }
+
+    private init() {
+        if let data = defaults.data(forKey: defaultsKey),
+           let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            settings = decoded
+        } else {
+            settings = AppSettings()
+        }
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        defaults.set(data, forKey: defaultsKey)
+    }
+}
+
 enum SidebarItem: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case projects = "Projects"
@@ -1340,6 +1659,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case commandsAndPrompts = "Prompts"
     case subagents = "Subagents"
     case models = "Models"
+    case settings = "Settings"
     case environment = "Environment"
     case mcp = "MCP"
     case diagnostics = "Diagnostics"
@@ -1357,6 +1677,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .commandsAndPrompts: return "rectangle.and.pencil.and.ellipsis"
         case .subagents: return "slider.horizontal.3"
         case .models: return "cpu"
+        case .settings: return "gearshape"
         case .environment: return "key"
         case .mcp: return "cable.connector"
         case .diagnostics: return "stethoscope"
@@ -1376,9 +1697,9 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .workspace:
             return [.overview, .projects, .github]
         case .piResources:
-            return [.agents, .chains, .skills, .commandsAndPrompts, .subagents]
+            return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:
-            return [.models, .environment, .mcp, .diagnostics]
+            return [.models, .settings, .environment, .mcp, .diagnostics]
         }
     }
 }

@@ -187,6 +187,69 @@ struct AppKeyValueList: View {
     }
 }
 
+/// A design-system stepper for use inside AppCard contexts.
+/// Displays a label, value with unit, and styled +/− buttons.
+struct AppStepper: View {
+    let label: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let step: Int
+    let unit: String
+
+    init(_ label: String, value: Binding<Int>, in range: ClosedRange<Int>, step: Int = 1, unit: String = "") {
+        self.label = label
+        self._value = value
+        self.range = range
+        self.step = step
+        self.unit = unit
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 10) {
+                stepButton(icon: "minus", disabled: value <= range.lowerBound) {
+                    value = max(range.lowerBound, value - step)
+                }
+                .keyboardShortcut(.downArrow, modifiers: [])
+
+                Text("\(value)\(unit.isEmpty ? "" : " \(unit)")")
+                    .font(.body.weight(.semibold).monospacedDigit())
+                    .frame(minWidth: 64)
+
+                stepButton(icon: "plus", disabled: value >= range.upperBound) {
+                    value = min(range.upperBound, value + step)
+                }
+                .keyboardShortcut(.upArrow, modifiers: [])
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.subtleFill)
+        )
+    }
+
+    private func stepButton(icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(disabled ? Color.secondary.opacity(0.3) : .white)
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(disabled ? Color.secondary.opacity(0.15) : Color.accentColor)
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+}
+
 struct AppRowCard<Content: View>: View {
     @ViewBuilder let content: Content
 

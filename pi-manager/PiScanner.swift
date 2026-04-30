@@ -759,8 +759,6 @@ struct PiScanner {
                     resolved.disabled = true
                 }
             }
-            if resolved.disabled == true { return nil }
-
             let resolutionKind: ResolutionKind
             if projectRecord != nil {
                 resolutionKind = .projectReplacement

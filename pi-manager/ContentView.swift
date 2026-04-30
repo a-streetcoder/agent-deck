@@ -178,10 +178,6 @@ struct ContentView: View {
                     editingAgent = nil
                     agentDraft = viewModel.makeNewAgentDraft(scope: scope)
                 },
-                onDuplicateAgent: { agent, scope in
-                    editingAgent = nil
-                    agentDraft = viewModel.makeDuplicateAgentDraft(from: agent, scope: scope)
-                },
                 onEditAgent: { agent in
                     if agent.builtin != nil, agent.globalCustom == nil, agent.projectCustom == nil {
                         builtinOverrideTargetAgent = agent
@@ -215,6 +211,8 @@ struct ContentView: View {
             GitHubScreen(viewModel: viewModel)
         case .models:
             ModelsScreen(viewModel: viewModel)
+        case .settings:
+            SettingsScreen(viewModel: viewModel)
         case .subagents:
             SubagentsScreen(
                 viewModel: viewModel,
@@ -366,6 +364,8 @@ private struct SidebarProjectGitHubCard: View {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(AppTheme.subtleFill))
                         .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
                 }
                 .buttonStyle(.plain)
@@ -941,7 +941,7 @@ private struct OverviewScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        AppPage("Overview", subtitle: viewModel.snapshot.projectRoot ?? "Showing global resources and all enabled projects") {
+        AppPage("Overview", subtitle: viewModel.snapshot.projectRoot ?? "Showing global resources and the selected project’s GitHub work") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
                 AppMetricTile(title: "Builtin Agents", value: viewModel.snapshot.builtinAgents.count)
                 AppMetricTile(title: "Global Agents", value: viewModel.snapshot.globalAgents.count)
@@ -952,63 +952,22 @@ private struct OverviewScreen: View {
                 AppMetricTile(title: "Commands", value: viewModel.snapshot.commands.count)
                 AppMetricTile(title: "Prompt Templates", value: viewModel.snapshot.promptTemplates.count)
                 AppMetricTile(title: "Warnings", value: viewModel.snapshot.warnings.count)
-                AppMetricTile(title: "Enabled Project Warnings", value: viewModel.totalProjectWarnings)
+                AppMetricTile(title: "Open Issues", value: viewModel.githubOverviewBoard?.totalCount ?? 0)
             }
 
-            AppCard(title: "Enabled Projects", trailing: {
-                Text("\(viewModel.enabledProjects.count)")
-                    .foregroundStyle(AppTheme.mutedText)
-            }) {
-                if viewModel.enabledProjects.isEmpty {
-                    Text("No enabled projects yet.")
+            AppCard(title: "Open Issues", trailing: {
+                if let board = viewModel.githubOverviewBoard {
+                    Text("\(board.totalCount)")
                         .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(viewModel.enabledProjects) { project in
-                            AppRowCard {
-                                HStack(alignment: .top, spacing: 14) {
-                                    Group {
-                                        if project.isGitHubRepository {
-                                            Image("github")
-                                                .resizable()
-                                                .renderingMode(.template)
-                                                .foregroundStyle(.secondary)
-                                        } else {
-                                            Image(systemName: "folder")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .frame(width: 16, height: 16)
-                                    .padding(.top, 2)
-
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text(project.repositoryDisplayName)
-                                            .font(.headline)
-                                            .fontWidth(.expanded)
-                                        Text(project.path)
-                                            .font(.footnote.monospaced())
-                                            .foregroundStyle(AppTheme.mutedText)
-                                    }
-
-                                    Spacer()
-
-                                    VStack(alignment: .trailing, spacing: 6) {
-                                        let warningCount = viewModel.allProjectSnapshots[project.path]?.warnings.count ?? 0
-                                        if warningCount > 0 {
-                                            AppLabelTag(text: "\(warningCount) warnings", color: .orange)
-                                        }
-                                        if project.isGitHubRepository {
-                                            AppLabelTag(text: "GitHub", color: .secondary)
-                                        }
-                                        if viewModel.selectedProjectPath == project.path {
-                                            AppLabelTag(text: "Selected", color: .blue)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
+            }) {
+                GitHubIssuesWorkspace(
+                    viewModel: viewModel,
+                    board: viewModel.githubOverviewBoard,
+                    isLoading: viewModel.githubIsLoadingOverviewBoard,
+                    showStateFilter: false,
+                    refreshAction: { viewModel.refreshOverviewBoard(force: true) }
+                )
             }
 
             AppCard(title: "How pi-subagents Works") {
@@ -1056,7 +1015,78 @@ private struct OverviewScreen: View {
                 }
             }
         }
+        .task {
+            await Task.yield()
+            await viewModel.prepareGitHubScreen()
+        }
+        .task(id: overviewBoardRefreshKey) {
+            await Task.yield()
+            guard viewModel.githubConnectionState.isConnected,
+                  viewModel.selectedGitHubProject?.gitHubRemote != nil else { return }
+            viewModel.refreshOverviewBoard(force: false)
+        }
     }
+
+    private var overviewBoardRefreshKey: String {
+        [
+            viewModel.selectedGitHubProject?.path ?? "none",
+            viewModel.githubConnectionState.isConnected ? "connected" : "disconnected"
+        ].joined(separator: "|")
+    }
+}
+
+private struct SettingsScreen: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        AppPage("Settings", subtitle: "App-level preferences for Pi Manager") {
+            AppCard(title: "GitHub") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Tune how long GitHub issue data stays fresh before Pi Manager reloads it.")
+                        .foregroundStyle(AppTheme.mutedText)
+
+                    AppStepper("Issue cache lifetime",
+                               value: cacheLifetimeBinding,
+                               in: 1...240,
+                               unit: "minutes")
+
+                    Text("Applies to the issue lists on the Overview and GitHub pages. Use Refresh to bypass the cache at any time.")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
+            AppCard(title: "Subagents") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Disable all builtins globally", isOn: userDisableBuiltinsBinding)
+
+                    Text("Per-agent quick controls in the Agents screen also apply globally for now.")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
+            AppCard(title: "Future Settings") {
+                Text("This page is for app-wide settings so we have one clear place to grow preferences over time.")
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+    }
+
+    private var cacheLifetimeBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.gitHubBoardCacheLifetimeMinutes },
+            set: { viewModel.setGitHubBoardCacheLifetimeMinutes($0) }
+        )
+    }
+
+    private var userDisableBuiltinsBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.userDisableBuiltins },
+            set: { viewModel.setDisableBuiltins($0, scope: .global) }
+        )
+    }
+
 }
 
 private struct ModelsScreen: View {
@@ -1262,65 +1292,75 @@ private struct SubagentsScreen: View {
 private struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     let onCreateAgent: (AgentEditingTarget.CustomAgentScope) -> Void
-    let onDuplicateAgent: (EffectiveAgentRecord, AgentEditingTarget.CustomAgentScope) -> Void
     let onEditAgent: (EffectiveAgentRecord) -> Void
 
     var body: some View {
         HSplitView {
             AppSidebarPane(title: "Agents", subtitle: "\(viewModel.filteredAgents.count) visible") {
                 List(selection: $viewModel.selectedAgentID) {
-                    ForEach(viewModel.filteredAgents) { agent in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .top) {
-                                Text(agent.name)
-                                    .font(.headline)
-                                    .fontWidth(.expanded)
-                                    .lineLimit(2)
-                                Spacer(minLength: 8)
-                                AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
-                            }
+                        ForEach(viewModel.filteredAgents) { agent in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .top) {
+                                    Text(agent.name)
+                                        .font(.headline)
+                                        .fontWidth(.expanded)
+                                        .lineLimit(2)
+                                        .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
+                                    Spacer(minLength: 8)
+                                    AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
+                                }
 
-                            Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
-                                .foregroundStyle(AppTheme.mutedText)
-                                .lineLimit(2)
-
-                            HStack(spacing: 8) {
-                                if !agent.resolved.skills.isEmpty {
-                                    rowIndicator("sparkles", color: .green)
-                                }
-                                if agent.resolved.inheritSkills == true {
-                                    rowIndicator("square.stack.3d.up", color: .mint)
-                                }
-                                if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
-                                    rowIndicator("wrench.and.screwdriver", color: .blue)
-                                }
-                                if let extensions = agent.resolved.extensions, !extensions.isEmpty {
-                                    rowIndicator("puzzlepiece.extension", color: .orange)
-                                }
-                                if agent.resolved.output != nil {
-                                    rowIndicator("arrow.down.doc", color: .purple)
-                                }
-                                if agent.resolved.disabled == true {
-                                    rowIndicator("nosign", color: .red)
-                                }
-                                if !viewModel.warnings(for: agent).isEmpty {
-                                    rowIndicator("exclamationmark.triangle", color: .orange)
-                                }
-                            }
-
-                            if let projectRoot = agent.projectRoot,
-                               viewModel.selectedProjectPath == nil,
-                               (agent.projectCustom != nil || agent.projectOverride != nil) {
-                                Text(URL(fileURLWithPath: projectRoot).lastPathComponent)
-                                    .font(.caption)
+                                Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
                                     .foregroundStyle(AppTheme.mutedText)
+                                    .lineLimit(2)
+
+                                HStack(spacing: 8) {
+                                    if !agent.resolved.skills.isEmpty {
+                                        rowIndicator("sparkles", color: .green)
+                                    }
+                                    if agent.resolved.inheritSkills == true {
+                                        rowIndicator("square.stack.3d.up", color: .mint)
+                                    }
+                                    if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
+                                        rowIndicator("wrench.and.screwdriver", color: .blue)
+                                    }
+                                    if let extensions = agent.resolved.extensions, !extensions.isEmpty {
+                                        rowIndicator("puzzlepiece.extension", color: .orange)
+                                    }
+                                    if agent.resolved.output != nil {
+                                        rowIndicator("arrow.down.doc", color: .purple)
+                                    }
+                                    if agent.resolved.disabled == true {
+                                        rowIndicator("nosign", color: .red)
+                                    }
+                                    if !viewModel.warnings(for: agent).isEmpty {
+                                        rowIndicator("exclamationmark.triangle", color: .orange)
+                                    }
+                                }
+
+                                HStack(alignment: .center, spacing: 8) {
+                                    if let projectRoot = agent.projectRoot,
+                                       viewModel.selectedProjectPath == nil,
+                                       (agent.projectCustom != nil || agent.projectOverride != nil) {
+                                        Text(URL(fileURLWithPath: projectRoot).lastPathComponent)
+                                            .font(.caption)
+                                            .foregroundStyle(AppTheme.mutedText)
+                                    }
+
+                                    if let stateBadge = viewModel.builtinStateBadge(for: agent) {
+                                        Text(stateBadge.text)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(stateBadge.color)
+                                    }
+                                }
                             }
+                            .padding(.vertical, 6)
+                            .opacity(agent.resolved.disabled == true ? 0.68 : 1)
+                            .saturation(agent.resolved.disabled == true ? 0 : 1)
+                            .tag(agent.id)
                         }
-                        .padding(.vertical, 6)
-                        .tag(agent.id)
                     }
-                }
-                .listStyle(.inset)
+                    .listStyle(.inset)
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -1331,17 +1371,6 @@ private struct AgentsScreen: View {
                         if viewModel.selectedProjectPath != nil {
                             Button("New Project Agent") {
                                 onCreateAgent(.project)
-                            }
-                        }
-                        if let selectedAgent = viewModel.selectedAgent {
-                            Divider()
-                            Button("Duplicate as Global Agent") {
-                                onDuplicateAgent(selectedAgent, .global)
-                            }
-                            if viewModel.selectedProjectPath != nil {
-                                Button("Duplicate as Project Agent") {
-                                    onDuplicateAgent(selectedAgent, .project)
-                                }
                             }
                         }
                     } label: {
@@ -1363,6 +1392,20 @@ private struct AgentsScreen: View {
                     } label: {
                         Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
                     }
+
+                    Menu {
+                        Button {
+                            viewModel.setDisableBuiltins(!viewModel.userDisableBuiltins, scope: .global)
+                        } label: {
+                            if viewModel.userDisableBuiltins {
+                                Label("Disable All Builtins Globally", systemImage: "checkmark")
+                            } else {
+                                Text("Disable All Builtins Globally")
+                            }
+                        }
+                    } label: {
+                        Label("Builtins", systemImage: "nosign")
+                    }
                 }
             }
             .frame(minWidth: 340, idealWidth: 400, maxWidth: 500)
@@ -1370,10 +1413,11 @@ private struct AgentsScreen: View {
             if let agent = viewModel.selectedAgent {
                 AgentDetailView(
                     agent: agent,
-                    canCreateProjectCopy: viewModel.selectedProjectPath != nil,
-                    onDuplicateAsGlobal: { onDuplicateAgent(agent, .global) },
-                    onDuplicateAsProject: { onDuplicateAgent(agent, .project) },
-                    onEdit: { onEditAgent(agent) }
+                    stateBadge: viewModel.builtinStateBadge(for: agent),
+                    onEdit: { onEditAgent(agent) },
+                    onSetBuiltinDisabled: { scope, isDisabled in
+                        viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
+                    }
                 )
             } else {
                 ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
@@ -1403,10 +1447,9 @@ private struct AgentDetailView: View {
     }
 
     let agent: EffectiveAgentRecord
-    let canCreateProjectCopy: Bool
-    let onDuplicateAsGlobal: () -> Void
-    let onDuplicateAsProject: () -> Void
+    let stateBadge: (text: String, color: Color)?
     let onEdit: () -> Void
+    let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     @State private var selectedTab: DetailTab = .summary
 
     var body: some View {
@@ -1416,13 +1459,10 @@ private struct AgentDetailView: View {
                     Menu("Actions") {
                         Button("Open Raw File") { openFile(primarySourcePath) }
                         Button("Reveal in Finder") { revealInFinder(primarySourcePath) }
-                        Divider()
-                        Button(agent.builtin != nil ? "Create Global Copy from Builtin" : "Duplicate as Global Agent") {
-                            onDuplicateAsGlobal()
-                        }
-                        if canCreateProjectCopy {
-                            Button(agent.builtin != nil ? "Create Project Copy from Builtin" : "Duplicate as Project Agent") {
-                                onDuplicateAsProject()
+                        if isPlainBuiltin {
+                            Divider()
+                            Button(agent.resolved.disabled == true ? "Enable Globally" : "Disable Globally") {
+                                onSetBuiltinDisabled(.global, !(agent.resolved.disabled ?? false))
                             }
                         }
                     }
@@ -1436,6 +1476,9 @@ private struct AgentDetailView: View {
                         Text(URL(fileURLWithPath: projectRoot).lastPathComponent)
                             .font(.headline)
                             .fontWidth(.expanded)
+                    }
+                    if let badge = stateBadge {
+                        AppLabelTag(text: badge.text, color: badge.color)
                     }
                     Text(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "This builtin is currently customized through a settings override, matching /agents in pi-subagents." : "Builtins are not edited directly. Creating an override writes to Pi settings, matching /agents in pi-subagents.") : "Custom agents are edited as markdown files in the Pi discovery paths.")
                         .foregroundStyle(AppTheme.mutedText)
@@ -1757,6 +1800,10 @@ private struct AgentDetailView: View {
 
     private var hasOverride: Bool {
         agent.userOverride != nil || agent.projectOverride != nil
+    }
+
+    private var isPlainBuiltin: Bool {
+        agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil
     }
 
     private var primarySourcePath: String? {
@@ -2954,8 +3001,14 @@ private struct AgentEditorSheet: View {
                             TextField("Model", text: binding(for: \ .model))
                                 .help("Set the primary model used by this subagent. Values come from `pi --list-models`, and the saved frontmatter should usually use `provider/model`.")
                             Menu("Choose Model") {
+                                Button("Use Pi Default Model") {
+                                    draft.config.model = nil
+                                    clampThinkingForSelectedModel()
+                                }
+                                Divider()
                                 modelPickerMenu { model in
                                     draft.config.model = model.identifier
+                                    clampThinkingForSelectedModel()
                                 }
                             }
                             TextField("Fallback Models", text: arrayBinding(for: \ .fallbackModels))
@@ -2966,8 +3019,13 @@ private struct AgentEditorSheet: View {
                                 }
                             }
                             selectedListView(title: "Selected Fallback Models", values: draft.config.fallbackModels, remove: removeFallbackModel)
-                            TextField("Thinking", text: binding(for: \ .thinking))
-                                .help("Reasoning effort hint passed to Pi, typically off/minimal/low/medium/high/xhigh depending on provider support.")
+                            Picker("Thinking", selection: thinkingSelectionBinding) {
+                                ForEach(availableThinkingLevelsForDraft, id: \.self) { level in
+                                    Text(level).tag(level)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .help("Thinking options are derived from Pi’s installed model metadata for the selected model. If no model is selected, Pi’s generic thinking levels are shown.")
                             TextField("Prompt Mode", text: binding(for: \ .systemPromptMode))
                                 .help("`replace` makes a focused specialist. `append` keeps more of Pi’s normal behavior and adds your instructions on top.")
                             Toggle("Inherit Project Context", isOn: defaultedOptionalBoolBinding(for: \ .inheritProjectContext) { draft.config.name == "delegate" })
@@ -3127,6 +3185,28 @@ private struct AgentEditorSheet: View {
         return "\(model.model) · \(thinking) · \(images) · ctx \(model.contextWindow) · out \(model.maxOutput)"
     }
 
+    private var selectedAvailableModel: AvailableModel? {
+        guard let identifier = draft.config.model else { return nil }
+        return availableModels.first(where: { $0.identifier == identifier })
+    }
+
+    private var availableThinkingLevelsForDraft: [String] {
+        if let model = selectedAvailableModel {
+            return model.supportedThinkingLevels
+        }
+        return ["off", "minimal", "low", "medium", "high", "xhigh"]
+    }
+
+    private var thinkingSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let current = draft.config.thinking ?? "off"
+                return availableThinkingLevelsForDraft.contains(current) ? current : (availableThinkingLevelsForDraft.first ?? "off")
+            },
+            set: { draft.config.thinking = $0 == "off" ? nil : $0 }
+        )
+    }
+
     private func normalizedDraft() -> AgentEditorDraft {
         var copy = draft
         copy.config.fallbackModels = normalizedList(copy.config.fallbackModels) ?? []
@@ -3196,6 +3276,13 @@ private struct AgentEditorSheet: View {
         }
         draft.config.tools = tools.isEmpty ? nil : tools
         draft.config.mcpDirectTools = mcpTools.isEmpty ? nil : mcpTools
+    }
+
+    private func clampThinkingForSelectedModel() {
+        let available = availableThinkingLevelsForDraft
+        let current = draft.config.thinking ?? "off"
+        if available.contains(current) { return }
+        draft.config.thinking = (available.first ?? "off") == "off" ? nil : (available.first ?? "off")
     }
 
     private func addFallbackModel(_ model: String) {

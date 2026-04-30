@@ -140,6 +140,56 @@ struct AgentPersistence {
         buildBuiltinOverride(base: base, edited: edited)
     }
 
+    func setDisableBuiltins(_ isDisabled: Bool?, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
+        let path = settingsPath(for: scope, projectRoot: projectRoot)
+        var root = try loadJSONObject(at: path)
+        var subagents = root["subagents"] as? [String: Any] ?? [:]
+
+        if let isDisabled {
+            subagents["disableBuiltins"] = isDisabled
+        } else {
+            subagents.removeValue(forKey: "disableBuiltins")
+        }
+
+        if subagents.isEmpty {
+            root.removeValue(forKey: "subagents")
+        } else {
+            root["subagents"] = subagents
+        }
+
+        try writeJSON(root, to: path)
+    }
+
+    func setBuiltinDisabled(_ isDisabled: Bool, for agent: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
+        let path = settingsPath(for: scope, projectRoot: projectRoot)
+        var root = try loadJSONObject(at: path)
+        var subagents = root["subagents"] as? [String: Any] ?? [:]
+        var agentOverrides = subagents["agentOverrides"] as? [String: Any] ?? [:]
+        var overrideValues = agentOverrides[agent.name] as? [String: Any] ?? [:]
+
+        overrideValues["disabled"] = isDisabled
+
+        if overrideValues.isEmpty {
+            agentOverrides.removeValue(forKey: agent.name)
+        } else {
+            agentOverrides[agent.name] = overrideValues
+        }
+
+        if agentOverrides.isEmpty {
+            subagents.removeValue(forKey: "agentOverrides")
+        } else {
+            subagents["agentOverrides"] = agentOverrides
+        }
+
+        if subagents.isEmpty {
+            root.removeValue(forKey: "subagents")
+        } else {
+            root["subagents"] = subagents
+        }
+
+        try writeJSON(root, to: path)
+    }
+
     private func serializeAgent(_ config: AgentConfig) -> String {
         var lines: [String] = ["---"]
         lines.append("name: \(config.name)")

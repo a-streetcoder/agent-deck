@@ -291,6 +291,7 @@ struct AvailableModel: Identifiable, Hashable {
     let maxOutput: String
     let supportsThinking: Bool
     let supportsImages: Bool
+    let supportedThinkingLevels: [String]
 
     var id: String { identifier }
     var identifier: String { "\(provider)/\(model)" }
