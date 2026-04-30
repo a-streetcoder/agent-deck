@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -9,12 +10,38 @@ final class AppViewModel: ObservableObject {
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
     @Published var selectedChainID: ChainRecord.ID?
     @Published var selectedSkillID: SkillRecord.ID?
+    @Published var selectedCommandItemID: String?
     @Published var selectedAgentFilter: AgentFilter = .all
     @Published var discoveredProjects: [DiscoveredProject] = []
+    @Published var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
     @Published var selectedProjectPath: String?
     @Published var allProjectSnapshots: [String: ScanSnapshot] = [:]
     @Published var availableModels: [AvailableModel] = []
     @Published var modelsLastUpdatedAt: Date?
+    @Published var githubConnectionState: GitHubConnectionState = .checking
+    @Published var githubSelectedSection: GitHubSection = .projectBoard
+    @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
+    @Published var githubAggregateBoard: GitHubBoardSnapshot?
+    @Published var githubProjectBoard: GitHubBoardSnapshot?
+    @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
+    @Published var githubSelectedChangePaths: Set<String> = []
+    @Published var githubSelectedDiffFilePath: String?
+    @Published var githubSelectedDiffKind: GitDiffKind?
+    @Published var githubSelectedDiffText: String?
+    @Published var githubCommitMessage = ""
+    @Published var githubSelectedWorkItem: GitHubWorkItem?
+    @Published var githubIssueDetail: GitHubIssueDetail?
+    @Published var githubCommentDraft = ""
+    @Published var githubIsLoadingAggregateBoard = false
+    @Published var githubIsLoadingProjectBoard = false
+    @Published var githubIsLoadingRepositoryChanges = false
+    @Published var githubIsLoadingIssueDetail = false
+    @Published var githubIsSubmittingComment = false
+    @Published var githubIsCommitting = false
+    @Published var githubIsPushing = false
+    @Published var githubIsRefreshingEverything = false
+    @Published var githubLastError: String?
+    @Published var githubLastStatusCheckAt: Date?
 
     private let scanner = PiScanner()
     private let projectDiscovery = ProjectDiscovery()
@@ -22,31 +49,51 @@ final class AppViewModel: ObservableObject {
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
     private let subagentConfigPersistence = SubagentConfigPersistence()
+    private let projectPreferencesStore = ProjectPreferencesStore.shared
+    private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
+    private let gitRepositoryService = GitRepositoryService()
     private var globalSnapshot: ScanSnapshot = .empty
+    private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
     private var lastWatchFingerprint: String = ""
     private var isRefreshingModels = false
+    private var githubProjectBoardRequestID = 0
+    private var githubRepositoryChangesRequestID = 0
+    private var githubIssueDetailRequestID = 0
 
     init() {
         refresh(includeModels: true)
         lastWatchFingerprint = watchFingerprint()
         startAutoRefresh()
+
+        Task {
+            await refreshGitHubStatus()
+            if case .available = githubConnectionState {
+                await connectGitHubUsingCLIIfNeeded()
+            }
+        }
     }
 
     func refresh(includeModels: Bool = false) {
         let previousAgentID = selectedAgentID
         let previousChainID = selectedChainID
         let previousSkillID = selectedSkillID
+        let previousCommandItemID = selectedCommandItemID
 
-        discoveredProjects = projectDiscovery.discoverProjects()
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        discoveredProjects = projectDiscovery.discoverProjects(
+            additionalProjectPaths: Array(projectPreferencesByPath.keys),
+            preferencesByPath: projectPreferencesByPath
+        )
+        let enabledProjects = discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
         globalSnapshot = scanner.scan(projectRoot: nil)
-        allProjectSnapshots = Dictionary(uniqueKeysWithValues: discoveredProjects.map { project in
+        allProjectSnapshots = Dictionary(uniqueKeysWithValues: enabledProjects.map { project in
             (project.path, scanner.scan(projectRoot: project.url))
         })
 
         if let selectedProjectPath,
-           let matchingProject = discoveredProjects.first(where: { $0.path == selectedProjectPath }) {
+           let matchingProject = discoveredProjects.first(where: { $0.path == selectedProjectPath && projectPreference(for: $0.path).isEnabled }) {
             projectRootURL = matchingProject.url
             snapshot = allProjectSnapshots[selectedProjectPath] ?? scanner.scan(projectRoot: matchingProject.url)
         } else {
@@ -58,6 +105,8 @@ final class AppViewModel: ObservableObject {
         selectedAgentID = filteredAgents.contains(where: { $0.id == previousAgentID }) ? previousAgentID : filteredAgents.first?.id
         selectedChainID = snapshot.chains.contains(where: { $0.id == previousChainID }) ? previousChainID : snapshot.chains.first?.id
         selectedSkillID = snapshot.skills.contains(where: { $0.id == previousSkillID }) ? previousSkillID : snapshot.skills.first?.id
+        let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + snapshot.promptTemplates.map(\.id))
+        selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? snapshot.promptTemplates.first?.id)
         lastWatchFingerprint = watchFingerprint()
 
         if includeModels {
@@ -70,23 +119,725 @@ final class AppViewModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Select Project"
-        panel.message = "Choose a repo or project root to inspect local Pi resources."
+        panel.prompt = "Add Project"
+        panel.message = "Choose a repo or project root to add to Pi Manager."
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        setSelectedProject(url)
+        addProject(url)
+    }
+
+    func addProject(_ url: URL, selectingAfterAdd: Bool = false) {
+        let standardizedURL = url.standardizedFileURL
+        projectPreferencesStore.addProjectPath(standardizedURL.path)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+
+        if selectingAfterAdd {
+            projectRootURL = standardizedURL
+            selectedProjectPath = standardizedURL.path
+        }
+
+        refresh(includeModels: false)
+        if selectingAfterAdd {
+            refreshGitHubProjectScopedState()
+        }
     }
 
     func setSelectedProject(_ url: URL?) {
-        projectRootURL = url
-        selectedProjectPath = url?.path
+        guard let url else {
+            clearProjectRoot()
+            return
+        }
+
+        let standardizedURL = url.standardizedFileURL
+        projectPreferencesStore.addProjectPath(standardizedURL.path)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        projectRootURL = standardizedURL
+        selectedProjectPath = standardizedURL.path
         refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
     }
 
     func clearProjectRoot() {
         projectRootURL = nil
         selectedProjectPath = nil
         refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
+    }
+
+    func projectPreference(for path: String) -> ProjectPreference {
+        projectPreferencesStore.preference(for: path)
+    }
+
+    func setProjectEnabled(_ isEnabled: Bool, for project: DiscoveredProject) {
+        projectPreferencesStore.setEnabled(isEnabled, for: project.path)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+
+        if !isEnabled, selectedProjectPath == project.path {
+            projectRootURL = nil
+            selectedProjectPath = nil
+        }
+
+        refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
+    }
+
+    func toggleProjectFavorite(_ project: DiscoveredProject) {
+        projectPreferencesStore.toggleFavorite(for: project.path)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        refresh(includeModels: false)
+    }
+
+    func chooseCustomIcon(for project: DiscoveredProject) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Choose Icon"
+        panel.message = "Choose an image to use as this project's custom icon."
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try projectPreferencesStore.setCustomIcon(from: url, for: project.path)
+            projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+            refresh(includeModels: false)
+        } catch {
+            githubLastError = error.localizedDescription
+        }
+    }
+
+    func clearCustomIcon(for project: DiscoveredProject) {
+        projectPreferencesStore.clearCustomIcon(for: project.path)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        refresh(includeModels: false)
+    }
+
+    func refreshGitHubStatus() async {
+        githubConnectionState = .checking
+        githubLastError = nil
+
+        let state = await gitHubAuthService.loadStatus()
+        switch state {
+        case let .available(account):
+            if gitHubSession?.account == account {
+                githubConnectionState = .connected(account)
+            } else {
+                gitHubSession = nil
+                githubConnectionState = .available(account)
+            }
+        case let .connected(account):
+            githubConnectionState = .connected(account)
+        default:
+            gitHubSession = nil
+            githubConnectionState = state
+        }
+
+        githubLastStatusCheckAt = Date()
+    }
+
+    func connectGitHubUsingCLI() {
+        Task {
+            await connectGitHubUsingCLIIfNeeded(forceReconnect: true)
+        }
+    }
+
+    func connectGitHubUsingCLIIfNeeded(forceReconnect: Bool = false) async {
+        if !forceReconnect, gitHubSession != nil, githubConnectionState.isConnected {
+            return
+        }
+
+        githubConnectionState = .checking
+        githubLastError = nil
+
+        do {
+            let session = try await gitHubAuthService.connectUsingCLI()
+            gitHubSession = session
+            githubConnectionState = .connected(session.account)
+            githubLastStatusCheckAt = Date()
+            refreshGitHubConnectionScopedState()
+        } catch {
+            gitHubSession = nil
+            githubConnectionState = .failed(message: error.localizedDescription)
+            githubLastError = error.localizedDescription
+            githubLastStatusCheckAt = Date()
+        }
+    }
+
+    func prepareGitHubScreen() async {
+        if githubConnectionState.isConnected, gitHubSession != nil {
+            return
+        }
+
+        await refreshGitHubStatus()
+        if case .available = githubConnectionState {
+            await connectGitHubUsingCLIIfNeeded()
+        }
+    }
+
+    func refreshEverything() {
+        guard !githubIsRefreshingEverything else { return }
+
+        githubIsRefreshingEverything = true
+        githubLastError = nil
+
+        Task {
+            defer {
+                Task { @MainActor in
+                    self.githubIsRefreshingEverything = false
+                }
+            }
+
+            await MainActor.run {
+                self.refresh(includeModels: true)
+            }
+
+            await self.refreshGitHubStatus()
+
+            if case .available = self.githubConnectionState {
+                await self.connectGitHubUsingCLIIfNeeded()
+            }
+
+            await MainActor.run {
+                if self.gitHubSession != nil, self.githubConnectionState.isConnected {
+                    self.refreshProjectBoard()
+                }
+
+                if self.selectedDiscoveredProject?.isGitRepository == true {
+                    self.refreshRepositoryChanges(preservingDiffSelection: true)
+                }
+
+                if let selectedItem = self.githubSelectedWorkItem, self.gitHubSession != nil {
+                    self.loadIssueDetail(for: selectedItem)
+                }
+            }
+        }
+    }
+
+    func disconnectGitHub() {
+        let availableAccount = githubConnectionState.account ?? gitHubSession?.account
+
+        gitHubAuthService.disconnect()
+        gitHubSession = nil
+        githubProjectBoardRequestID += 1
+        githubRepositoryChangesRequestID += 1
+        githubIssueDetailRequestID += 1
+        githubAggregateBoard = nil
+        githubProjectBoard = nil
+        githubRepositoryChanges = nil
+        githubSelectedChangePaths = []
+        githubSelectedDiffFilePath = nil
+        githubSelectedDiffKind = nil
+        githubSelectedDiffText = nil
+        githubSelectedWorkItem = nil
+        githubIssueDetail = nil
+        githubCommentDraft = ""
+        githubIsLoadingAggregateBoard = false
+        githubIsLoadingProjectBoard = false
+        githubIsLoadingRepositoryChanges = false
+        githubIsLoadingIssueDetail = false
+        githubIsSubmittingComment = false
+        githubLastError = nil
+        githubConnectionState = availableAccount.map(GitHubConnectionState.available) ?? .disconnected
+        githubLastStatusCheckAt = Date()
+    }
+
+    func refreshAggregateBoard() {
+        guard let session = gitHubSession else {
+            githubLastError = "Connect GitHub first."
+            githubAggregateBoard = nil
+            return
+        }
+
+        let repos = gitHubProjects.compactMap(\.gitHubRemote)
+        githubIsLoadingAggregateBoard = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
+                let snapshot = try await service.fetchAggregateIssues(
+                    repos: repos,
+                    state: self.githubIssueStateFilter
+                )
+
+                await MainActor.run {
+                    self.githubAggregateBoard = snapshot
+                    self.githubIsLoadingAggregateBoard = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubAggregateBoard = nil
+                    self.githubIsLoadingAggregateBoard = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func refreshProjectBoard() {
+        guard let session = gitHubSession else {
+            githubIsLoadingProjectBoard = false
+            githubLastError = "Connect GitHub first."
+            githubProjectBoard = nil
+            return
+        }
+
+        guard let remote = selectedGitHubProject?.gitHubRemote else {
+            githubIsLoadingProjectBoard = false
+            githubLastError = nil
+            githubProjectBoard = nil
+            return
+        }
+
+        let state = githubIssueStateFilter
+        githubProjectBoardRequestID += 1
+        let requestID = githubProjectBoardRequestID
+        githubIsLoadingProjectBoard = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
+                let snapshot = try await service.fetchRepositoryIssues(
+                    repo: remote,
+                    state: state
+                )
+
+                await MainActor.run {
+                    guard self.githubProjectBoardRequestID == requestID,
+                          self.selectedGitHubProject?.gitHubRemote == remote,
+                          self.githubIssueStateFilter == state else { return }
+
+                    self.githubProjectBoard = snapshot
+                    self.githubIsLoadingProjectBoard = false
+
+                    let visibleItemIDs = Set(snapshot.columns.flatMap(\.items).map(\.id))
+                    if let selectedID = self.githubSelectedWorkItem?.id,
+                       !visibleItemIDs.contains(selectedID) {
+                        self.githubIssueDetailRequestID += 1
+                        self.githubSelectedWorkItem = nil
+                        self.githubIssueDetail = nil
+                        self.githubCommentDraft = ""
+                        self.githubIsLoadingIssueDetail = false
+                        self.githubIsSubmittingComment = false
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.githubProjectBoardRequestID == requestID,
+                          self.selectedGitHubProject?.gitHubRemote == remote,
+                          self.githubIssueStateFilter == state else { return }
+
+                    self.githubProjectBoard = nil
+                    self.githubIsLoadingProjectBoard = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func refreshRepositoryChanges(preservingDiffSelection: Bool = false) {
+        guard let project = selectedDiscoveredProject, project.isGitRepository else {
+            githubRepositoryChangesRequestID += 1
+            githubRepositoryChanges = nil
+            githubSelectedChangePaths = []
+            githubSelectedDiffFilePath = nil
+            githubSelectedDiffKind = nil
+            githubSelectedDiffText = nil
+            githubIsLoadingRepositoryChanges = false
+            githubLastError = nil
+            return
+        }
+
+        let projectPath = project.path
+        githubRepositoryChangesRequestID += 1
+        let requestID = githubRepositoryChangesRequestID
+        githubIsLoadingRepositoryChanges = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let snapshot = try await self.gitRepositoryService.loadChanges(in: project.url)
+                await MainActor.run {
+                    guard self.githubRepositoryChangesRequestID == requestID,
+                          self.selectedDiscoveredProject?.path == projectPath else { return }
+
+                    self.githubRepositoryChanges = snapshot
+                    let validPaths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
+                    self.githubSelectedChangePaths = self.githubSelectedChangePaths.intersection(validPaths)
+                    if !preservingDiffSelection {
+                        self.githubSelectedDiffFilePath = nil
+                        self.githubSelectedDiffKind = nil
+                        self.githubSelectedDiffText = nil
+                    }
+                    self.githubIsLoadingRepositoryChanges = false
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.githubRepositoryChangesRequestID == requestID,
+                          self.selectedDiscoveredProject?.path == projectPath else { return }
+
+                    self.githubRepositoryChanges = nil
+                    self.githubIsLoadingRepositoryChanges = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func loadDiff(for filePath: String, kind: GitDiffKind) {
+        guard let project = selectedDiscoveredProject else { return }
+        githubSelectedDiffFilePath = filePath
+        githubSelectedDiffKind = kind
+        githubSelectedDiffText = nil
+        githubLastError = nil
+
+        Task {
+            do {
+                let diff = try await self.gitRepositoryService.loadDiff(for: filePath, kind: kind, in: project.url)
+                await MainActor.run {
+                    self.githubSelectedDiffText = diff.isEmpty ? "No \(kind.rawValue.lowercased()) diff for this file." : diff
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubSelectedDiffText = nil
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func stage(_ filePath: String) {
+        guard let project = selectedDiscoveredProject else { return }
+        githubLastError = nil
+
+        Task {
+            do {
+                try await self.gitRepositoryService.stage(filePath, in: project.url)
+                await MainActor.run {
+                    self.refreshRepositoryChanges(preservingDiffSelection: true)
+                    self.loadDiff(for: filePath, kind: .staged)
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func unstage(_ filePath: String) {
+        guard let project = selectedDiscoveredProject else { return }
+        githubLastError = nil
+
+        Task {
+            do {
+                try await self.gitRepositoryService.unstage(filePath, in: project.url)
+                await MainActor.run {
+                    self.refreshRepositoryChanges(preservingDiffSelection: true)
+                    self.loadDiff(for: filePath, kind: .unstaged)
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func toggleChangeSelection(_ filePath: String) {
+        if githubSelectedChangePaths.contains(filePath) {
+            githubSelectedChangePaths.remove(filePath)
+        } else {
+            githubSelectedChangePaths.insert(filePath)
+        }
+    }
+
+    func selectAllVisibleChanges() {
+        guard let snapshot = githubRepositoryChanges else { return }
+        githubSelectedChangePaths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
+    }
+
+    func clearSelectedChanges() {
+        githubSelectedChangePaths.removeAll()
+    }
+
+    func stageSelectedChanges() {
+        guard let project = selectedDiscoveredProject else { return }
+        let paths = Array(githubSelectedChangePaths)
+        guard !paths.isEmpty else { return }
+        githubLastError = nil
+
+        Task {
+            do {
+                for path in paths {
+                    try await self.gitRepositoryService.stage(path, in: project.url)
+                }
+                await MainActor.run { self.refreshRepositoryChanges() }
+            } catch {
+                await MainActor.run { self.githubLastError = error.localizedDescription }
+            }
+        }
+    }
+
+    func unstageSelectedChanges() {
+        guard let project = selectedDiscoveredProject else { return }
+        let paths = Array(githubSelectedChangePaths)
+        guard !paths.isEmpty else { return }
+        githubLastError = nil
+
+        Task {
+            do {
+                for path in paths {
+                    try await self.gitRepositoryService.unstage(path, in: project.url)
+                }
+                await MainActor.run { self.refreshRepositoryChanges() }
+            } catch {
+                await MainActor.run { self.githubLastError = error.localizedDescription }
+            }
+        }
+    }
+
+    func stageAllChanges() {
+        guard let project = selectedDiscoveredProject else { return }
+        githubLastError = nil
+
+        Task {
+            do {
+                try await self.gitRepositoryService.stageAll(in: project.url)
+                await MainActor.run { self.refreshRepositoryChanges() }
+            } catch {
+                await MainActor.run { self.githubLastError = error.localizedDescription }
+            }
+        }
+    }
+
+    func unstageAllChanges() {
+        guard let project = selectedDiscoveredProject else { return }
+        githubLastError = nil
+
+        Task {
+            do {
+                try await self.gitRepositoryService.unstageAll(in: project.url)
+                await MainActor.run { self.refreshRepositoryChanges() }
+            } catch {
+                await MainActor.run { self.githubLastError = error.localizedDescription }
+            }
+        }
+    }
+
+    func commitChanges() {
+        guard let project = selectedDiscoveredProject else { return }
+        let message = githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else {
+            githubLastError = "Enter a commit message first."
+            return
+        }
+
+        githubIsCommitting = true
+        githubLastError = nil
+
+        Task {
+            do {
+                try await self.gitRepositoryService.commit(message: message, in: project.url)
+                await MainActor.run {
+                    self.githubCommitMessage = ""
+                    self.githubIsCommitting = false
+                    self.refreshRepositoryChanges()
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubIsCommitting = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func pushCurrentBranch() {
+        guard let project = selectedDiscoveredProject else { return }
+        githubIsPushing = true
+        githubLastError = nil
+
+        Task {
+            do {
+                try await self.gitRepositoryService.pushCurrentBranch(in: project.url)
+                await MainActor.run {
+                    self.githubIsPushing = false
+                    self.refreshRepositoryChanges()
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubIsPushing = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func selectWorkItem(_ item: GitHubWorkItem) {
+        githubSelectedWorkItem = item
+        githubIssueDetail = nil
+        githubCommentDraft = ""
+        loadIssueDetail(for: item)
+    }
+
+    func selectIssueReference(_ reference: GitHubIssueReference) {
+        if let matchingProject = discoveredProjects.first(where: {
+            $0.gitHubRemote?.nameWithOwner.caseInsensitiveCompare(reference.repository) == .orderedSame
+        }), selectedProjectPath != matchingProject.path {
+            setSelectedProject(matchingProject.url)
+        }
+
+        if let existing = githubProjectBoard?.allItems.first(where: { $0.repository == reference.repository && $0.number == reference.number }) {
+            selectWorkItem(existing)
+            return
+        }
+
+        let item = GitHubWorkItem(
+            id: "\(reference.repository)-\(reference.number)",
+            number: reference.number,
+            title: reference.title,
+            repository: reference.repository,
+            url: reference.url,
+            isPullRequest: false,
+            state: reference.state,
+            stateReason: nil,
+            type: reference.type,
+            labels: [],
+            assignees: [],
+            author: nil,
+            body: "",
+            commentCount: 0,
+            createdAt: .distantPast,
+            updatedAt: .distantPast,
+            closedAt: nil,
+            subIssuesSummary: nil,
+            issueDependenciesSummary: nil
+        )
+        selectWorkItem(item)
+    }
+
+    func loadIssueDetail(for item: GitHubWorkItem) {
+        guard let session = gitHubSession else {
+            githubIsLoadingIssueDetail = false
+            githubLastError = "Connect GitHub first."
+            return
+        }
+
+        githubIssueDetailRequestID += 1
+        let requestID = githubIssueDetailRequestID
+        githubIsLoadingIssueDetail = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
+                let detail = try await service.fetchDetail(for: item)
+                await MainActor.run {
+                    guard self.githubIssueDetailRequestID == requestID,
+                          self.githubSelectedWorkItem == item else { return }
+
+                    self.githubIssueDetail = detail
+                    self.githubIsLoadingIssueDetail = false
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.githubIssueDetailRequestID == requestID,
+                          self.githubSelectedWorkItem == item else { return }
+
+                    self.githubIssueDetail = nil
+                    self.githubIsLoadingIssueDetail = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func submitComment() {
+        guard let item = githubSelectedWorkItem, let session = gitHubSession else {
+            githubLastError = "Select an issue or pull request first."
+            return
+        }
+
+        let body = githubCommentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else {
+            githubLastError = "Enter a comment first."
+            return
+        }
+
+        githubIsSubmittingComment = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
+                try await service.postComment(body: body, for: item)
+                await MainActor.run {
+                    guard self.githubSelectedWorkItem == item,
+                          self.gitHubSession == session else {
+                        self.githubIsSubmittingComment = false
+                        return
+                    }
+
+                    self.githubCommentDraft = ""
+                    self.githubIsSubmittingComment = false
+                    self.loadIssueDetail(for: item)
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.githubSelectedWorkItem == item else {
+                        self.githubIsSubmittingComment = false
+                        return
+                    }
+
+                    self.githubIsSubmittingComment = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func refreshGitHubConnectionScopedState() {
+        githubProjectBoardRequestID += 1
+        githubIssueDetailRequestID += 1
+        githubAggregateBoard = nil
+        githubProjectBoard = nil
+        githubSelectedWorkItem = nil
+        githubIssueDetail = nil
+        githubCommentDraft = ""
+        githubIsLoadingAggregateBoard = false
+        githubIsLoadingProjectBoard = false
+        githubIsLoadingIssueDetail = false
+        githubIsSubmittingComment = false
+    }
+
+    private func refreshGitHubProjectScopedState() {
+        githubProjectBoardRequestID += 1
+        githubRepositoryChangesRequestID += 1
+        githubIssueDetailRequestID += 1
+        githubProjectBoard = nil
+        githubRepositoryChanges = nil
+        githubSelectedChangePaths = []
+        githubSelectedDiffFilePath = nil
+        githubSelectedDiffKind = nil
+        githubSelectedDiffText = nil
+        githubSelectedWorkItem = nil
+        githubIssueDetail = nil
+        githubCommentDraft = ""
+        githubIsLoadingProjectBoard = false
+        githubIsLoadingRepositoryChanges = false
+        githubIsLoadingIssueDetail = false
+        githubIsSubmittingComment = false
+    }
+
+    var currentGitHubAccount: GitHubHostAccount? {
+        githubConnectionState.account ?? gitHubSession?.account
+    }
+
+    var shouldShowGitHubConnectionCard: Bool {
+        selectedSidebarItem == .github || currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
     }
 
     var filteredAgents: [EffectiveAgentRecord] {
@@ -124,6 +875,14 @@ final class AppViewModel: ObservableObject {
 
     var selectedSkill: SkillRecord? {
         snapshot.skills.first(where: { $0.id == selectedSkillID })
+    }
+
+    var selectedCommand: CommandRecord? {
+        snapshot.commands.first(where: { $0.id == selectedCommandItemID })
+    }
+
+    var selectedPromptTemplate: PromptTemplateRecord? {
+        snapshot.promptTemplates.first(where: { $0.id == selectedCommandItemID })
     }
 
     var packageNames: [String] {
@@ -166,6 +925,28 @@ final class AppViewModel: ObservableObject {
 
     var selectedProjectName: String {
         projectRootURL?.lastPathComponent ?? "All Projects"
+    }
+
+    var enabledProjects: [DiscoveredProject] {
+        discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
+    }
+
+    var favoriteProjects: [DiscoveredProject] {
+        enabledProjects.filter { projectPreference(for: $0.path).isFavorite }
+    }
+
+    var gitHubProjects: [DiscoveredProject] {
+        enabledProjects.filter(\.isGitHubRepository)
+    }
+
+    var selectedDiscoveredProject: DiscoveredProject? {
+        guard let selectedProjectPath else { return nil }
+        return discoveredProjects.first(where: { $0.path == selectedProjectPath })
+    }
+
+    var selectedGitHubProject: DiscoveredProject? {
+        guard let selectedDiscoveredProject, selectedDiscoveredProject.isGitHubRepository else { return nil }
+        return selectedDiscoveredProject
     }
 
     var availableModelProviders: [String] {
@@ -241,6 +1022,11 @@ final class AppViewModel: ObservableObject {
         refresh(includeModels: false)
     }
 
+    func convertChain(_ chain: ChainRecord, to scope: AgentEditingTarget.CustomAgentScope) throws {
+        try chainPersistence.convert(chain, to: scope, projectRoot: selectedProjectPath)
+        refresh(includeModels: false)
+    }
+
     func makeEnvDraft(for record: EnvKeyRecord) -> EnvEditorDraft {
         envPersistence.makeDraft(for: record)
     }
@@ -257,11 +1043,18 @@ final class AppViewModel: ObservableObject {
     func makeSubagentConfigDraft() -> SubagentConfigDraft {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-        return subagentConfigPersistence.makeDraft(path: path, config: snapshot.subagentConfig?.config ?? .empty)
+        return subagentConfigPersistence.makeDraft(path: path, config: snapshot.subagentConfig?.config ?? .packageDefaults)
     }
 
     func saveSubagentConfigDraft(_ draft: SubagentConfigDraft) throws {
         try subagentConfigPersistence.save(draft)
+        refresh(includeModels: false)
+    }
+
+    func restoreDefaultSubagentConfig() {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
+        try? FileManager.default.removeItem(atPath: path)
         refresh(includeModels: false)
     }
 
@@ -296,6 +1089,8 @@ final class AppViewModel: ObservableObject {
 
         let chains = deduplicateByID(globalSnapshot.chains + projectSnapshots.flatMap(\.chains))
         let skills = deduplicateByID(globalSnapshot.skills + projectSnapshots.flatMap(\.skills))
+        let commands = deduplicateByID(globalSnapshot.commands + projectSnapshots.flatMap(\.commands))
+        let promptTemplates = deduplicateByID(globalSnapshot.promptTemplates + projectSnapshots.flatMap(\.promptTemplates))
         let envKeys = deduplicateByID(globalSnapshot.envKeys + projectSnapshots.flatMap(\.envKeys))
         let mcpConfigs = deduplicateByID(globalSnapshot.mcpConfigs + projectSnapshots.flatMap(\.mcpConfigs))
         let warnings = deduplicateByID(globalSnapshot.warnings + projectSnapshots.flatMap(\.warnings))
@@ -310,6 +1105,8 @@ final class AppViewModel: ObservableObject {
             effectiveAgents: globalSnapshot.effectiveAgents + projectSpecificEffectiveAgents,
             chains: chains,
             skills: skills,
+            commands: commands,
+            promptTemplates: promptTemplates,
             settings: settings,
             envKeys: envKeys,
             mcpConfigs: mcpConfigs,
@@ -340,6 +1137,8 @@ final class AppViewModel: ObservableObject {
             effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
             chains: globalSnapshot.chains + projectSnapshot.chains,
             skills: globalSnapshot.skills + projectSnapshot.skills,
+            commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
+            promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
             settings: globalSnapshot.settings + projectSnapshot.settings,
             envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
             mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,
@@ -488,13 +1287,17 @@ final class AppViewModel: ObservableObject {
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
         ]
 
-        for project in discoveredProjects {
+        for project in enabledProjects {
             urls.append(project.url.appendingPathComponent(".pi", isDirectory: true))
             urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))
             urls.append(project.url.appendingPathComponent(".mcp.json"))
         }
 
-        return urls
+        urls += snapshot.promptTemplates.map { URL(fileURLWithPath: $0.filePath) }
+        urls += snapshot.settings.flatMap(\.prompts).map { URL(fileURLWithPath: $0) }
+
+        var seen: Set<String> = []
+        return urls.filter { seen.insert($0.path).inserted }
     }
 
     private func watchedFileName(_ name: String) -> Bool {
@@ -514,9 +1317,12 @@ final class AppViewModel: ObservableObject {
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case overview = "Overview"
+    case projects = "Projects"
     case agents = "Agents"
     case chains = "Chains"
     case skills = "Skills"
+    case commandsAndPrompts = "Prompts"
+    case github = "GitHub"
     case models = "Models"
     case subagents = "Subagents"
     case environment = "Environment"
@@ -528,9 +1334,12 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .overview: return "square.grid.2x2"
+        case .projects: return "folder.badge.gearshape"
         case .agents: return "rectangle.connected.to.line.below"
         case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
+        case .commandsAndPrompts: return "doc.text"
+        case .github: return "chevron.left.forwardslash.chevron.right"
         case .models: return "cpu"
         case .subagents: return "slider.horizontal.3"
         case .environment: return "key"

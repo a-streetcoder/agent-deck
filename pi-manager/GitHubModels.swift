@@ -1,0 +1,268 @@
+import Foundation
+
+enum GitHubHostKind: String, Hashable {
+    case github
+    case other
+}
+
+struct GitHubRemote: Hashable {
+    let host: String
+    let owner: String
+    let repo: String
+    let remoteURL: String
+
+    var hostKind: GitHubHostKind {
+        host.caseInsensitiveCompare("github.com") == .orderedSame ? .github : .other
+    }
+
+    var nameWithOwner: String {
+        "\(owner)/\(repo)"
+    }
+
+    var isGitHubDotCom: Bool {
+        hostKind == .github
+    }
+}
+
+struct GitHubHostAccount: Hashable {
+    let host: String
+    let login: String
+    let scopes: [String]
+    let gitProtocol: String?
+    let tokenSource: String?
+    let isActive: Bool
+}
+
+struct GitHubSession: Hashable {
+    let source: GitHubSessionSource
+    let account: GitHubHostAccount
+    let token: String
+}
+
+enum GitHubSessionSource: String, Hashable {
+    case ghCLI = "GitHub CLI"
+    case nativeOAuth = "GitHub Sign-In"
+}
+
+enum GitHubConnectionState: Hashable {
+    case unavailable(reason: String)
+    case disconnected
+    case checking
+    case available(GitHubHostAccount)
+    case connected(GitHubHostAccount)
+    case failed(message: String)
+
+    var summary: String {
+        switch self {
+        case let .unavailable(reason):
+            return reason
+        case .disconnected:
+            return "Not connected"
+        case .checking:
+            return "Checking GitHub status…"
+        case let .available(account):
+            return "GitHub CLI authenticated as \(account.login)"
+        case let .connected(account):
+            return "Connected as \(account.login)"
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var account: GitHubHostAccount? {
+        switch self {
+        case let .available(account), let .connected(account):
+            return account
+        default:
+            return nil
+        }
+    }
+
+    var isConnected: Bool {
+        if case .connected = self {
+            return true
+        }
+        return false
+    }
+}
+
+enum GitHubSection: String, CaseIterable, Identifiable {
+    case projectBoard = "Project Board"
+    case repoChanges = "Repo Changes"
+    case connection = "Connection"
+
+    var id: String { rawValue }
+}
+
+enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
+    case open = "Open"
+    case closed = "Closed"
+    case all = "All"
+
+    var id: String { rawValue }
+
+    var searchQualifier: String? {
+        switch self {
+        case .open: return "is:open"
+        case .closed: return "is:closed"
+        case .all: return nil
+        }
+    }
+}
+
+struct GitHubIssueRelationshipSummary: Hashable {
+    let blockedBy: Int
+    let totalBlockedBy: Int
+    let blocking: Int
+    let totalBlocking: Int
+
+    var hasRelationships: Bool {
+        blockedBy > 0 || totalBlockedBy > 0 || blocking > 0 || totalBlocking > 0
+    }
+}
+
+struct GitHubSubIssuesSummary: Hashable {
+    let total: Int
+    let completed: Int
+    let percentCompleted: Int
+
+    var hasSubIssues: Bool { total > 0 }
+}
+
+struct GitHubIssueReference: Identifiable, Hashable {
+    let id: Int
+    let number: Int
+    let title: String
+    let repository: String
+    let url: URL
+    let state: String
+    let type: String?
+}
+
+struct GitHubWorkItem: Identifiable, Hashable {
+    let id: String
+    let number: Int
+    let title: String
+    let repository: String
+    let url: URL
+    let isPullRequest: Bool
+    let state: String
+    let stateReason: String?
+    let type: String?
+    let labels: [String]
+    let assignees: [String]
+    let author: String?
+    let body: String
+    let commentCount: Int
+    let createdAt: Date
+    let updatedAt: Date
+    let closedAt: Date?
+    let subIssuesSummary: GitHubSubIssuesSummary?
+    let issueDependenciesSummary: GitHubIssueRelationshipSummary?
+}
+
+struct GitHubBoardColumn: Identifiable, Hashable {
+    let title: String
+    let items: [GitHubWorkItem]
+
+    var id: String { title }
+}
+
+struct GitHubBoardSnapshot: Hashable {
+    let columns: [GitHubBoardColumn]
+    let totalCount: Int
+    let shownCount: Int
+    let incompleteResults: Bool
+    let queryDescription: String
+    let rateLimitRemaining: Int?
+    let rateLimitResetAt: Date?
+
+    var allItems: [GitHubWorkItem] {
+        columns
+            .flatMap(\.items)
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+}
+
+enum GitDiffKind: String, Hashable {
+    case staged = "Staged"
+    case unstaged = "Unstaged"
+    case untracked = "Untracked"
+    case conflicted = "Conflicted"
+}
+
+struct RepositoryFileChange: Identifiable, Hashable {
+    let path: String
+    let indexStatus: Character
+    let worktreeStatus: Character
+
+    var id: String { path }
+    var isUntracked: Bool { indexStatus == "?" && worktreeStatus == "?" }
+    var isConflicted: Bool {
+        [indexStatus, worktreeStatus].contains("U") ||
+        (indexStatus == "A" && worktreeStatus == "A") ||
+        (indexStatus == "D" && worktreeStatus == "D")
+    }
+    var hasIndexChanges: Bool { indexStatus != " " && indexStatus != "?" }
+    var hasWorktreeChanges: Bool { worktreeStatus != " " && worktreeStatus != "?" }
+    var statusSummary: String { "\(indexStatus)\(worktreeStatus)" }
+}
+
+struct RepositoryChangesSnapshot: Hashable {
+    let branchName: String
+    let upstreamBranch: String?
+    let aheadCount: Int
+    let behindCount: Int
+    let staged: [RepositoryFileChange]
+    let unstaged: [RepositoryFileChange]
+    let untracked: [RepositoryFileChange]
+    let conflicted: [RepositoryFileChange]
+
+    var totalChangeCount: Int {
+        staged.count + unstaged.count + untracked.count + conflicted.count
+    }
+
+    var canCommit: Bool {
+        !staged.isEmpty
+    }
+
+    var canPush: Bool {
+        upstreamBranch != nil && aheadCount > 0
+    }
+
+    var canStageAll: Bool {
+        !unstaged.isEmpty || !untracked.isEmpty || !conflicted.isEmpty
+    }
+
+    var canUnstageAll: Bool {
+        !staged.isEmpty
+    }
+}
+
+struct GitHubIssueComment: Identifiable, Hashable {
+    let id: Int
+    let author: String
+    let body: String
+    let createdAt: Date
+    let updatedAt: Date
+    let url: URL
+}
+
+struct GitHubIssueDetail: Hashable {
+    let item: GitHubWorkItem
+    let body: String
+    let state: String
+    let stateReason: String?
+    let type: String?
+    let author: String?
+    let assignees: [String]
+    let labels: [String]
+    let createdAt: Date
+    let updatedAt: Date
+    let closedAt: Date?
+    let parent: GitHubIssueReference?
+    let subIssues: [GitHubIssueReference]
+    let blockedBy: [GitHubIssueReference]
+    let blocking: [GitHubIssueReference]
+    let comments: [GitHubIssueComment]
+}

@@ -25,7 +25,7 @@ struct AppPage<Content: View>: View {
     }
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)

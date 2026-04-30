@@ -3,6 +3,11 @@ import Foundation
 struct ChainPersistence {
     private let fileManager = FileManager.default
 
+    enum ConversionError: Error {
+        case targetAlreadyExists(String)
+        case invalidProjectTarget
+    }
+
     func serialize(_ chain: ChainRecord) -> String {
         var lines = ["---", "name: \(chain.name)", "description: \(chain.description)"]
         for key in chain.extraFields.keys.sorted() {
@@ -87,6 +92,34 @@ struct ChainPersistence {
             extraFields: copy.extraFields
         )
         return ChainEditorDraft(originalName: chain.name, chain: copy)
+    }
+
+    func convert(_ chain: ChainRecord, to scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) throws {
+        let targetPath = chainPath(name: chain.name, scope: scope, projectRoot: projectRoot)
+        guard targetPath != chain.filePath else { return }
+        if scope == .project && (projectRoot?.isEmpty ?? true) {
+            throw ConversionError.invalidProjectTarget
+        }
+        if fileManager.fileExists(atPath: targetPath) {
+            throw ConversionError.targetAlreadyExists(targetPath)
+        }
+
+        let sourceURL = URL(fileURLWithPath: chain.filePath)
+        let targetURL = URL(fileURLWithPath: targetPath)
+        try fileManager.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let sourceKind: ResourceScopeKind = scope == .project ? .project : .global
+        let converted = ChainRecord(
+            id: "chain::\(targetPath)",
+            name: chain.name,
+            source: ScopeID(kind: sourceKind, path: targetPath),
+            filePath: targetPath,
+            description: chain.description,
+            steps: chain.steps,
+            extraFields: chain.extraFields
+        )
+        try serialize(converted).write(to: targetURL, atomically: true, encoding: .utf8)
+        try fileManager.removeItem(at: sourceURL)
     }
 
     private func chainPath(name: String, scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> String {

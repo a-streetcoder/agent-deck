@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var chainDraft: ChainEditorDraft?
     @State private var envDraft: EnvEditorDraft?
     @State private var subagentConfigDraft: SubagentConfigDraft?
+    @State private var projectFilterText = ""
+    @State private var debouncedProjectFilterText = ""
 
     var body: some View {
         NavigationSplitView {
@@ -29,56 +31,56 @@ struct ContentView: View {
                 .padding(.bottom, 14)
 
                 List(SidebarItem.allCases, selection: $viewModel.selectedSidebarItem) { item in
-                    Label(item.rawValue, systemImage: item.systemImage)
-                        .fontWidth(.expanded)
-                        .tag(item)
-                }
-            }
-            .toolbar {
-                ToolbarItemGroup {
-                    Menu {
-                        Button {
-                            viewModel.clearProjectRoot()
-                        } label: {
-                            if viewModel.selectedProjectPath == nil {
-                                Label("All Projects", systemImage: "checkmark")
-                            } else {
-                                Text("All Projects")
-                            }
+                    HStack(spacing: 8) {
+                        if item == .github {
+                            Image("github")
+                                .resizable()
+                                .renderingMode(.template)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 16, height: 16)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Image(systemName: item.systemImage)
+                                .frame(width: 16, height: 16)
+                                .foregroundStyle(.secondary)
                         }
 
-                        Divider()
-
-                        ForEach(viewModel.discoveredProjects) { project in
-                            Button {
-                                viewModel.setSelectedProject(project.url)
-                            } label: {
-                                if viewModel.selectedProjectPath == project.path {
-                                    Label(project.repositoryDisplayName, systemImage: "checkmark")
-                                } else {
-                                    Text(project.repositoryDisplayName)
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        Button("Choose Project…", systemImage: "folder") {
-                            viewModel.chooseProjectRoot()
-                        }
-                    } label: {
-                        Label(viewModel.selectedProjectName, systemImage: "folder")
+                        Text(item.rawValue)
                     }
-
-                    Button("Refresh", systemImage: "arrow.clockwise") {
-                        viewModel.refresh(includeModels: true)
-                    }
+                    .fontWidth(.expanded)
+                    .tag(item)
                 }
+
+                Spacer(minLength: 0)
+
+                SidebarProjectGitHubCard(
+                    viewModel: viewModel,
+                    projects: filteredProjects,
+                    selectedProject: selectedProject,
+                    selectedProjectPath: viewModel.selectedProjectPath,
+                    favoriteProjectPaths: Set(viewModel.favoriteProjects.map(\.path)),
+                    filterText: $projectFilterText,
+                    isSearchDebouncing: projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedProjectFilterText,
+                    onSelectAll: { viewModel.clearProjectRoot() },
+                    onSelectProject: { viewModel.setSelectedProject($0.url) },
+                    onToggleFavorite: viewModel.toggleProjectFavorite,
+                    onChooseProject: { viewModel.chooseProjectRoot() }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
             }
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } detail: {
             detailView
         }
         .frame(minWidth: 1180, minHeight: 760)
+        .task(id: projectFilterText) {
+            let trimmed = projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            debouncedProjectFilterText = trimmed.lowercased()
+        }
         .sheet(item: $agentDraft) { draft in
             AgentEditorSheet(
                 draft: draft,
@@ -161,6 +163,8 @@ struct ContentView: View {
         switch viewModel.selectedSidebarItem {
         case .overview:
             OverviewScreen(viewModel: viewModel)
+        case .projects:
+            ProjectsScreen(viewModel: viewModel)
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,
@@ -190,18 +194,31 @@ struct ContentView: View {
                 onDuplicateChain: { chain, scope in
                     chainDraft = viewModel.makeDuplicateChainDraft(from: chain, scope: scope)
                 },
+                onConvertChain: { chain, scope in
+                    try viewModel.convertChain(chain, to: scope)
+                },
                 onEditChain: { chain in
                     chainDraft = viewModel.makeChainDraft(for: chain)
                 }
             )
         case .skills:
             SkillsScreen(viewModel: viewModel)
+        case .commandsAndPrompts:
+            CommandsAndPromptsScreen(viewModel: viewModel)
+        case .github:
+            GitHubScreen(viewModel: viewModel)
         case .models:
             ModelsScreen(viewModel: viewModel)
         case .subagents:
-            SubagentsScreen(viewModel: viewModel, onEditConfig: {
-                subagentConfigDraft = viewModel.makeSubagentConfigDraft()
-            })
+            SubagentsScreen(
+                viewModel: viewModel,
+                onEditConfig: {
+                    subagentConfigDraft = viewModel.makeSubagentConfigDraft()
+                },
+                onRestoreDefaults: {
+                    viewModel.restoreDefaultSubagentConfig()
+                }
+            )
         case .environment:
             EnvironmentScreen(
                 snapshot: viewModel.snapshot,
@@ -221,13 +238,697 @@ struct ContentView: View {
             DiagnosticsScreen(snapshot: viewModel.snapshot)
         }
     }
+
+    private var filteredProjects: [DiscoveredProject] {
+        let query = debouncedProjectFilterText
+        guard !query.isEmpty else { return viewModel.enabledProjects }
+
+        return viewModel.enabledProjects.filter { project in
+            project.searchIndex.contains(query)
+        }
+    }
+
+    private var selectedProject: DiscoveredProject? {
+        guard let selectedProjectPath = viewModel.selectedProjectPath else { return nil }
+        return viewModel.discoveredProjects.first(where: { $0.path == selectedProjectPath })
+    }
+
+}
+
+private struct SidebarProjectGitHubCard: View {
+    @ObservedObject var viewModel: AppViewModel
+    let projects: [DiscoveredProject]
+    let selectedProject: DiscoveredProject?
+    let selectedProjectPath: String?
+    let favoriteProjectPaths: Set<String>
+    @Binding var filterText: String
+    let isSearchDebouncing: Bool
+    let onSelectAll: () -> Void
+    let onSelectProject: (DiscoveredProject) -> Void
+    let onToggleFavorite: (DiscoveredProject) -> Void
+    let onChooseProject: () -> Void
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                ProjectIconView(
+                    imageURL: selectedProject?.iconFileURL,
+                    symbolName: selectedProject?.fallbackSymbolName ?? "square.grid.2x2",
+                    size: 34
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(selectedProjectTitle)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .lineLimit(1)
+
+                    Text(selectedProjectSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(AppTheme.subtleFill))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
+                    ProjectPickerPopover(
+                        projects: orderedProjects,
+                        selectedProjectPath: selectedProjectPath,
+                        favoriteProjectPaths: favoriteProjectPaths,
+                        filterText: $filterText,
+                        isSearchDebouncing: isSearchDebouncing,
+                        onSelectAll: {
+                            onSelectAll()
+                            isExpanded = false
+                        },
+                        onSelectProject: { project in
+                            onSelectProject(project)
+                            isExpanded = false
+                        },
+                        onToggleFavorite: onToggleFavorite
+                    )
+                }
+            }
+
+            Divider()
+                .opacity(0.7)
+
+            HStack(spacing: 12) {
+                SidebarGitHubAvatarView(url: avatarURL, size: 32)
+                    .overlay(alignment: Alignment.bottomTrailing) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(AppTheme.cardFill, lineWidth: 2))
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(accountName)
+                        .font(.subheadline.weight(.semibold))
+                        .fontWidth(.expanded)
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+
+                Spacer()
+
+                Button {
+                    viewModel.refreshEverything()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
+                }
+                .buttonStyle(.plain)
+                .help("Refresh GitHub status, project scans, and repo data")
+                .disabled(viewModel.githubIsRefreshingEverything)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .animation(.easeInOut(duration: 0.16), value: isExpanded)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(AppTheme.cardFill)
+                .stroke(AppTheme.cardStroke, lineWidth: 1)
+        )
+    }
+
+    private var favoriteProjects: [DiscoveredProject] {
+        projects.filter { favoriteProjectPaths.contains($0.path) }
+    }
+
+    private var otherProjects: [DiscoveredProject] {
+        projects.filter { !favoriteProjectPaths.contains($0.path) }
+    }
+
+    private var orderedProjects: [DiscoveredProject] {
+        favoriteProjects + otherProjects
+    }
+
+    private var selectedProjectTitle: String {
+        if let remote = selectedProject?.gitHubRemote {
+            return remote.repo
+        }
+        return selectedProject?.name ?? "All Projects"
+    }
+
+    private var selectedProjectSubtitle: String {
+        if let remote = selectedProject?.gitHubRemote {
+            return remote.owner
+        }
+        return selectedProject != nil ? selectedProject?.path ?? "No project selected" : "No project selected"
+    }
+
+    private var accountName: String {
+        viewModel.currentGitHubAccount?.login ?? "GitHub"
+    }
+
+    private var statusText: String {
+        if viewModel.githubIsRefreshingEverything {
+            return "Refreshing…"
+        }
+
+        switch viewModel.githubConnectionState {
+        case .connected:
+            return "Connected"
+        case .checking:
+            return "Connecting…"
+        case .failed:
+            return "Error"
+        case .available:
+            return "Ready"
+        case .unavailable:
+            return "Unavailable"
+        case .disconnected:
+            return "Inactive"
+        }
+    }
+
+    private var statusColor: Color {
+        switch viewModel.githubConnectionState {
+        case .connected:
+            return .green
+        case .failed:
+            return .red
+        default:
+            return .secondary
+        }
+    }
+
+    private var avatarURL: URL? {
+        guard let account = viewModel.currentGitHubAccount,
+              account.host.caseInsensitiveCompare("github.com") == .orderedSame else { return nil }
+        return URL(string: "https://avatars.githubusercontent.com/\(account.login)")
+    }
+
+}
+
+private struct ProjectPickerPopover: View {
+    let projects: [DiscoveredProject]
+    let selectedProjectPath: String?
+    let favoriteProjectPaths: Set<String>
+    @Binding var filterText: String
+    let isSearchDebouncing: Bool
+    let onSelectAll: () -> Void
+    let onSelectProject: (DiscoveredProject) -> Void
+    let onToggleFavorite: (DiscoveredProject) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("Search enabled projects", text: $filterText)
+                    .textFieldStyle(.roundedBorder)
+
+                if isSearchDebouncing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ProjectSidebarRow(
+                        title: "All Projects",
+                        subtitle: "No project selected",
+                        symbolName: "square.grid.2x2",
+                        imageURL: nil,
+                        isSelected: selectedProjectPath == nil,
+                        isFavorite: false,
+                        showsFavoriteButton: false,
+                        onToggleFavorite: nil,
+                        action: onSelectAll
+                    )
+
+                    ForEach(projects) { project in
+                        ProjectSidebarRow(
+                            title: project.repositoryDisplayName,
+                            subtitle: project.path,
+                            symbolName: project.fallbackSymbolName,
+                            imageURL: project.iconFileURL,
+                            isSelected: selectedProjectPath == project.path,
+                            isFavorite: favoriteProjectPaths.contains(project.path),
+                            showsFavoriteButton: true,
+                            onToggleFavorite: { onToggleFavorite(project) },
+                            action: { onSelectProject(project) }
+                        )
+                    }
+                }
+            }
+            .frame(width: 360, height: 220)
+        }
+        .padding(14)
+    }
+}
+
+private struct ProjectSidebarRow: View {
+    let title: String
+    let subtitle: String
+    let symbolName: String
+    let imageURL: URL?
+    let isSelected: Bool
+    let isFavorite: Bool
+    let showsFavoriteButton: Bool
+    let onToggleFavorite: (() -> Void)?
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isSelected ? Color.accentColor.opacity(0.12) : AppTheme.subtleFill.opacity(0.22))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if showsFavoriteButton, let onToggleFavorite {
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.caption)
+                        .foregroundStyle(isFavorite ? Color.yellow : AppTheme.mutedText)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(AppTheme.subtleFill.opacity(0.8)))
+                }
+                .buttonStyle(.plain)
+                .help(Text(verbatim: isFavorite ? "Remove favorite" : "Add favorite"))
+            }
+        }
+    }
+}
+
+private struct SidebarGitHubAvatarView: View {
+    let url: URL?
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case let .success(image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        Image("github")
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .padding(7)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Image("github")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .padding(7)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(
+            Circle()
+                .fill(AppTheme.subtleFill)
+        )
+        .clipShape(Circle())
+    }
+}
+
+private struct ProjectIconEditorButton: View {
+    let imageURL: URL?
+    let symbolName: String
+    let size: CGFloat
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottomTrailing) {
+                ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: size)
+
+                if isHovering {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .background(Circle().fill(Color.accentColor))
+                        .offset(x: 4, y: 4)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+        .help(Text(verbatim: imageURL == nil ? "Set custom icon" : "Change custom icon"))
+    }
+}
+
+private struct ProjectIconView: View {
+    let imageURL: URL?
+    let symbolName: String
+    let size: CGFloat
+
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: symbolName)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(6)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.subtleFill)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .task(id: imageURL?.path) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        guard let imageURL else {
+            image = nil
+            return
+        }
+
+        if let cachedImage = await ProjectIconCache.shared.cachedImage(for: imageURL) {
+            image = cachedImage
+            return
+        }
+
+        let loadedImage = await ProjectIconCache.shared.loadImage(for: imageURL)
+        guard imageURL == self.imageURL else { return }
+        image = loadedImage
+    }
+}
+
+private actor ProjectIconCache {
+    static let shared = ProjectIconCache()
+
+    private let cache = NSCache<NSString, NSImage>()
+
+    func cachedImage(for url: URL) -> NSImage? {
+        cache.object(forKey: url.path as NSString)
+    }
+
+    func loadImage(for url: URL) async -> NSImage? {
+        if let cachedImage = cache.object(forKey: url.path as NSString) {
+            return cachedImage
+        }
+
+        let image = await Task.detached(priority: .utility) {
+            NSImage(contentsOf: url)
+        }.value
+
+        if let image {
+            cache.setObject(image, forKey: url.path as NSString)
+        }
+
+        return image
+    }
+}
+
+private struct ProjectsScreen: View {
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case enabled = "Enabled"
+        case disabled = "Disabled"
+        case favorites = "Favorites"
+
+        var id: String { rawValue }
+    }
+
+    @ObservedObject var viewModel: AppViewModel
+    @State private var filter: Filter = .all
+    @State private var searchText = ""
+    @State private var debouncedSearchText = ""
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Projects")
+                            .font(.system(size: 34, weight: .bold, design: .default))
+                            .fontWidth(.expanded)
+                        Text("Enable the projects you want in Pi Manager and personalize their icons.")
+                            .font(.title3)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        viewModel.chooseProjectRoot()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.headline)
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Add project manually")
+                }
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
+                    AppMetricTile(title: "All Projects", value: viewModel.discoveredProjects.count)
+                    AppMetricTile(title: "Enabled", value: viewModel.enabledProjects.count)
+                    AppMetricTile(title: "Favorites", value: viewModel.favoriteProjects.count)
+                    AppMetricTile(title: "GitHub Repos", value: viewModel.gitHubProjects.count)
+                }
+
+                AppCard(title: "Library", trailing: {
+                    if isSearchDebouncing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text("\(visibleProjects.count) visible")
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                }) {
+                    if viewModel.discoveredProjects.isEmpty {
+                        ContentUnavailableView(
+                            "No Projects Yet",
+                            systemImage: "folder",
+                            description: Text("Projects from ~/Documents/GitHub will appear here automatically.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 12) {
+                                TextField("Search projects", text: $searchText)
+                                    .textFieldStyle(.roundedBorder)
+
+                                Picker("Filter", selection: $filter) {
+                                    ForEach(Filter.allCases) { option in
+                                        Text(option.rawValue).tag(option)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 340)
+                            }
+
+                            LazyVStack(alignment: .leading, spacing: 10) {
+                                ForEach(visibleProjects) { project in
+                                    projectCard(project)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(AppTheme.pagePadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task(id: searchText) {
+            let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            debouncedSearchText = trimmed.lowercased()
+        }
+    }
+
+    private var isSearchDebouncing: Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedSearchText
+    }
+
+    private var visibleProjects: [DiscoveredProject] {
+        let query = debouncedSearchText
+
+        return viewModel.discoveredProjects.filter { project in
+            let preference = viewModel.projectPreference(for: project.path)
+
+            let matchesFilter: Bool = switch filter {
+            case .all: true
+            case .enabled: preference.isEnabled
+            case .disabled: !preference.isEnabled
+            case .favorites: preference.isFavorite
+            }
+
+            guard matchesFilter else { return false }
+            guard !query.isEmpty else { return true }
+
+            return project.searchIndex.contains(query)
+        }
+    }
+
+    @ViewBuilder
+    private func projectCard(_ project: DiscoveredProject) -> some View {
+        let preference = viewModel.projectPreference(for: project.path)
+        let isSelected = viewModel.selectedProjectPath == project.path
+
+        AppRowCard {
+            HStack(alignment: .center, spacing: 14) {
+                ProjectIconEditorButton(
+                    imageURL: project.iconFileURL,
+                    symbolName: project.fallbackSymbolName,
+                    size: 44,
+                    action: { viewModel.chooseCustomIcon(for: project) }
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(project.repositoryDisplayName)
+                            .font(.headline)
+                            .fontWidth(.expanded)
+
+                        if project.isGitHubRepository {
+                            Image("github")
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 14, height: 14)
+                        }
+                    }
+
+                    Text(project.path)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    Button(action: { viewModel.toggleProjectFavorite(project) }) {
+                        Image(systemName: preference.isFavorite ? "star.fill" : "star")
+                            .foregroundStyle(preference.isFavorite ? AnyShapeStyle(LinearGradient(colors: [.yellow, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(AppTheme.mutedText))
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(AppTheme.subtleFill))
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text(verbatim: preference.isFavorite ? "Remove favorite" : "Add favorite"))
+
+                    if preference.customIconPath != nil {
+                        Button(action: { viewModel.clearCustomIcon(for: project) }) {
+                            Image(systemName: "trash")
+                                .foregroundStyle(AppTheme.mutedText)
+                                .frame(width: 28, height: 28)
+                                .background(Circle().fill(AppTheme.subtleFill))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove custom icon")
+                    }
+
+                    Button(action: {
+                        guard preference.isEnabled else { return }
+                        if isSelected {
+                            viewModel.clearProjectRoot()
+                        } else {
+                            viewModel.setSelectedProject(project.url)
+                        }
+                    }) {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "checkmark.circle")
+                            .foregroundStyle(preference.isEnabled ? (isSelected ? Color.accentColor : AppTheme.mutedText) : AppTheme.mutedText.opacity(0.35))
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(AppTheme.subtleFill))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!preference.isEnabled)
+                    .help(Text(verbatim: isSelected ? "Show all projects" : "Select project"))
+
+                    Toggle("Enabled", isOn: Binding(
+                        get: { preference.isEnabled },
+                        set: { viewModel.setProjectEnabled($0, for: project) }
+                    ))
+                    .toggleStyle(.switch)
+                    .tint(.accentColor)
+                    .labelsHidden()
+                    .help(Text(verbatim: preference.isEnabled ? "Disable project" : "Enable project"))
+                }
+            }
+            .opacity(preference.isEnabled ? 1 : 0.5)
+        }
+    }
 }
 
 private struct OverviewScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        AppPage("Overview", subtitle: viewModel.snapshot.projectRoot ?? "Showing global resources and all discovered projects") {
+        AppPage("Overview", subtitle: viewModel.snapshot.projectRoot ?? "Showing global resources and all enabled projects") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
                 AppMetricTile(title: "Builtin Agents", value: viewModel.snapshot.builtinAgents.count)
                 AppMetricTile(title: "Global Agents", value: viewModel.snapshot.globalAgents.count)
@@ -235,28 +936,37 @@ private struct OverviewScreen: View {
                 AppMetricTile(title: "Overrides", value: viewModel.snapshot.settings.flatMap(\.agentOverrides).count)
                 AppMetricTile(title: "Chains", value: viewModel.snapshot.chains.count)
                 AppMetricTile(title: "Skills", value: viewModel.snapshot.skills.count)
+                AppMetricTile(title: "Commands", value: viewModel.snapshot.commands.count)
+                AppMetricTile(title: "Prompt Templates", value: viewModel.snapshot.promptTemplates.count)
                 AppMetricTile(title: "Warnings", value: viewModel.snapshot.warnings.count)
-                AppMetricTile(title: "All Project Warnings", value: viewModel.totalProjectWarnings)
+                AppMetricTile(title: "Enabled Project Warnings", value: viewModel.totalProjectWarnings)
             }
 
-            AppCard(title: "Discovered Projects", trailing: {
-                Text("\(viewModel.discoveredProjects.count)")
+            AppCard(title: "Enabled Projects", trailing: {
+                Text("\(viewModel.enabledProjects.count)")
                     .foregroundStyle(AppTheme.mutedText)
             }) {
-                if viewModel.discoveredProjects.isEmpty {
-                    Text("No projects found in ~/Documents/GitHub.")
+                if viewModel.enabledProjects.isEmpty {
+                    Text("No enabled projects yet.")
                         .foregroundStyle(AppTheme.mutedText)
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(viewModel.discoveredProjects) { project in
+                        ForEach(viewModel.enabledProjects) { project in
                             AppRowCard {
                                 HStack(alignment: .top, spacing: 14) {
-                                    Image("github")
-                                        .resizable()
-                                        .renderingMode(.template)
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 16, height: 16)
-                                        .padding(.top, 2)
+                                    Group {
+                                        if project.isGitHubRepository {
+                                            Image("github")
+                                                .resizable()
+                                                .renderingMode(.template)
+                                                .foregroundStyle(.secondary)
+                                        } else {
+                                            Image(systemName: "folder")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .frame(width: 16, height: 16)
+                                    .padding(.top, 2)
 
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(project.repositoryDisplayName)
@@ -273,6 +983,9 @@ private struct OverviewScreen: View {
                                         let warningCount = viewModel.allProjectSnapshots[project.path]?.warnings.count ?? 0
                                         if warningCount > 0 {
                                             AppLabelTag(text: "\(warningCount) warnings", color: .orange)
+                                        }
+                                        if project.isGitHubRepository {
+                                            AppLabelTag(text: "GitHub", color: .secondary)
                                         }
                                         if viewModel.selectedProjectPath == project.path {
                                             AppLabelTag(text: "Selected", color: .blue)
@@ -423,6 +1136,8 @@ private struct ModelsScreen: View {
 private struct SubagentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     let onEditConfig: () -> Void
+    let onRestoreDefaults: () -> Void
+    @State private var showingRestoreDefaultsConfirmation = false
 
     var body: some View {
         AppPage("Subagents", subtitle: "Global pi-subagents runtime defaults and package behavior") {
@@ -441,26 +1156,55 @@ private struct SubagentsScreen: View {
                         Button("Open") { openFile(config.path) }
                         Button("Reveal") { revealInFinder(config.path) }
                     }
+                    Button("Restore Defaults") { showingRestoreDefaultsConfirmation = true }
+                        .disabled(viewModel.snapshot.subagentConfig == nil)
                     Button("Edit Config") { onEditConfig() }
                 }
             }) {
-                let config = viewModel.snapshot.subagentConfig?.config ?? .empty
+                if viewModel.snapshot.subagentConfig == nil {
+                    Text("No `~/.pi/agent/extensions/subagent/config.json` file exists right now. Pi Subagents falls back to its built-in package defaults until you create one.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 8)
+                }
+
                 AppKeyValueList(rows: [
-                    ("Path", viewModel.snapshot.subagentConfig?.path ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions/subagent/config.json").path),
-                    ("Async By Default", boolLabel(config.asyncByDefault)),
-                    ("Force Top-Level Async", boolLabel(config.forceTopLevelAsync)),
-                    ("Default Session Dir", config.defaultSessionDir ?? "—"),
-                    ("Max Subagent Depth", config.maxSubagentDepth.map(String.init) ?? "—"),
-                    ("Control Enabled", boolLabel(config.control.enabled)),
-                    ("Needs Attention After", config.control.needsAttentionAfterMs.map { "\($0) ms" } ?? "—"),
-                    ("Notify Channels", config.control.notifyChannels.isEmpty ? "—" : config.control.notifyChannels.joined(separator: ", ")),
-                    ("Parallel Max Tasks", config.parallel.maxTasks.map(String.init) ?? "—"),
-                    ("Parallel Concurrency", config.parallel.concurrency.map(String.init) ?? "—"),
-                    ("Worktree Setup Hook", config.worktreeSetupHook ?? "—"),
-                    ("Worktree Hook Timeout", config.worktreeSetupHookTimeoutMs.map { "\($0) ms" } ?? "—"),
-                    ("Intercom Bridge Mode", config.intercomBridge.mode ?? "—"),
-                    ("Intercom Instruction File", config.intercomBridge.instructionFile ?? "—")
+                    ("Path", configPath),
+                    ("Source", viewModel.snapshot.subagentConfig == nil ? "Package defaults" : "User config file"),
+                    ("Async By Default", boolLabel(displayedConfig.asyncByDefault)),
+                    ("Force Top-Level Async", boolLabel(displayedConfig.forceTopLevelAsync)),
+                    ("Default Session Dir", displayedConfig.defaultSessionDir ?? "Derived from parent session"),
+                    ("Max Subagent Depth", displayedConfig.maxSubagentDepth.map(String.init) ?? "No package limit"),
+                    ("Control Enabled", boolLabel(displayedConfig.control.enabled)),
+                    ("Needs Attention After", displayedConfig.control.needsAttentionAfterMs.map { "\($0) ms" } ?? "—"),
+                    ("Notify Channels", displayedConfig.control.notifyChannels.isEmpty ? "—" : displayedConfig.control.notifyChannels.joined(separator: ", ")),
+                    ("Parallel Max Tasks", displayedConfig.parallel.maxTasks.map(String.init) ?? "8"),
+                    ("Parallel Concurrency", displayedConfig.parallel.concurrency.map(String.init) ?? "4"),
+                    ("Worktree Setup Hook", displayedConfig.worktreeSetupHook ?? "—"),
+                    ("Worktree Hook Timeout", displayedConfig.worktreeSetupHookTimeoutMs.map { "\($0) ms" } ?? "30000 ms"),
+                    ("Intercom Bridge Mode", displayedConfig.intercomBridge.mode ?? "always"),
+                    ("Intercom Instruction File", displayedConfig.intercomBridge.instructionFile ?? "Default packaged instructions")
                 ])
+            }
+
+            AppCard(title: "Package Defaults When Config Is Missing") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("When `~/.pi/agent/extensions/subagent/config.json` is missing, pi-subagents uses these built-in defaults:")
+                    Text("• `asyncByDefault`: `false`")
+                    Text("• `forceTopLevelAsync`: `false`")
+                    Text("• `defaultSessionDir`: derived from the parent session")
+                    Text("• `maxSubagentDepth`: no package-level limit")
+                    Text("• `control.enabled`: `true`")
+                    Text("• `control.needsAttentionAfterMs`: `60000`")
+                    Text("• `control.notifyChannels`: `event, async, intercom`")
+                    Text("• `parallel.maxTasks`: `8`")
+                    Text("• `parallel.concurrency`: `4`")
+                    Text("• `intercomBridge.mode`: `always`")
+                    Text("• `intercomBridge.instructionFile`: packaged default instructions")
+                    Text("• `worktreeSetupHook`: unset")
+                    Text("• `worktreeSetupHookTimeoutMs`: `30000`")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             AppCard(title: "How These Settings Affect Runs") {
@@ -475,6 +1219,22 @@ private struct SubagentsScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .alert("Restore subagent defaults?", isPresented: $showingRestoreDefaultsConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Restore Defaults", role: .destructive) {
+                onRestoreDefaults()
+            }
+        } message: {
+            Text("This will delete ~/.pi/agent/extensions/subagent/config.json and fall back to the built-in pi-subagents defaults.")
+        }
+    }
+
+    private var configPath: String {
+        viewModel.snapshot.subagentConfig?.path ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
+    }
+
+    private var displayedConfig: SubagentExtensionConfig {
+        viewModel.snapshot.subagentConfig?.config ?? .packageDefaults
     }
 
     private func openFile(_ path: String) {
@@ -669,12 +1429,28 @@ private struct AgentDetailView: View {
                 }
             }
 
-            Picker("Agent Detail", selection: $selectedTab) {
-                ForEach(DetailTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(DetailTab.allCases) { tab in
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            Text(tab.rawValue)
+                                .font(.subheadline.weight(.semibold))
+                                .fontWidth(.expanded)
+                                .foregroundStyle(selectedTab == tab ? Color.white : .primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.subtleFill)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.vertical, 2)
             }
-            .pickerStyle(.segmented)
 
             switch selectedTab {
             case .summary:
@@ -783,7 +1559,7 @@ private struct AgentDetailView: View {
                     }
 
                     if (agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty {
-                        Text("Inherited or unspecified")
+                        Text("Default Pi tool access")
                             .foregroundStyle(AppTheme.mutedText)
                     }
                 }
@@ -843,10 +1619,10 @@ private struct AgentDetailView: View {
             AppCard(title: "Resolution") {
                 AppKeyValueList(rows: [
                     ("Builtin Base", agent.builtin.map { sourceSummary(label: "Builtin", path: $0.filePath) } ?? "—"),
-                    ("User Override", agent.userOverride.map { sourceSummary(label: "Override", path: $0.settingsPath) } ?? "—"),
+                    ("Global Override", agent.userOverride.map { sourceSummary(label: "Override", path: $0.settingsPath) } ?? "—"),
                     ("Project Override", agent.projectOverride.map { sourceSummary(label: "Override", path: $0.settingsPath) } ?? "—"),
-                    ("Global Custom", agent.globalCustom.map { sourceSummary(label: "Markdown", path: $0.filePath) } ?? "—"),
-                    ("Project Custom", agent.projectCustom.map { sourceSummary(label: "Markdown", path: $0.filePath) } ?? "—"),
+                    ("Global Markdown", agent.globalCustom.map { sourceSummary(label: "Markdown", path: $0.filePath) } ?? "—"),
+                    ("Project Markdown", agent.projectCustom.map { sourceSummary(label: "Markdown", path: $0.filePath) } ?? "—"),
                     ("Override Status", overrideStatus),
                     ("Project", agent.projectRoot.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "—"),
                     ("Winning Source", sourceSummary(label: resolutionSourceKind, path: agent.sourcePath))
@@ -891,7 +1667,7 @@ private struct AgentDetailView: View {
                     ("Builtin File", agent.builtin?.filePath ?? "—"),
                     ("Global File", agent.globalCustom?.filePath ?? "—"),
                     ("Project File", agent.projectCustom?.filePath ?? "—"),
-                    ("User Override", agent.userOverride?.settingsPath ?? "—"),
+                    ("Global Override", agent.userOverride?.settingsPath ?? "—"),
                     ("Project Override", agent.projectOverride?.settingsPath ?? "—"),
                     ("Write Target", writeTargetSummary)
                 ])
@@ -982,7 +1758,7 @@ private struct AgentDetailView: View {
     }
 
     private var extensionsSummary: String {
-        guard let extensions = agent.resolved.extensions else { return "Inherited/default" }
+        guard let extensions = agent.resolved.extensions else { return "Default / inherited" }
         return extensions.isEmpty ? "None" : extensions.joined(separator: ", ")
     }
 
@@ -993,7 +1769,7 @@ private struct AgentDetailView: View {
         if let userOverride = agent.userOverride {
             return "Global · \(userOverride.settingsPath)"
         }
-        return "Not enabled"
+        return "No override"
     }
 
     private var activeOverrideValues: [String: Any]? {
@@ -1110,6 +1886,7 @@ private struct ChainsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     let onCreateChain: (AgentEditingTarget.CustomAgentScope) -> Void
     let onDuplicateChain: (ChainRecord, AgentEditingTarget.CustomAgentScope) -> Void
+    let onConvertChain: (ChainRecord, AgentEditingTarget.CustomAgentScope) throws -> Void
     let onEditChain: (ChainRecord) -> Void
 
     var body: some View {
@@ -1151,6 +1928,25 @@ private struct ChainsScreen: View {
                                     onDuplicateChain(selectedChain, .project)
                                 }
                             }
+                            Divider()
+                            if selectedChain.source.kind != .global {
+                                Button("Move to Global Scope") {
+                                    do {
+                                        try onConvertChain(selectedChain, .global)
+                                    } catch {
+                                        NSSound.beep()
+                                    }
+                                }
+                            }
+                            if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
+                                Button("Move to Project Scope") {
+                                    do {
+                                        try onConvertChain(selectedChain, .project)
+                                    } catch {
+                                        NSSound.beep()
+                                    }
+                                }
+                            }
                         }
                     } label: {
                         Label("New", systemImage: "plus")
@@ -1175,13 +1971,32 @@ private struct ChainsScreen: View {
                                         onDuplicateChain(chain, .project)
                                     }
                                 }
+                                Divider()
+                                if chain.source.kind != .global {
+                                    Button("Move to Global Scope") {
+                                        do {
+                                            try onConvertChain(chain, .global)
+                                        } catch {
+                                            NSSound.beep()
+                                        }
+                                    }
+                                }
+                                if viewModel.selectedProjectPath != nil, chain.source.kind != .project {
+                                    Button("Move to Project Scope") {
+                                        do {
+                                            try onConvertChain(chain, .project)
+                                        } catch {
+                                            NSSound.beep()
+                                        }
+                                    }
+                                }
                             }
                             Button("Edit Chain") {
                                 onEditChain(chain)
                             }
                         }
                     }) {
-                        Text("Chains are saved back as .chain.md files, matching pi-subagents chain serialization.")
+                        Text("Chains are saved back as .chain.md files, matching pi-subagents chain serialization. Move scope relocates the same chain to the other discovery location instead of creating a copy.")
                             .foregroundStyle(AppTheme.mutedText)
                     }
 
@@ -1260,7 +2075,7 @@ private struct SkillsScreen: View {
                             Spacer(minLength: 8)
                             AppLabelTag(
                                 text: skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot),
-                                color: skill.source.kind == .project ? .green : .blue
+                                color: skill.source.kind == .project ? .green : (skill.source.kind == .package ? .orange : .blue)
                             )
                         }
                         Text(skill.description ?? "No description")
@@ -1478,7 +2293,7 @@ private struct EnvironmentScreen: View {
                                         AppLabelTag(text: file.kind.rawValue, color: file.kind == .project ? .green : .orange)
                                     }
 
-                                    ScrollView(.horizontal) {
+                                    ScrollView(.horizontal, showsIndicators: false) {
                                         HStack(spacing: 8) {
                                             ForEach(file.keys) { key in
                                                 Button(key.key) { onEditKey(key) }
@@ -1709,7 +2524,8 @@ private struct DiagnosticsScreen: View {
                     VStack(alignment: .leading, spacing: 16) {
                         AppKeyValueList(rows: [
                             ("Disable Builtins", boolLabel(settings.disableBuiltins)),
-                            ("Override Count", "\(settings.agentOverrides.count)")
+                            ("Override Count", "\(settings.agentOverrides.count)"),
+                            ("Configured Prompt Paths", "\(settings.prompts.count)")
                         ])
 
                         VStack(alignment: .leading, spacing: 10) {
@@ -1725,6 +2541,27 @@ private struct DiagnosticsScreen: View {
                                         Image(systemName: "shippingbox")
                                             .foregroundStyle(AppTheme.mutedText)
                                         Text(package)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Prompt Paths")
+                                .font(.headline)
+                                .fontWidth(.expanded)
+                            if settings.prompts.isEmpty {
+                                Text("None")
+                                    .foregroundStyle(AppTheme.mutedText)
+                            } else {
+                                ForEach(settings.prompts, id: \.self) { path in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "text.badge.plus")
+                                            .foregroundStyle(AppTheme.mutedText)
+                                        Text(path)
                                             .textSelection(.enabled)
                                     }
                                 }
@@ -1766,8 +2603,9 @@ private struct DiagnosticsScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        warningSection(title: "Duplicate / Resolution", warnings: snapshot.warnings.filter { $0.message.contains("Duplicate agent") })
+                        warningSection(title: "Duplicate / Resolution", warnings: snapshot.warnings.filter { $0.message.contains("Duplicate agent") || $0.message.contains("Duplicate prompt template") })
                         warningSection(title: "Malformed Files", warnings: snapshot.warnings.filter { $0.message.contains("Malformed") || $0.message.contains("step block") })
+                        warningSection(title: "Prompt Discovery", warnings: snapshot.warnings.filter { $0.message.contains("Prompt path") || $0.message.contains("declares prompt templates") })
                         warningSection(title: "Missing Skills / Env", warnings: snapshot.warnings.filter { $0.message.contains("missing skill") || $0.message.contains("API key") })
                         warningSection(title: "Capability Mismatches", warnings: snapshot.warnings.filter { $0.message.contains("extensions") })
                         warningSection(title: "Chain References", warnings: snapshot.warnings.filter { $0.message.contains("Chain ") && $0.message.contains("missing agent") })
@@ -1847,6 +2685,8 @@ private func skillScopeLabel(_ skill: SkillRecord, selectedProjectRoot: String?)
     switch skill.source.kind {
     case .project, .legacyProject:
         return "Project"
+    case .package:
+        return "Package"
     default:
         return "Global"
     }
@@ -1861,9 +2701,29 @@ private func skillProjectLabel(_ skill: SkillRecord, selectedProjectRoot: String
     }
 }
 
+private func skillPackageLabel(_ skill: SkillRecord) -> String? {
+    guard skill.source.kind == .package else { return nil }
+
+    let path = skill.filePath
+    if let range = path.range(of: "/node_modules/") {
+        let remainder = path[range.upperBound...]
+        let components = remainder.split(separator: "/")
+        guard let first = components.first else { return nil }
+        if first.hasPrefix("@"), components.count > 1 {
+            return "\(first)/\(components[1])"
+        }
+        return String(first)
+    }
+
+    return URL(fileURLWithPath: path).deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+}
+
 private func skillLocationLabel(_ skill: SkillRecord, selectedProjectRoot: String?) -> String {
     if let project = skillProjectLabel(skill, selectedProjectRoot: selectedProjectRoot) {
         return project
+    }
+    if let package = skillPackageLabel(skill) {
+        return package
     }
     return "User"
 }
@@ -1925,7 +2785,7 @@ private struct SubagentConfigEditorSheet: View {
                 .font(.title2.bold())
                 .fontWidth(.expanded)
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 Form {
                     Section("Runtime Defaults") {
                         Toggle("Async By Default", isOn: optionalBoolBinding(\ .asyncByDefault))
@@ -2058,7 +2918,7 @@ private struct AgentEditorSheet: View {
                 .font(.title2.bold())
                 .fontWidth(.expanded)
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     Form {
                         if case .custom = draft.target {
@@ -2250,7 +3110,8 @@ private struct AgentEditorSheet: View {
 
     private func modelMenuLabel(for model: AvailableModel) -> String {
         let thinking = model.supportsThinking ? "thinking" : "no thinking"
-        return "\(model.model) · \(thinking) · ctx \(model.contextWindow)"
+        let images = model.supportsImages ? "images" : "text"
+        return "\(model.model) · \(thinking) · \(images) · ctx \(model.contextWindow) · out \(model.maxOutput)"
     }
 
     private func normalizedDraft() -> AgentEditorDraft {

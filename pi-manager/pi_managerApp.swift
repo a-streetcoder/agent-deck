@@ -13,5 +13,6 @@ struct pi_managerApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowStyle(.hiddenTitleBar)
     }
 }

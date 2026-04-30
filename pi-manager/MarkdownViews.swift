@@ -4,16 +4,52 @@ import WebKit
 
 struct MarkdownDocumentView: View {
     let source: String
-    var minimumHeight: CGFloat = 48
-    @State private var contentHeight: CGFloat = 48
+    var minimumHeight: CGFloat = 24
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         MarkdownWebView(content: source, contentHeight: $contentHeight)
             .frame(height: max(minimumHeight, contentHeight))
-            .onAppear { contentHeight = minimumHeight }
-            .onChange(of: source) { _, _ in
-                contentHeight = minimumHeight
+    }
+}
+
+struct MarkdownTextView: View {
+    let source: String
+
+    var body: some View {
+        let parsed = RawFrontmatterParser.parse(source)
+        let markdown = parsed?.content ?? source
+
+        VStack(alignment: .leading, spacing: parsed?.frontmatter == nil ? 0 : 12) {
+            if let frontmatter = parsed?.frontmatter, !frontmatter.isEmpty {
+                Text(frontmatter)
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(AppTheme.subtleFill)
+                    )
             }
+
+            Group {
+                if let attributed = try? AttributedString(
+                    markdown: markdown,
+                    options: AttributedString.MarkdownParsingOptions(
+                        interpretedSyntax: .full,
+                        failurePolicy: .returnPartiallyParsedIfPossible
+                    )
+                ) {
+                    Text(attributed)
+                } else {
+                    Text(markdown)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .textSelection(.enabled)
     }
 }
 
@@ -45,6 +81,7 @@ private struct MarkdownWebView: NSViewRepresentable {
 
         let config = WKWebViewConfiguration()
         config.userContentController = contentController
+        config.websiteDataStore = .nonPersistent()
         config.preferences.isElementFullscreenEnabled = false
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         let webView = PassthroughWKWebView(frame: .zero, configuration: config)
@@ -71,8 +108,14 @@ private struct MarkdownWebView: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.navigationDelegate = nil
+        webView.stopLoading()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "contentHeight")
+    }
+
     private func loadHTML(in webView: WKWebView, context: Context) {
-        context.coordinator.lastContentHash = contentHash
+        context.coordinator.prepareForContentLoad(contentHash: contentHash)
         let parsed = RawFrontmatterParser.parse(content)
         let markdown = parsed?.content ?? content
         let frontmatterHTML = parsed?.frontmatter.map(Self.frontmatterHTML) ?? ""
@@ -114,10 +157,25 @@ private struct MarkdownWebView: NSViewRepresentable {
                     window.webkit.messageHandlers.contentHeight.postMessage(height);
                 }
 
+                const heightReportState = { pending: false };
+                function scheduleHeightReport() {
+                    if (heightReportState.pending) {
+                        return;
+                    }
+                    heightReportState.pending = true;
+                    requestAnimationFrame(() => {
+                        heightReportState.pending = false;
+                        reportHeight();
+                    });
+                }
+
+                const observer = new MutationObserver(scheduleHeightReport);
+                observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+
                 reportHeight();
-                requestAnimationFrame(reportHeight);
-                window.addEventListener('load', reportHeight);
-                window.addEventListener('resize', reportHeight);
+                scheduleHeightReport();
+                window.addEventListener('load', scheduleHeightReport, { once: true });
+                window.addEventListener('resize', scheduleHeightReport);
             </script>
         </body>
         </html>
@@ -148,22 +206,35 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var lastContentHash: Int?
+        private var lastReportedHeight: CGFloat = 0
         private var contentHeight: Binding<CGFloat>
 
         init(contentHeight: Binding<CGFloat>) {
             self.contentHeight = contentHeight
         }
 
+        func prepareForContentLoad(contentHash: Int) {
+            lastContentHash = contentHash
+            lastReportedHeight = 0
+        }
+
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.name == "contentHeight" else { return }
             if let height = message.body as? CGFloat {
-                DispatchQueue.main.async {
-                    self.contentHeight.wrappedValue = height
-                }
+                applyContentHeight(height)
             } else if let number = message.body as? NSNumber {
-                DispatchQueue.main.async {
-                    self.contentHeight.wrappedValue = CGFloat(number.doubleValue)
-                }
+                applyContentHeight(CGFloat(number.doubleValue))
+            }
+        }
+
+        private func applyContentHeight(_ height: CGFloat) {
+            let sanitizedHeight = ceil(max(height, 0))
+            guard abs(sanitizedHeight - lastReportedHeight) > 0.5 else { return }
+            lastReportedHeight = sanitizedHeight
+
+            Task { @MainActor in
+                guard abs(self.contentHeight.wrappedValue - sanitizedHeight) > 0.5 else { return }
+                self.contentHeight.wrappedValue = sanitizedHeight
             }
         }
 
@@ -192,7 +263,7 @@ private struct MarkdownWebView: NSViewRepresentable {
         width: 100%;
         max-width: 100%;
         margin: 0;
-        padding: 20px 20px 16px;
+        padding: 16px 20px 8px;
         overflow-x: hidden;
         color: #222222;
         background-color: #FAFAFA;

@@ -38,7 +38,7 @@ struct SubagentConfigPersistence {
         let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: fileURL)
         if let handle = try? FileHandle(forWritingTo: fileURL) {
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             handle.write(Data("\n".utf8))
             try? handle.close()
         }

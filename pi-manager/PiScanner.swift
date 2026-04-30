@@ -11,6 +11,7 @@ struct PiScanner {
         let globalEnv = homeDirectory().appendingPathComponent(".pi/agent/.env")
         let globalMCP = homeDirectory().appendingPathComponent(".pi/agent/mcp.json")
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
+        let globalPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompts", isDirectory: true)
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
         let subagentConfig = homeDirectory().appendingPathComponent(".pi/agent/extensions/subagent/config.json")
 
@@ -21,6 +22,7 @@ struct PiScanner {
         let projectPiMCP = projectRoot?.appendingPathComponent(".pi/mcp.json")
         let projectRootMCP = projectRoot?.appendingPathComponent(".mcp.json")
         let projectSkills = projectRoot?.appendingPathComponent(".pi/skills", isDirectory: true)
+        let projectPrompts = projectRoot?.appendingPathComponent(".pi/prompts", isDirectory: true)
 
         let builtinAgents = scanAgents(at: builtinAgentsDirectory, scope: .builtin)
         let legacyGlobalAgents = scanAgents(at: legacyGlobalAgentDirectory, scope: .global)
@@ -39,10 +41,17 @@ struct PiScanner {
             scanChains(at: legacyProjectAgentDirectory, scope: .legacyProject) +
             scanChains(at: projectAgentDirectory, scope: .project)
 
+        let packageSkillScan = scanPackageSkills(
+            projectRoot: projectRoot,
+            globalSettings: settings.first(where: { $0.path == globalSettings.path }),
+            projectSettings: settings.first(where: { $0.path == projectSettings?.path })
+        )
+
         let skills =
             scanSkills(at: globalSkills, scope: .global) +
-            scanSkills(at: extraGlobalSkills, scope: .package) +
-            scanSkills(at: projectSkills, scope: .project)
+            scanSkills(at: extraGlobalSkills, scope: .global) +
+            scanSkills(at: projectSkills, scope: .project) +
+            packageSkillScan.skills
 
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +
@@ -58,6 +67,14 @@ struct PiScanner {
 
         let globalSettingsSummary = settings.first(where: { $0.path == globalSettings.path })
         let projectSettingsSummary = settings.first(where: { $0.path == projectSettings?.path })
+        let promptScan = scanPromptTemplates(
+            projectRoot: projectRoot,
+            globalPromptsDirectory: globalPrompts,
+            projectPromptsDirectory: projectPrompts,
+            globalSettings: globalSettingsSummary,
+            projectSettings: projectSettingsSummary
+        )
+        let commands = scanRuntimeExtensionCommands(projectRoot: projectRoot)
 
         let effectiveAgents = resolveAgents(
             projectRoot: projectRoot?.path,
@@ -77,11 +94,12 @@ struct PiScanner {
             rawAgents: builtinAgents + legacyGlobalAgents + globalAgents + legacyProjectAgents + projectAgents,
             chains: chains,
             skills: skills,
+            promptTemplates: promptScan.templates,
             envKeys: envKeys,
             malformedWarnings: malformedResourceWarnings(
                 agentDirectories: [builtinAgentsDirectory, legacyGlobalAgentDirectory, globalAgentDirectory, legacyProjectAgentDirectory, projectAgentDirectory].compactMap { $0 },
-                skillDirectories: [globalSkills, extraGlobalSkills, projectSkills].compactMap { $0 }
-            )
+                skillDirectories: [globalSkills, extraGlobalSkills, projectSkills].compactMap { $0 } + packageSkillScan.skillDirectories
+            ) + packageSkillScan.warnings + promptScan.warnings
         )
 
         return ScanSnapshot(
@@ -93,6 +111,8 @@ struct PiScanner {
             effectiveAgents: effectiveAgents,
             chains: chains,
             skills: skills,
+            commands: commands,
+            promptTemplates: promptScan.templates,
             settings: settings,
             envKeys: envKeys,
             mcpConfigs: mcpConfigs,
@@ -189,13 +209,434 @@ struct PiScanner {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    private func scanPackageSkills(
+        projectRoot: URL?,
+        globalSettings: SettingsSummary?,
+        projectSettings: SettingsSummary?
+    ) -> (skills: [SkillRecord], skillDirectories: [URL], warnings: [DiagnosticWarning]) {
+        var skills: [SkillRecord] = []
+        var skillDirectories: [URL] = []
+        var warnings: [DiagnosticWarning] = []
+        var seenSkillPaths = Set<String>()
+        var seenDirectories = Set<String>()
+
+        let packageRefs = [globalSettings?.packages ?? [], projectSettings?.packages ?? []].flatMap { $0 }
+        for packageRef in packageRefs {
+            guard let packageDirectory = resolvePackageDirectory(for: packageRef, projectRoot: projectRoot) else {
+                continue
+            }
+            let packageName = SlashCommandCatalog.normalizePackageReference(packageRef)
+            let packageSkillLocations = resolvePackageSkillLocations(packageDirectory: packageDirectory)
+            if packageSkillLocations.isEmpty {
+                continue
+            }
+
+            for url in packageSkillLocations {
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    warnings.append(.init(id: "missing-package-skills:\(packageName):\(url.path)", message: "Package \(packageName) declares skills at \(url.path), but that path was not found."))
+                    continue
+                }
+
+                if isDirectory.boolValue {
+                    let standardizedPath = url.standardizedFileURL.path
+                    if seenDirectories.insert(standardizedPath).inserted {
+                        skillDirectories.append(url)
+                    }
+
+                    for skill in scanSkills(at: url, scope: .package) {
+                        let skillPath = URL(fileURLWithPath: skill.filePath).standardizedFileURL.path
+                        if seenSkillPaths.insert(skillPath).inserted {
+                            skills.append(skill)
+                        }
+                    }
+                } else if url.lastPathComponent == "SKILL.md",
+                          let skill = scanStandaloneSkillFile(at: url, scope: .package),
+                          seenSkillPaths.insert(URL(fileURLWithPath: skill.filePath).standardizedFileURL.path).inserted {
+                    skills.append(skill)
+                    let parentDirectory = url.deletingLastPathComponent()
+                    let standardizedPath = parentDirectory.standardizedFileURL.path
+                    if seenDirectories.insert(standardizedPath).inserted {
+                        skillDirectories.append(parentDirectory)
+                    }
+                }
+            }
+        }
+
+        return (
+            skills.sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.filePath < rhs.filePath
+            },
+            skillDirectories,
+            warnings
+        )
+    }
+
+    private func scanStandaloneSkillFile(at file: URL, scope: ResourceScopeKind) -> SkillRecord? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        let document = parseMarkdownDocument(text)
+        let name = document.frontmatter["name"]?.nonEmpty ?? file.deletingLastPathComponent().lastPathComponent
+        let description = document.frontmatter["description"]?.nonEmpty
+        return SkillRecord(
+            id: "\(scope.rawValue):\(name):\(file.path)",
+            name: name,
+            description: description,
+            source: ScopeID(kind: scope, path: file.path),
+            filePath: file.path,
+            body: text
+        )
+    }
+
+    private func scanRuntimeExtensionCommands(projectRoot: URL?) -> [CommandRecord] {
+        // Avoid blocking SwiftUI's startup/render path with an interactive RPC probe.
+        // The main scan runs on the main actor during app initialization, so doing
+        // synchronous process I/O here causes priority inversion warnings and can
+        // make the app appear hung while launching.
+        guard !Thread.isMainThread else {
+            return []
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "if command -v pi >/dev/null 2>&1; then pi --mode rpc; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --mode rpc; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --mode rpc; else exit 127; fi"]
+        if let projectRoot {
+            process.currentDirectoryURL = projectRoot
+        }
+
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        defer {
+            process.terminate()
+        }
+
+        let request = "{\"type\":\"get_commands\"}\n"
+        inputPipe.fileHandleForWriting.write(Data(request.utf8))
+        inputPipe.fileHandleForWriting.closeFile()
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var buffer = ""
+        var responseLine: String?
+
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else {
+                semaphore.signal()
+                return
+            }
+
+            lock.lock()
+            buffer += chunk
+            let lines = buffer.split(whereSeparator: \.isNewline).map(String.init)
+            if let match = lines.first(where: { $0.contains("\"command\":\"get_commands\"") }) {
+                responseLine = match
+                lock.unlock()
+                semaphore.signal()
+                return
+            }
+            lock.unlock()
+        }
+
+        _ = semaphore.wait(timeout: .now() + 5)
+        outputPipe.fileHandleForReading.readabilityHandler = nil
+
+        guard let responseLine,
+              let data = responseLine.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = root["data"] as? [String: Any],
+              let commands = payload["commands"] as? [[String: Any]] else {
+            return []
+        }
+
+        return commands.compactMap { command in
+            guard (command["source"] as? String) == "extension",
+                  let name = command["name"] as? String,
+                  !name.isEmpty else { return nil }
+
+            let sourceInfo = command["sourceInfo"] as? [String: Any]
+            let sourcePath = sourceInfo?["path"] as? String
+            let source = sourceInfo?["source"] as? String
+            let scope = sourceInfo?["scope"] as? String
+            let origin = sourceInfo?["origin"] as? String
+            let packageName = source.map(SlashCommandCatalog.normalizePackageReference)
+
+            return CommandRecord(
+                id: "extension:\(scope ?? "unknown"):\(name):\(sourcePath ?? source ?? name)",
+                name: name,
+                description: (command["description"] as? String) ?? "No description",
+                kind: .extension,
+                packageName: packageName == "auto" ? nil : packageName,
+                notes: "Discovered from Pi runtime slash command inventory.",
+                sourcePath: sourcePath,
+                sourceScope: scope,
+                sourceOrigin: origin
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func scanPromptTemplates(
+        projectRoot: URL?,
+        globalPromptsDirectory: URL,
+        projectPromptsDirectory: URL?,
+        globalSettings: SettingsSummary?,
+        projectSettings: SettingsSummary?
+    ) -> (templates: [PromptTemplateRecord], warnings: [DiagnosticWarning]) {
+        var templates: [PromptTemplateRecord] = []
+        var warnings: [DiagnosticWarning] = []
+
+        templates += scanPromptTemplates(at: globalPromptsDirectory, scope: .global, discoveryKind: .standardDirectory, packageName: nil)
+        if let projectPromptsDirectory {
+            templates += scanPromptTemplates(at: projectPromptsDirectory, scope: .project, discoveryKind: .standardDirectory, packageName: nil)
+        }
+
+        for (settings, scope) in [(globalSettings, ResourceScopeKind.global), (projectSettings, ResourceScopeKind.project)] {
+            guard let settings else { continue }
+            for path in settings.prompts {
+                let url = URL(fileURLWithPath: path)
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    warnings.append(.init(id: "missing-prompt-path:\(settings.path):\(path)", message: "Prompt path \(path) from \(settings.path) does not exist."))
+                    continue
+                }
+                if isDirectory.boolValue {
+                    templates += scanPromptTemplates(at: url, scope: scope, discoveryKind: .settings, packageName: nil)
+                } else if url.pathExtension == "md" {
+                    if let template = scanPromptTemplateFile(at: url, scope: scope, discoveryKind: .settings, packageName: nil) {
+                        templates.append(template)
+                    }
+                }
+            }
+        }
+
+        let packageRefs = [globalSettings?.packages ?? [], projectSettings?.packages ?? []].flatMap { $0 }
+        for packageRef in packageRefs {
+            guard let packageDirectory = resolvePackageDirectory(for: packageRef, projectRoot: projectRoot) else {
+                continue
+            }
+            let packageName = SlashCommandCatalog.normalizePackageReference(packageRef)
+            let packagePrompts = resolvePackagePromptLocations(packageDirectory: packageDirectory)
+            if packagePrompts.isEmpty {
+                continue
+            }
+            for url in packagePrompts {
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    warnings.append(.init(id: "missing-package-prompts:\(packageName):\(url.path)", message: "Package \(packageName) declares prompt templates at \(url.path), but that path was not found."))
+                    continue
+                }
+                if isDirectory.boolValue {
+                    templates += scanPromptTemplates(at: url, scope: .package, discoveryKind: .package, packageName: packageName)
+                } else if url.pathExtension == "md", let template = scanPromptTemplateFile(at: url, scope: .package, discoveryKind: .package, packageName: packageName) {
+                    templates.append(template)
+                }
+            }
+        }
+
+        let dedupedTemplates = dedupePromptTemplates(templates)
+
+        return (
+            dedupedTemplates.sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.filePath < rhs.filePath
+            },
+            warnings
+        )
+    }
+
+    private func scanPromptTemplates(at directory: URL, scope: ResourceScopeKind, discoveryKind: PromptTemplateDiscoveryKind, packageName: String?) -> [PromptTemplateRecord] {
+        guard let urls = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return []
+        }
+
+        return urls
+            .filter { $0.pathExtension == "md" }
+            .compactMap { scanPromptTemplateFile(at: $0, scope: scope, discoveryKind: discoveryKind, packageName: packageName) }
+    }
+
+    private func scanPromptTemplateFile(at file: URL, scope: ResourceScopeKind, discoveryKind: PromptTemplateDiscoveryKind, packageName: String?) -> PromptTemplateRecord? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        let document = parseMarkdownDocument(text)
+        let description = document.frontmatter["description"]?.nonEmpty ?? firstNonEmptyLine(in: document.body) ?? "No description"
+        return PromptTemplateRecord(
+            id: "\(scope.rawValue):prompt:\(file.deletingPathExtension().lastPathComponent):\(file.path)",
+            name: file.deletingPathExtension().lastPathComponent,
+            description: description,
+            argumentHint: document.frontmatter["argument-hint"]?.nonEmpty,
+            source: ScopeID(kind: scope, path: file.path),
+            filePath: file.path,
+            body: text,
+            discoveryKind: discoveryKind,
+            packageName: packageName
+        )
+    }
+
+    private func resolvePromptSettingEntries(_ rawValue: Any?, settingsFile: URL) -> [String] {
+        let values: [String]
+        if let value = rawValue as? String {
+            values = [value]
+        } else if let array = rawValue as? [Any] {
+            values = array.compactMap { $0 as? String }
+        } else {
+            values = []
+        }
+
+        return values.compactMap { path in
+            guard !path.isEmpty else { return nil }
+            return resolveRelativePath(path, baseDirectory: settingsFile.deletingLastPathComponent()).path
+        }
+    }
+
+    private func resolvePackagePromptLocations(packageDirectory: URL) -> [URL] {
+        var results: [URL] = []
+        let packageJSON = packageDirectory.appendingPathComponent("package.json")
+        var hasDeclaredPrompts = false
+
+        if let data = try? Data(contentsOf: packageJSON),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let pi = root["pi"] as? [String: Any] {
+            let declaredPrompts: [String]
+            if let value = pi["prompts"] as? String {
+                declaredPrompts = [value]
+            } else {
+                declaredPrompts = (pi["prompts"] as? [Any])?.compactMap { $0 as? String } ?? []
+            }
+
+            hasDeclaredPrompts = !declaredPrompts.isEmpty
+            for promptPath in declaredPrompts {
+                results.append(resolveRelativePath(promptPath, baseDirectory: packageDirectory))
+            }
+        }
+
+        if !hasDeclaredPrompts {
+            let conventionalDirectory = packageDirectory.appendingPathComponent("prompts", isDirectory: true)
+            if fileManager.fileExists(atPath: conventionalDirectory.path) {
+                results.append(conventionalDirectory)
+            }
+        }
+
+        var seen: Set<String> = []
+        return results.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    private func resolvePackageSkillLocations(packageDirectory: URL) -> [URL] {
+        var results: [URL] = []
+        let packageJSON = packageDirectory.appendingPathComponent("package.json")
+        var hasDeclaredSkills = false
+
+        if let data = try? Data(contentsOf: packageJSON),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let pi = root["pi"] as? [String: Any] {
+            let declaredSkills: [String]
+            if let value = pi["skills"] as? String {
+                declaredSkills = [value]
+            } else {
+                declaredSkills = (pi["skills"] as? [Any])?.compactMap { $0 as? String } ?? []
+            }
+
+            hasDeclaredSkills = !declaredSkills.isEmpty
+            for skillPath in declaredSkills {
+                results.append(resolveRelativePath(skillPath, baseDirectory: packageDirectory))
+            }
+        }
+
+        if !hasDeclaredSkills {
+            let conventionalDirectory = packageDirectory.appendingPathComponent("skills", isDirectory: true)
+            if fileManager.fileExists(atPath: conventionalDirectory.path) {
+                results.append(conventionalDirectory)
+            }
+        }
+
+        var seen: Set<String> = []
+        return results.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    private func resolvePackageDirectory(for packageReference: String, projectRoot: URL?) -> URL? {
+        if packageReference.hasPrefix("/") {
+            return URL(fileURLWithPath: packageReference, isDirectory: true)
+        }
+        if packageReference.hasPrefix(".") {
+            return projectRoot?.appendingPathComponent(packageReference, isDirectory: true)
+        }
+
+        let packageName = SlashCommandCatalog.normalizePackageReference(packageReference)
+        let candidates = [
+            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(packageName)", isDirectory: true),
+            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(packageName)", isDirectory: true),
+            homeDirectory().appendingPathComponent(".npm-global/lib/node_modules/\(packageName)", isDirectory: true),
+            homeDirectory().appendingPathComponent("node_modules/\(packageName)", isDirectory: true),
+            projectRoot?.appendingPathComponent("node_modules/\(packageName)", isDirectory: true)
+        ].compactMap { $0 }
+
+        return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
+    }
+
+    private func resolveRelativePath(_ path: String, baseDirectory: URL) -> URL {
+        let expanded = NSString(string: path).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded)
+        }
+        return baseDirectory.appendingPathComponent(expanded)
+    }
+
+    private func dedupePromptTemplates(_ templates: [PromptTemplateRecord]) -> [PromptTemplateRecord] {
+        var seenPaths = Set<String>()
+        var seenPackageNames = Set<String>()
+        var deduped: [PromptTemplateRecord] = []
+
+        for template in templates {
+            let canonicalPath = URL(fileURLWithPath: template.filePath).standardizedFileURL.path
+            if seenPaths.insert(canonicalPath).inserted {
+                let packageScopedName = [template.packageName ?? "", template.name.lowercased()].joined(separator: "::")
+                seenPackageNames.insert(packageScopedName)
+                deduped.append(template)
+                continue
+            }
+
+            let packageScopedName = [template.packageName ?? "", template.name.lowercased()].joined(separator: "::")
+            if seenPackageNames.contains(packageScopedName) {
+                continue
+            }
+        }
+
+        return deduped
+    }
+
+    private func dedupePromptWarningRecords(_ records: [PromptTemplateRecord]) -> [PromptTemplateRecord] {
+        var seenPaths = Set<String>()
+        var deduped: [PromptTemplateRecord] = []
+
+        for record in records {
+            let canonicalPath = URL(fileURLWithPath: record.filePath).standardizedFileURL.path
+            if seenPaths.insert(canonicalPath).inserted {
+                deduped.append(record)
+            }
+        }
+
+        return deduped
+    }
+
     private func scanSettings(at file: URL?, scope: ResourceScopeKind) -> SettingsSummary? {
         guard let file, let data = try? Data(contentsOf: file) else { return nil }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return SettingsSummary(path: file.path, packages: [], disableBuiltins: nil, agentOverrides: [])
+            return SettingsSummary(path: file.path, packages: [], prompts: [], disableBuiltins: nil, agentOverrides: [])
         }
 
         let packages = root["packages"] as? [String] ?? []
+        let prompts = resolvePromptSettingEntries(root["prompts"], settingsFile: file)
         let subagents = root["subagents"] as? [String: Any]
         let disableBuiltins = subagents?["disableBuiltins"] as? Bool
         let overridesRoot = (subagents?["agentOverrides"] as? [String: Any]) ?? [:]
@@ -211,7 +652,7 @@ struct PiScanner {
         }
         .sorted { $0.agentName.localizedCaseInsensitiveCompare($1.agentName) == .orderedAscending }
 
-        return SettingsSummary(path: file.path, packages: packages, disableBuiltins: disableBuiltins, agentOverrides: overrides)
+        return SettingsSummary(path: file.path, packages: packages, prompts: prompts, disableBuiltins: disableBuiltins, agentOverrides: overrides)
     }
 
     private func scanEnv(at file: URL?, scope: ResourceScopeKind) -> [EnvKeyRecord] {
@@ -396,6 +837,7 @@ struct PiScanner {
         rawAgents: [AgentRecord],
         chains: [ChainRecord],
         skills: [SkillRecord],
+        promptTemplates: [PromptTemplateRecord],
         envKeys: [EnvKeyRecord],
         malformedWarnings: [DiagnosticWarning]
     ) -> [DiagnosticWarning] {
@@ -404,10 +846,22 @@ struct PiScanner {
         let agentNames = Set(effectiveAgents.map(\.name))
         let envNames = Set(envKeys.map(\.key))
         let duplicateAgentNames = Dictionary(grouping: rawAgents, by: \.name).filter { $0.value.count > 1 }
+        let duplicatePromptNames = Dictionary(grouping: promptTemplates, by: \.name).compactMapValues { records in
+            let uniqueRecords = dedupePromptWarningRecords(records)
+            return uniqueRecords.count > 1 ? uniqueRecords : nil
+        }
 
         for (name, records) in duplicateAgentNames {
             let scopes = records.map { "\($0.source.kind.rawValue) · \($0.filePath)" }.sorted().joined(separator: ", ")
             warnings.append(.init(id: "duplicate-agent:\(name)", message: "Duplicate agent name \(name) exists across scopes: \(scopes)."))
+        }
+
+        for (name, records) in duplicatePromptNames {
+            let locations = records
+                .map { "\($0.source.kind.rawValue) · \(URL(fileURLWithPath: $0.filePath).standardizedFileURL.path)" }
+                .sorted()
+                .joined(separator: ", ")
+            warnings.append(.init(id: "duplicate-prompt:\(name)", message: "Duplicate prompt template /\(name) exists across sources: \(locations)."))
         }
 
         for agent in effectiveAgents {
@@ -545,6 +999,13 @@ struct PiScanner {
             if !key.isEmpty { frontmatter[key] = value }
         }
         return (frontmatter, body)
+    }
+
+    private func firstNonEmptyLine(in text: String) -> String? {
+        text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
     }
 
     private func parseBool(_ value: String?) -> Bool? {

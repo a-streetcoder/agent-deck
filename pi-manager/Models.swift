@@ -38,6 +38,18 @@ struct SubagentExtensionConfig: Hashable {
         worktreeSetupHookTimeoutMs: nil,
         intercomBridge: SubagentIntercomBridgeConfig(mode: nil, instructionFile: nil)
     )
+
+    static let packageDefaults = SubagentExtensionConfig(
+        asyncByDefault: false,
+        forceTopLevelAsync: false,
+        defaultSessionDir: nil,
+        maxSubagentDepth: nil,
+        control: SubagentControlConfig(enabled: true, needsAttentionAfterMs: 60000, notifyChannels: ["event", "async", "intercom"]),
+        parallel: SubagentParallelConfig(maxTasks: 8, concurrency: 4),
+        worktreeSetupHook: nil,
+        worktreeSetupHookTimeoutMs: 30000,
+        intercomBridge: SubagentIntercomBridgeConfig(mode: "always", instructionFile: nil)
+    )
 }
 
 enum ResourceScopeKind: String, CaseIterable, Codable {
@@ -200,6 +212,45 @@ struct SkillRecord: Identifiable, Hashable {
     let body: String
 }
 
+enum PromptTemplateDiscoveryKind: String, Hashable {
+    case standardDirectory = "Standard Directory"
+    case settings = "Settings"
+    case package = "Package"
+}
+
+struct PromptTemplateRecord: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String
+    let argumentHint: String?
+    let source: ScopeID
+    let filePath: String
+    let body: String
+    let discoveryKind: PromptTemplateDiscoveryKind
+    let packageName: String?
+
+    var invocation: String { "/\(name)" }
+}
+
+enum CommandRecordKind: String, Hashable {
+    case builtIn = "Built-in Command"
+    case `extension` = "Extension Command"
+}
+
+struct CommandRecord: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String
+    let kind: CommandRecordKind
+    let packageName: String?
+    let notes: String?
+    let sourcePath: String?
+    let sourceScope: String?
+    let sourceOrigin: String?
+
+    var invocation: String { "/\(name)" }
+}
+
 struct DiagnosticWarning: Identifiable, Hashable {
     let id: String
     let message: String
@@ -208,6 +259,7 @@ struct DiagnosticWarning: Identifiable, Hashable {
 struct SettingsSummary: Hashable {
     let path: String
     let packages: [String]
+    let prompts: [String]
     let disableBuiltins: Bool?
     let agentOverrides: [BuiltinOverrideRecord]
 }
@@ -256,6 +308,8 @@ struct ScanSnapshot: Hashable {
     let effectiveAgents: [EffectiveAgentRecord]
     let chains: [ChainRecord]
     let skills: [SkillRecord]
+    let commands: [CommandRecord]
+    let promptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
     let envKeys: [EnvKeyRecord]
     let mcpConfigs: [MCPConfigRecord]
@@ -271,6 +325,8 @@ struct ScanSnapshot: Hashable {
         effectiveAgents: [],
         chains: [],
         skills: [],
+        commands: [],
+        promptTemplates: [],
         settings: [],
         envKeys: [],
         mcpConfigs: [],
