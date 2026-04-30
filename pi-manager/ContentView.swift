@@ -281,14 +281,16 @@ private struct SidebarProjectGitHubCard: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(selectedProjectTitle)
-                        .font(.headline)
-                        .fontWidth(.expanded)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .fontWidth(.compressed)
                         .lineLimit(1)
 
                     Text(selectedProjectSubtitle)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(1)
+                        .fontWidth(.compressed)
                 }
 
                 Spacer(minLength: 8)
@@ -338,11 +340,13 @@ private struct SidebarProjectGitHubCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(accountName)
-                        .font(.subheadline.weight(.semibold))
-                        .fontWidth(.expanded)
+                        .fontWeight(.medium)
+                        .fontWidth(.compressed)
+                        .lineLimit(1)
                     Text(statusText)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
+                        .fontWidth(.compressed)
                 }
 
                 Spacer()
@@ -386,14 +390,14 @@ private struct SidebarProjectGitHubCard: View {
         if let remote = selectedProject?.gitHubRemote {
             return remote.repo
         }
-        return selectedProject?.name ?? "All Projects"
+        return selectedProject?.name ?? "Select project"
     }
 
     private var selectedProjectSubtitle: String {
         if let remote = selectedProject?.gitHubRemote {
             return remote.owner
         }
-        return selectedProject != nil ? selectedProject?.path ?? "No project selected" : "No project selected"
+        return selectedProject != nil ? selectedProject?.path ?? "-" : "-"
     }
 
     private var accountName: String {
