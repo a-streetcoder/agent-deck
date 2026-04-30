@@ -275,7 +275,7 @@ private struct SidebarProjectGitHubCard: View {
             HStack(alignment: .center, spacing: 10) {
                 ProjectIconView(
                     imageURL: selectedProject?.iconFileURL,
-                    symbolName: selectedProject?.fallbackSymbolName ?? "square.grid.2x2",
+                    symbolName: selectedProject?.fallbackSymbolName ?? "folder",
                     size: 34
                 )
 
@@ -283,14 +283,16 @@ private struct SidebarProjectGitHubCard: View {
                     Text(selectedProjectTitle)
                         .font(.body)
                         .fontWeight(.medium)
-                        .fontWidth(.compressed)
+//                        .fontWidth(selectedProject != nil ? .expanded : .standard )
                         .lineLimit(1)
-
-                    Text(selectedProjectSubtitle)
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(1)
-                        .fontWidth(.compressed)
+                    if selectedProject != nil {
+                        Text(selectedProjectSubtitle)
+                            .font(.callout)
+                            .fontWeight(.regular)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                            .fontWidth(.compressed)
+                    }
                 }
 
                 Spacer(minLength: 8)
@@ -341,10 +343,11 @@ private struct SidebarProjectGitHubCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(accountName)
                         .fontWeight(.medium)
-                        .fontWidth(.compressed)
+//                        .fontWidth(.expanded)
                         .lineLimit(1)
                     Text(statusText)
-                        .font(.footnote)
+                        .font(.callout)
+                        .fontWeight(.regular)
                         .foregroundStyle(AppTheme.mutedText)
                         .fontWidth(.compressed)
                 }
@@ -397,7 +400,7 @@ private struct SidebarProjectGitHubCard: View {
         if let remote = selectedProject?.gitHubRemote {
             return remote.owner
         }
-        return selectedProject != nil ? selectedProject?.path ?? "-" : "-"
+        return selectedProject != nil ? selectedProject?.path ?? "" : ""
     }
 
     private var accountName: String {

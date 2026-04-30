@@ -1334,7 +1334,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .overview: return "square.grid.2x2"
-        case .projects: return "folder.badge.gearshape"
+        case .projects: return "folder"
         case .agents: return "rectangle.connected.to.line.below"
         case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
