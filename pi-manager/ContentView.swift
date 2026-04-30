@@ -1462,6 +1462,7 @@ private struct AgentDetailView: View {
     let onEdit: () -> Void
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     @State private var selectedTab: DetailTab = .summary
+    @State private var isEditing = false
     @State private var inlineDraft: AgentEditorDraft?
     @State private var baselineInlineDraft: AgentEditorDraft?
     @State private var inlineSaveMessage: String?
@@ -1481,6 +1482,10 @@ private struct AgentDetailView: View {
                             }
                         }
                     }
+                    Button(isEditing ? "Done" : "Edit") {
+                        toggleEditMode()
+                    }
+
                     Button("Prompt & Advanced…") {
                         onEdit()
                     }
@@ -1546,23 +1551,27 @@ private struct AgentDetailView: View {
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Configuration", trailing: {
-                HStack(spacing: 10) {
-                    if inlineHasChanges {
-                        Button("Discard") {
-                            discardInlineChanges()
+                if isEditing {
+                    HStack(spacing: 10) {
+                        if inlineHasChanges {
+                            Button("Discard") {
+                                discardInlineChanges(exitEditMode: true)
+                            }
+                            .controlSize(.small)
                         }
-                        .controlSize(.small)
-                    }
 
-                    Button("Save Changes") {
-                        saveInlineDraft()
+                        Button("Save Changes") {
+                            saveInlineDraft(exitEditMode: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!inlineHasChanges || inlineDraft == nil)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(!inlineHasChanges || inlineDraft == nil)
+                } else {
+                    AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
                 }
             }) {
-                if let draft = inlineDraft {
+                if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         HStack(spacing: 10) {
                             AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
@@ -1703,9 +1712,24 @@ private struct AgentDetailView: View {
                                 .foregroundStyle(.green)
                         }
                     }
-                } else {
+                } else if isEditing {
                     ProgressView()
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    AppKeyValueList(rows: [
+                        ("Model", agent.resolved.model ?? "default"),
+                        ("Fallback Models", agent.resolved.fallbackModels.isEmpty ? "—" : agent.resolved.fallbackModels.joined(separator: ", ")),
+                        ("Thinking", agent.resolved.thinking ?? "off"),
+                        ("Prompt Mode", agent.resolved.systemPromptMode ?? "—"),
+                        ("Inherit Project Context", display(agent.resolved.inheritProjectContext)),
+                        ("Inherit Skills", display(agent.resolved.inheritSkills)),
+                        ("Disabled", display(agent.resolved.disabled)),
+                        ("Output", agent.resolved.output ?? "—"),
+                        ("Default Reads", agent.resolved.defaultReads?.joined(separator: ", ") ?? "—"),
+                        ("Default Progress", display(agent.resolved.defaultProgress)),
+                        ("Interactive", display(agent.resolved.interactive)),
+                        ("Max Subagent Depth", agent.resolved.maxSubagentDepth.map(String.init) ?? "—")
+                    ])
                 }
             }
 
@@ -1723,11 +1747,40 @@ private struct AgentDetailView: View {
 
     private var promptTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: resolvedPromptDiffers ? "Resolved Prompt" : "Prompt") {
-                MarkdownDocumentView(source: agent.resolved.systemPrompt)
+            AppCard(title: resolvedPromptDiffers ? "Resolved Prompt" : "Prompt", trailing: {
+                if isEditing {
+                    HStack(spacing: 10) {
+                        if inlineHasChanges {
+                            Button("Discard") {
+                                discardInlineChanges(exitEditMode: true)
+                            }
+                            .controlSize(.small)
+                        }
+
+                        Button("Save Changes") {
+                            saveInlineDraft(exitEditMode: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!inlineHasChanges || inlineDraft == nil)
+                    }
+                }
+            }) {
+                if isEditing {
+                    TextEditor(text: Binding(
+                        get: { inlineDraft?.config.systemPrompt ?? "" },
+                        set: { inlineDraft?.config.systemPrompt = $0 }
+                    ))
+                    .frame(minHeight: 320)
+                    .font(.system(.body, design: .monospaced))
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                } else {
+                    MarkdownDocumentView(source: agent.resolved.systemPrompt)
+                }
             }
 
-            if resolvedPromptDiffers {
+            if !isEditing, resolvedPromptDiffers {
                 AppCard(title: "Raw Source Prompt") {
                     MarkdownDocumentView(source: agent.winningRecord?.promptBody ?? "")
                 }
@@ -1738,23 +1791,25 @@ private struct AgentDetailView: View {
     private var toolsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Tools & Extensions", trailing: {
-                HStack(spacing: 10) {
-                    if inlineHasChanges {
-                        Button("Discard") {
-                            discardInlineChanges()
+                if isEditing {
+                    HStack(spacing: 10) {
+                        if inlineHasChanges {
+                            Button("Discard") {
+                                discardInlineChanges(exitEditMode: true)
+                            }
+                            .controlSize(.small)
                         }
-                        .controlSize(.small)
-                    }
 
-                    Button("Save Changes") {
-                        saveInlineDraft()
+                        Button("Save Changes") {
+                            saveInlineDraft(exitEditMode: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!inlineHasChanges || inlineDraft == nil)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(!inlineHasChanges || inlineDraft == nil)
                 }
             }) {
-                if let draft = inlineDraft {
+                if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Tool Access") {
                             configEditorRow("Mode") {
@@ -1815,11 +1870,68 @@ private struct AgentDetailView: View {
                                     inlineTokenList(draft.config.extensions ?? [], remove: removeInlineExtension)
                                 }
                             }
+
+                            settingsSection("Files") {
+                                configEditorRow("Output") {
+                                    TextField("Output path", text: inlineOptionalStringBinding(for: \.output))
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(maxWidth: 360, alignment: .leading)
+                                }
+
+                                configEditorRow("Default Reads") {
+                                    TextField("fileA, fileB", text: inlineStringListBinding(for: \.defaultReads))
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(maxWidth: 360, alignment: .leading)
+                                }
+                            }
                         }
                     }
-                } else {
+                } else if isEditing {
                     ProgressView()
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        AppKeyValueList(rows: [
+                            ("Extensions", extensionsSummary),
+                            ("Output File", agent.resolved.output ?? "—"),
+                            ("Default Reads", agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
+                        ])
+
+                        if let tools = agent.resolved.tools, !tools.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Built-in Tools")
+                                    .font(.headline)
+                                    .fontWidth(.expanded)
+                                ForEach(tools, id: \.self) { tool in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "wrench.and.screwdriver")
+                                            .foregroundStyle(.blue)
+                                        Text(tool)
+                                    }
+                                }
+                            }
+                        }
+
+                        if let mcpTools = agent.resolved.mcpDirectTools, !mcpTools.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Direct MCP Tools")
+                                    .font(.headline)
+                                    .fontWidth(.expanded)
+                                ForEach(mcpTools, id: \.self) { tool in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "cable.connector")
+                                            .foregroundStyle(.purple)
+                                        Text("mcp:\(tool)")
+                                    }
+                                }
+                            }
+                        }
+
+                        if (agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty {
+                            Text("Default Pi tool access")
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
                 }
             }
 
@@ -1838,23 +1950,25 @@ private struct AgentDetailView: View {
     private var skillsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Skills", trailing: {
-                HStack(spacing: 10) {
-                    if inlineHasChanges {
-                        Button("Discard") {
-                            discardInlineChanges()
+                if isEditing {
+                    HStack(spacing: 10) {
+                        if inlineHasChanges {
+                            Button("Discard") {
+                                discardInlineChanges(exitEditMode: true)
+                            }
+                            .controlSize(.small)
                         }
-                        .controlSize(.small)
-                    }
 
-                    Button("Save Changes") {
-                        saveInlineDraft()
+                        Button("Save Changes") {
+                            saveInlineDraft(exitEditMode: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!inlineHasChanges || inlineDraft == nil)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(!inlineHasChanges || inlineDraft == nil)
                 }
             }) {
-                if let draft = inlineDraft {
+                if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Skill Selection") {
                             configEditorRow("Catalog") {
@@ -1878,9 +1992,31 @@ private struct AgentDetailView: View {
                             }
                         }
                     }
-                } else {
+                } else if isEditing {
                     ProgressView()
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        AppKeyValueList(rows: [
+                            ("Inherit Skills", display(agent.resolved.inheritSkills)),
+                            ("Explicit Skill Count", "\(agent.resolved.skills.count)")
+                        ])
+
+                        if agent.resolved.skills.isEmpty {
+                            Text("No explicit skills")
+                                .foregroundStyle(AppTheme.mutedText)
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(agent.resolved.skills, id: \.self) { skill in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "sparkles")
+                                            .foregroundStyle(.green)
+                                        Text(skill)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2290,12 +2426,28 @@ private struct AgentDetailView: View {
         }
     }
 
-    private func discardInlineChanges() {
-        inlineDraft = baselineInlineDraft
-        inlineSaveMessage = nil
+    private func toggleEditMode() {
+        if isEditing {
+            if inlineHasChanges {
+                saveInlineDraft(exitEditMode: true)
+            } else {
+                isEditing = false
+            }
+        } else {
+            reloadInlineDraft()
+            isEditing = true
+        }
     }
 
-    private func saveInlineDraft() {
+    private func discardInlineChanges(exitEditMode: Bool = false) {
+        inlineDraft = baselineInlineDraft
+        inlineSaveMessage = nil
+        if exitEditMode {
+            isEditing = false
+        }
+    }
+
+    private func saveInlineDraft(exitEditMode: Bool = false) {
         guard let inlineDraft else { return }
         do {
             let normalized = normalizedInlineDraft(inlineDraft)
@@ -2303,6 +2455,9 @@ private struct AgentDetailView: View {
             baselineInlineDraft = normalized
             self.inlineDraft = normalized
             inlineSaveMessage = "Saved"
+            if exitEditMode {
+                isEditing = false
+            }
         } catch {
             NSSound.beep()
             inlineSaveMessage = nil

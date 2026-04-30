@@ -1424,9 +1424,7 @@ final class AppViewModel: ObservableObject {
     nonisolated private static func loadModelThinkingLevels() -> [String: [String]] {
         let script = #"""
 import { getModel, supportsXhigh } from '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js';
-const lines = [];
-for await (const chunk of process.stdin) lines.push(chunk);
-const input = JSON.parse(lines.join(''));
+const input = JSON.parse(process.env.PI_MANAGER_MODEL_INPUT ?? '[]');
 const result = {};
 for (const item of input) {
   const model = getModel(item.provider, item.model);
@@ -1443,19 +1441,20 @@ process.stdout.write(JSON.stringify(result));
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["node", "--input-type=module", "--eval", script]
-        let inputPipe = Pipe()
         let outputPipe = Pipe()
-        process.standardInput = inputPipe
         process.standardOutput = outputPipe
         process.standardError = Pipe()
 
         let knownModels = availableModelIdentifiersFromPiList().map { ["provider": $0.provider, "model": $0.model] }
 
         do {
-            try process.run()
             let inputData = try JSONSerialization.data(withJSONObject: knownModels)
-            inputPipe.fileHandleForWriting.write(inputData)
-            try? inputPipe.fileHandleForWriting.close()
+            guard let inputText = String(data: inputData, encoding: .utf8) else { return [:] }
+            var environment = ProcessInfo.processInfo.environment
+            environment["PI_MANAGER_MODEL_INPUT"] = inputText
+            process.environment = environment
+
+            try process.run()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return [:] }
             let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
