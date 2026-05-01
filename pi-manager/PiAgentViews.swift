@@ -214,7 +214,7 @@ struct PiAgentScreen: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 12) {
                             if let session = store.selectedSession {
                                 PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                             }
@@ -262,7 +262,8 @@ struct PiAgentScreen: View {
                     ))
                 },
                 metricsFooter: store.selectedSession.map { AnyView(PiAgentRuntimeFooter(session: $0)) },
-                onSend: sendComposerMessage
+                onSend: sendComposerMessage,
+                onStop: { viewModel.stopSelectedPiAgentSession() }
             )
         }
     }
@@ -426,8 +427,6 @@ private struct PiAgentStartupResourcesCard: View {
     @ObservedObject var viewModel: AppViewModel
     let session: PiAgentSessionRecord
 
-    private let chipColumns = [GridItem(.adaptive(minimum: 132), spacing: 8, alignment: .leading)]
-
     var body: some View {
         AppRowCard {
             VStack(alignment: .leading, spacing: 16) {
@@ -439,8 +438,8 @@ private struct PiAgentStartupResourcesCard: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top, spacing: 10) {
-                        resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems)
-                        resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems)
+                        resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
+                        resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
                     }
                     resourceSection("Agents", count: agentItems.count, icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems)
                     resourceSection("Skills", count: skillItems.count, icon: "wand.and.stars", color: .purple, items: skillItems)
@@ -525,7 +524,7 @@ private struct PiAgentStartupResourcesCard: View {
         }
     }
 
-    private func resourceSection(_ title: String, count: Int, icon: String, color: Color, items: [PiStartupResourceItem]) -> some View {
+    private func resourceSection(_ title: String, count: Int, icon: String, color: Color, items: [PiStartupResourceItem], columns: Int = 5) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -542,9 +541,16 @@ private struct PiAgentStartupResourcesCard: View {
                     .background(Capsule(style: .continuous).fill(color.opacity(0.12)))
             }
 
-            LazyVGrid(columns: chipColumns, alignment: .leading, spacing: 7) {
-                ForEach(items) { item in
-                    resourceChip(item)
+            Grid(horizontalSpacing: 8, verticalSpacing: 7) {
+                ForEach(Array(chunk(items, size: columns).enumerated()), id: \.offset) { _, row in
+                    GridRow {
+                        ForEach(row) { item in
+                            resourceChip(item)
+                        }
+                        ForEach(0..<max(columns - row.count, 0), id: \.self) { _ in
+                            Color.clear.frame(height: 1)
+                        }
+                    }
                 }
             }
         }
@@ -555,6 +561,12 @@ private struct PiAgentStartupResourcesCard: View {
                 .fill(AppTheme.subtleFill.opacity(0.65))
                 .stroke(AppTheme.cardStroke.opacity(0.8), lineWidth: 1)
         )
+    }
+
+    private func chunk(_ items: [PiStartupResourceItem], size: Int) -> [[PiStartupResourceItem]] {
+        stride(from: 0, to: items.count, by: max(size, 1)).map { start in
+            Array(items[start..<min(start + max(size, 1), items.count)])
+        }
     }
 
     private func hintChip(_ key: String, _ label: String) -> some View {
@@ -761,6 +773,7 @@ private struct PiAgentComposerBox: View {
     let footer: AnyView?
     let metricsFooter: AnyView?
     let onSend: () -> Void
+    let onStop: () -> Void
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -812,7 +825,21 @@ private struct PiAgentComposerBox: View {
 
             VStack(spacing: 10) {
                 if let footer {
-                    footer
+                    HStack(spacing: 10) {
+                        footer
+                        Button(action: attachImagesFromOpenPanel) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(AppTheme.mutedText)
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(AppTheme.subtleFill))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Attach files or images")
+                        Spacer(minLength: 18)
+                        PiAgentSendButton(isRunning: isRunning, canSend: canSend, sendAction: onSend, stopAction: onStop)
+                            .keyboardShortcut(.return, modifiers: [])
+                    }
                 }
 
                 HStack(alignment: .center, spacing: 10) {
@@ -833,33 +860,6 @@ private struct PiAgentComposerBox: View {
                     }
 
                     Spacer(minLength: 8)
-
-                    if isRunning {
-                        Button {
-                            inputMode = inputMode == .steer ? .followUp : .steer
-                        } label: {
-                            Label("Steer", systemImage: "arrow.turn.down.right")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .tint(inputMode == .steer ? Color.accentColor : nil)
-                        .help(inputMode == .steer ? "Steering is on: send guidance into the current turn" : "Default: queue a follow-up. Click to steer the current turn instead.")
-                    }
-                    ShortcutComboHint(symbols: ["return"], text: "send")
-                    ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
-                    if isRunning { ShortcutComboHint(symbols: ["escape"], text: "stop") }
-                    Button(action: attachImagesFromOpenPanel) {
-                        Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AppTheme.mutedText)
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(AppTheme.subtleFill))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Attach files or images")
-                    PiAgentSendButton(canSend: canSend, action: onSend)
-                        .keyboardShortcut(.return, modifiers: [])
                 }
             }
             .padding(.horizontal, 12)
@@ -894,6 +894,28 @@ private struct PiAgentComposerBox: View {
                 }
                 .allowsHitTesting(false)
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack(spacing: 8) {
+                if isRunning {
+                    Button {
+                        inputMode = inputMode == .steer ? .followUp : .steer
+                    } label: {
+                        Label("Steer", systemImage: "arrow.turn.down.right")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(inputMode == .steer ? Color.accentColor : nil)
+                    .help(inputMode == .steer ? "Steering is on: send guidance into the current turn" : "Default: queue a follow-up. Click to steer the current turn instead.")
+                }
+                Spacer(minLength: 0)
+                ShortcutComboHint(symbols: ["return"], text: "send")
+                ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
+                if isRunning { ShortcutComboHint(symbols: ["escape"], text: "stop") }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
         }
         .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 7)
         .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL]) { _ in
@@ -1346,24 +1368,34 @@ private extension NSImage {
 }
 
 private struct PiAgentSendButton: View {
+    let isRunning: Bool
     let canSend: Bool
-    let action: () -> Void
+    let sendAction: () -> Void
+    let stopAction: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "arrow.up")
+        Button(action: isRunning ? stopAction : sendAction) {
+            Image(systemName: isRunning ? "stop.fill" : "arrow.up")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
                 .frame(width: 34, height: 34)
                 .background(
                     Circle()
-                        .fill(canSend ? Color.accentColor : AppTheme.mutedText.opacity(0.28))
+                        .fill(backgroundColor)
+                        .animation(.snappy(duration: 0.22), value: isRunning)
                 )
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(!canSend)
-        .help("Send message")
+        .disabled(!isRunning && !canSend)
+        .help(isRunning ? "Stop Pi Agent" : "Send message")
+        .animation(.snappy(duration: 0.22), value: isRunning)
+    }
+
+    private var backgroundColor: Color {
+        if isRunning { return .red.opacity(0.88) }
+        return canSend ? Color.accentColor : AppTheme.mutedText.opacity(0.28)
     }
 }
 
@@ -1380,7 +1412,6 @@ private struct PiAgentComposerFooterBar: View {
     var body: some View {
         HStack(spacing: 10) {
             PiAgentContextUsageMeter(session: session)
-                .frame(width: 250)
             PiAgentModelPicker(
                 session: session,
                 fallbackModels: viewModel.availableModels,
@@ -1402,7 +1433,6 @@ private struct PiAgentComposerFooterBar: View {
                 onCycle: { viewModel.cyclePiAgentThinkingLevelForSelectedSession() },
                 onSelect: { viewModel.setPiAgentThinkingLevelForSelectedSession($0) }
             )
-            Spacer(minLength: 0)
         }
     }
 }
@@ -1412,26 +1442,27 @@ private struct PiAgentContextUsageMeter: View {
 
     var body: some View {
         if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 Text("Context")
                     .font(.caption.weight(.semibold))
-                    .fontWidth(.condensed)
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule(style: .continuous)
-                            .fill(AppTheme.subtleFill)
-                        Capsule(style: .continuous)
-                            .fill(percent > 85 ? Color.orange : Color.accentColor)
-                            .frame(width: proxy.size.width * min(max(percent, 0), 100) / 100)
-                    }
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(AppTheme.cardFill.opacity(0.75))
+                    Capsule(style: .continuous)
+                        .fill(percent > 85 ? Color.orange : Color.accentColor)
+                        .frame(width: 104 * min(max(percent, 0), 100) / 100)
                 }
-                .frame(height: 10)
+                .frame(width: 104, height: 10)
                 Text("\(Int(percent))%")
                     .font(.caption.monospacedDigit().weight(.bold))
                 Text("\(compact(tokens))/\(compact(window))")
-                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
             }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
         }
     }
 
@@ -2157,7 +2188,8 @@ struct PiAgentInspectorPanel: View {
                         composerText = ""
                         composerImages = []
                         composerAttachmentError = nil
-                    }
+                    },
+                    onStop: { viewModel.stopSelectedPiAgentSession() }
                 )
             } else {
                 Text("Start a project session from the sidebar project card, the Agent screen, or a GitHub issue.")

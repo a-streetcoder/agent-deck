@@ -113,7 +113,7 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .agent {
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItem(placement: .primaryAction) {
                     Button {
                         viewModel.openRepoChangesForSelectedPiAgentSession()
                     } label: {
@@ -121,16 +121,25 @@ struct ContentView: View {
                     }
                     .help("Repo changes")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+                }
 
-                    Button {
-                        viewModel.stopSelectedPiAgentSession()
-                    } label: {
-                        Image(systemName: "stop.fill")
+                if selectedPiAgentSessionIsRunning {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            viewModel.stopSelectedPiAgentSession()
+                        } label: {
+                            Image(systemName: "stop.fill")
+                        }
+                        .help("Stop Pi Agent")
+                        .keyboardShortcut(.escape, modifiers: [])
                     }
-                    .help("Stop Pi Agent")
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .disabled(!selectedPiAgentSessionIsRunning)
+                }
 
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                ToolbarItem(placement: .primaryAction) {
                     Button(role: .destructive) {
                         if let session = viewModel.piAgentSessionStore.selectedSession {
                             viewModel.deletePiAgentSession(session.id)
