@@ -78,6 +78,21 @@ struct GitHubIssueService {
         _ = try await apiClient.post(path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)/comments", body: payload)
     }
 
+    func closeIssue(_ item: GitHubWorkItem) async throws {
+        let repo = try parseRepository(item.repository)
+        let payload = try JSONEncoder().encode(["state": "closed", "state_reason": "completed"])
+        do {
+            _ = try await apiClient.patch(path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)", body: payload)
+        } catch let error as GitHubAPIClient.APIError {
+            if case .requestFailed = error {
+                let fallback = try JSONEncoder().encode(["state": "closed"])
+                _ = try await apiClient.patch(path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)", body: fallback)
+                return
+            }
+            throw error
+        }
+    }
+
     private func fetchReferences(path: String, decoder: JSONDecoder) async throws -> [GitHubIssueReference] {
         let (data, _) = try await apiClient.get(path: path, queryItems: [])
         let payload = try decoder.decode([GitHubIssueRelationshipPayload].self, from: data)

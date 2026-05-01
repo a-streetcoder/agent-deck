@@ -34,8 +34,8 @@ struct ContentView: View {
                         Section(section.rawValue) {
                             ForEach(section.items) { item in
                                 HStack(spacing: 8) {
-                                    if item == .github {
-                                        Image("github")
+                                    if item == .github || item == .agent {
+                                        Image(item == .github ? "github" : "pi")
                                             .resizable()
                                             .renderingMode(.template)
                                             .aspectRatio(contentMode: .fit)
@@ -77,9 +77,30 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } detail: {
-            detailView
+            HStack(spacing: 0) {
+                detailView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent {
+                    Divider()
+                    PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+                        .frame(width: 380)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.18), value: viewModel.isPiAgentInspectorPresented)
         }
         .frame(minWidth: 1180, minHeight: 760)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.isPiAgentInspectorPresented.toggle()
+                } label: {
+                    Label("Pi Agent", systemImage: "sparkles.rectangle.stack")
+                }
+                .help(viewModel.isPiAgentInspectorPresented ? "Hide Pi Agent inspector" : "Show Pi Agent inspector")
+            }
+        }
         .task(id: projectFilterText) {
             let trimmed = projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
             try? await Task.sleep(for: .milliseconds(120))
@@ -181,6 +202,8 @@ struct ContentView: View {
             CommandsAndPromptsScreen(viewModel: viewModel)
         case .github:
             GitHubScreen(viewModel: viewModel)
+        case .agent:
+            PiAgentScreen(viewModel: viewModel, store: viewModel.piAgentSessionStore)
         case .models:
             ModelsScreen(viewModel: viewModel)
         case .settings:
@@ -302,6 +325,17 @@ private struct SidebarProjectGitHubCard: View {
                         onToggleFavorite: onToggleFavorite
                     )
                 }
+            }
+
+            if selectedProject != nil {
+                Button {
+                    viewModel.openPiAgentForSelectedProject()
+                } label: {
+                    Label("Open Pi Agent", systemImage: "sparkles")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
 
             Divider()

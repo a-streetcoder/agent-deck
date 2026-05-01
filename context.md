@@ -1,60 +1,50 @@
 ---
-head: 3d6d36764af109100738981bc543dac26a4fcea1
+head: e6a059a225d9541c2bd1f86151461bc9bf873f55
 dirty: true
-generatedAt: 2026-04-30T23:22:34Z
-taskScope: pi-manager architecture, UI/design system, GitHub issue/repo workflows, and integration points for running Pi Agent in-app
-changeSummarySincePrevious: cache lacked required metadata and covered a narrower project discovery/icon scope; refreshed for current request
+generatedAt: 2026-05-01T00:09:43Z
+taskScope: navigation/sidebar, AppViewModel state/services, GitHub issue detail actions, GitRepositoryService APIs, Xcode file-add patterns for adding an Agent screen/services
+changeSummarySincePrevious: HEAD changed 7 files (+2145/-299); relevant ContentView/AppViewModel changed, so refreshed targeted context
 reusedCache: false
 ---
 
 # Code Context
 
 ## Scope
-Concise map of the SwiftUI macOS app, current Pi config scanning/editing, GitHub issue/repo functionality, and likely places to add an in-app Pi Agent runner.
+Implementation guidance for adding an Agent screen plus supporting Swift services in the current SwiftUI macOS app.
 
 ## Files Retrieved
-1. `pi-manager/pi_managerApp.swift` (lines 8-15) - app entry point creates `ContentView` in a hidden-titlebar window.
-2. `pi-manager/ContentView.swift` (lines 1-220, 724-1230, 1292-2640) - main navigation, screens, sheets, sidebar project card, settings/models/subagents/agents UI.
-3. `pi-manager/DesignSystem.swift` (lines 1-270) - shared theme/card/page/row/tag/stepper primitives.
-4. `pi-manager/AppViewModel.swift` (lines 5-132, 242-930, 1120-1210) - central app state, project scan flow, GitHub state/actions, agent persistence entry points.
-5. `pi-manager/ProjectDiscovery.swift` (lines 3-180) - discovers projects, parses GitHub remotes, exposes `DiscoveredProject`.
-6. `pi-manager/ProjectPreferences.swift` (lines 3-118) - UserDefaults-backed enabled/favorite/custom icon project prefs.
-7. `pi-manager/PiScanner.swift` (lines 3-145) - scans Pi/agent files from global/project paths and builds `ScanSnapshot`.
-8. `pi-manager/CommandRunner.swift` (lines 1-174) - async `Process` wrapper; best existing primitive for launching `pi`.
-9. `pi-manager/GitHubModels.swift` (lines 1-220) - GitHub session, issue board/detail, repo change models.
-10. `pi-manager/GitHubSearchService.swift` (lines 3-130) - REST Search API issue board fetch.
-11. `pi-manager/GitHubIssueService.swift` (lines 3-145) - issue detail, comments, parent/sub-issue/dependency fetch and comment post.
-12. `pi-manager/GitRepositoryService.swift` (lines 3-180) - git status/diff/stage/commit/push service.
-13. `pi-manager/GitHubViews.swift` (lines 1-260+) - GitHub screen UI: segmented sections, connection card, issue list/detail/repo changes.
+1. `pi-manager/ContentView.swift` (lines 1-220) - app root, sidebar list, detail switch, sheets.
+2. `pi-manager/AppViewModel.swift` (lines 1-110, 800-930, 1657-1715) - main state/services/init, issue actions, sidebar enums.
+3. `pi-manager/GitHubViews.swift` (lines 272-431) - issue detail UI/actions.
+4. `pi-manager/GitHubIssueService.swift` (lines 1-145) - issue detail/comment APIs.
+5. `pi-manager/GitRepositoryService.swift` (lines 1-191) - git service public API and parsing.
+6. `pi-manager/CommandRunner.swift` (lines 1-80) - process-running primitive for new services.
+7. `pi-manager.xcodeproj/project.pbxproj` (lines 9-19, 63-65, 117-124) - Xcode synchronized group pattern.
 
 ## Key Code
-- App is SwiftUI-only: `pi_managerApp` -> `ContentView()`.
-- `ContentView` owns `@StateObject private var viewModel = AppViewModel()` and switches `SidebarItem` to screens, including `.github`, `.agents`, `.subagents`, `.models`, `.settings`.
-- `AppViewModel` is the hub: published scan state, selected project, GitHub boards/details, repo changes, loading flags/errors, settings. It constructs `PiScanner`, `ProjectDiscovery`, persistence services, `GitHubCLIAuthService`, and `GitRepositoryService`.
-- Project flow: `refresh()` discovers projects, filters enabled ones, scans global + each enabled project, sets `snapshot` to selected project or aggregate.
-- `DiscoveredProject` contains `url`, `gitHubRemote`, `isGitRepository`, custom icon URL, search index; `ProjectDiscovery` scans `~/Documents/GitHub` plus manual paths and parses `.git/config` remotes.
-- Pi config paths scanned: builtins `/opt/homebrew/lib/node_modules/pi-subagents/agents`; globals `~/.pi/agent/*`, `~/.agents`; project `.pi/agents`, `.agents`, `.pi/settings.json`, `.pi/.env`, `.pi/mcp.json`, `.mcp.json`, `.pi/skills`, `.pi/prompts`.
-- Existing process runner: `CommandRunner.run(command,args,currentDirectoryURL,timeout,environment)` resolves executables via user shell then `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `/bin`; captures stdout/stderr and supports timeout.
-- GitHub auth uses `gh` CLI (`GitHubCLIAuthService`) to get token/session. API calls use `GitHubAPIClient` with bearer token.
-- GitHub issue functionality: search issue board per selected repo (`GitHubSearchService.fetchRepositoryIssues`), detail with comments/relationships (`GitHubIssueService.fetchDetail`), and post comments. No issue create/edit/close APIs found.
-- Repo workflow: `GitRepositoryService` wraps `git status --porcelain -z -b`, diff, add/restore, commit, push; `AppViewModel` exposes stage/unstage/commit/push methods.
+- Root UI: `ContentView` owns `@StateObject private var viewModel = AppViewModel()` and `NavigationSplitView`; sidebar is `List(selection: $viewModel.selectedSidebarItem)` over `SidebarSection.allCases` / `section.items`; GitHub uses custom `Image("github")`, others use `item.systemImage`. Detail routes via `switch viewModel.selectedSidebarItem` to screens (`GitHubScreen`, `AgentsScreen`, etc.) in `ContentView.swift:4-73, 143-215`.
+- Sidebar enum in `AppViewModel.swift:1657-1715`:
+  - `SidebarItem`: `.overview`, `.projects`, `.github`, `.agents`, `.chains`, `.skills`, `.commandsAndPrompts`, `.subagents`, `.models`, `.settings`, `.environment`, `.mcp`, `.diagnostics` with `rawValue` labels and `systemImage` switch.
+  - `SidebarSection.items`: Workspace = overview/projects/github; Pi Resources = agents/chains/skills/prompts; Runtime = models/settings/environment/mcp/diagnostics. To add an Agent screen, add a case, image, section membership, then handle it in `ContentView.detailView`.
+- `AppViewModel` initial state/services in `AppViewModel.swift:8-80`: many `@Published` properties; key ones for new screen are `selectedSidebarItem`, `selectedProjectPath`, `discoveredProjects`, `snapshot`, GitHub state, and `appSettings`. Services are private lets: `PiScanner`, `ProjectDiscovery`, `AgentPersistence`, `ChainPersistence`, `EnvPersistence`, `SubagentConfigPersistence`, stores, `GitHubCLIAuthService`, `GitRepositoryService`. `init()` loads settings/last selected project, calls `refresh(includeModels: true)`, starts auto refresh, then checks/connects GitHub (`AppViewModel.swift:76-89`).
+- Existing process/service pattern: `CommandRunner.run(command,args,currentDirectoryURL,timeout,environment)` returns `CommandResult(stdout, stderr, exitCode)` and resolves executables (`CommandRunner.swift:1-80`). Use this for a Pi/Agent service rather than duplicating `Process` handling.
+- GitHub issue detail actions: selecting an issue sets `githubSelectedWorkItem`, clears detail/comment, calls `loadIssueDetail`; selecting a relationship may switch project then selects/fabricates a `GitHubWorkItem`; submitting comment validates selection/body, posts, clears draft, invalidates board caches, reloads detail (`AppViewModel.swift:800-930`).
+- Issue detail UI only supports opening in browser, clicking relationship groups, viewing comments, and `Post Comment` (`GitHubViews.swift:272-431`). No create/edit/close issue action exists.
+- `GitHubIssueService` public API: `fetchDetail(for:)` GETs issue, comments, parent, sub_issues, dependencies blocked_by/blocking in parallel; `postComment(body:for:)` POSTs to issue comments (`GitHubIssueService.swift:3-72`).
+- `GitRepositoryService` public API (`GitRepositoryService.swift:3-58`): `loadChanges(in:)`, `loadDiff(for:kind:in:)`, `stage`, `unstage`, `stageAll`, `unstageAll`, `commit(message:in:)`, `pushCurrentBranch(in:)`. It shells out to git via `CommandRunning`; untracked diff returns a text preview; `parseStatus` builds staged/unstaged/untracked/conflicted snapshots (`GitRepositoryService.swift:61-191`).
+- Xcode project uses file-system synchronized root group for `pi-manager` (`PBXFileSystemSynchronizedRootGroup`, target `fileSystemSynchronizedGroups`). `PBXSourcesBuildPhase.files` is empty. Pattern means adding a `.swift` under `pi-manager/` should be picked up without adding PBXBuildFile/PBXSources entries (`pi-manager.xcodeproj/project.pbxproj:9-19,63-65,117-124`).
 
 ## Architecture
-- Single MVVM-style `AppViewModel` serves all screens; most operations mutate `@Published` state and launch async `Task`s back to main actor.
-- UI is one `NavigationSplitView`: left sidebar for app sections + project selector card; detail area renders screen-specific views. Design system is lightweight SwiftUI components (`AppPage`, `AppCard`, `AppRowCard`, `AppLabelTag`) using system colors and expanded fonts.
-- Persistence is split: project prefs in UserDefaults; Pi resources are written to actual global/project Pi files via persistence structs; GitHub/session data is transient except `gh` auth external state.
-- GitHub is project-scoped: selected project must have a GitHub remote for board/issues; repo changes only need a git repo.
+SwiftUI views bind directly to one `@MainActor AppViewModel`. AppViewModel owns persistent config services and transient async service calls. Existing services are value structs with dependency injection where needed (`GitRepositoryService(commandRunner:)`, `GitHubIssueService(apiClient:)`). New Agent runtime services should follow this: create a `*Service.swift` using `CommandRunning`, add `@Published` runtime state plus a private service in `AppViewModel`, and expose intent methods that update state on MainActor.
 
 ## Start Here
-For Pi Agent in-app execution, start with `pi-manager/CommandRunner.swift` and `pi-manager/AppViewModel.swift`. Add a dedicated runner service using `CommandRunning`, then expose session/output state through `AppViewModel` and render it as a new screen or GitHub issue action in `ContentView.swift` / `GitHubViews.swift`.
+Open `pi-manager/AppViewModel.swift:1657` and `pi-manager/ContentView.swift:143`. Add the sidebar case/section first, then route it to a new `AgentScreen(viewModel:)` or similarly named SwiftUI view.
 
 ## Constraints And Risks
-- `CommandRunner` captures output only after process termination; interactive/streaming Pi Agent will need a new streaming process abstraction (stdout/stderr incremental, stdin write, cancellation) rather than reusing `run` as-is.
-- App is `@MainActor`-heavy; long-running agent sessions need background tasks with careful main-actor state updates.
-- Current selected-project context is `selectedProjectPath`/`projectRootURL`; agent execution should use `currentDirectoryURL` of selected repo and likely merge env from `.pi/.env`/settings if Pi CLI does not do that itself.
-- GitHub issue detail has body/comments/references, making it a good prompt/context source; adding “Run Pi Agent on issue” likely hooks near `GitHubIssueDetail` UI and `AppViewModel.selectWorkItem/loadIssueDetail`.
-- No terminal UI component exists; likely need a transcript view styled with `AppCard`/`AppRowCard`, plus controls for start/stop/input.
-- Dirty state during scout is only untracked `progress.md` from this task.
+- `SidebarItem.github` has a custom image special case; a new case must have a SF Symbol or similar special handling.
+- AppViewModel init immediately refreshes and starts watchers; avoid starting long-running agent processes in `init()` unless explicitly gated.
+- GitHub issue APIs are read/comment-only today.
+- Repo is dirty (`progress.md` modified by scout); cache is refreshed against dirty worktree.
 
 ## Pi-intercom handoff
-No safe orchestrator target was provided; no intercom handoff sent.
+No safe orchestrator target was specified; not sent.

@@ -26,6 +26,10 @@ struct GitHubAPIClient {
         try await request(path: path, method: "POST", queryItems: [], body: body)
     }
 
+    func patch(path: String, body: Data?) async throws -> (Data, HTTPURLResponse) {
+        try await request(path: path, method: "PATCH", queryItems: [], body: body)
+    }
+
     private func request(path: String, method: String, queryItems: [URLQueryItem], body: Data?) async throws -> (Data, HTTPURLResponse) {
         var components = URLComponents()
         components.scheme = "https"

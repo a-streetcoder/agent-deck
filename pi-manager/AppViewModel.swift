@@ -40,12 +40,15 @@ final class AppViewModel: ObservableObject {
     @Published var githubIsLoadingRepositoryChanges = false
     @Published var githubIsLoadingIssueDetail = false
     @Published var githubIsSubmittingComment = false
+    @Published var githubIsClosingIssue = false
     @Published var githubIsCommitting = false
     @Published var githubIsPushing = false
     @Published var githubIsRefreshingEverything = false
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
     @Published var appSettings: AppSettings = AppSettingsStore.shared.settings
+    @Published var isPiAgentInspectorPresented = false
+    let piAgentSessionStore: PiAgentSessionStore
 
     private let scanner = PiScanner()
     private let projectDiscovery = ProjectDiscovery()
@@ -57,6 +60,7 @@ final class AppViewModel: ObservableObject {
     private let appSettingsStore = AppSettingsStore.shared
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
+    private let piAgentRunner: PiAgentRunnerService
     private var globalSnapshot: ScanSnapshot = .empty
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
@@ -74,6 +78,9 @@ final class AppViewModel: ObservableObject {
     private var githubProjectBoardFetchedAt: Date?
 
     init() {
+        let piAgentSessionStore = PiAgentSessionStore()
+        self.piAgentSessionStore = piAgentSessionStore
+        self.piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
         appSettings = appSettingsStore.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         refresh(includeModels: true)
@@ -371,6 +378,7 @@ final class AppViewModel: ObservableObject {
         githubIsLoadingRepositoryChanges = false
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
+        githubIsClosingIssue = false
         githubLastError = nil
         githubConnectionState = availableAccount.map(GitHubConnectionState.available) ?? .disconnected
         githubLastStatusCheckAt = Date()
@@ -880,6 +888,146 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func openPiAgentForSelectedProject() {
+        selectedSidebarItem = .agent
+        isPiAgentInspectorPresented = false
+        guard let project = selectedDiscoveredProject else { return }
+        if piAgentSessionStore.selectedSession?.projectPath != project.path {
+            let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
+            if let existing {
+                piAgentSessionStore.select(existing.id)
+            } else {
+                _ = piAgentSessionStore.createSession(
+                    kind: .project,
+                    title: "Project agent · \(project.name)",
+                    project: project,
+                    repository: project.gitHubRemote?.nameWithOwner
+                )
+            }
+        }
+    }
+
+    func createPiAgentDraftForSelectedProject() {
+        guard let project = selectedDiscoveredProject else {
+            githubLastError = "Select a project before starting Pi Agent."
+            selectedSidebarItem = .agent
+            return
+        }
+        selectedSidebarItem = .agent
+        isPiAgentInspectorPresented = false
+        _ = piAgentSessionStore.createSession(
+            kind: .project,
+            title: "Draft · \(project.name)",
+            project: project,
+            repository: project.gitHubRemote?.nameWithOwner
+        )
+    }
+
+    func startPiAgentForSelectedProject(initialInstruction: String) {
+        guard let project = selectedDiscoveredProject else {
+            githubLastError = "Select a project before starting Pi Agent."
+            selectedSidebarItem = .agent
+            return
+        }
+        selectedSidebarItem = .agent
+        isPiAgentInspectorPresented = true
+        piAgentRunner.startProjectSession(project: project, initialInstruction: initialInstruction)
+    }
+
+    func startPiAgentForIssue(_ detail: GitHubIssueDetail) {
+        guard let project = selectedDiscoveredProject else {
+            githubLastError = "Select the local project for this issue before starting Pi Agent."
+            return
+        }
+        selectedSidebarItem = .agent
+        isPiAgentInspectorPresented = true
+        piAgentRunner.startIssueSession(detail: detail, project: project)
+    }
+
+    func selectPiAgentSession(_ id: UUID) {
+        piAgentSessionStore.select(id)
+        selectedSidebarItem = .agent
+    }
+
+    func renamePiAgentSession(_ id: UUID, title: String) {
+        piAgentSessionStore.renameSession(id, title: title)
+    }
+
+    func resumeSelectedPiAgentSession() {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        selectedSidebarItem = .agent
+        isPiAgentInspectorPresented = true
+        piAgentRunner.resume(session: session)
+    }
+
+    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, images: [PiAgentImageAttachment] = []) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
+            piAgentRunner.resume(session: session, initialPrompt: text, images: images)
+            isPiAgentInspectorPresented = selectedSidebarItem != .agent
+            return
+        }
+        piAgentRunner.send(text, mode: mode, to: session.id, images: images)
+    }
+
+    func refreshPiAgentControlsForSelectedSession() {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        piAgentRunner.refreshPiControls(sessionID: sessionID)
+    }
+
+    func setPiAgentModelForSelectedSession(provider: String?, modelID: String?) {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        piAgentRunner.setModel(sessionID: sessionID, provider: provider, modelID: modelID)
+    }
+
+    func cyclePiAgentModelForSelectedSession() {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        piAgentRunner.cycleModel(sessionID: sessionID)
+    }
+
+    func setPiAgentThinkingLevelForSelectedSession(_ level: String) {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        piAgentRunner.setThinkingLevel(sessionID: sessionID, level: level)
+    }
+
+    func cyclePiAgentThinkingLevelForSelectedSession() {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        piAgentRunner.cycleThinkingLevel(sessionID: sessionID)
+    }
+
+    func stopSelectedPiAgentSession() {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
+        piAgentRunner.stop(sessionID: sessionID)
+        refreshRepositoryChangesForPiAgentSession()
+    }
+
+    func deletePiAgentSession(_ sessionID: UUID) {
+        if piAgentRunner.isRunning(sessionID: sessionID) {
+            piAgentRunner.stop(sessionID: sessionID)
+        }
+        piAgentSessionStore.deleteSession(sessionID)
+    }
+
+    func openRepoChangesForSelectedPiAgentSession() {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        if selectedProjectPath != session.projectPath {
+            setSelectedProject(URL(fileURLWithPath: session.projectPath))
+        }
+        githubSelectedSection = .repoChanges
+        selectedSidebarItem = .github
+        refreshRepositoryChanges(preservingDiffSelection: true)
+    }
+
+    func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {
+        piAgentRunner.isRunning(sessionID: sessionID)
+    }
+
+    private func refreshRepositoryChangesForPiAgentSession() {
+        guard let session = piAgentSessionStore.selectedSession,
+              selectedProjectPath == session.projectPath else { return }
+        refreshRepositoryChanges(preservingDiffSelection: true)
+    }
+
     func submitComment() {
         guard let item = githubSelectedWorkItem, let session = gitHubSession else {
             githubLastError = "Select an issue or pull request first."
@@ -926,6 +1074,34 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func closeSelectedIssue() {
+        guard let item = githubSelectedWorkItem, let session = gitHubSession else {
+            githubLastError = "Select an issue first."
+            return
+        }
+        githubIsClosingIssue = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
+                try await service.closeIssue(item)
+                await MainActor.run {
+                    self.githubIsClosingIssue = false
+                    self.githubOverviewBoardFetchedAt = nil
+                    self.githubProjectBoardFetchedAt = nil
+                    self.refreshProjectBoard(force: true)
+                    self.loadIssueDetail(for: item)
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubIsClosingIssue = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
     private func refreshGitHubConnectionScopedState() {
         githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
@@ -945,6 +1121,7 @@ final class AppViewModel: ObservableObject {
         githubIsLoadingProjectBoard = false
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
+        githubIsClosingIssue = false
     }
 
     private func refreshGitHubProjectScopedState() {
@@ -971,6 +1148,7 @@ final class AppViewModel: ObservableObject {
         githubIsLoadingRepositoryChanges = false
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
+        githubIsClosingIssue = false
     }
 
     private func boardCacheKey(for remote: GitHubRemote, state: GitHubIssueStateFilter) -> String {
@@ -1658,6 +1836,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case projects = "Projects"
     case github = "GitHub"
+    case agent = "Pi Agent"
     case agents = "Agents"
     case chains = "Chains"
     case skills = "Skills"
@@ -1676,6 +1855,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .overview: return "square.grid.2x2"
         case .projects: return "folder"
         case .github: return "chevron.left.forwardslash.chevron.right"
+        case .agent: return "sparkles.rectangle.stack"
         case .agents: return "rectangle.connected.to.line.below"
         case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
@@ -1700,7 +1880,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     var items: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.overview, .projects, .github]
+            return [.overview, .projects, .github, .agent]
         case .piResources:
             return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:

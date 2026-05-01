@@ -1061,3 +1061,67 @@ This proves the product loop without committing to terminal complexity.
 ## Final recommendation
 
 Build the feature as a **native issue-to-agent-to-diff workflow**, not an embedded terminal. Use Pi RPC for structured control, preserve Pi Manager's design system, and keep terminal/iTerm/tmux as fallback utilities. The winning experience is not “Pi CLI in a box”; it is “Pi Manager understands my repo and issue, runs Pi safely, shows me what happened, and helps me finish the GitHub loop.”
+
+## Implementation status — MVP landed
+
+The first end-to-end MVP has been implemented in the app code:
+
+- Added a top-level **Agent** sidebar item.
+- Added project-first **New Agent Session** flow.
+- Added GitHub issue **Run with Pi Agent** entry point.
+- Added native Agent screen with session list, session header, transcript, composer, stop/resume, launch-command copy, and repo-changes shortcut.
+- Added streaming `pi --mode rpc` process management with stdin writes, stdout/stderr line streaming, executable discovery, PATH repair, and graceful abort/terminate.
+- Added Pi RPC command helpers for `get_state`, `set_session_name`, `prompt`, `steer`, `follow_up`, `abort`, `get_messages`, and `get_session_stats`.
+- Added persisted Pi Manager session metadata/transcript storage in Application Support.
+- Added issue/project prompt builders.
+- Added GitHub close issue API and a confirmed **Close Issue** action in issue detail.
+
+Validation performed:
+
+- `xcodebuild -project pi-manager.xcodeproj -scheme pi-manager -configuration Debug build` succeeds.
+- `pi --mode rpc --no-session` smoke-tested from CLI with `get_state` response.
+- Debug app launched and Agent screen screenshot reviewed for design-system alignment.
+
+Known follow-ups:
+
+- Add true worktree-per-issue isolation for safe same-repo parallel agents.
+- Add richer mapping for every Pi RPC event shape and extension UI request.
+- Hydrate transcript directly from `get_messages` when importing/resuming sessions not already known to Pi Manager's local store.
+- Add final-summary drafting from the active agent session before posting GitHub comments.
+
+## 2026-05-01 Pi RPC parity update
+
+- Default launch remains `pi --mode rpc` with no provider/model flags, matching terminal Pi defaults.
+- Per-session model overrides are optional. When selected in-app, the session stores `modelOverrideProvider`/`modelOverrideID` and sends Pi RPC `set_model` for the active process; future resumes of that app session pass the override explicitly.
+- The app now queries `get_state`, `get_available_models`, and `get_session_stats` after launch. Current model, available models, and thinking level are persisted on the session record.
+- Runtime controls use Pi's own RPC commands: `set_model`, `cycle_model`, `set_thinking_level`, and `cycle_thinking_level`.
+- Streaming rendering now separates `thinking_delta` into its own collapsible Thinking transcript entry instead of mixing it with the assistant answer.
+
+## Pi Agent polish plan
+
+### Transcript rules
+- Treat RPC as an event source, not a transcript. Hide protocol-only events (`message_start`, routine turn start/end, raw responses) from the normal UI.
+- Show only meaningful user-facing entries: user prompts, assistant answers, collapsed reasoning, tool activity, errors, and explicit extension UI interactions.
+- Keep raw JSON/debug launch data out of the primary transcript; expose it later behind a developer/debug inspector.
+- Deduplicate Pi-echoed user messages against app-submitted prompts.
+
+### Visual model
+- Avoid strict left/right chat bubbles for coding-agent output because assistant/code/tool content needs full width.
+- Use full-width readable transcript cards with subtle role differentiation: accent stripe, role header, tinted user prompts, assistant cards, tool/error colors.
+- Tools/subagents should become compact timeline cards with expandable details, not raw logs.
+
+### Composer
+- One primary composer only. No visible `steer`/`follow_up` controls in the default UI.
+- Compact round send/stop action, fixed height, clear placeholder, and keyboard hints.
+- Advanced Pi RPC actions can be hidden behind an advanced menu later.
+
+### Model and thinking
+- Model/thinking are session-only overrides by default and must not mutate global Pi defaults.
+- Model picker must work before first prompt by using cached `pi --list-models` output, then reconcile with `get_available_models` after the RPC session starts.
+- Thinking level can also be chosen pre-launch and is applied immediately after the RPC process starts.
+
+### Next richer rendering pass
+- Add native extension UI handling for confirm/select/input/editor.
+- Render pi-subagents as nested child-agent progress cards.
+- Add stats strip for model, thinking, context window, tokens, cost, retry/compaction state.
+- Hydrate historical `get_messages` into the same normalized transcript model as live events.

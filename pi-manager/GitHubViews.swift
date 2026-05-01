@@ -219,10 +219,13 @@ private struct GitHubIssueListRow: View {
                     if let issueType = item.type, !issueType.isEmpty {
                         AppLabelTag(text: issueType, color: issueTypeColor(issueType))
                     }
-                    Text("#\(item.number)")
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
                     Spacer(minLength: 12)
+                    Text("#\(item.number)")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
                 }
 
                 Text(item.title)
@@ -271,6 +274,7 @@ private struct GitHubIssueListRow: View {
 
 private struct GitHubIssueDetailCard: View {
     @ObservedObject var viewModel: AppViewModel
+    @State private var confirmsCloseIssue = false
 
     var body: some View {
         AppCard(title: detailTitle) {
@@ -289,7 +293,60 @@ private struct GitHubIssueDetailCard: View {
                                 .font(.footnote.monospaced())
                                 .foregroundStyle(AppTheme.mutedText)
                             Spacer()
-                            Link("Open in Browser", destination: detail.item.url)
+                            Button {
+                                viewModel.startPiAgentForIssue(detail)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image("pi")
+                                        .resizable()
+                                        .renderingMode(.template)
+                                        .scaledToFit()
+                                        .frame(width: 16, height: 16)
+                                    Text("Open")
+                                        .fontWeight(.semibold)
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(viewModel.selectedDiscoveredProject == nil)
+                            .opacity(viewModel.selectedDiscoveredProject == nil ? 0.45 : 1)
+                            if detail.state.lowercased() == "open" {
+                                Button {
+                                    confirmsCloseIssue = true
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "checkmark.circle")
+                                            .font(.system(size: 16, weight: .semibold))
+                                        Text(viewModel.githubIsClosingIssue ? "Closing…" : "Close Issue")
+                                            .fontWeight(.semibold)
+                                    }
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(viewModel.githubIsClosingIssue)
+                                .opacity(viewModel.githubIsClosingIssue ? 0.6 : 1)
+                            }
+                        }
+                        .confirmationDialog(
+                            "Close issue #\(detail.item.number)?",
+                            isPresented: $confirmsCloseIssue,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Close Issue", role: .destructive) {
+                                viewModel.closeSelectedIssue()
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("Only close this after reviewing and finishing the agent's changes.")
                         }
 
                         if !detail.labels.isEmpty {
