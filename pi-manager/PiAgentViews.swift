@@ -210,6 +210,7 @@ struct PiAgentScreen: View {
                     )
                     PiAgentThinkingPicker(
                         level: session.thinkingLevel,
+                        supportedLevels: supportedThinkingLevels(for: session),
                         isRunning: viewModel.isPiAgentSessionRunning(session.id),
                         onCycle: { viewModel.cyclePiAgentThinkingLevelForSelectedSession() },
                         onSelect: { viewModel.setPiAgentThinkingLevelForSelectedSession($0) }
@@ -332,6 +333,27 @@ struct PiAgentScreen: View {
         store.sessions.filter { viewModel.isPiAgentSessionRunning($0.id) }.count
     }
 
+    private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {
+        let provider = session.modelOverrideProvider ?? session.modelProvider
+        let modelID = session.modelOverrideID ?? session.model
+        if let provider, let modelID {
+            if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
+                return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : defaultThinkingLevels(provider: provider, modelID: modelID))
+            }
+            if let cached = viewModel.availableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+                return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? defaultThinkingLevels(provider: provider, modelID: modelID) : ["off"]) : cached.supportedThinkingLevels
+            }
+        }
+        // Unknown/default model: keep the conservative standard Pi levels, but do not offer xhigh unless a model confirms it.
+        return ["off", "minimal", "low", "medium", "high"]
+    }
+
+    private func defaultThinkingLevels(provider: String, modelID: String) -> [String] {
+        provider.lowercased().contains("openai") && modelID.lowercased().contains("codex-max")
+            ? ["off", "minimal", "low", "medium", "high", "xhigh"]
+            : ["off", "minimal", "low", "medium", "high"]
+    }
+
     private func syncSelectedSessionTitleDraft() {
         selectedSessionTitleDraft = store.selectedSession?.displayTitle ?? ""
     }
@@ -386,7 +408,7 @@ private struct PiAgentStartupResourcesCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                Text("Loaded for this Pi session. You can reference these directly in your prompt, just like the terminal startup view.")
+                Text("Detected by Pi Manager for this project/session. Runtime Pi will confirm exact loaded resources when the session starts.")
                     .font(.callout)
                     .foregroundStyle(AppTheme.mutedText)
 
@@ -865,7 +887,15 @@ private struct PiAgentModelPicker: View {
     private var modelOptions: [PiAgentModelOption] {
         if let models = session.availableModels, !models.isEmpty { return models }
         return fallbackModels.map { model in
-            PiAgentModelOption(provider: model.provider, id: model.model, name: nil, contextWindow: Int(model.contextWindow))
+            PiAgentModelOption(
+                provider: model.provider,
+                id: model.model,
+                name: nil,
+                contextWindow: Int(model.contextWindow),
+                supportsThinking: model.supportsThinking,
+                supportedThinkingLevels: model.supportedThinkingLevels,
+                supportsImages: model.supportsImages
+            )
         }
     }
 
@@ -885,11 +915,12 @@ private struct PiAgentModelPicker: View {
 
 private struct PiAgentThinkingPicker: View {
     let level: String?
+    let supportedLevels: [String]
     let isRunning: Bool
     let onCycle: () -> Void
     let onSelect: (String) -> Void
 
-    private let levels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+    private var levels: [String] { supportedLevels.isEmpty ? ["off"] : supportedLevels }
 
     var body: some View {
         Menu {
@@ -907,10 +938,11 @@ private struct PiAgentThinkingPicker: View {
             }
             Divider()
             Button("Cycle Thinking") { onCycle() }
+                .disabled(levels.count <= 1)
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "brain.head.profile")
-                Text("Thinking: \((level ?? "default").capitalized)")
+                Text("Thinking: \(displayLevel.capitalized)")
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
@@ -928,6 +960,11 @@ private struct PiAgentThinkingPicker: View {
     private var normalizedLevel: String? {
         guard let level else { return nil }
         return level == "none" ? "off" : level
+    }
+
+    private var displayLevel: String {
+        guard let normalizedLevel else { return "default" }
+        return levels.contains(normalizedLevel) ? normalizedLevel : "\(normalizedLevel) unavailable"
     }
 }
 

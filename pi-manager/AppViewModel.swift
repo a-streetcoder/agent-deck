@@ -976,8 +976,14 @@ final class AppViewModel: ObservableObject {
     }
 
     func setPiAgentModelForSelectedSession(provider: String?, modelID: String?) {
-        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
-        piAgentRunner.setModel(sessionID: sessionID, provider: provider, modelID: modelID)
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        piAgentRunner.setModel(sessionID: session.id, provider: provider, modelID: modelID)
+        if let currentLevel = session.thinkingLevel {
+            let levels = supportedPiAgentThinkingLevels(session: session, provider: provider ?? session.modelProvider, modelID: modelID ?? session.model)
+            if !levels.contains(currentLevel == "none" ? "off" : currentLevel) {
+                piAgentRunner.setThinkingLevel(sessionID: session.id, level: levels.first ?? "off")
+            }
+        }
     }
 
     func cyclePiAgentModelForSelectedSession() {
@@ -986,8 +992,37 @@ final class AppViewModel: ObservableObject {
     }
 
     func setPiAgentThinkingLevelForSelectedSession(_ level: String) {
-        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
-        piAgentRunner.setThinkingLevel(sessionID: sessionID, level: level)
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        let normalized = level == "none" ? "off" : level
+        let levels = supportedPiAgentThinkingLevels(session: session, provider: session.modelOverrideProvider ?? session.modelProvider, modelID: session.modelOverrideID ?? session.model)
+        guard levels.contains(normalized) else {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = "Thinking level '\(level)' is not available for the selected model."
+            }
+            return
+        }
+        piAgentRunner.setThinkingLevel(sessionID: session.id, level: normalized)
+    }
+
+    private func supportedPiAgentThinkingLevels(session: PiAgentSessionRecord, provider: String?, modelID: String?) -> [String] {
+        if let provider, let modelID {
+            if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
+                if let levels = runtimeModel.supportedThinkingLevels, !levels.isEmpty { return levels }
+                if runtimeModel.supportsThinking == false { return ["off"] }
+                return defaultPiAgentThinkingLevels(provider: provider, modelID: modelID)
+            }
+            if let cached = availableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+                if !cached.supportedThinkingLevels.isEmpty { return cached.supportedThinkingLevels }
+                return cached.supportsThinking ? defaultPiAgentThinkingLevels(provider: provider, modelID: modelID) : ["off"]
+            }
+        }
+        return ["off", "minimal", "low", "medium", "high"]
+    }
+
+    private func defaultPiAgentThinkingLevels(provider: String, modelID: String) -> [String] {
+        provider.lowercased().contains("openai") && modelID.lowercased().contains("codex-max")
+            ? ["off", "minimal", "low", "medium", "high", "xhigh"]
+            : ["off", "minimal", "low", "medium", "high"]
     }
 
     func cyclePiAgentThinkingLevelForSelectedSession() {

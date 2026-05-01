@@ -1,18 +1,17 @@
 # Progress
 
 ## Status
-In Progress
+Done
 
 ## Tasks
-- Inspected Pi Agent composer/input code and Pi RPC message sending path.
+- Reviewed current Pi Agent in-app implementation against installed Pi RPC docs/runtime types.
+- Checked UI/runtime truth areas: startup resources, model/thinking controls, attachments, subagent rendering, extension UI, transcript hydration, and composer behavior.
+- Wrote prioritized findings to `/tmp/pi-agent-runtime-truth-review.md`.
 
 ## Files Changed
-- `/tmp/pi-manager-composer-scout.md` - Scout findings for image paste attachments.
-- `progress.md` - Progress update.
+- `/tmp/pi-agent-runtime-truth-review.md`
+- `progress.md`
 
 ## Notes
-- Composer starts in `pi-manager/PiAgentViews.swift`; text flows through `AppViewModel.sendPiAgentMessage`, `PiAgentRunnerService.send/start`, `PiRPCClient.prompt`, then `PiAgentProcess.writeJSONLine`.
-- Need confirm Pi RPC attachment payload schema before implementation.
-
-2026-05-01T10:54:55Z - Scout: inspected installed pi-coding-agent docs/source for CLI/RPC image attachment formats. Findings written to /tmp/pi-attachments-scout.md. Key result: CLI uses @file paths for initial messages; RPC uses inline images array with {type:"image", data:base64, mimeType}. 
-- 2026-05-01T10:55:22Z: Completed t3code chat composer attachments scout; wrote /tmp/t3code-attachments-scout.md
+- Static review only; no source files changed.
+- Highest priority fixes: extension UI response handling, no plain prompt while streaming, `get_messages` hydration, and making startup resources runtime/project accurate.

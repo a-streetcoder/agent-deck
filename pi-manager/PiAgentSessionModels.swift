@@ -57,6 +57,9 @@ struct PiAgentModelOption: Identifiable, Codable, Hashable {
     var id: String
     var name: String?
     var contextWindow: Int?
+    var supportsThinking: Bool?
+    var supportedThinkingLevels: [String]?
+    var supportsImages: Bool?
 
     var displayName: String { name?.isEmpty == false ? name! : id }
     var selectionID: String { "\(provider)/\(id)" }
@@ -196,6 +199,11 @@ enum JSONValue: Codable, Hashable {
 
     var stringValue: String? {
         if case let .string(value) = self { return value }
+        return nil
+    }
+
+    var boolValue: Bool? {
+        if case let .bool(value) = self { return value }
         return nil
     }
 

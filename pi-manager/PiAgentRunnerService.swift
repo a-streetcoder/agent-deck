@@ -290,8 +290,33 @@ final class PiAgentRunnerService {
             } else {
                 contextWindow = nil
             }
-            return PiAgentModelOption(provider: provider, id: id, name: model["name"]?.stringValue, contextWindow: contextWindow)
+            let supportsThinking = model["reasoning"]?.boolValue ?? model["supportsThinking"]?.boolValue
+            let supportedThinkingLevels: [String]? = {
+                if let levels = stringArray(from: model["supportedThinkingLevels"]) { return levels }
+                guard supportsThinking == true else { return supportsThinking == false ? ["off"] : nil }
+                return supportsXhigh(provider: provider, modelID: id) ? ["off", "minimal", "low", "medium", "high", "xhigh"] : ["off", "minimal", "low", "medium", "high"]
+            }()
+            let supportsImages = model["supportsImages"]?.boolValue ?? model["image"]?.boolValue
+            return PiAgentModelOption(
+                provider: provider,
+                id: id,
+                name: model["name"]?.stringValue,
+                contextWindow: contextWindow,
+                supportsThinking: supportsThinking,
+                supportedThinkingLevels: supportedThinkingLevels,
+                supportsImages: supportsImages
+            )
         }
+    }
+
+    private func stringArray(from value: JSONValue?) -> [String]? {
+        guard case let .array(items)? = value else { return nil }
+        let strings = items.compactMap(\.stringValue)
+        return strings.isEmpty ? nil : strings
+    }
+
+    private func supportsXhigh(provider: String, modelID: String) -> Bool {
+        provider.lowercased().contains("openai") && modelID.lowercased().contains("codex-max")
     }
 
     private func handleMessageUpdate(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
