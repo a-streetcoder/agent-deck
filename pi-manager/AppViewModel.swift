@@ -1022,6 +1022,10 @@ final class AppViewModel: ObservableObject {
         piAgentSessionStore.renameSession(id, title: title)
     }
 
+    func togglePiAgentSessionPinned(_ id: UUID) {
+        piAgentSessionStore.togglePinned(id)
+    }
+
     func resumeSelectedPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession else { return }
         selectedSidebarItem = .agent

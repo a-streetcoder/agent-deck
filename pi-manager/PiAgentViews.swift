@@ -109,6 +109,7 @@ struct PiAgentScreen: View {
                                         isSelected: store.selectedSession?.id == session.id,
                                         isRunning: viewModel.isPiAgentSessionRunning(session.id),
                                         onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
+                                        onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) },
                                         onDelete: { viewModel.deletePiAgentSession(session.id) }
                                     )
                                     .contentShape(Rectangle())
@@ -116,6 +117,11 @@ struct PiAgentScreen: View {
                                         viewModel.selectPiAgentSession(session.id)
                                     }
                                     .contextMenu {
+                                        Button {
+                                            viewModel.togglePiAgentSessionPinned(session.id)
+                                        } label: {
+                                            Label(session.isPinned ? "Unpin Session" : "Pin Session", systemImage: session.isPinned ? "pin.slash" : "pin")
+                                        }
                                         Button(role: .destructive) {
                                             viewModel.deletePiAgentSession(session.id)
                                         } label: {
@@ -136,11 +142,6 @@ struct PiAgentScreen: View {
 
     private var activeSessionColumn: some View {
         VStack(spacing: 0) {
-            sessionHeader
-                .padding(18)
-
-            Divider()
-
             transcript
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(18)
@@ -432,10 +433,6 @@ private struct PiAgentStartupResourcesCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                Text("Detected by Pi Manager for this project/session. Runtime Pi will confirm exact loaded resources when the session starts.")
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.mutedText)
-
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top, spacing: 10) {
                         resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
@@ -466,10 +463,11 @@ private struct PiAgentStartupResourcesCard: View {
                     .font(.title3.bold())
                     .fontWidth(.expanded)
                 HStack(spacing: 6) {
-                    hintChip("Esc", "interrupt")
-                    hintChip("⌘↩", "send")
+                    ShortcutComboHint(symbols: ["return"], text: "send")
+                    ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
+                    ShortcutComboHint(symbols: ["escape"], text: "stop")
                     hintChip("/", "commands")
-                    hintChip("!", "bash")
+                    hintChip("@", "files")
                 }
             }
             Spacer()
@@ -896,8 +894,8 @@ private struct PiAgentComposerBox: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack(spacing: 8) {
-                if isRunning {
+            if isRunning {
+                HStack(spacing: 8) {
                     Button {
                         inputMode = inputMode == .steer ? .followUp : .steer
                     } label: {
@@ -908,14 +906,11 @@ private struct PiAgentComposerBox: View {
                     .controlSize(.small)
                     .tint(inputMode == .steer ? Color.accentColor : nil)
                     .help(inputMode == .steer ? "Steering is on: send guidance into the current turn" : "Default: queue a follow-up. Click to steer the current turn instead.")
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                ShortcutComboHint(symbols: ["return"], text: "send")
-                ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
-                if isRunning { ShortcutComboHint(symbols: ["escape"], text: "stop") }
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
         }
         .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 7)
         .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL]) { _ in
@@ -1841,6 +1836,7 @@ private struct PiAgentSessionRow: View {
     let isSelected: Bool
     let isRunning: Bool
     let onRename: (String) -> Void
+    let onTogglePinned: () -> Void
     let onDelete: () -> Void
 
     @State private var draftTitle = ""
@@ -1861,6 +1857,15 @@ private struct PiAgentSessionRow: View {
                         .lineLimit(1)
                         .onSubmit(commitRename)
                     Spacer(minLength: 0)
+                    Button(action: onTogglePinned) {
+                        Image(systemName: session.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(session.isPinned ? Color.accentColor : AppTheme.mutedText.opacity(0.75))
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(session.isPinned ? Color.accentColor.opacity(0.12) : Color.clear))
+                    }
+                    .buttonStyle(.plain)
+                    .help(session.isPinned ? "Unpin session" : "Pin session")
                     if session.needsAttention {
                         Image(systemName: "bell.fill")
                             .font(.system(size: 11, weight: .semibold))

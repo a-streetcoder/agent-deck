@@ -93,6 +93,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var lastError: String?
     var lastSummary: String?
     var needsAttention: Bool
+    var isPinned: Bool
     var lastNotificationAt: Date?
     var inputTokens: Int?
     var outputTokens: Int?
@@ -115,6 +116,144 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             return "#\(issueNumber) \(title)"
         }
         return title
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
+        case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, thinkingLevel, launchCommand, branchName, worktreePath
+        case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
+        case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, cost
+        case pendingSteeringMessages, pendingFollowUpMessages, createdAt, updatedAt
+    }
+
+    init(
+        id: UUID,
+        kind: PiAgentSessionKind,
+        title: String,
+        projectPath: String,
+        projectName: String,
+        repository: String?,
+        issueNumber: Int?,
+        issueURL: URL?,
+        piSessionFile: String?,
+        piSessionId: String?,
+        model: String?,
+        modelProvider: String?,
+        modelOverrideID: String?,
+        modelOverrideProvider: String?,
+        availableModels: [PiAgentModelOption]?,
+        thinkingLevel: String?,
+        launchCommand: String?,
+        branchName: String?,
+        worktreePath: String?,
+        status: PiAgentRunStatus,
+        lastError: String?,
+        lastSummary: String?,
+        needsAttention: Bool,
+        isPinned: Bool = false,
+        lastNotificationAt: Date?,
+        inputTokens: Int?,
+        outputTokens: Int?,
+        cacheReadTokens: Int?,
+        cacheWriteTokens: Int?,
+        totalTokens: Int?,
+        toolCalls: Int?,
+        toolResults: Int?,
+        contextTokens: Int?,
+        contextWindow: Int?,
+        contextPercent: Double?,
+        cost: Double?,
+        pendingSteeringMessages: [String],
+        pendingFollowUpMessages: [String],
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.projectPath = projectPath
+        self.projectName = projectName
+        self.repository = repository
+        self.issueNumber = issueNumber
+        self.issueURL = issueURL
+        self.piSessionFile = piSessionFile
+        self.piSessionId = piSessionId
+        self.model = model
+        self.modelProvider = modelProvider
+        self.modelOverrideID = modelOverrideID
+        self.modelOverrideProvider = modelOverrideProvider
+        self.availableModels = availableModels
+        self.thinkingLevel = thinkingLevel
+        self.launchCommand = launchCommand
+        self.branchName = branchName
+        self.worktreePath = worktreePath
+        self.status = status
+        self.lastError = lastError
+        self.lastSummary = lastSummary
+        self.needsAttention = needsAttention
+        self.isPinned = isPinned
+        self.lastNotificationAt = lastNotificationAt
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+        self.totalTokens = totalTokens
+        self.toolCalls = toolCalls
+        self.toolResults = toolResults
+        self.contextTokens = contextTokens
+        self.contextWindow = contextWindow
+        self.contextPercent = contextPercent
+        self.cost = cost
+        self.pendingSteeringMessages = pendingSteeringMessages
+        self.pendingFollowUpMessages = pendingFollowUpMessages
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            kind: try container.decode(PiAgentSessionKind.self, forKey: .kind),
+            title: try container.decode(String.self, forKey: .title),
+            projectPath: try container.decode(String.self, forKey: .projectPath),
+            projectName: try container.decode(String.self, forKey: .projectName),
+            repository: try container.decodeIfPresent(String.self, forKey: .repository),
+            issueNumber: try container.decodeIfPresent(Int.self, forKey: .issueNumber),
+            issueURL: try container.decodeIfPresent(URL.self, forKey: .issueURL),
+            piSessionFile: try container.decodeIfPresent(String.self, forKey: .piSessionFile),
+            piSessionId: try container.decodeIfPresent(String.self, forKey: .piSessionId),
+            model: try container.decodeIfPresent(String.self, forKey: .model),
+            modelProvider: try container.decodeIfPresent(String.self, forKey: .modelProvider),
+            modelOverrideID: try container.decodeIfPresent(String.self, forKey: .modelOverrideID),
+            modelOverrideProvider: try container.decodeIfPresent(String.self, forKey: .modelOverrideProvider),
+            availableModels: try container.decodeIfPresent([PiAgentModelOption].self, forKey: .availableModels),
+            thinkingLevel: try container.decodeIfPresent(String.self, forKey: .thinkingLevel),
+            launchCommand: try container.decodeIfPresent(String.self, forKey: .launchCommand),
+            branchName: try container.decodeIfPresent(String.self, forKey: .branchName),
+            worktreePath: try container.decodeIfPresent(String.self, forKey: .worktreePath),
+            status: try container.decode(PiAgentRunStatus.self, forKey: .status),
+            lastError: try container.decodeIfPresent(String.self, forKey: .lastError),
+            lastSummary: try container.decodeIfPresent(String.self, forKey: .lastSummary),
+            needsAttention: try container.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false,
+            isPinned: try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false,
+            lastNotificationAt: try container.decodeIfPresent(Date.self, forKey: .lastNotificationAt),
+            inputTokens: try container.decodeIfPresent(Int.self, forKey: .inputTokens),
+            outputTokens: try container.decodeIfPresent(Int.self, forKey: .outputTokens),
+            cacheReadTokens: try container.decodeIfPresent(Int.self, forKey: .cacheReadTokens),
+            cacheWriteTokens: try container.decodeIfPresent(Int.self, forKey: .cacheWriteTokens),
+            totalTokens: try container.decodeIfPresent(Int.self, forKey: .totalTokens),
+            toolCalls: try container.decodeIfPresent(Int.self, forKey: .toolCalls),
+            toolResults: try container.decodeIfPresent(Int.self, forKey: .toolResults),
+            contextTokens: try container.decodeIfPresent(Int.self, forKey: .contextTokens),
+            contextWindow: try container.decodeIfPresent(Int.self, forKey: .contextWindow),
+            contextPercent: try container.decodeIfPresent(Double.self, forKey: .contextPercent),
+            cost: try container.decodeIfPresent(Double.self, forKey: .cost),
+            pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
+            pendingFollowUpMessages: try container.decodeIfPresent([String].self, forKey: .pendingFollowUpMessages) ?? [],
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            updatedAt: try container.decode(Date.self, forKey: .updatedAt)
+        )
     }
 }
 

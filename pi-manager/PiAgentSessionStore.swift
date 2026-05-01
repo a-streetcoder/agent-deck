@@ -57,6 +57,7 @@ final class PiAgentSessionStore: ObservableObject {
             lastError: nil,
             lastSummary: nil,
             needsAttention: false,
+            isPinned: false,
             lastNotificationAt: nil,
             inputTokens: nil,
             outputTokens: nil,
@@ -75,6 +76,7 @@ final class PiAgentSessionStore: ObservableObject {
             updatedAt: now
         )
         sessions.insert(record, at: 0)
+        sortSessions()
         transcriptsBySessionID[record.id] = []
         selectedSessionID = record.id
         save()
@@ -90,7 +92,7 @@ final class PiAgentSessionStore: ObservableObject {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         mutate(&sessions[index])
         sessions[index].updatedAt = Date()
-        sessions.sort { $0.updatedAt > $1.updatedAt }
+        sortSessions()
         save()
     }
 
@@ -98,6 +100,15 @@ final class PiAgentSessionStore: ObservableObject {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
         updateSession(id) { $0.title = trimmedTitle }
+    }
+
+    func setPinned(_ id: UUID, isPinned: Bool) {
+        updateSession(id) { $0.isPinned = isPinned }
+    }
+
+    func togglePinned(_ id: UUID) {
+        guard let session = sessions.first(where: { $0.id == id }) else { return }
+        setPinned(id, isPinned: !session.isPinned)
     }
 
     func append(_ entry: PiAgentTranscriptEntry) {
@@ -158,7 +169,8 @@ final class PiAgentSessionStore: ObservableObject {
                     session.lastError = session.lastError ?? "Stopped because Pi Manager was restarted."
                 }
                 return session
-            }.sorted { $0.updatedAt > $1.updatedAt }
+            }
+            sortSessions()
             transcriptsBySessionID = Dictionary(uniqueKeysWithValues: persisted.transcripts.map { ($0.sessionID, $0.entries) })
             selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
         } catch {
@@ -166,6 +178,13 @@ final class PiAgentSessionStore: ObservableObject {
             sessions = []
             transcriptsBySessionID = [:]
             selectedSessionID = nil
+        }
+    }
+
+    private func sortSessions() {
+        sessions.sort { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
+            return lhs.updatedAt > rhs.updatedAt
         }
     }
 
