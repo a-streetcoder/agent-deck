@@ -6,7 +6,7 @@ struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
-    @State private var inputMode: PiAgentInputMode = .followUp
+    @State private var inputMode: PiAgentInputMode = .steer
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
     @State private var composerImages: [PiAgentImageAttachment] = []
@@ -251,7 +251,7 @@ struct PiAgentScreen: View {
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
-                placeholder: isRunning ? (inputMode == .steer ? "Steer the current turn…" : "Queue a follow-up for when Pi finishes…") : "Ask Pi to implement, inspect, explain, or fix…",
+                placeholder: isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…",
                 canSend: store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: appendFileReferences,
@@ -302,7 +302,7 @@ struct PiAgentScreen: View {
         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty else { return }
         let isRunning = store.selectedSession?.status.isActive == true
-        viewModel.sendPiAgentMessage(expandFileReferences(in: message), mode: isRunning ? inputMode : .prompt, images: composerImages)
+        viewModel.sendPiAgentMessage(expandFileReferences(in: message), mode: isRunning ? .steer : .prompt, images: composerImages)
         composerText = ""
         composerImages = []
         composerAttachmentError = nil
@@ -324,12 +324,21 @@ struct PiAgentScreen: View {
     }
 
     private var visibleTranscriptEntries: [PiAgentTranscriptEntry] {
-        store.selectedTranscript.filter { entry in
-            switch entry.role {
-            case .raw: return false
-            case .status: return entry.title == "Compaction" || entry.title == "Retry"
-            default: return true
-            }
+        store.selectedTranscript.filter(isValuableTranscriptEntry)
+    }
+
+    private func isValuableTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
+        switch entry.role {
+        case .raw:
+            return false
+        case .status:
+            return entry.title == "Compaction" || entry.title == "Retry"
+        case .tool:
+            return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
+        case .stderr:
+            return !entry.text.localizedCaseInsensitiveContains("ready for input") && !entry.text.contains(";notify;Pi;")
+        default:
+            return true
         }
     }
 
@@ -870,46 +879,9 @@ private struct PiAgentComposerBox: View {
         )
         .overlay {
             if isDropTargeted {
-                ZStack {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .fill(Color.accentColor.opacity(0.10))
-                    VStack(spacing: 8) {
-                        Image(systemName: "photo.on.rectangle.angled")
-                            .font(.title2.weight(.semibold))
-                        Text("Drop images to attach")
-                            .font(.headline)
-                        Text("PNG, JPEG, GIF, or WebP — processed like Pi CLI image inputs")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    .foregroundStyle(Color.accentColor)
-                    .padding(18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(AppTheme.cardFill.opacity(0.92))
-                            .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
-                    )
-                }
-                .allowsHitTesting(false)
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if isRunning {
-                HStack(spacing: 8) {
-                    Button {
-                        inputMode = inputMode == .steer ? .followUp : .steer
-                    } label: {
-                        Label("Steer", systemImage: "arrow.turn.down.right")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(inputMode == .steer ? Color.accentColor : nil)
-                    .help(inputMode == .steer ? "Steering is on: send guidance into the current turn" : "Default: queue a follow-up. Click to steer the current turn instead.")
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
+                        .allowsHitTesting(false)
             }
         }
         .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 7)
@@ -1552,9 +1524,6 @@ private struct PiAgentRuntimeFooter: View {
             if let cost = session.cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }
-            if !session.pendingSteeringMessages.isEmpty || !session.pendingFollowUpMessages.isEmpty {
-                metric("\(session.pendingSteeringMessages.count)/\(session.pendingFollowUpMessages.count)", icon: "tray.full")
-            }
         }
         .font(.caption)
         .foregroundStyle(AppTheme.mutedText)
@@ -2110,7 +2079,7 @@ struct PiAgentInspectorPanel: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
-    @State private var inputMode: PiAgentInputMode = .followUp
+    @State private var inputMode: PiAgentInputMode = .steer
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerAttachmentError: String?
 
@@ -2150,7 +2119,7 @@ struct PiAgentInspectorPanel: View {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            ForEach(store.selectedTranscript.suffix(80)) { entry in
+                            ForEach(store.selectedTranscript.filter(isCompactTranscriptEntry).suffix(80)) { entry in
                                 PiAgentCompactTranscriptCard(entry: entry)
                                     .id(entry.id)
                             }
@@ -2171,7 +2140,7 @@ struct PiAgentInspectorPanel: View {
                     attachmentError: $composerAttachmentError,
                     inputMode: $inputMode,
                     isRunning: isRunning,
-                    placeholder: isRunning ? (inputMode == .steer ? "Steer the current turn…" : "Queue a follow-up…") : "Message Pi…",
+                    placeholder: isRunning ? "Steer the current turn…" : "Message Pi…",
                     canSend: !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty,
                     path: session.worktreePath ?? session.projectPath,
                     onFiles: { urls in
@@ -2189,7 +2158,7 @@ struct PiAgentInspectorPanel: View {
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty else { return }
-                        viewModel.sendPiAgentMessage(message, mode: isRunning ? inputMode : .prompt, images: composerImages)
+                        viewModel.sendPiAgentMessage(message, mode: isRunning ? .steer : .prompt, images: composerImages)
                         composerText = ""
                         composerImages = []
                         composerAttachmentError = nil
@@ -2206,6 +2175,21 @@ struct PiAgentInspectorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func isCompactTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
+        switch entry.role {
+        case .raw:
+            return false
+        case .status:
+            return entry.title == "Compaction" || entry.title == "Retry" || entry.title == "Stopped"
+        case .tool:
+            return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
+        case .stderr:
+            return !entry.text.localizedCaseInsensitiveContains("ready for input") && !entry.text.contains(";notify;Pi;")
+        default:
+            return true
+        }
     }
 }
 

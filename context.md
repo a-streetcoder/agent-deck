@@ -1,50 +1,91 @@
 ---
-head: e6a059a225d9541c2bd1f86151461bc9bf873f55
-dirty: true
-generatedAt: 2026-05-01T00:09:43Z
-taskScope: navigation/sidebar, AppViewModel state/services, GitHub issue detail actions, GitRepositoryService APIs, Xcode file-add patterns for adding an Agent screen/services
-changeSummarySincePrevious: HEAD changed 7 files (+2145/-299); relevant ContentView/AppViewModel changed, so refreshed targeted context
+head: 7055c7cada4ad1e24682180773449ca83ab16419
+dirty: false
+generatedAt: 2026-05-01T21:43:47Z
+taskScope: Pi CLI busy-submit behavior and pi-manager transcript/tool rendering noise
+changeSummarySincePrevious: previous cache unrelated/stale; refreshed targeted context
 reusedCache: false
 ---
 
 # Code Context
 
 ## Scope
-Implementation guidance for adding an Agent screen plus supporting Swift services in the current SwiftUI macOS app.
+Answer whether Pi CLI sends steering or follow-up when user presses Enter while the LLM is replying, and identify minimal pi-manager changes to reduce noisy transcript entries.
 
 ## Files Retrieved
-1. `pi-manager/ContentView.swift` (lines 1-220) - app root, sidebar list, detail switch, sheets.
-2. `pi-manager/AppViewModel.swift` (lines 1-110, 800-930, 1657-1715) - main state/services/init, issue actions, sidebar enums.
-3. `pi-manager/GitHubViews.swift` (lines 272-431) - issue detail UI/actions.
-4. `pi-manager/GitHubIssueService.swift` (lines 1-145) - issue detail/comment APIs.
-5. `pi-manager/GitRepositoryService.swift` (lines 1-191) - git service public API and parsing.
-6. `pi-manager/CommandRunner.swift` (lines 1-80) - process-running primitive for new services.
-7. `pi-manager.xcodeproj/project.pbxproj` (lines 9-19, 63-65, 117-124) - Xcode synchronized group pattern.
+1. `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js` (lines 2078-2111, 2690-2721, 2914-2926) - CLI Enter vs Alt+Enter behavior and queued-message display.
+2. `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/core/agent-session.js` (lines 720-745, 905-934) - `prompt(...streamingBehavior)` dispatches to steer/follow-up queues.
+3. `pi-manager/PiAgentRunnerService.swift` (lines 60-70, 176-182, 380-515) - current app sends follow-up by default while active and renders tool events.
+4. `pi-manager/PiRPCClient.swift` (lines 50-60) - RPC prompt includes optional `streamingBehavior`.
+5. `pi-manager/PiAgentViews.swift` (lines 250-305, 326-334, 898-908, 1982-2040) - current composer mode UI and transcript visibility/rendering.
 
 ## Key Code
-- Root UI: `ContentView` owns `@StateObject private var viewModel = AppViewModel()` and `NavigationSplitView`; sidebar is `List(selection: $viewModel.selectedSidebarItem)` over `SidebarSection.allCases` / `section.items`; GitHub uses custom `Image("github")`, others use `item.systemImage`. Detail routes via `switch viewModel.selectedSidebarItem` to screens (`GitHubScreen`, `AgentsScreen`, etc.) in `ContentView.swift:4-73, 143-215`.
-- Sidebar enum in `AppViewModel.swift:1657-1715`:
-  - `SidebarItem`: `.overview`, `.projects`, `.github`, `.agents`, `.chains`, `.skills`, `.commandsAndPrompts`, `.subagents`, `.models`, `.settings`, `.environment`, `.mcp`, `.diagnostics` with `rawValue` labels and `systemImage` switch.
-  - `SidebarSection.items`: Workspace = overview/projects/github; Pi Resources = agents/chains/skills/prompts; Runtime = models/settings/environment/mcp/diagnostics. To add an Agent screen, add a case, image, section membership, then handle it in `ContentView.detailView`.
-- `AppViewModel` initial state/services in `AppViewModel.swift:8-80`: many `@Published` properties; key ones for new screen are `selectedSidebarItem`, `selectedProjectPath`, `discoveredProjects`, `snapshot`, GitHub state, and `appSettings`. Services are private lets: `PiScanner`, `ProjectDiscovery`, `AgentPersistence`, `ChainPersistence`, `EnvPersistence`, `SubagentConfigPersistence`, stores, `GitHubCLIAuthService`, `GitRepositoryService`. `init()` loads settings/last selected project, calls `refresh(includeModels: true)`, starts auto refresh, then checks/connects GitHub (`AppViewModel.swift:76-89`).
-- Existing process/service pattern: `CommandRunner.run(command,args,currentDirectoryURL,timeout,environment)` returns `CommandResult(stdout, stderr, exitCode)` and resolves executables (`CommandRunner.swift:1-80`). Use this for a Pi/Agent service rather than duplicating `Process` handling.
-- GitHub issue detail actions: selecting an issue sets `githubSelectedWorkItem`, clears detail/comment, calls `loadIssueDetail`; selecting a relationship may switch project then selects/fabricates a `GitHubWorkItem`; submitting comment validates selection/body, posts, clears draft, invalidates board caches, reloads detail (`AppViewModel.swift:800-930`).
-- Issue detail UI only supports opening in browser, clicking relationship groups, viewing comments, and `Post Comment` (`GitHubViews.swift:272-431`). No create/edit/close issue action exists.
-- `GitHubIssueService` public API: `fetchDetail(for:)` GETs issue, comments, parent, sub_issues, dependencies blocked_by/blocking in parallel; `postComment(body:for:)` POSTs to issue comments (`GitHubIssueService.swift:3-72`).
-- `GitRepositoryService` public API (`GitRepositoryService.swift:3-58`): `loadChanges(in:)`, `loadDiff(for:kind:in:)`, `stage`, `unstage`, `stageAll`, `unstageAll`, `commit(message:in:)`, `pushCurrentBranch(in:)`. It shells out to git via `CommandRunning`; untracked diff returns a text preview; `parseStatus` builds staged/unstaged/untracked/conflicted snapshots (`GitRepositoryService.swift:61-191`).
-- Xcode project uses file-system synchronized root group for `pi-manager` (`PBXFileSystemSynchronizedRootGroup`, target `fileSystemSynchronizedGroups`). `PBXSourcesBuildPhase.files` is empty. Pattern means adding a `.swift` under `pi-manager/` should be picked up without adding PBXBuildFile/PBXSources entries (`pi-manager.xcodeproj/project.pbxproj:9-19,63-65,117-124`).
+Pi CLI normal Enter while streaming is steering:
+```js
+// interactive-mode.js 2092-2098
+if (this.session.isStreaming) {
+  this.editor.addToHistory?.(text);
+  this.editor.setText("");
+  await this.session.prompt(text, { streamingBehavior: "steer" });
+  this.updatePendingMessagesDisplay();
+  this.ui.requestRender();
+  return;
+}
+```
+
+Pi CLI follow-up is explicit Alt+Enter only:
+```js
+// interactive-mode.js 2706-2712
+if (this.session.isStreaming) {
+  this.editor.addToHistory?.(text);
+  this.editor.setText("");
+  await this.session.prompt(text, { streamingBehavior: "followUp" });
+  this.updatePendingMessagesDisplay();
+  this.ui.requestRender();
+}
+```
+
+Core RPC/session behavior requires an explicit streaming behavior while active:
+```js
+// agent-session.js 726-737
+if (this.isStreaming) {
+  if (!options?.streamingBehavior) throw new Error(...);
+  if (options.streamingBehavior === "followUp") await this._queueFollowUp(...);
+  else await this._queueSteer(...);
+  return;
+}
+```
+
+Current pi-manager diverges: `PiAgentRunnerService.send` converts `.prompt` during active streaming to `.followUp` and sends `streamingBehavior: "followUp"` (`PiAgentRunnerService.swift` lines 60-70). UI also defaults `inputMode` to `.followUp` and shows follow-up placeholder/toggle (`PiAgentViews.swift` lines 9, 254, 305, 898-908).
+
+Noisy tool source:
+```swift
+// PiAgentRunnerService.swift 395-396
+case "toolcall_start":
+    store.append(.init(... role: .tool, title: "Tool Call", text: "Preparing tool call…" ...))
+```
+This creates low-value “Preparing tool call…” cards. `handleToolExecution` then upserts richer `Tool: <toolName>` entries for `tool_execution_start/update/end` (lines 425-444). `transcriptEntry(from:)` also falls back to rendering any `type.contains("tool")` event as a tool card (lines 507-508), which can duplicate/proliferate raw tool protocol noise.
+
+Current visible transcript filter only hides `.raw` and non Compaction/Retry statuses; it shows all `.tool` entries (`PiAgentViews.swift` lines 326-334).
 
 ## Architecture
-SwiftUI views bind directly to one `@MainActor AppViewModel`. AppViewModel owns persistent config services and transient async service calls. Existing services are value structs with dependency injection where needed (`GitRepositoryService(commandRunner:)`, `GitHubIssueService(apiClient:)`). New Agent runtime services should follow this: create a `*Service.swift` using `CommandRunning`, add `@Published` runtime state plus a private service in `AppViewModel`, and expose intent methods that update state on MainActor.
+- CLI Enter -> `InteractiveMode` -> `session.prompt(..., streamingBehavior: "steer")` when `session.isStreaming`.
+- CLI Alt+Enter -> `handleFollowUp()` -> `streamingBehavior: "followUp"`.
+- `AgentSession.prompt()` maps `streamingBehavior` to `_queueSteer`/`_queueFollowUp`, emits `queue_update`, and later the agent emits user-message events when delivered.
+- pi-manager sends RPC JSON via `PiRPCClient.prompt(message, streamingBehavior:)`.
+- pi-manager currently appends a local user transcript entry immediately in `PiAgentRunnerService.send`, with titles “Queued steering” or “Queued follow-up”. Pi echoes delivered user messages later, but app ignores echoed role `user`.
 
 ## Start Here
-Open `pi-manager/AppViewModel.swift:1657` and `pi-manager/ContentView.swift:143`. Add the sidebar case/section first, then route it to a new `AgentScreen(viewModel:)` or similarly named SwiftUI view.
+Start with `PiAgentRunnerService.swift` lines 60-70. Change active `.prompt` behavior from follow-up to steering, then remove follow-up toggle UI in `PiAgentViews.swift`.
 
 ## Constraints And Risks
-- `SidebarItem.github` has a custom image special case; a new case must have a SF Symbol or similar special handling.
-- AppViewModel init immediately refreshes and starts watchers; avoid starting long-running agent processes in `init()` unless explicitly gated.
-- GitHub issue APIs are read/comment-only today.
-- Repo is dirty (`progress.md` modified by scout); cache is refreshed against dirty worktree.
+- To match CLI: busy Return should send `streamingBehavior: "steer"`; explicit follow-up UI should be removed/hidden unless reintroduced as an Alt+Enter advanced shortcut.
+- Since send button becomes Stop while running, active-turn message submission must rely on Return. The AppKit text editor already calls `onSend` for Return; ensure placeholder says “Steer the current turn…” while active.
+- Local transcript should title active submits as “Queued steering” (or simply “Steering”) and not “Queued follow-up”. Queue counts/footer should stop emphasizing follow-up if UI no longer exposes it.
+- Minimal tool-noise filter: do not append `toolcall_start` “Preparing tool call…”. Let `tool_execution_*` produce/update the meaningful tool card.
+- Also consider returning `nil` for fallback `type.contains("tool")` in `transcriptEntry(from:)` unless it is an error or has a meaningful result; otherwise protocol events can leak as cards.
+- Keep subagent handling: `PiAgentSubagentSummary(entry:)` detects tool entries whose title/text contains “subagent” and renders a summarized view. Preserve tool entries for actual subagent results; filter only preparation/start/protocol noise.
+- Local stored Pi Manager session list has only one recent session (`claude-code-meter`), not `claude-code-manager`, so no useful historical transcript was available locally to inspect.
 
 ## Pi-intercom handoff
-No safe orchestrator target was specified; not sent.
+No safe orchestrator target was provided.

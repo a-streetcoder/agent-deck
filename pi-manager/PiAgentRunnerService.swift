@@ -59,7 +59,7 @@ final class PiAgentRunnerService {
             return
         }
         let isStreaming = store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true
-        let effectiveMode: PiAgentInputMode = isStreaming && mode == .prompt ? .followUp : mode
+        let effectiveMode: PiAgentInputMode = isStreaming ? .steer : mode
         store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(message, images: images)))
         switch effectiveMode {
         case .prompt:
@@ -177,7 +177,7 @@ final class PiAgentRunnerService {
     private func transcriptTitle(for mode: PiAgentInputMode, isStreaming: Bool) -> String {
         guard isStreaming else { return "Prompt" }
         switch mode {
-        case .prompt, .steer: return "Queued steering"
+        case .prompt, .steer: return "Steering"
         case .followUp: return "Queued follow-up"
         }
     }
@@ -191,7 +191,13 @@ final class PiAgentRunnerService {
     }
 
     private func handle(stderr: String, sessionID: UUID) {
-        store.append(.init(sessionID: sessionID, role: .stderr, title: "stderr", text: stderr))
+        let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isIgnorableStderr(trimmed) else { return }
+        store.append(.init(sessionID: sessionID, role: .stderr, title: "stderr", text: trimmed))
+    }
+
+    private func isIgnorableStderr(_ text: String) -> Bool {
+        text.contains(";notify;Pi;") || text.localizedCaseInsensitiveContains("ready for input")
     }
 
     private func handle(rawLine: String, event: PiAgentRPCEvent?, sessionID: UUID) {
@@ -393,7 +399,7 @@ final class PiAgentRunnerService {
                 ))
             }
         case "toolcall_start":
-            store.append(.init(sessionID: sessionID, role: .tool, title: "Tool Call", text: "Preparing tool call…", rawJSON: rawLine))
+            break
         case "error":
             store.append(.init(sessionID: sessionID, role: .error, title: "Assistant Error", text: assistantEvent.compactDescription, rawJSON: rawLine))
         default:
@@ -505,7 +511,7 @@ final class PiAgentRunnerService {
         }
 
         if type.contains("tool") {
-            return .init(sessionID: sessionID, role: .tool, title: type, text: event.data?.compactDescription ?? rawLine, rawJSON: rawLine)
+            return nil
         }
         if type.contains("error") {
             return .init(sessionID: sessionID, role: .error, title: type, text: event.error?.compactDescription ?? event.data?.compactDescription ?? rawLine, rawJSON: rawLine)
