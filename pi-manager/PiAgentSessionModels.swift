@@ -94,11 +94,19 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var lastSummary: String?
     var needsAttention: Bool
     var lastNotificationAt: Date?
+    var inputTokens: Int?
+    var outputTokens: Int?
+    var cacheReadTokens: Int?
+    var cacheWriteTokens: Int?
     var totalTokens: Int?
+    var toolCalls: Int?
+    var toolResults: Int?
     var contextTokens: Int?
     var contextWindow: Int?
     var contextPercent: Double?
     var cost: Double?
+    var pendingSteeringMessages: [String]
+    var pendingFollowUpMessages: [String]
     var createdAt: Date
     var updatedAt: Date
 
@@ -169,6 +177,11 @@ struct PiAgentRPCEvent: Decodable {
     let method: String?
     let title: String?
     let options: JSONValue?
+    let steering: JSONValue?
+    let followUp: JSONValue?
+    let aborted: Bool?
+    let willRetry: Bool?
+    let errorMessage: String?
 }
 
 enum JSONValue: Codable, Hashable {

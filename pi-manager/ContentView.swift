@@ -93,26 +93,54 @@ struct ContentView: View {
                     Divider()
                     PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
                         .frame(width: 380)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+
                 }
             }
-            .animation(.easeInOut(duration: 0.18), value: viewModel.isPiAgentInspectorPresented)
+
         }
         .frame(minWidth: 1180, minHeight: 760)
+        .navigationTitle(toolbarTitle)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(toolbarTitle)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    viewModel.isPiAgentInspectorPresented.toggle()
-                } label: {
-                    Label("Pi Agent", systemImage: "sparkles.rectangle.stack")
+            if viewModel.selectedSidebarItem == .projects {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        viewModel.chooseProjectRoot()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .help("Add project manually")
                 }
-                .help(viewModel.isPiAgentInspectorPresented ? "Hide Pi Agent inspector" : "Show Pi Agent inspector")
+            }
+
+            if viewModel.selectedSidebarItem == .agent {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        viewModel.openRepoChangesForSelectedPiAgentSession()
+                    } label: {
+                        Image(systemName: "arrow.triangle.branch")
+                    }
+                    .help("Repo changes")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+
+                    Button {
+                        viewModel.stopSelectedPiAgentSession()
+                    } label: {
+                        Image(systemName: "stop.fill")
+                    }
+                    .help("Stop Pi Agent")
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .disabled(!selectedPiAgentSessionIsRunning)
+
+                    Button(role: .destructive) {
+                        if let session = viewModel.piAgentSessionStore.selectedSession {
+                            viewModel.deletePiAgentSession(session.id)
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .help("Delete session")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+                }
             }
         }
         .task(id: projectFilterText) {
@@ -263,6 +291,11 @@ struct ContentView: View {
         }
     }
 
+    private var selectedPiAgentSessionIsRunning: Bool {
+        guard let session = viewModel.piAgentSessionStore.selectedSession else { return false }
+        return viewModel.isPiAgentSessionRunning(session.id)
+    }
+
     private var filteredProjects: [DiscoveredProject] {
         let query = debouncedProjectFilterText
         guard !query.isEmpty else { return viewModel.enabledProjects }
@@ -350,17 +383,6 @@ private struct SidebarProjectGitHubCard: View {
                         onToggleFavorite: onToggleFavorite
                     )
                 }
-            }
-
-            if selectedProject != nil {
-                Button {
-                    viewModel.openPiAgentForSelectedProject()
-                } label: {
-                    Label("Open Pi Agent", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
 
             Divider()
@@ -770,20 +792,6 @@ private struct ProjectsScreen: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                HStack {
-                    Spacer()
-                    Button {
-                        viewModel.chooseProjectRoot()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.headline)
-                            .frame(width: 30, height: 30)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .help("Add project manually")
-                }
-
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
                     AppMetricTile(title: "All Projects", value: viewModel.discoveredProjects.count)
                     AppMetricTile(title: "Enabled", value: viewModel.enabledProjects.count)

@@ -58,11 +58,16 @@ final class PiAgentRunnerService {
             store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
             return
         }
-        store.append(.init(sessionID: sessionID, role: .user, title: mode.rawValue, text: transcriptText(message, images: images)))
-        switch mode {
-        case .prompt: client.prompt(message, images: images)
-        case .steer: client.steer(message, images: images)
-        case .followUp: client.followUp(message, images: images)
+        let isStreaming = store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true
+        let effectiveMode: PiAgentInputMode = isStreaming && mode == .prompt ? .followUp : mode
+        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(message, images: images)))
+        switch effectiveMode {
+        case .prompt:
+            client.prompt(message, images: images)
+        case .steer:
+            client.prompt(message, images: images, streamingBehavior: "steer")
+        case .followUp:
+            client.prompt(message, images: images, streamingBehavior: "followUp")
         }
         mark(sessionID, status: .running, error: nil)
     }
@@ -169,6 +174,14 @@ final class PiAgentRunnerService {
         return "\(base)\n\n\(fileTags)"
     }
 
+    private func transcriptTitle(for mode: PiAgentInputMode, isStreaming: Bool) -> String {
+        guard isStreaming else { return "Prompt" }
+        switch mode {
+        case .prompt, .steer: return "Queued steering"
+        case .followUp: return "Queued follow-up"
+        }
+    }
+
     private func transcriptText(_ text: String, images: [PiAgentImageAttachment]) -> String {
         guard !images.isEmpty else { return text }
         let imageList = images.map { image in
@@ -206,7 +219,11 @@ final class PiAgentRunnerService {
         case "extension_ui_request":
             handleExtensionUIRequest(event, rawLine: rawLine, sessionID: sessionID)
         case "queue_update":
-            store.append(.init(sessionID: sessionID, role: .status, title: "Queued Messages", text: event.data?.compactDescription ?? rawLine, rawJSON: rawLine))
+            handleQueueUpdate(event, sessionID: sessionID)
+        case "compaction_start", "compaction_end":
+            handleCompaction(event, rawLine: rawLine, sessionID: sessionID)
+        case "auto_retry_start", "auto_retry_end":
+            handleRetry(event, rawLine: rawLine, sessionID: sessionID)
         default:
             if let entry = transcriptEntry(from: event, rawLine: rawLine, sessionID: sessionID) {
                 store.append(entry)
@@ -258,7 +275,13 @@ final class PiAgentRunnerService {
         if event.command == "get_session_stats", let data = event.data {
             store.updateSession(sessionID) { record in
                 record.lastSummary = data.compactDescription
+                record.inputTokens = data["tokens"]?["input"]?.numberValue.map(Int.init)
+                record.outputTokens = data["tokens"]?["output"]?.numberValue.map(Int.init)
+                record.cacheReadTokens = data["tokens"]?["cacheRead"]?.numberValue.map(Int.init)
+                record.cacheWriteTokens = data["tokens"]?["cacheWrite"]?.numberValue.map(Int.init)
                 record.totalTokens = data["tokens"]?["total"]?.numberValue.map(Int.init)
+                record.toolCalls = data["toolCalls"]?.numberValue.map(Int.init)
+                record.toolResults = data["toolResults"]?.numberValue.map(Int.init)
                 record.cost = data["cost"]?.numberValue
                 if let contextUsage = data["contextUsage"] {
                     record.contextTokens = contextUsage["tokens"]?.numberValue.map(Int.init)
@@ -419,6 +442,35 @@ final class PiAgentRunnerService {
             text = rawLine
         }
         store.upsert(.init(id: entryID, sessionID: sessionID, role: event.isError == true ? .error : .tool, title: title, text: text, rawJSON: rawLine))
+    }
+
+    private func handleCompaction(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
+        let reason = event.data?["reason"]?.stringValue ?? event.result?["reason"]?.stringValue ?? "context"
+        let text: String
+        if event.type == "compaction_start" {
+            text = "Pi is compacting conversation context (\(reason))."
+        } else if let result = event.result {
+            let tokens = result["tokensBefore"]?.numberValue.map { " · before: \(Int($0)) tokens" } ?? ""
+            let retry = event.willRetry == true ? " · will retry" : ""
+            text = "Compaction finished\(tokens)\(retry)."
+        } else if event.aborted == true {
+            text = "Compaction was aborted."
+        } else {
+            text = event.errorMessage ?? "Compaction finished."
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "Compaction", text: text, rawJSON: rawLine))
+    }
+
+    private func handleRetry(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
+        let text = event.errorMessage ?? event.data?.compactDescription ?? rawLine
+        store.append(.init(sessionID: sessionID, role: .status, title: "Retry", text: text, rawJSON: rawLine))
+    }
+
+    private func handleQueueUpdate(_ event: PiAgentRPCEvent, sessionID: UUID) {
+        store.updateSession(sessionID) { record in
+            record.pendingSteeringMessages = stringArray(from: event.steering) ?? []
+            record.pendingFollowUpMessages = stringArray(from: event.followUp) ?? []
+        }
     }
 
     private func handleExtensionUIRequest(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {

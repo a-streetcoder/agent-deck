@@ -6,7 +6,7 @@ struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
-    @State private var inputMode: PiAgentInputMode = .prompt
+    @State private var inputMode: PiAgentInputMode = .followUp
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
     @State private var composerImages: [PiAgentImageAttachment] = []
@@ -49,19 +49,28 @@ struct PiAgentScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                if viewModel.piAgentNeedsAttentionCount > 0 {
-                    Button {
-                        viewModel.showPiAgentAttentionOnly.toggle()
-                    } label: {
-                        Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell.badge")
+                Button {
+                    viewModel.showPiAgentAttentionOnly.toggle()
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(viewModel.showPiAgentAttentionOnly ? .white : Color.accentColor)
                             .frame(width: 30, height: 30)
                             .background(Circle().fill(viewModel.showPiAgentAttentionOnly ? Color.accentColor : Color.accentColor.opacity(0.12)))
+                        if viewModel.piAgentNeedsAttentionCount > 0 {
+                            Text("\(viewModel.piAgentNeedsAttentionCount)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Capsule(style: .continuous).fill(Color.red))
+                                .offset(x: 4, y: -3)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .help(viewModel.showPiAgentAttentionOnly ? "Show all sessions" : "Show sessions needing attention")
                 }
+                .buttonStyle(.plain)
+                .help(viewModel.showPiAgentAttentionOnly ? "Show all sessions" : "Show unread Pi Agent updates")
                 PiAgentAddSessionButton {
                     viewModel.createPiAgentDraftForSelectedProject()
                 }
@@ -146,78 +155,26 @@ struct PiAgentScreen: View {
     @ViewBuilder
     private var sessionHeader: some View {
         if let session = store.selectedSession {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            AppLabelTag(text: session.kind.rawValue, color: session.kind == .issue ? .purple : .blue)
-                            AppLabelTag(text: effectiveStatus(for: session), color: effectiveStatusColor(for: session))
-                            if let repository = session.repository {
-                                AppLabelTag(text: repository, color: .secondary)
-                            }
-                        }
-                        TextField("Session name", text: $selectedSessionTitleDraft)
-                            .textFieldStyle(.plain)
-                            .font(.title2.bold())
-                            .fontWidth(.expanded)
-                            .lineLimit(2)
-                            .onSubmit(commitSelectedSessionRename)
-                            .onDisappear(perform: commitSelectedSessionRename)
-                    }
-
-                    Spacer()
-
-                    HStack(spacing: 8) {
-                        Button("Resume") { viewModel.resumeSelectedPiAgentSession() }
-                            .disabled(viewModel.isPiAgentSessionRunning(session.id))
-                        Button("Stop") { viewModel.stopSelectedPiAgentSession() }
-                            .keyboardShortcut(.escape, modifiers: [])
-                            .disabled(!viewModel.isPiAgentSessionRunning(session.id))
-                        Button("Repo Changes") { viewModel.openRepoChangesForSelectedPiAgentSession() }
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    PiAgentModelPicker(
-                        session: session,
-                        fallbackModels: viewModel.availableModels,
-                        isRunning: viewModel.isPiAgentSessionRunning(session.id),
-                        onRefresh: { viewModel.refreshPiAgentControlsForSelectedSession() },
-                        onCycle: { viewModel.cyclePiAgentModelForSelectedSession() },
-                        onSelect: { selection in
-                            if let selection {
-                                viewModel.setPiAgentModelForSelectedSession(provider: selection.provider, modelID: selection.modelID)
-                            } else {
-                                viewModel.setPiAgentModelForSelectedSession(provider: nil, modelID: nil)
-                            }
-                        }
-                    )
-                    PiAgentThinkingPicker(
-                        level: session.thinkingLevel,
-                        supportedLevels: supportedThinkingLevels(for: session),
-                        isRunning: viewModel.isPiAgentSessionRunning(session.id),
-                        onCycle: { viewModel.cyclePiAgentThinkingLevelForSelectedSession() },
-                        onSelect: { viewModel.setPiAgentThinkingLevelForSelectedSession($0) }
-                    )
-                    Spacer()
-                }
-
-                HStack(spacing: 16) {
-                    Label(session.projectPath, systemImage: "folder")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(session.piSessionFile == nil ? "Draft · not launched" : "Pi session saved")
-                        .foregroundStyle(AppTheme.mutedText)
-                    Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    AppLabelTag(text: session.kind.rawValue, color: session.kind == .issue ? .purple : .blue)
+                    AppLabelTag(text: effectiveStatus(for: session), color: effectiveStatusColor(for: session))
                     Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
+                    Spacer(minLength: 0)
                 }
-                .font(.footnote)
-
-                PiAgentRuntimeFooter(session: session)
+                TextField("Session name", text: $selectedSessionTitleDraft)
+                    .textFieldStyle(.plain)
+                    .font(.title3.bold())
+                    .fontWidth(.expanded)
+                    .lineLimit(1)
+                    .onSubmit(commitSelectedSessionRename)
+                    .onDisappear(perform: commitSelectedSessionRename)
 
                 if let error = session.lastError {
                     Text(error)
+                        .font(.footnote)
                         .foregroundStyle(.red)
                 }
             }
@@ -279,24 +236,31 @@ struct PiAgentScreen: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let session = store.selectedSession, !viewModel.isPiAgentSessionRunning(session.id) {
-                Text(session.piSessionFile == nil ? "Send launches this draft." : "Send resumes this session.")
-                    .font(.footnote)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-
             PiAgentCommandSuggestions(
                 text: $composerText,
                 commands: slashSuggestions,
-                onAttach: { composerAttachmentError = "Use the image button, paste, or drop images. General @file attach is not implemented yet." }
+                fileSuggestions: fileSuggestions,
+                onSelectFile: insertFileSuggestion
             )
 
+            let isRunning = store.selectedSession?.status.isActive == true
             PiAgentComposerBox(
                 text: $composerText,
                 images: $composerImages,
                 attachmentError: $composerAttachmentError,
-                placeholder: "Ask Pi to implement, inspect, explain, or fix…",
+                inputMode: $inputMode,
+                isRunning: isRunning,
+                placeholder: isRunning ? (inputMode == .steer ? "Steer the current turn…" : "Queue a follow-up for when Pi finishes…") : "Ask Pi to implement, inspect, explain, or fix…",
                 canSend: store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty),
+                path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
+                onFiles: appendFileReferences,
+                footer: store.selectedSession.map { session in
+                    AnyView(PiAgentComposerFooterBar(
+                        session: session,
+                        viewModel: viewModel,
+                        supportedThinkingLevels: supportedThinkingLevels(for: session)
+                    ))
+                },
                 onSend: sendComposerMessage
             )
         }
@@ -310,20 +274,57 @@ struct PiAgentScreen: View {
         return all.filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(8).map { $0 }
     }
 
+    private var fileSuggestions: [PiAgentFileSuggestion] {
+        guard let session = store.selectedSession else { return [] }
+        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("@") else { return [] }
+        let query = String(trimmed.dropFirst()).lowercased()
+        return PiAgentFileSuggestion.scan(rootPath: session.worktreePath ?? session.projectPath, query: query)
+    }
+
+    private func insertFileSuggestion(_ suggestion: PiAgentFileSuggestion) {
+        composerText = "@\(suggestion.relativePath) "
+    }
+
+    private func appendFileReferences(_ urls: [URL]) {
+        let tags = urls
+            .filter { !$0.hasDirectoryPath }
+            .map { "<file name=\"\($0.path)\"></file>" }
+        guard !tags.isEmpty else { return }
+        let prefix = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n"
+        composerText += prefix + tags.joined(separator: "\n")
+    }
+
     private func sendComposerMessage() {
         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty else { return }
-        viewModel.sendPiAgentMessage(message, mode: .prompt, images: composerImages)
+        let isRunning = store.selectedSession?.status.isActive == true
+        viewModel.sendPiAgentMessage(expandFileReferences(in: message), mode: isRunning ? inputMode : .prompt, images: composerImages)
         composerText = ""
         composerImages = []
         composerAttachmentError = nil
+    }
+
+    private func expandFileReferences(in message: String) -> String {
+        guard let session = store.selectedSession else { return message }
+        let rootURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        return message
+            .split(separator: " ", omittingEmptySubsequences: false)
+            .map { part in
+                guard part.hasPrefix("@"), part.count > 1 else { return String(part) }
+                let relative = String(part.dropFirst())
+                let url = rootURL.appendingPathComponent(relative)
+                guard FileManager.default.fileExists(atPath: url.path) else { return String(part) }
+                return "<file name=\"\(url.path)\"></file>"
+            }
+            .joined(separator: " ")
     }
 
     private var visibleTranscriptEntries: [PiAgentTranscriptEntry] {
         store.selectedTranscript.filter { entry in
             switch entry.role {
             case .raw: return false
-            case .status: return false
+            case .status: return entry.title == "Compaction" || entry.title == "Retry"
             default: return true
             }
         }
@@ -355,16 +356,17 @@ struct PiAgentScreen: View {
     }
 
     private func syncSelectedSessionTitleDraft() {
-        selectedSessionTitleDraft = store.selectedSession?.displayTitle ?? ""
+        selectedSessionTitleDraft = store.selectedSession?.title ?? ""
     }
 
     private func commitSelectedSessionRename() {
         guard let session = store.selectedSession else { return }
         let trimmedTitle = selectedSessionTitleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedTitle.isEmpty {
-            selectedSessionTitleDraft = session.displayTitle
+            selectedSessionTitleDraft = session.title
         } else if trimmedTitle != session.title {
             viewModel.renamePiAgentSession(session.id, title: trimmedTitle)
+            selectedSessionTitleDraft = trimmedTitle
         }
     }
 
@@ -382,11 +384,10 @@ struct PiAgentScreen: View {
     }
 
     private func effectiveStatus(for session: PiAgentSessionRecord) -> String {
-        viewModel.isPiAgentSessionRunning(session.id) ? "Active" : session.status.rawValue
+        session.status.rawValue
     }
 
     private func effectiveStatusColor(for session: PiAgentSessionRecord) -> Color {
-        if viewModel.isPiAgentSessionRunning(session.id) { return .green }
         switch session.status {
         case .running, .starting: return .orange
         case .idle, .completed: return .blue
@@ -556,45 +557,122 @@ private struct PiAgentStartupResourcesCard: View {
     }
 }
 
+private struct PiAgentFileSuggestion: Identifiable, Hashable {
+    let id: String
+    let relativePath: String
+    let isDirectory: Bool
+
+    static func scan(rootPath: String, query: String) -> [PiAgentFileSuggestion] {
+        let rootURL = URL(fileURLWithPath: rootPath)
+        let skippedDirectories: Set<String> = [".git", "node_modules", ".build", "DerivedData", ".swiftpm", ".venv"]
+        guard let enumerator = FileManager.default.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+
+        var results: [PiAgentFileSuggestion] = []
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if skippedDirectories.contains(name) {
+                enumerator.skipDescendants()
+                continue
+            }
+
+            let relative = url.path.replacingOccurrences(of: rootURL.path + "/", with: "")
+            guard query.isEmpty || relative.lowercased().contains(query) else { continue }
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            results.append(.init(id: url.path, relativePath: relative, isDirectory: values?.isDirectory == true))
+            if results.count >= 10 { break }
+        }
+        return results
+    }
+}
+
 private struct PiAgentCommandSuggestions: View {
     @Binding var text: String
     let commands: [String]
-    let onAttach: () -> Void
+    let fileSuggestions: [PiAgentFileSuggestion]
+    let onSelectFile: (PiAgentFileSuggestion) -> Void
 
     var body: some View {
-        if text.trimmingCharacters(in: .whitespacesAndNewlines) == "@" {
-            AppRowCard {
-                Button(action: onAttach) {
-                    Label("Attach files/images", systemImage: "paperclip")
-                }
-                .buttonStyle(.plain)
-            }
-        } else if !commands.isEmpty {
-            AppRowCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Slash commands")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 8)], alignment: .leading, spacing: 8) {
-                        ForEach(commands, id: \.self) { command in
-                            Button {
-                                text = command + " "
-                            } label: {
-                                Text(command)
-                                    .font(.caption.monospaced())
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.subtleFill))
-                            }
-                            .buttonStyle(.plain)
+        if !fileSuggestions.isEmpty {
+            suggestionPanel(title: "Files", icon: "paperclip") {
+                ForEach(fileSuggestions) { suggestion in
+                    Button { onSelectFile(suggestion) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
+                                .frame(width: 14)
+                            Text(suggestion.relativePath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 0)
                         }
                     }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else if !commands.isEmpty {
+            suggestionPanel(title: "Slash commands", icon: "terminal") {
+                ForEach(commands, id: \.self) { command in
+                    Button { text = command + " " } label: {
+                        Text(command)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
+    }
+
+    private func suggestionPanel<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            VStack(alignment: .leading, spacing: 2) {
+                content()
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.subtleFill))
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.cardFill)
+                .stroke(AppTheme.cardStroke, lineWidth: 1)
+        )
+    }
+}
+
+private struct ShortcutComboHint: View {
+    let symbols: [String]
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(symbols.enumerated()), id: \.offset) { index, symbol in
+                if index > 0 {
+                    Image(systemName: "plus")
+                        .font(.system(size: 7, weight: .bold))
+                }
+                Image(systemName: symbol)
+                    .font(.caption2.weight(.semibold))
+            }
+            Text(text)
+                .font(.caption.weight(.medium))
+                .fontWidth(.condensed)
+        }
+        .foregroundStyle(AppTheme.mutedText)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
     }
 }
 
@@ -604,8 +682,13 @@ private struct PiAgentComposerBox: View {
     @Binding var text: String
     @Binding var images: [PiAgentImageAttachment]
     @Binding var attachmentError: String?
+    @Binding var inputMode: PiAgentInputMode
+    let isRunning: Bool
     let placeholder: String
     let canSend: Bool
+    let path: String?
+    let onFiles: ([URL]) -> Void
+    let footer: AnyView?
     let onSend: () -> Void
     @State private var isDropTargeted = false
 
@@ -639,7 +722,9 @@ private struct PiAgentComposerBox: View {
                     text: $text,
                     onDropTargeted: { isDropTargeted = $0 },
                     onImages: addImages,
-                    onUnsupportedDrop: { attachmentError = "Drop PNG, JPEG, GIF, or WebP images." }
+                    onFiles: onFiles,
+                    onUnsupportedDrop: { attachmentError = "Drop files, Markdown/text files, or images." },
+                    onSend: onSend
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -654,24 +739,51 @@ private struct PiAgentComposerBox: View {
                     .padding(.bottom, 8)
             }
 
-            HStack(spacing: 10) {
-                Button(action: attachImagesFromOpenPanel) {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(AppTheme.subtleFill))
+            VStack(spacing: 10) {
+                if let footer {
+                    footer
                 }
-                .buttonStyle(.plain)
-                .help("Attach images")
 
-                Text("Paste, drop, or attach images · ⌘↩ send · Esc stop")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                Spacer()
-                PiAgentSendButton(canSend: canSend, action: onSend)
-                    .keyboardShortcut(.return, modifiers: [.command])
+                HStack(spacing: 10) {
+                    Button(action: attachImagesFromOpenPanel) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(AppTheme.subtleFill))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Attach images")
+
+                    if let path {
+                        Label(shortPath(path), systemImage: "folder")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(path)
+                    }
+
+                    if isRunning {
+                        Button {
+                            inputMode = inputMode == .steer ? .followUp : .steer
+                        } label: {
+                            Label("Steer", systemImage: "arrow.turn.down.right")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(inputMode == .steer ? Color.accentColor : nil)
+                        .help(inputMode == .steer ? "Steering is on: send guidance into the current turn" : "Default: queue a follow-up. Click to steer the current turn instead.")
+                    }
+
+                    Spacer()
+                    ShortcutComboHint(symbols: ["return"], text: "send")
+                    ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
+                    if isRunning { ShortcutComboHint(symbols: ["escape"], text: "stop") }
+                    PiAgentSendButton(canSend: canSend, action: onSend)
+                        .keyboardShortcut(.return, modifiers: [])
+                }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
@@ -710,17 +822,38 @@ private struct PiAgentComposerBox: View {
         .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL]) { _ in
             addImages(PiAgentComposerImageLoader.imagesFromPasteboard())
         }
+        .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image, .plainText, .utf8PlainText], isTargeted: $isDropTargeted) { providers in
+            PiAgentComposerImageLoader.loadDropItems(from: providers) { attachments, files in
+                if attachments.isEmpty && files.isEmpty {
+                    attachmentError = "Drop files, Markdown/text files, or images."
+                } else {
+                    addImages(attachments)
+                    onFiles(files)
+                }
+            }
+            return true
+        }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func attachImagesFromOpenPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP]
+        panel.allowedContentTypes = [.item]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         guard panel.runModal() == .OK else { return }
-        addImages(panel.urls.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) })
+        let imageAttachments = panel.urls.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) }
+        let files = panel.urls.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
+        addImages(imageAttachments)
+        onFiles(files)
+    }
+
+    private func shortPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        return path
     }
 
     private func addImages(_ newImages: [PiAgentImageAttachment]) {
@@ -744,7 +877,9 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     @Binding var text: String
     var onDropTargeted: (Bool) -> Void
     var onImages: ([PiAgentImageAttachment]) -> Void
+    var onFiles: ([URL]) -> Void
     var onUnsupportedDrop: () -> Void
+    var onSend: () -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -771,6 +906,7 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.dropHandler = context.coordinator
+        textView.keyHandler = context.coordinator
 
         scrollView.documentView = textView
         return scrollView
@@ -783,13 +919,14 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
             textView.string = text
         }
         textView.dropHandler = context.coordinator
+        textView.keyHandler = context.coordinator
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate, DropSafeNSTextViewDropHandler {
+    final class Coordinator: NSObject, NSTextViewDelegate, DropSafeNSTextViewDropHandler, DropSafeNSTextViewKeyHandler {
         var parent: PiAgentDropSafeTextEditor
 
         init(parent: PiAgentDropSafeTextEditor) {
@@ -807,12 +944,20 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
 
         func handleDrop(_ pasteboard: NSPasteboard) -> Bool {
             let images = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard)
-            if images.isEmpty {
+            let files = PiAgentComposerImageLoader.fileURLs(from: pasteboard).filter { url in
+                PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) == nil
+            }
+            if images.isEmpty && files.isEmpty {
                 parent.onUnsupportedDrop()
                 return false
             }
             parent.onImages(images)
+            parent.onFiles(files)
             return true
+        }
+
+        func send() {
+            parent.onSend()
         }
     }
 }
@@ -822,11 +967,16 @@ private protocol DropSafeNSTextViewDropHandler: AnyObject {
     func handleDrop(_ pasteboard: NSPasteboard) -> Bool
 }
 
+private protocol DropSafeNSTextViewKeyHandler: AnyObject {
+    func send()
+}
+
 private final class DropSafeNSTextView: NSTextView {
     weak var dropHandler: DropSafeNSTextViewDropHandler?
+    weak var keyHandler: DropSafeNSTextViewKeyHandler?
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard acceptsImageDrop(sender.draggingPasteboard) else {
+        guard acceptsDrop(sender.draggingPasteboard) else {
             return super.draggingEntered(sender)
         }
         dropHandler?.setDropTargeted(true)
@@ -834,7 +984,7 @@ private final class DropSafeNSTextView: NSTextView {
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard acceptsImageDrop(sender.draggingPasteboard) else {
+        guard acceptsDrop(sender.draggingPasteboard) else {
             return super.draggingUpdated(sender)
         }
         dropHandler?.setDropTargeted(true)
@@ -852,29 +1002,37 @@ private final class DropSafeNSTextView: NSTextView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard acceptsImageDrop(sender.draggingPasteboard) else {
+        guard acceptsDrop(sender.draggingPasteboard) else {
             return super.performDragOperation(sender)
         }
         dropHandler?.setDropTargeted(false)
         return dropHandler?.handleDrop(sender.draggingPasteboard) ?? false
     }
 
+    override func keyDown(with event: NSEvent) {
+        let isReturn = event.charactersIgnoringModifiers == "\r" || event.charactersIgnoringModifiers == "\n"
+        let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        if isReturn && modifiers.isEmpty {
+            keyHandler?.send()
+            return
+        }
+        if isReturn && (modifiers.contains(.shift) || modifiers.contains(.command) || modifiers.contains(.option)) {
+            insertNewlineIgnoringFieldEditor(self)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
-        if acceptsImageDrop(pasteboard), dropHandler?.handleDrop(pasteboard) == true {
+        if acceptsDrop(pasteboard), dropHandler?.handleDrop(pasteboard) == true {
             return
         }
         super.paste(sender)
     }
 
-    private func acceptsImageDrop(_ pasteboard: NSPasteboard) -> Bool {
-        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
-            return true
-        }
-        if pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) != nil {
-            return true
-        }
-        return pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
+    private func acceptsDrop(_ pasteboard: NSPasteboard) -> Bool {
+        !PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty || !PiAgentComposerImageLoader.fileURLs(from: pasteboard).isEmpty
     }
 }
 
@@ -933,19 +1091,29 @@ private enum PiAgentComposerImageLoader {
     }
 
     nonisolated static func loadImages(from providers: [NSItemProvider], completion: @escaping ([PiAgentImageAttachment]) -> Void) {
+        loadDropItems(from: providers) { attachments, _ in completion(attachments) }
+    }
+
+    nonisolated static func loadDropItems(from providers: [NSItemProvider], completion: @escaping ([PiAgentImageAttachment], [URL]) -> Void) {
         let group = DispatchGroup()
         let lock = NSLock()
         var attachments: [PiAgentImageAttachment] = []
+        var files: [URL] = []
 
-        func append(_ attachment: PiAgentImageAttachment?) {
+        func appendImage(_ attachment: PiAgentImageAttachment?) {
             guard let attachment else { return }
             lock.lock(); attachments.append(attachment); lock.unlock()
         }
 
+        func appendFile(_ url: URL?) {
+            guard let url, !url.hasDirectoryPath else { return }
+            lock.lock(); files.append(url); lock.unlock()
+        }
+
         for provider in providers {
-            var didSchedule = false
+            var didScheduleFile = false
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                didSchedule = true
+                didScheduleFile = true
                 group.enter()
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                     defer { group.leave() }
@@ -955,26 +1123,31 @@ private enum PiAgentComposerImageLoader {
                     } else {
                         url = item as? URL
                     }
-                    append(url.flatMap(imageAttachment(fromFileURL:)))
+                    if let url, let image = imageAttachment(fromFileURL: url) {
+                        appendImage(image)
+                    } else {
+                        appendFile(url)
+                    }
                 }
             }
-            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) && !didSchedule {
+            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) && !didScheduleFile {
                 group.enter()
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
                     defer { group.leave() }
                     guard let data else { return }
                     let png = pngData(fromImageData: data) ?? data
-                    append(imageAttachment(data: png, name: "dropped-image.png", mimeType: "image/png", fileReference: "dropped-image.png"))
+                    appendImage(imageAttachment(data: png, name: "dropped-image.png", mimeType: "image/png", fileReference: "dropped-image.png"))
                 }
             }
         }
 
         group.notify(queue: .main) {
-            completion(attachments)
+            var seen = Set<String>()
+            completion(attachments, files.filter { seen.insert($0.path).inserted })
         }
     }
 
-    nonisolated private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+    nonisolated static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         var urls: [URL] = []
         if let read = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
             urls.append(contentsOf: read)
@@ -1122,40 +1295,177 @@ private struct PiAgentModelSelection {
     let modelID: String
 }
 
+private struct PiAgentComposerFooterBar: View {
+    let session: PiAgentSessionRecord
+    @ObservedObject var viewModel: AppViewModel
+    let supportedThinkingLevels: [String]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            PiAgentContextUsageMeter(session: session)
+                .frame(width: 250)
+            PiAgentModelPicker(
+                session: session,
+                fallbackModels: viewModel.availableModels,
+                isRunning: viewModel.isPiAgentSessionRunning(session.id),
+                onRefresh: { viewModel.refreshPiAgentControlsForSelectedSession() },
+                onCycle: { viewModel.cyclePiAgentModelForSelectedSession() },
+                onSelect: { selection in
+                    if let selection {
+                        viewModel.setPiAgentModelForSelectedSession(provider: selection.provider, modelID: selection.modelID)
+                    } else {
+                        viewModel.setPiAgentModelForSelectedSession(provider: nil, modelID: nil)
+                    }
+                }
+            )
+            PiAgentThinkingPicker(
+                level: session.thinkingLevel,
+                supportedLevels: supportedThinkingLevels,
+                isRunning: viewModel.isPiAgentSessionRunning(session.id),
+                onCycle: { viewModel.cyclePiAgentThinkingLevelForSelectedSession() },
+                onSelect: { viewModel.setPiAgentThinkingLevelForSelectedSession($0) }
+            )
+            PiAgentRuntimeFooter(session: session)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct PiAgentContextUsageMeter: View {
+    let session: PiAgentSessionRecord
+
+    var body: some View {
+        if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
+            HStack(spacing: 6) {
+                Text("Context")
+                    .font(.caption.weight(.semibold))
+                    .fontWidth(.condensed)
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule(style: .continuous)
+                            .fill(AppTheme.subtleFill)
+                        Capsule(style: .continuous)
+                            .fill(percent > 85 ? Color.orange : Color.accentColor)
+                            .frame(width: proxy.size.width * min(max(percent, 0), 100) / 100)
+                    }
+                }
+                .frame(height: 10)
+                Text("\(Int(percent))%")
+                    .font(.caption.monospacedDigit().weight(.bold))
+                Text("\(compact(tokens))/\(compact(window))")
+                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+    }
+
+    private func compact(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return "\(value / 1_000)k" }
+        return "\(value)"
+    }
+}
+
+private struct PiAgentModelStatus: View {
+    let session: PiAgentSessionRecord
+
+    var body: some View {
+        Label(modelLabel, systemImage: "cpu")
+            .font(.footnote.weight(.semibold))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+
+    private var modelLabel: String {
+        if let provider = session.modelOverrideProvider ?? session.modelProvider,
+           let model = session.modelOverrideID ?? session.model {
+            return "\(provider)/\(model)"
+        }
+        return "Pi default model"
+    }
+}
+
+private struct PiAgentThinkingStatus: View {
+    let level: String?
+
+    var body: some View {
+        Label("Thinking: \(displayLevel)", systemImage: "brain.head.profile")
+            .font(.footnote.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+
+    private var displayLevel: String {
+        guard let level, !level.isEmpty else { return "default" }
+        return (level == "none" ? "off" : level).capitalized
+    }
+}
+
+private struct PiAgentShortcutChip: View {
+    let symbol: String
+    let key: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+            Text(key)
+                .font(.caption2.monospaced().weight(.bold))
+            Text(label)
+                .fontWidth(.condensed)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(AppTheme.mutedText)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+    }
+}
+
 private struct PiAgentRuntimeFooter: View {
     let session: PiAgentSessionRecord
 
     var body: some View {
-        HStack(spacing: 10) {
-            if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
-                ProgressView(value: min(max(percent, 0), 100), total: 100)
-                    .frame(width: 90)
-                    .tint(percent > 85 ? .orange : Color.accentColor)
-                Text("\(Int(percent))% \(compact(tokens))/\(compact(window))")
-                    .font(.caption.monospaced())
-            }
-            if let provider = session.modelOverrideProvider ?? session.modelProvider,
-               let model = session.modelOverrideID ?? session.model {
-                Label("\(provider) · \(model)", systemImage: "cpu")
-            } else {
-                Label("Pi default model", systemImage: "cpu")
-            }
-            if let thinking = session.thinkingLevel {
-                Label(thinking, systemImage: "brain.head.profile")
-            }
-            Label(session.worktreePath ?? session.projectPath, systemImage: "folder")
-                .lineLimit(1)
-                .truncationMode(.middle)
+        HStack(spacing: 7) {
             if let total = session.totalTokens {
-                Label("\(compact(total)) tokens", systemImage: "sum")
+                metric("total \(compact(total))", icon: "tugriksign.circle")
+            }
+            if let input = session.inputTokens {
+                metric("in \(compact(input))", icon: "arrow.down.left")
+            }
+            if let output = session.outputTokens {
+                metric("out \(compact(output))", icon: "arrow.up.right")
+            }
+            if let cacheRead = session.cacheReadTokens, cacheRead > 0 {
+                metric("cache \(compact(cacheRead))", icon: "memorychip")
+            }
+            if let toolCalls = session.toolCalls {
+                metric("\(toolCalls) tools", icon: "wrench.and.screwdriver")
             }
             if let cost = session.cost {
-                Label(String(format: "$%.4f", cost), systemImage: "dollarsign.circle")
+                metric(String(format: "$%.4f", cost), icon: "dollarsign.circle")
+            }
+            if !session.pendingSteeringMessages.isEmpty || !session.pendingFollowUpMessages.isEmpty {
+                metric("\(session.pendingSteeringMessages.count)/\(session.pendingFollowUpMessages.count)", icon: "tray.full")
             }
         }
         .font(.caption)
         .foregroundStyle(AppTheme.mutedText)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func metric(_ text: String, icon: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.caption2.weight(.semibold))
+            Text(text)
+        }
+        .lineLimit(1)
     }
 
     private func compact(_ value: Int) -> String {
@@ -1173,43 +1483,100 @@ private struct PiAgentModelPicker: View {
     let onCycle: () -> Void
     let onSelect: (PiAgentModelSelection?) -> Void
 
+    @State private var isPresented = false
+
     var body: some View {
-        Menu {
-            Button("Pi Default") { onSelect(nil) }
-            if !modelOptions.isEmpty {
-                Divider()
-                ForEach(modelOptions) { model in
-                    Button {
-                        onSelect(.init(provider: model.provider, modelID: model.id))
-                    } label: {
-                        HStack {
-                            Text("\(model.displayName) · \(model.provider)")
-                            if model.provider == effectiveProvider && model.id == effectiveModelID {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button("Cycle Model") { onCycle() }
-            Button("Refresh Models") { onRefresh() }
+        Button {
+            isPresented.toggle()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "cpu")
                 Text(modelLabel)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
             }
-            .font(.footnote.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .frame(maxWidth: 220, alignment: .leading)
             .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
         }
-        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("Model", systemImage: "cpu")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    Spacer()
+                    Button {
+                        onRefresh()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh models")
+                }
+
+                Button {
+                    onSelect(nil)
+                    isPresented = false
+                } label: {
+                    modelRow(title: "Pi Default", subtitle: "Use Pi CLI defaults", isSelected: isUsingPiDefault)
+                }
+                .buttonStyle(.plain)
+
+                Divider()
+
+                ScrollView(showsIndicators: true) {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(modelOptions) { model in
+                            Button {
+                                onSelect(.init(provider: model.provider, modelID: model.id))
+                                isPresented = false
+                            } label: {
+                                modelRow(
+                                    title: model.id,
+                                    subtitle: model.provider,
+                                    isSelected: !isUsingPiDefault && model.provider == effectiveProvider && model.id == effectiveModelID
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+            }
+            .padding(12)
+            .frame(width: 360)
+        }
         .help(isRunning ? "Change this Pi session's model" : "Choose a model override for this session before launch")
+    }
+
+    private func modelRow(title: String, subtitle: String, isSelected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? Color.accentColor : AppTheme.mutedText)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
     }
 
     private var modelOptions: [PiAgentModelOption] {
@@ -1227,15 +1594,14 @@ private struct PiAgentModelPicker: View {
         }
     }
 
+    private var isUsingPiDefault: Bool { session.modelOverrideProvider == nil && session.modelOverrideID == nil }
     private var effectiveProvider: String? { session.modelOverrideProvider ?? session.modelProvider }
     private var effectiveModelID: String? { session.modelOverrideID ?? session.model }
 
     private var modelLabel: String {
-        if let override = session.modelOverrideID {
-            return override
-        }
-        if let model = session.model {
-            return model
+        if isUsingPiDefault { return "Pi Default" }
+        if let provider = effectiveProvider, let model = effectiveModelID {
+            return "\(provider)/\(model)"
         }
         return "Pi Default"
     }
@@ -1248,25 +1614,13 @@ private struct PiAgentThinkingPicker: View {
     let onCycle: () -> Void
     let onSelect: (String) -> Void
 
+    @State private var isPresented = false
+
     private var levels: [String] { supportedLevels.isEmpty ? ["off"] : supportedLevels }
 
     var body: some View {
-        Menu {
-            ForEach(levels, id: \.self) { candidate in
-                Button {
-                    onSelect(candidate)
-                } label: {
-                    HStack {
-                        Text(candidate.capitalized)
-                        if candidate == normalizedLevel {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button("Cycle Thinking") { onCycle() }
-                .disabled(levels.count <= 1)
+        Button {
+            isPresented.toggle()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "brain.head.profile")
@@ -1276,12 +1630,42 @@ private struct PiAgentThinkingPicker: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)
             }
-            .font(.footnote.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
             .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
         }
-        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Thinking", systemImage: "brain.head.profile")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+
+                ForEach(levels, id: \.self) { candidate in
+                    Button {
+                        onSelect(candidate)
+                        isPresented = false
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: candidate == normalizedLevel ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(candidate == normalizedLevel ? Color.accentColor : AppTheme.mutedText)
+                                .frame(width: 16)
+                            Text(candidate.capitalized)
+                                .font(.caption.weight(.semibold))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(candidate == normalizedLevel ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(12)
+            .frame(width: 220)
+        }
         .help(isRunning ? "Change thinking level" : "Choose thinking level for this session before launch")
     }
 
@@ -1366,9 +1750,9 @@ private struct PiAgentSessionRow: View {
                         .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
                     TextField("Session name", text: $draftTitle)
                         .textFieldStyle(.plain)
-                        .font(.headline)
+                        .font(.subheadline.weight(.semibold))
                         .fontWidth(.expanded)
-                        .lineLimit(2)
+                        .lineLimit(1)
                         .onSubmit(commitRename)
                     Spacer(minLength: 0)
                     if session.needsAttention {
@@ -1377,20 +1761,20 @@ private struct PiAgentSessionRow: View {
                             .foregroundStyle(Color.accentColor)
                             .help("Pi Agent finished and needs review")
                     }
-                    Button(role: .destructive, action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(AppTheme.mutedText)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Delete session")
                 }
 
-                Text(subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Image("github")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 13, height: 13)
+                    Text(subtitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(.footnote)
+                .foregroundStyle(AppTheme.mutedText)
 
                 Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption)
@@ -1424,15 +1808,12 @@ private struct PiAgentSessionRow: View {
         if session.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return session.issueNumber.map { "#\($0)" } ?? "Project agent"
         }
-        return session.displayTitle
+        return session.title
     }
 
     private var subtitle: String {
-        if let repository = session.repository, let issueNumber = session.issueNumber {
-            return "\(repository) #\(issueNumber) · \(session.projectName)"
-        }
         if let repository = session.repository {
-            return "\(repository) · \(session.projectName)"
+            return repository
         }
         return session.projectName
     }
@@ -1532,8 +1913,8 @@ private struct PiAgentTranscriptCard: View {
         if let subagentSummary = PiAgentSubagentSummary(entry: entry) {
             PiAgentSubagentTranscriptView(summary: subagentSummary)
         } else if entry.role == .thinking {
-            DisclosureGroup("Reasoning", isExpanded: .constant(false)) {
-                Text(entry.text)
+            DisclosureGroup("Reasoning", isExpanded: .constant(true)) {
+                Text(entry.text.isEmpty ? "Pi has not emitted reasoning text yet." : entry.text)
                     .font(.body)
                     .foregroundStyle(AppTheme.mutedText)
                     .textSelection(.enabled)
@@ -1618,7 +1999,7 @@ struct PiAgentInspectorPanel: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
-    @State private var inputMode: PiAgentInputMode = .prompt
+    @State private var inputMode: PiAgentInputMode = .followUp
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerAttachmentError: String?
 
@@ -1672,16 +2053,31 @@ struct PiAgentInspectorPanel: View {
                 }
                 .frame(maxHeight: .infinity)
 
+                let isRunning = viewModel.isPiAgentSessionRunning(session.id)
                 PiAgentComposerBox(
                     text: $composerText,
                     images: $composerImages,
                     attachmentError: $composerAttachmentError,
-                    placeholder: "Message Pi…",
+                    inputMode: $inputMode,
+                    isRunning: isRunning,
+                    placeholder: isRunning ? (inputMode == .steer ? "Steer the current turn…" : "Queue a follow-up…") : "Message Pi…",
                     canSend: !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty,
+                    path: session.worktreePath ?? session.projectPath,
+                    onFiles: { urls in
+                        let tags = urls.filter { !$0.hasDirectoryPath }.map { "<file name=\"\($0.path)\"></file>" }
+                        guard !tags.isEmpty else { return }
+                        let prefix = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n"
+                        composerText += prefix + tags.joined(separator: "\n")
+                    },
+                    footer: AnyView(PiAgentComposerFooterBar(
+                        session: session,
+                        viewModel: viewModel,
+                        supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"]
+                    )),
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty else { return }
-                        viewModel.sendPiAgentMessage(message, mode: .prompt, images: composerImages)
+                        viewModel.sendPiAgentMessage(message, mode: isRunning ? inputMode : .prompt, images: composerImages)
                         composerText = ""
                         composerImages = []
                         composerAttachmentError = nil

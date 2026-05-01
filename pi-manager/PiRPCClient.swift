@@ -47,12 +47,17 @@ final class PiRPCClient: @unchecked Sendable {
     func cycleModel() { send(type: "cycle_model") }
     func setThinkingLevel(_ level: String) { send(type: "set_thinking_level", fields: ["level": level]) }
     func cycleThinkingLevel() { send(type: "cycle_thinking_level") }
-    func prompt(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "prompt", message: message, images: images) }
+    func prompt(_ message: String, images: [PiAgentImageAttachment] = [], streamingBehavior: String? = nil) {
+        sendUserMessage(type: "prompt", message: message, images: images, streamingBehavior: streamingBehavior)
+    }
     func steer(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "steer", message: message, images: images) }
     func followUp(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "follow_up", message: message, images: images) }
 
-    private func sendUserMessage(type: String, message: String, images: [PiAgentImageAttachment]) {
+    private func sendUserMessage(type: String, message: String, images: [PiAgentImageAttachment], streamingBehavior: String? = nil) {
         var fields: [String: Any] = ["message": message]
+        if let streamingBehavior {
+            fields["streamingBehavior"] = streamingBehavior
+        }
         if !images.isEmpty {
             fields["images"] = images.map(\.rpcPayload)
         }
