@@ -14,13 +14,6 @@ struct PiAgentScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, AppTheme.pagePadding)
-                .padding(.top, AppTheme.pagePadding)
-                .padding(.bottom, 16)
-
-            Divider()
-
             HStack(spacing: 0) {
                 sessionsColumn
                     .frame(width: 360)
@@ -37,33 +30,11 @@ struct PiAgentScreen: View {
         .onChange(of: store.selectedSession?.title) { _ in syncSelectedSessionTitleDraft() }
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Pi Agent")
-                    .font(.system(size: 34, weight: .bold, design: .default))
-                    .fontWidth(.expanded)
-                Text(subtitle)
-                    .font(.title3)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-        }
-    }
-
-    private var subtitle: String {
-        if let session = store.selectedSession {
-            return "\(session.displayTitle) · \(session.projectName)"
-        }
-        return "Choose a project or issue session, then send a message to launch or resume Pi."
-    }
-
     private var visibleSessions: [PiAgentSessionRecord] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return Array(store.sessions.prefix(10)) }
-        return store.sessions.filter { sessionMatchesSearch($0, query: query) }
+        let source = viewModel.showPiAgentAttentionOnly ? store.sessions.filter(\.needsAttention) : store.sessions
+        guard !query.isEmpty else { return Array(source.prefix(10)) }
+        return source.filter { sessionMatchesSearch($0, query: query) }
     }
 
     private var sessionsColumn: some View {
@@ -78,6 +49,19 @@ struct PiAgentScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
+                if viewModel.piAgentNeedsAttentionCount > 0 {
+                    Button {
+                        viewModel.showPiAgentAttentionOnly.toggle()
+                    } label: {
+                        Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell.badge")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(viewModel.showPiAgentAttentionOnly ? .white : Color.accentColor)
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(viewModel.showPiAgentAttentionOnly ? Color.accentColor : Color.accentColor.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+                    .help(viewModel.showPiAgentAttentionOnly ? "Show all sessions" : "Show sessions needing attention")
+                }
                 PiAgentAddSessionButton {
                     viewModel.createPiAgentDraftForSelectedProject()
                 }
@@ -230,6 +214,8 @@ struct PiAgentScreen: View {
                 }
                 .font(.footnote)
 
+                PiAgentRuntimeFooter(session: session)
+
                 if let error = session.lastError {
                     Text(error)
                         .foregroundStyle(.red)
@@ -299,6 +285,12 @@ struct PiAgentScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
 
+            PiAgentCommandSuggestions(
+                text: $composerText,
+                commands: slashSuggestions,
+                onAttach: { composerAttachmentError = "Use the image button, paste, or drop images. General @file attach is not implemented yet." }
+            )
+
             PiAgentComposerBox(
                 text: $composerText,
                 images: $composerImages,
@@ -308,6 +300,14 @@ struct PiAgentScreen: View {
                 onSend: sendComposerMessage
             )
         }
+    }
+
+    private var slashSuggestions: [String] {
+        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return [] }
+        let query = String(trimmed.dropFirst()).lowercased()
+        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation))).sorted()
+        return all.filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(8).map { $0 }
     }
 
     private func sendComposerMessage() {
@@ -349,7 +349,7 @@ struct PiAgentScreen: View {
     }
 
     private func defaultThinkingLevels(provider: String, modelID: String) -> [String] {
-        provider.lowercased().contains("openai") && modelID.lowercased().contains("codex-max")
+        PiModelCapability.supportsXhigh(modelID: modelID)
             ? ["off", "minimal", "low", "medium", "high", "xhigh"]
             : ["off", "minimal", "low", "medium", "high"]
     }
@@ -556,9 +556,50 @@ private struct PiAgentStartupResourcesCard: View {
     }
 }
 
+private struct PiAgentCommandSuggestions: View {
+    @Binding var text: String
+    let commands: [String]
+    let onAttach: () -> Void
+
+    var body: some View {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines) == "@" {
+            AppRowCard {
+                Button(action: onAttach) {
+                    Label("Attach files/images", systemImage: "paperclip")
+                }
+                .buttonStyle(.plain)
+            }
+        } else if !commands.isEmpty {
+            AppRowCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Slash commands")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 8)], alignment: .leading, spacing: 8) {
+                        ForEach(commands, id: \.self) { command in
+                            Button {
+                                text = command + " "
+                            } label: {
+                                Text(command)
+                                    .font(.caption.monospaced())
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.subtleFill))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct PiAgentComposerBox: View {
     private let maxImages = 8
-    private let maxImageBytes = 10 * 1024 * 1024
 
     @Binding var text: String
     @Binding var images: [PiAgentImageAttachment]
@@ -594,14 +635,15 @@ private struct PiAgentComposerBox: View {
                         .padding(.vertical, 14)
                         .allowsHitTesting(false)
                 }
-                TextEditor(text: $text)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .textEditorStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .frame(minHeight: 92, maxHeight: 132)
-                    .background(Color.clear)
+                PiAgentDropSafeTextEditor(
+                    text: $text,
+                    onDropTargeted: { isDropTargeted = $0 },
+                    onImages: addImages,
+                    onUnsupportedDrop: { attachmentError = "Drop PNG, JPEG, GIF, or WebP images." }
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(minHeight: 92, maxHeight: 132)
             }
 
             if let attachmentError {
@@ -623,7 +665,7 @@ private struct PiAgentComposerBox: View {
                 .buttonStyle(.plain)
                 .help("Attach images")
 
-                Text("Paste or drop images · ⌘↩ send · Esc stop")
+                Text("Paste, drop, or attach images · ⌘↩ send · Esc stop")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
@@ -641,26 +683,39 @@ private struct PiAgentComposerBox: View {
         )
         .overlay {
             if isDropTargeted {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.08))
-                    .allowsHitTesting(false)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.10))
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.title2.weight(.semibold))
+                        Text("Drop images to attach")
+                            .font(.headline)
+                        Text("PNG, JPEG, GIF, or WebP — processed like Pi CLI image inputs")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    .foregroundStyle(Color.accentColor)
+                    .padding(18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(AppTheme.cardFill.opacity(0.92))
+                            .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
+                    )
+                }
+                .allowsHitTesting(false)
             }
         }
         .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 7)
         .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL]) { _ in
             addImages(PiAgentComposerImageLoader.imagesFromPasteboard())
         }
-        .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $isDropTargeted) { providers in
-            PiAgentComposerImageLoader.loadImages(from: providers) { loaded in
-                addImages(loaded)
-            }
-            return true
-        }
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func attachImagesFromOpenPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP, .tiff]
+        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -673,10 +728,6 @@ private struct PiAgentComposerBox: View {
         attachmentError = nil
         var next = images
         for image in newImages {
-            if image.sizeBytes > maxImageBytes {
-                attachmentError = "\(image.name) is larger than 10 MB."
-                continue
-            }
             if next.count >= maxImages {
                 attachmentError = "Pi supports up to \(maxImages) images per message."
                 break
@@ -686,6 +737,144 @@ private struct PiAgentComposerBox: View {
             }
         }
         images = next
+    }
+}
+
+private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var onDropTargeted: (Bool) -> Void
+    var onImages: ([PiAgentImageAttachment]) -> Void
+    var onUnsupportedDrop: () -> Void
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .noBorder
+
+        let textView = DropSafeNSTextView()
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.font = NSFont.preferredFont(forTextStyle: .body)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsImageEditing = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.dropHandler = context.coordinator
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? DropSafeNSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+        textView.dropHandler = context.coordinator
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate, DropSafeNSTextViewDropHandler {
+        var parent: PiAgentDropSafeTextEditor
+
+        init(parent: PiAgentDropSafeTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+
+        func setDropTargeted(_ targeted: Bool) {
+            parent.onDropTargeted(targeted)
+        }
+
+        func handleDrop(_ pasteboard: NSPasteboard) -> Bool {
+            let images = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard)
+            if images.isEmpty {
+                parent.onUnsupportedDrop()
+                return false
+            }
+            parent.onImages(images)
+            return true
+        }
+    }
+}
+
+private protocol DropSafeNSTextViewDropHandler: AnyObject {
+    func setDropTargeted(_ targeted: Bool)
+    func handleDrop(_ pasteboard: NSPasteboard) -> Bool
+}
+
+private final class DropSafeNSTextView: NSTextView {
+    weak var dropHandler: DropSafeNSTextViewDropHandler?
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsImageDrop(sender.draggingPasteboard) else {
+            return super.draggingEntered(sender)
+        }
+        dropHandler?.setDropTargeted(true)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsImageDrop(sender.draggingPasteboard) else {
+            return super.draggingUpdated(sender)
+        }
+        dropHandler?.setDropTargeted(true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        dropHandler?.setDropTargeted(false)
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        dropHandler?.setDropTargeted(false)
+        super.draggingEnded(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard acceptsImageDrop(sender.draggingPasteboard) else {
+            return super.performDragOperation(sender)
+        }
+        dropHandler?.setDropTargeted(false)
+        return dropHandler?.handleDrop(sender.draggingPasteboard) ?? false
+    }
+
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        if acceptsImageDrop(pasteboard), dropHandler?.handleDrop(pasteboard) == true {
+            return
+        }
+        super.paste(sender)
+    }
+
+    private func acceptsImageDrop(_ pasteboard: NSPasteboard) -> Bool {
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
+            return true
+        }
+        if pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) != nil {
+            return true
+        }
+        return pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
     }
 }
 
@@ -728,14 +917,16 @@ private struct PiAgentImageAttachmentThumbnail: View {
 }
 
 private enum PiAgentComposerImageLoader {
+    private static let maxDimension: CGFloat = 2_000
+    private static let maxEncodedBytes = Int(4.5 * 1024 * 1024)
+
     nonisolated static func imagesFromPasteboard(_ pasteboard: NSPasteboard = .general) -> [PiAgentImageAttachment] {
         var attachments: [PiAgentImageAttachment] = []
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
-            attachments.append(contentsOf: urls.compactMap(imageAttachment(fromFileURL:)))
-        }
-        if let data = pasteboard.data(forType: .png), let attachment = imageAttachment(data: data, name: "pasted-image.png", mimeType: "image/png") {
+        let urls = fileURLs(from: pasteboard)
+        attachments.append(contentsOf: urls.compactMap(imageAttachment(fromFileURL:)))
+        if let data = pasteboard.data(forType: .png), let attachment = imageAttachment(data: data, name: "pasted-image.png", mimeType: "image/png", fileReference: "pasted-image.png") {
             attachments.append(attachment)
-        } else if let data = pasteboard.data(forType: .tiff), let pngData = pngData(fromImageData: data), let attachment = imageAttachment(data: pngData, name: "pasted-image.png", mimeType: "image/png") {
+        } else if let data = pasteboard.data(forType: .tiff), let pngData = pngData(fromImageData: data), let attachment = imageAttachment(data: pngData, name: "pasted-image.png", mimeType: "image/png", fileReference: "pasted-image.png") {
             attachments.append(attachment)
         }
         return attachments
@@ -746,8 +937,15 @@ private enum PiAgentComposerImageLoader {
         let lock = NSLock()
         var attachments: [PiAgentImageAttachment] = []
 
+        func append(_ attachment: PiAgentImageAttachment?) {
+            guard let attachment else { return }
+            lock.lock(); attachments.append(attachment); lock.unlock()
+        }
+
         for provider in providers {
+            var didSchedule = false
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                didSchedule = true
                 group.enter()
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                     defer { group.leave() }
@@ -757,19 +955,16 @@ private enum PiAgentComposerImageLoader {
                     } else {
                         url = item as? URL
                     }
-                    if let url, let attachment = imageAttachment(fromFileURL: url) {
-                        lock.lock(); attachments.append(attachment); lock.unlock()
-                    }
+                    append(url.flatMap(imageAttachment(fromFileURL:)))
                 }
-            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            }
+            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) && !didSchedule {
                 group.enter()
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
                     defer { group.leave() }
                     guard let data else { return }
                     let png = pngData(fromImageData: data) ?? data
-                    if let attachment = imageAttachment(data: png, name: "dropped-image.png", mimeType: "image/png") {
-                        lock.lock(); attachments.append(attachment); lock.unlock()
-                    }
+                    append(imageAttachment(data: png, name: "dropped-image.png", mimeType: "image/png", fileReference: "dropped-image.png"))
                 }
             }
         }
@@ -779,13 +974,39 @@ private enum PiAgentComposerImageLoader {
         }
     }
 
-    nonisolated static func imageAttachment(fromFileURL url: URL) -> PiAgentImageAttachment? {
-        guard let mimeType = mimeType(for: url), let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
-        return imageAttachment(data: data, name: url.lastPathComponent, mimeType: mimeType)
+    nonisolated private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        var urls: [URL] = []
+        if let read = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            urls.append(contentsOf: read)
+        }
+        let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+        if let paths = pasteboard.propertyList(forType: filenamesType) as? [String] {
+            urls.append(contentsOf: paths.map(URL.init(fileURLWithPath:)))
+        }
+        for item in pasteboard.pasteboardItems ?? [] {
+            if let value = item.string(forType: .fileURL), let url = URL(string: value) {
+                urls.append(url)
+            }
+        }
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.path).inserted }
     }
 
-    nonisolated static func imageAttachment(data: Data, name: String, mimeType: String) -> PiAgentImageAttachment? {
-        PiAgentImageAttachment(name: name, mimeType: mimeType, data: data.base64EncodedString(), sizeBytes: data.count)
+    nonisolated static func imageAttachment(fromFileURL url: URL) -> PiAgentImageAttachment? {
+        guard let mimeType = mimeType(for: url), let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        return imageAttachment(data: data, name: url.lastPathComponent, mimeType: mimeType, fileReference: url.path)
+    }
+
+    nonisolated static func imageAttachment(data: Data, name: String, mimeType: String, fileReference: String? = nil) -> PiAgentImageAttachment? {
+        guard let processed = processLikePiCLI(data: data, mimeType: mimeType) else { return nil }
+        return PiAgentImageAttachment(
+            name: name,
+            mimeType: processed.mimeType,
+            data: processed.data.base64EncodedString(),
+            sizeBytes: processed.data.count,
+            fileReference: fileReference ?? name,
+            dimensionNote: processed.dimensionNote
+        )
     }
 
     nonisolated static func previewImage(for attachment: PiAgentImageAttachment) -> NSImage? {
@@ -799,14 +1020,78 @@ private enum PiAgentComposerImageLoader {
         case "jpg", "jpeg": return "image/jpeg"
         case "gif": return "image/gif"
         case "webp": return "image/webp"
-        case "tif", "tiff": return "image/tiff"
         default: return nil
         }
+    }
+
+    nonisolated private static func processLikePiCLI(data: Data, mimeType: String) -> (data: Data, mimeType: String, dimensionNote: String?)? {
+        let encodedSize = data.base64EncodedString().utf8.count
+        guard let image = NSImage(data: data) else { return nil }
+        let originalSize = image.pixelSize
+        if originalSize.width <= maxDimension,
+           originalSize.height <= maxDimension,
+           encodedSize < maxEncodedBytes,
+           ["image/png", "image/jpeg", "image/gif", "image/webp"].contains(mimeType) {
+            return (data, mimeType, nil)
+        }
+
+        let scale = min(maxDimension / max(originalSize.width, 1), maxDimension / max(originalSize.height, 1), 1)
+        var targetSize = CGSize(width: max(1, floor(originalSize.width * scale)), height: max(1, floor(originalSize.height * scale)))
+        while targetSize.width >= 1 && targetSize.height >= 1 {
+            if let resized = resizedBitmap(from: image, targetSize: targetSize) {
+                let candidates = encodedCandidates(from: resized)
+                if let candidate = candidates.first(where: { $0.data.base64EncodedString().utf8.count < maxEncodedBytes }) {
+                    let dimensionNote = formatDimensionNote(original: originalSize, displayed: targetSize)
+                    return (candidate.data, candidate.mimeType, dimensionNote)
+                }
+            }
+            if targetSize.width == 1 && targetSize.height == 1 { break }
+            targetSize = CGSize(width: max(1, floor(targetSize.width * 0.75)), height: max(1, floor(targetSize.height * 0.75)))
+        }
+        return nil
+    }
+
+    nonisolated private static func encodedCandidates(from rep: NSBitmapImageRep) -> [(data: Data, mimeType: String)] {
+        var candidates: [(Data, String)] = []
+        if let png = rep.representation(using: .png, properties: [:]) { candidates.append((png, "image/png")) }
+        for quality in [0.80, 0.85, 0.70, 0.55, 0.40] {
+            if let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: quality]) {
+                candidates.append((jpeg, "image/jpeg"))
+            }
+        }
+        return candidates.sorted(by: { (lhs: (data: Data, mimeType: String), rhs: (data: Data, mimeType: String)) in
+            lhs.data.count < rhs.data.count
+        })
+    }
+
+    nonisolated private static func resizedBitmap(from image: NSImage, targetSize: CGSize) -> NSBitmapImageRep? {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(targetSize.width), pixelsHigh: Int(targetSize.height), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        guard let rep else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: CGRect(origin: .zero, size: targetSize), from: CGRect(origin: .zero, size: image.size), operation: .copy, fraction: 1)
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    nonisolated private static func formatDimensionNote(original: CGSize, displayed: CGSize) -> String? {
+        guard original != displayed else { return nil }
+        let scale = original.width / max(displayed.width, 1)
+        return "[Image: original \(Int(original.width))x\(Int(original.height)), displayed at \(Int(displayed.width))x\(Int(displayed.height)). Multiply coordinates by \(String(format: "%.2f", scale)) to map to original image.]"
     }
 
     nonisolated private static func pngData(fromImageData data: Data) -> Data? {
         guard let image = NSImage(data: data), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
+    }
+}
+
+private extension NSImage {
+    var pixelSize: CGSize {
+        if let rep = representations.max(by: { ($0.pixelsWide * $0.pixelsHigh) < ($1.pixelsWide * $1.pixelsHigh) }) {
+            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+        }
+        return size
     }
 }
 
@@ -835,6 +1120,49 @@ private struct PiAgentSendButton: View {
 private struct PiAgentModelSelection {
     let provider: String
     let modelID: String
+}
+
+private struct PiAgentRuntimeFooter: View {
+    let session: PiAgentSessionRecord
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
+                ProgressView(value: min(max(percent, 0), 100), total: 100)
+                    .frame(width: 90)
+                    .tint(percent > 85 ? .orange : Color.accentColor)
+                Text("\(Int(percent))% \(compact(tokens))/\(compact(window))")
+                    .font(.caption.monospaced())
+            }
+            if let provider = session.modelOverrideProvider ?? session.modelProvider,
+               let model = session.modelOverrideID ?? session.model {
+                Label("\(provider) · \(model)", systemImage: "cpu")
+            } else {
+                Label("Pi default model", systemImage: "cpu")
+            }
+            if let thinking = session.thinkingLevel {
+                Label(thinking, systemImage: "brain.head.profile")
+            }
+            Label(session.worktreePath ?? session.projectPath, systemImage: "folder")
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let total = session.totalTokens {
+                Label("\(compact(total)) tokens", systemImage: "sum")
+            }
+            if let cost = session.cost {
+                Label(String(format: "$%.4f", cost), systemImage: "dollarsign.circle")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(AppTheme.mutedText)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func compact(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return "\(value / 1_000)k" }
+        return "\(value)"
+    }
 }
 
 private struct PiAgentModelPicker: View {
@@ -1034,8 +1362,8 @@ private struct PiAgentSessionRow: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Circle()
-                        .fill(isRunning ? .green : statusColor)
-                        .frame(width: 8, height: 8)
+                        .fill(session.needsAttention ? Color.accentColor : (isRunning ? .green : statusColor))
+                        .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
                     TextField("Session name", text: $draftTitle)
                         .textFieldStyle(.plain)
                         .font(.headline)
@@ -1043,6 +1371,12 @@ private struct PiAgentSessionRow: View {
                         .lineLimit(2)
                         .onSubmit(commitRename)
                     Spacer(minLength: 0)
+                    if session.needsAttention {
+                        Image(systemName: "bell.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .help("Pi Agent finished and needs review")
+                    }
                     Button(role: .destructive, action: onDelete) {
                         Image(systemName: "trash")
                             .font(.system(size: 13, weight: .semibold))
@@ -1291,15 +1625,10 @@ struct PiAgentInspectorPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Pi Agent")
-                        .font(.title2.bold())
-                        .fontWidth(.expanded)
-                    Text(store.selectedSession?.displayTitle ?? "No active session")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(2)
-                }
+                Text(store.selectedSession?.displayTitle ?? "No active session")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer()
                 Button {
                     viewModel.isPiAgentInspectorPresented = false

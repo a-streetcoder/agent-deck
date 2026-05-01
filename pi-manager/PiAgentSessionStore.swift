@@ -56,6 +56,13 @@ final class PiAgentSessionStore: ObservableObject {
             status: .draft,
             lastError: nil,
             lastSummary: nil,
+            needsAttention: false,
+            lastNotificationAt: nil,
+            totalTokens: nil,
+            contextTokens: nil,
+            contextWindow: nil,
+            contextPercent: nil,
+            cost: nil,
             createdAt: now,
             updatedAt: now
         )

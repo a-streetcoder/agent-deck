@@ -9,6 +9,7 @@ final class PiAgentRunnerService {
     private var thinkingEntryIDsBySessionID: [UUID: UUID] = [:]
     private var thinkingTextBySessionID: [UUID: String] = [:]
     private var toolEntryIDsByCallID: [String: UUID] = [:]
+    var onTurnFinished: ((UUID) -> Void)?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -52,7 +53,7 @@ final class PiAgentRunnerService {
     func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, images: [PiAgentImageAttachment] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
-        let message = trimmed.isEmpty ? "Please inspect the attached image(s)." : trimmed
+        let message = userMessage(trimmed, images: images)
         guard let client = clientsBySessionID[sessionID] else {
             store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
             return
@@ -116,7 +117,7 @@ final class PiAgentRunnerService {
         mark(session.id, status: .starting, error: nil)
         let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
-            let message = trimmedInitialPrompt.isEmpty ? "Please inspect the attached image(s)." : trimmedInitialPrompt
+            let message = userMessage(trimmedInitialPrompt, images: initialImages)
             store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(message, images: initialImages)))
         }
 
@@ -148,7 +149,7 @@ final class PiAgentRunnerService {
                 client.setThinkingLevel(thinkingLevel)
             }
             if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
-                let message = trimmedInitialPrompt.isEmpty ? "Please inspect the attached image(s)." : trimmedInitialPrompt
+                let message = userMessage(trimmedInitialPrompt, images: initialImages)
                 client.prompt(message, images: initialImages)
             } else {
                 client.getMessages()
@@ -157,6 +158,15 @@ final class PiAgentRunnerService {
             mark(session.id, status: .failed, error: error.localizedDescription)
             store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
         }
+    }
+
+    private func userMessage(_ text: String, images: [PiAgentImageAttachment]) -> String {
+        let base = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Please inspect the attached image(s)." : text
+        guard !images.isEmpty else { return base }
+        let fileTags = images.map { image in
+            "<file name=\"\(image.fileReference ?? image.name)\">\(image.dimensionNote ?? "")</file>"
+        }.joined(separator: "\n")
+        return "\(base)\n\n\(fileTags)"
     }
 
     private func transcriptText(_ text: String, images: [PiAgentImageAttachment]) -> String {
@@ -186,6 +196,7 @@ final class PiAgentRunnerService {
             mark(sessionID, status: .idle, error: nil)
             clientsBySessionID[sessionID]?.getState()
             clientsBySessionID[sessionID]?.getSessionStats()
+            onTurnFinished?(sessionID)
         case "message_update":
             handleMessageUpdate(event, rawLine: rawLine, sessionID: sessionID)
         case "message_end":
@@ -247,6 +258,13 @@ final class PiAgentRunnerService {
         if event.command == "get_session_stats", let data = event.data {
             store.updateSession(sessionID) { record in
                 record.lastSummary = data.compactDescription
+                record.totalTokens = data["tokens"]?["total"]?.numberValue.map(Int.init)
+                record.cost = data["cost"]?.numberValue
+                if let contextUsage = data["contextUsage"] {
+                    record.contextTokens = contextUsage["tokens"]?.numberValue.map(Int.init)
+                    record.contextWindow = contextUsage["contextWindow"]?.numberValue.map(Int.init)
+                    record.contextPercent = contextUsage["percent"]?.numberValue
+                }
             }
         }
     }
@@ -316,7 +334,7 @@ final class PiAgentRunnerService {
     }
 
     private func supportsXhigh(provider: String, modelID: String) -> Bool {
-        provider.lowercased().contains("openai") && modelID.lowercased().contains("codex-max")
+        PiModelCapability.supportsXhigh(modelID: modelID)
     }
 
     private func handleMessageUpdate(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
@@ -468,6 +486,7 @@ final class PiAgentRunnerService {
         let status: PiAgentRunStatus = exitCode == 0 ? .completed : .stopped
         mark(sessionID, status: status, error: nil)
         store.append(.init(sessionID: sessionID, role: .status, title: "Process Ended", text: "Pi Agent exited with code \(exitCode)."))
+        onTurnFinished?(sessionID)
     }
 
     private func mark(_ sessionID: UUID, status: PiAgentRunStatus, error: String?) {

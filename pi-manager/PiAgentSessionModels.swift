@@ -38,13 +38,17 @@ struct PiAgentImageAttachment: Identifiable, Codable, Hashable {
     var mimeType: String
     var data: String
     var sizeBytes: Int
+    var fileReference: String?
+    var dimensionNote: String?
 
-    nonisolated init(id: UUID = UUID(), name: String, mimeType: String, data: String, sizeBytes: Int) {
+    nonisolated init(id: UUID = UUID(), name: String, mimeType: String, data: String, sizeBytes: Int, fileReference: String? = nil, dimensionNote: String? = nil) {
         self.id = id
         self.name = name
         self.mimeType = mimeType
         self.data = data
         self.sizeBytes = sizeBytes
+        self.fileReference = fileReference
+        self.dimensionNote = dimensionNote
     }
 
     nonisolated var rpcPayload: [String: String] {
@@ -88,6 +92,13 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var status: PiAgentRunStatus
     var lastError: String?
     var lastSummary: String?
+    var needsAttention: Bool
+    var lastNotificationAt: Date?
+    var totalTokens: Int?
+    var contextTokens: Int?
+    var contextWindow: Int?
+    var contextPercent: Double?
+    var cost: Double?
     var createdAt: Date
     var updatedAt: Date
 
@@ -204,6 +215,11 @@ enum JSONValue: Codable, Hashable {
 
     var boolValue: Bool? {
         if case let .bool(value) = self { return value }
+        return nil
+    }
+
+    var numberValue: Double? {
+        if case let .number(value) = self { return value }
         return nil
     }
 

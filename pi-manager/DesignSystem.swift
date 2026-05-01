@@ -27,17 +27,6 @@ struct AppPage<Content: View>: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.system(size: 34, weight: .bold, design: .default))
-                        .fontWidth(.expanded)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.title3)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                }
-
                 content
             }
             .padding(AppTheme.pagePadding)

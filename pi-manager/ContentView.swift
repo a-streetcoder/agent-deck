@@ -48,6 +48,14 @@ struct ContentView: View {
                                     }
 
                                     Text(item.rawValue)
+                                    if item == .agent, viewModel.piAgentNeedsAttentionCount > 0 {
+                                        Text("\(viewModel.piAgentNeedsAttentionCount)")
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule(style: .continuous).fill(Color.accentColor))
+                                    }
                                 }
                                 .fontWidth(.expanded)
                                 .tag(item)
@@ -92,6 +100,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 760)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(toolbarTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     viewModel.isPiAgentInspectorPresented.toggle()
@@ -235,6 +249,17 @@ struct ContentView: View {
             MCPScreen(snapshot: viewModel.snapshot)
         case .diagnostics:
             DiagnosticsScreen(snapshot: viewModel.snapshot)
+        }
+    }
+
+    private var toolbarTitle: String {
+        switch viewModel.selectedSidebarItem {
+        case .overview:
+            return viewModel.selectedDiscoveredProject?.name ?? "Overview"
+        case .agent:
+            return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
+        default:
+            return viewModel.selectedSidebarItem.rawValue
         }
     }
 
@@ -745,18 +770,8 @@ private struct ProjectsScreen: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Projects")
-                            .font(.system(size: 34, weight: .bold, design: .default))
-                            .fontWidth(.expanded)
-                        Text("Enable the projects you want in Pi Manager and personalize their icons.")
-                            .font(.title3)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
+                HStack {
                     Spacer()
-
                     Button {
                         viewModel.chooseProjectRoot()
                     } label: {

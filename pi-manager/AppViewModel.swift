@@ -3,6 +3,7 @@ import Combine
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+import UserNotifications
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -48,6 +49,7 @@ final class AppViewModel: ObservableObject {
     @Published var githubLastStatusCheckAt: Date?
     @Published var appSettings: AppSettings = AppSettingsStore.shared.settings
     @Published var isPiAgentInspectorPresented = false
+    @Published var showPiAgentAttentionOnly = false
     let piAgentSessionStore: PiAgentSessionStore
 
     private let scanner = PiScanner()
@@ -76,6 +78,8 @@ final class AppViewModel: ObservableObject {
     private var githubOverviewBoardFetchedAt: Date?
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
+    private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
+    private let piAgentNotificationDelay: TimeInterval = 60
 
     init() {
         let piAgentSessionStore = PiAgentSessionStore()
@@ -85,6 +89,9 @@ final class AppViewModel: ObservableObject {
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         refresh(includeModels: true)
         lastWatchFingerprint = watchFingerprint()
+        piAgentRunner.onTurnFinished = { [weak self] sessionID in
+            Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
+        }
         startAutoRefresh()
 
         Task {
@@ -946,7 +953,69 @@ final class AppViewModel: ObservableObject {
 
     func selectPiAgentSession(_ id: UUID) {
         piAgentSessionStore.select(id)
+        acknowledgePiAgentSession(id)
         selectedSidebarItem = .agent
+    }
+
+    var piAgentNeedsAttentionCount: Int {
+        piAgentSessionStore.sessions.filter(\.needsAttention).count
+    }
+
+    func acknowledgePiAgentSession(_ id: UUID) {
+        pendingPiAgentNotificationTasks[id]?.cancel()
+        pendingPiAgentNotificationTasks[id] = nil
+        piAgentSessionStore.updateSession(id) { $0.needsAttention = false }
+    }
+
+    private func handlePiAgentTurnFinished(_ sessionID: UUID) {
+        guard piAgentSessionStore.sessions.contains(where: { $0.id == sessionID }) else { return }
+        guard !isPiAgentSessionActuallyVisible(sessionID) else { return }
+
+        piAgentSessionStore.updateSession(sessionID) { record in
+            record.needsAttention = true
+        }
+        schedulePiAgentCompletionNotification(for: sessionID)
+    }
+
+    private func isPiAgentSessionActuallyVisible(_ sessionID: UUID) -> Bool {
+        NSApp.isActive
+            && selectedSidebarItem == .agent
+            && piAgentSessionStore.selectedSession?.id == sessionID
+            && (NSApp.keyWindow?.isVisible ?? NSApp.mainWindow?.isVisible ?? false)
+    }
+
+    private func schedulePiAgentCompletionNotification(for sessionID: UUID) {
+        pendingPiAgentNotificationTasks[sessionID]?.cancel()
+        let delay = UInt64(piAgentNotificationDelay * 1_000_000_000)
+        pendingPiAgentNotificationTasks[sessionID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.sendPiAgentCompletionNotificationIfNeeded(for: sessionID)
+            }
+        }
+    }
+
+    private func sendPiAgentCompletionNotificationIfNeeded(for sessionID: UUID) {
+        pendingPiAgentNotificationTasks[sessionID] = nil
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
+        guard session.needsAttention, !isPiAgentSessionActuallyVisible(sessionID) else { return }
+        piAgentSessionStore.updateSession(sessionID) { record in
+            record.lastNotificationAt = Date()
+        }
+        sendPiAgentCompletionNotification(for: session)
+    }
+
+    private func sendPiAgentCompletionNotification(for session: PiAgentSessionRecord) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Pi Agent needs review"
+            content.body = session.displayTitle
+            content.userInfo = ["sessionID": session.id.uuidString]
+            let request = UNNotificationRequest(identifier: "pi-agent-\(session.id.uuidString)-\(Date().timeIntervalSince1970)", content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request)
+        }
     }
 
     func renamePiAgentSession(_ id: UUID, title: String) {
@@ -1020,7 +1089,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func defaultPiAgentThinkingLevels(provider: String, modelID: String) -> [String] {
-        provider.lowercased().contains("openai") && modelID.lowercased().contains("codex-max")
+        PiModelCapability.supportsXhigh(modelID: modelID)
             ? ["off", "minimal", "low", "medium", "high", "xhigh"]
             : ["off", "minimal", "low", "medium", "high"]
     }
