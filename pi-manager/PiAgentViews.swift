@@ -815,25 +815,24 @@ private struct PiAgentComposerBox: View {
                     footer
                 }
 
-                HStack(spacing: 10) {
-                    Button(action: attachImagesFromOpenPanel) {
-                        Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AppTheme.mutedText)
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(AppTheme.subtleFill))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Attach images")
-
+                HStack(alignment: .center, spacing: 10) {
                     if let path {
-                        Label(shortPath(path), systemImage: "folder")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(path)
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                            Text(shortPath(path))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .help(path)
                     }
+
+                    if let metricsFooter {
+                        metricsFooter
+                    }
+
+                    Spacer(minLength: 8)
 
                     if isRunning {
                         Button {
@@ -847,18 +846,20 @@ private struct PiAgentComposerBox: View {
                         .tint(inputMode == .steer ? Color.accentColor : nil)
                         .help(inputMode == .steer ? "Steering is on: send guidance into the current turn" : "Default: queue a follow-up. Click to steer the current turn instead.")
                     }
-
-                    Spacer()
                     ShortcutComboHint(symbols: ["return"], text: "send")
                     ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
                     if isRunning { ShortcutComboHint(symbols: ["escape"], text: "stop") }
+                    Button(action: attachImagesFromOpenPanel) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(AppTheme.subtleFill))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Attach files or images")
                     PiAgentSendButton(canSend: canSend, action: onSend)
                         .keyboardShortcut(.return, modifiers: [])
-                }
-
-                if let metricsFooter {
-                    metricsFooter
-                        .padding(.leading, 40)
                 }
             }
             .padding(.horizontal, 12)
@@ -1523,7 +1524,7 @@ private struct PiAgentRuntimeFooter: View {
                 metric("\(toolCalls) tools", icon: "wrench.and.screwdriver")
             }
             if let cost = session.cost {
-                metric(String(format: "$%.4f", cost), icon: "dollarsign.circle")
+                metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }
             if !session.pendingSteeringMessages.isEmpty || !session.pendingFollowUpMessages.isEmpty {
                 metric("\(session.pendingSteeringMessages.count)/\(session.pendingFollowUpMessages.count)", icon: "tray.full")
