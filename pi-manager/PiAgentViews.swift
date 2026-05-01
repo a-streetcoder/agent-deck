@@ -261,6 +261,7 @@ struct PiAgentScreen: View {
                         supportedThinkingLevels: supportedThinkingLevels(for: session)
                     ))
                 },
+                metricsFooter: store.selectedSession.map { AnyView(PiAgentRuntimeFooter(session: $0)) },
                 onSend: sendComposerMessage
             )
         }
@@ -398,6 +399,29 @@ struct PiAgentScreen: View {
     }
 }
 
+private struct PiStartupResourceItem: Identifiable, Hashable {
+    enum Kind: Hashable {
+        case agent(String)
+        case skill(String)
+        case command(String)
+        case prompt(String)
+        case extensions
+        case environment
+        case file(URL)
+        case none
+    }
+
+    let title: String
+    var detail: String?
+    let kind: Kind
+
+    var id: String { "\(title)-\(String(describing: kind))" }
+    var isClickable: Bool {
+        if case .none = kind { return false }
+        return true
+    }
+}
+
 private struct PiAgentStartupResourcesCard: View {
     @ObservedObject var viewModel: AppViewModel
     let session: PiAgentSessionRecord
@@ -418,6 +442,7 @@ private struct PiAgentStartupResourcesCard: View {
                         resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems)
                         resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems)
                     }
+                    resourceSection("Agents", count: agentItems.count, icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems)
                     resourceSection("Skills", count: skillItems.count, icon: "wand.and.stars", color: .purple, items: skillItems)
                     resourceSection("Prompts", count: promptItems.count, icon: "text.badge.star", color: .indigo, items: promptItems)
                     resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
@@ -452,38 +477,55 @@ private struct PiAgentStartupResourcesCard: View {
         }
     }
 
-    private var contextItems: [String] {
-        var items: [String] = []
+    private var contextItems: [PiStartupResourceItem] {
         let agents = URL(fileURLWithPath: session.projectPath).appendingPathComponent("AGENTS.md")
-        if FileManager.default.fileExists(atPath: agents.path) { items.append("AGENTS.md") }
-        return items.isEmpty ? ["No AGENTS.md detected"] : items
+        if FileManager.default.fileExists(atPath: agents.path) {
+            return [.init(title: "AGENTS.md", detail: agents.path, kind: .file(agents))]
+        }
+        return [.init(title: "No AGENTS.md detected", kind: .none)]
     }
 
-    private var skillItems: [String] {
-        viewModel.snapshot.skills.map(\.name).sorted()
+    private var agentItems: [PiStartupResourceItem] {
+        let enabled = viewModel.snapshot.effectiveAgents
+            .filter { $0.resolved.disabled != true }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return enabled.isEmpty
+            ? [.init(title: "No enabled agents", kind: .none)]
+            : enabled.map { .init(title: $0.name, detail: $0.resolutionKind.rawValue, kind: .agent($0.id)) }
     }
 
-    private var promptItems: [String] {
-        let commands = viewModel.snapshot.commands.map(\.invocation)
-        let prompts = viewModel.snapshot.promptTemplates.map(\.invocation)
-        return Array(Set(commands + prompts)).sorted()
+    private var skillItems: [PiStartupResourceItem] {
+        viewModel.snapshot.skills
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { .init(title: $0.name, detail: $0.description, kind: .skill($0.id)) }
     }
 
-    private var extensionItems: [String] {
-        Array(Set(viewModel.snapshot.settings.flatMap(\.packages))).sorted().map(shortExtensionName)
+    private var promptItems: [PiStartupResourceItem] {
+        let commands = viewModel.snapshot.commands.map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .command($0.id)) }
+        let prompts = viewModel.snapshot.promptTemplates.map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .prompt($0.id)) }
+        return (commands + prompts).sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
-    private var envItems: [String] {
-        viewModel.snapshot.envKeys.map { env in
-            let scope = env.source.kind.rawValue.lowercased()
-            if let value = env.value, !value.isEmpty {
-                return "\(env.key) = \(masked(value)) · \(scope)"
-            }
-            return "\(env.key) · \(scope)"
+    private var extensionItems: [PiStartupResourceItem] {
+        Array(Set(viewModel.snapshot.settings.flatMap(\.packages))).sorted().map { package in
+            .init(title: shortExtensionName(package), detail: package, kind: .extensions)
         }
     }
 
-    private func resourceSection(_ title: String, count: Int, icon: String, color: Color, items: [String]) -> some View {
+    private var envItems: [PiStartupResourceItem] {
+        viewModel.snapshot.envKeys.map { env in
+            let scope = env.source.kind.rawValue.lowercased()
+            let title: String
+            if let value = env.value, !value.isEmpty {
+                title = "\(env.key) = \(masked(value)) · \(scope)"
+            } else {
+                title = "\(env.key) · \(scope)"
+            }
+            return .init(title: title, detail: env.source.path, kind: .environment)
+        }
+    }
+
+    private func resourceSection(_ title: String, count: Int, icon: String, color: Color, items: [PiStartupResourceItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -501,7 +543,7 @@ private struct PiAgentStartupResourcesCard: View {
             }
 
             LazyVGrid(columns: chipColumns, alignment: .leading, spacing: 7) {
-                ForEach(items, id: \.self) { item in
+                ForEach(items) { item in
                     resourceChip(item)
                 }
             }
@@ -529,20 +571,48 @@ private struct PiAgentStartupResourcesCard: View {
         .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
     }
 
-    private func resourceChip(_ text: String, isOverflow: Bool = false) -> some View {
-        Text(text)
-            .font(.caption.monospaced())
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .foregroundStyle(isOverflow ? Color.accentColor : AppTheme.mutedText)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.cardFill.opacity(0.75))
-            )
-            .textSelection(.enabled)
+    private func resourceChip(_ item: PiStartupResourceItem, isOverflow: Bool = false) -> some View {
+        Button {
+            openResource(item)
+        } label: {
+            Text(item.title)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(isOverflow ? Color.accentColor : AppTheme.mutedText)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.cardFill.opacity(0.75))
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!item.isClickable)
+        .help(item.detail ?? item.title)
+    }
+
+    private func openResource(_ item: PiStartupResourceItem) {
+        switch item.kind {
+        case .agent(let id):
+            viewModel.selectedAgentID = id
+            viewModel.selectedSidebarItem = .agents
+        case .skill(let id):
+            viewModel.selectedSkillID = id
+            viewModel.selectedSidebarItem = .skills
+        case .command(let id), .prompt(let id):
+            viewModel.selectedCommandItemID = id
+            viewModel.selectedSidebarItem = .commandsAndPrompts
+        case .extensions:
+            viewModel.selectedSidebarItem = .settings
+        case .environment:
+            viewModel.selectedSidebarItem = .environment
+        case .file(let url):
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .none:
+            break
+        }
     }
 
     private func shortExtensionName(_ value: String) -> String {
@@ -689,6 +759,7 @@ private struct PiAgentComposerBox: View {
     let path: String?
     let onFiles: ([URL]) -> Void
     let footer: AnyView?
+    let metricsFooter: AnyView?
     let onSend: () -> Void
     @State private var isDropTargeted = false
 
@@ -783,6 +854,11 @@ private struct PiAgentComposerBox: View {
                     if isRunning { ShortcutComboHint(symbols: ["escape"], text: "stop") }
                     PiAgentSendButton(canSend: canSend, action: onSend)
                         .keyboardShortcut(.return, modifiers: [])
+                }
+
+                if let metricsFooter {
+                    metricsFooter
+                        .padding(.leading, 40)
                 }
             }
             .padding(.horizontal, 12)
@@ -1325,7 +1401,6 @@ private struct PiAgentComposerFooterBar: View {
                 onCycle: { viewModel.cyclePiAgentThinkingLevelForSelectedSession() },
                 onSelect: { viewModel.setPiAgentThinkingLevelForSelectedSession($0) }
             )
-            PiAgentRuntimeFooter(session: session)
             Spacer(minLength: 0)
         }
     }
@@ -1599,9 +1674,8 @@ private struct PiAgentModelPicker: View {
     private var effectiveModelID: String? { session.modelOverrideID ?? session.model }
 
     private var modelLabel: String {
-        if isUsingPiDefault { return "Pi Default" }
         if let provider = effectiveProvider, let model = effectiveModelID {
-            return "\(provider)/\(model)"
+            return isUsingPiDefault ? "Default \(provider)/\(model)" : "\(provider)/\(model)"
         }
         return "Pi Default"
     }
@@ -2074,6 +2148,7 @@ struct PiAgentInspectorPanel: View {
                         viewModel: viewModel,
                         supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"]
                     )),
+                    metricsFooter: AnyView(PiAgentRuntimeFooter(session: session)),
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty else { return }
