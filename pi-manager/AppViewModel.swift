@@ -1126,6 +1126,20 @@ final class AppViewModel: ObservableObject {
         refreshRepositoryChanges(preservingDiffSelection: true)
     }
 
+    func openTerminalForSelectedPiAgentSession() {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        let path = session.worktreePath ?? session.projectPath
+        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        let source = """
+        tell application "Terminal"
+            activate
+            do script "cd '\(escapedPath)'"
+        end tell
+        """
+        var error: NSDictionary?
+        NSAppleScript(source: source)?.executeAndReturnError(&error)
+    }
+
     func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {
         piAgentRunner.isRunning(sessionID: sessionID)
     }

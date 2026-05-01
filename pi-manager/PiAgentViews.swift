@@ -10,6 +10,7 @@ struct PiAgentScreen: View {
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
     @State private var composerImages: [PiAgentImageAttachment] = []
+    @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
 
     var body: some View {
@@ -26,8 +27,8 @@ struct PiAgentScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear(perform: syncSelectedSessionTitleDraft)
-        .onChange(of: store.selectedSession?.id) { _ in syncSelectedSessionTitleDraft() }
-        .onChange(of: store.selectedSession?.title) { _ in syncSelectedSessionTitleDraft() }
+        .onChange(of: store.selectedSession?.id) { _, _ in syncSelectedSessionTitleDraft() }
+        .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
     }
 
     private var visibleSessions: [PiAgentSessionRecord] {
@@ -225,7 +226,7 @@ struct PiAgentScreen: View {
                             }
                         }
                     }
-                    .onChange(of: store.selectedTranscript.count) { _ in
+                    .onChange(of: store.selectedTranscript.count) { _, _ in
                         if let last = store.selectedTranscript.last {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
@@ -248,13 +249,14 @@ struct PiAgentScreen: View {
             PiAgentComposerBox(
                 text: $composerText,
                 images: $composerImages,
+                files: $composerFiles,
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 placeholder: isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…",
-                canSend: store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty),
+                canSend: store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                onFiles: appendFileReferences,
+                onFiles: addFileAttachments,
                 footer: store.selectedSession.map { session in
                     AnyView(PiAgentComposerFooterBar(
                         session: session,
@@ -289,22 +291,25 @@ struct PiAgentScreen: View {
         composerText = "@\(suggestion.relativePath) "
     }
 
-    private func appendFileReferences(_ urls: [URL]) {
-        let tags = urls
-            .filter { !$0.hasDirectoryPath }
-            .map { "<file name=\"\($0.path)\"></file>" }
-        guard !tags.isEmpty else { return }
-        let prefix = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n"
-        composerText += prefix + tags.joined(separator: "\n")
+    private func addFileAttachments(_ urls: [URL]) {
+        let attachments = urls.filter { !$0.hasDirectoryPath }.compactMap { PiAgentFileAttachment(url: $0) }
+        guard !attachments.isEmpty else { return }
+        composerAttachmentError = nil
+        for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
+            composerFiles.append(attachment)
+        }
     }
 
     private func sendComposerMessage() {
         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty || !composerImages.isEmpty else { return }
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
+        guard let payload = attachedFilePayload() else { return }
+        let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
-        viewModel.sendPiAgentMessage(expandFileReferences(in: message), mode: isRunning ? .steer : .prompt, images: composerImages)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
         composerText = ""
         composerImages = []
+        composerFiles = []
         composerAttachmentError = nil
     }
 
@@ -318,9 +323,29 @@ struct PiAgentScreen: View {
                 let relative = String(part.dropFirst())
                 let url = rootURL.appendingPathComponent(relative)
                 guard FileManager.default.fileExists(atPath: url.path) else { return String(part) }
-                return "<file name=\"\(url.path)\"></file>"
+                return fileTag(for: url) ?? String(part)
             }
             .joined(separator: " ")
+    }
+
+    private func attachedFilePayload() -> String? {
+        var tags: [String] = []
+        for file in composerFiles {
+            guard let tag = fileTag(for: file.url) else {
+                composerAttachmentError = "Only images and UTF-8 text files are supported. \(file.url.lastPathComponent) is not readable as text."
+                return nil
+            }
+            tags.append(tag)
+        }
+        return tags.joined(separator: "\n")
+    }
+
+    private func fileTag(for url: URL) -> String? {
+        if PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) != nil {
+            return "<file name=\"\(url.path)\"></file>"
+        }
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return "<file name=\"\(url.path)\">\n\(content)\n</file>"
     }
 
     private var visibleTranscriptEntries: [PiAgentTranscriptEntry] {
@@ -765,11 +790,22 @@ private struct ShortcutComboHint: View {
     }
 }
 
+private struct PiAgentFileAttachment: Identifiable, Hashable {
+    let id = UUID()
+    let url: URL
+
+    init?(url: URL) {
+        guard !url.hasDirectoryPath else { return nil }
+        self.url = url
+    }
+}
+
 private struct PiAgentComposerBox: View {
     private let maxImages = 8
 
     @Binding var text: String
     @Binding var images: [PiAgentImageAttachment]
+    @Binding var files: [PiAgentFileAttachment]
     @Binding var attachmentError: String?
     @Binding var inputMode: PiAgentInputMode
     let isRunning: Bool
@@ -785,12 +821,17 @@ private struct PiAgentComposerBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !images.isEmpty {
+            if !images.isEmpty || !files.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(images) { image in
                             PiAgentImageAttachmentThumbnail(image: image) {
                                 images.removeAll { $0.id == image.id }
+                            }
+                        }
+                        ForEach(files) { file in
+                            PiAgentFileAttachmentChip(file: file) {
+                                files.removeAll { $0.id == file.id }
                             }
                         }
                     }
@@ -814,7 +855,7 @@ private struct PiAgentComposerBox: View {
                     onDropTargeted: { isDropTargeted = $0 },
                     onImages: addImages,
                     onFiles: onFiles,
-                    onUnsupportedDrop: { attachmentError = "Drop files, Markdown/text files, or images." },
+                    onUnsupportedDrop: { attachmentError = "Drop images or UTF-8 text files." },
                     onSend: onSend
                 )
                 .padding(.horizontal, 12)
@@ -835,14 +876,14 @@ private struct PiAgentComposerBox: View {
                     HStack(spacing: 10) {
                         footer
                         Button(action: attachImagesFromOpenPanel) {
-                            Image(systemName: "photo.badge.plus")
+                            Image(systemName: "paperclip")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(AppTheme.mutedText)
                                 .frame(width: 30, height: 30)
                                 .background(Circle().fill(AppTheme.subtleFill))
                         }
                         .buttonStyle(.plain)
-                        .help("Attach files or images")
+                        .help("Attach images or UTF-8 text files")
                         Spacer(minLength: 18)
                         PiAgentSendButton(isRunning: isRunning, canSend: canSend, sendAction: onSend, stopAction: onStop)
                             .keyboardShortcut(.return, modifiers: [])
@@ -891,7 +932,7 @@ private struct PiAgentComposerBox: View {
         .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image, .plainText, .utf8PlainText], isTargeted: $isDropTargeted) { providers in
             PiAgentComposerImageLoader.loadDropItems(from: providers) { attachments, files in
                 if attachments.isEmpty && files.isEmpty {
-                    attachmentError = "Drop files, Markdown/text files, or images."
+                    attachmentError = "Drop images or UTF-8 text files."
                 } else {
                     addImages(attachments)
                     onFiles(files)
@@ -1102,6 +1143,31 @@ private final class DropSafeNSTextView: NSTextView {
     }
 }
 
+private struct PiAgentFileAttachmentChip: View {
+    let file: PiAgentFileAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.text")
+                .foregroundStyle(Color.accentColor)
+            Text(file.url.lastPathComponent)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .help(file.url.path)
+    }
+}
+
 private struct PiAgentImageAttachmentThumbnail: View {
     let image: PiAgentImageAttachment
     let onRemove: () -> Void
@@ -1141,8 +1207,8 @@ private struct PiAgentImageAttachmentThumbnail: View {
 }
 
 private enum PiAgentComposerImageLoader {
-    private static let maxDimension: CGFloat = 2_000
-    private static let maxEncodedBytes = Int(4.5 * 1024 * 1024)
+    nonisolated private static let maxDimension: CGFloat = 2_000
+    nonisolated private static let maxEncodedBytes = Int(4.5 * 1024 * 1024)
 
     nonisolated static func imagesFromPasteboard(_ pasteboard: NSPasteboard = .general) -> [PiAgentImageAttachment] {
         var attachments: [PiAgentImageAttachment] = []
@@ -1326,7 +1392,7 @@ private enum PiAgentComposerImageLoader {
 }
 
 private extension NSImage {
-    var pixelSize: CGSize {
+    nonisolated var pixelSize: CGSize {
         if let rep = representations.max(by: { ($0.pixelsWide * $0.pixelsHigh) < ($1.pixelsWide * $1.pixelsHigh) }) {
             return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
         }
@@ -1870,8 +1936,8 @@ private struct PiAgentSessionRow: View {
         )
         .help(statusHelp)
         .onAppear { draftTitle = sessionTitle }
-        .onChange(of: session.id) { _ in draftTitle = sessionTitle }
-        .onChange(of: session.title) { _ in draftTitle = sessionTitle }
+        .onChange(of: session.id) { _, _ in draftTitle = sessionTitle }
+        .onChange(of: session.title) { _, _ in draftTitle = sessionTitle }
         .onDisappear(perform: commitRename)
     }
 
@@ -1980,12 +2046,6 @@ private struct PiAgentTranscriptCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(strokeColor, lineWidth: 1)
         )
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(color.opacity(entry.role == .assistant ? 0.35 : 0.55))
-                .frame(width: 3)
-                .padding(.vertical, 12)
-        }
     }
 
     @ViewBuilder
@@ -2081,6 +2141,7 @@ struct PiAgentInspectorPanel: View {
     @State private var composerText = ""
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var composerImages: [PiAgentImageAttachment] = []
+    @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
 
     var body: some View {
@@ -2125,7 +2186,7 @@ struct PiAgentInspectorPanel: View {
                             }
                         }
                     }
-                    .onChange(of: store.selectedTranscript.count) { _ in
+                    .onChange(of: store.selectedTranscript.count) { _, _ in
                         if let last = store.selectedTranscript.last {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
@@ -2137,17 +2198,18 @@ struct PiAgentInspectorPanel: View {
                 PiAgentComposerBox(
                     text: $composerText,
                     images: $composerImages,
+                    files: $composerFiles,
                     attachmentError: $composerAttachmentError,
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     placeholder: isRunning ? "Steer the current turn…" : "Message Pi…",
-                    canSend: !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty,
+                    canSend: !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty,
                     path: session.worktreePath ?? session.projectPath,
                     onFiles: { urls in
-                        let tags = urls.filter { !$0.hasDirectoryPath }.map { "<file name=\"\($0.path)\"></file>" }
-                        guard !tags.isEmpty else { return }
-                        let prefix = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n"
-                        composerText += prefix + tags.joined(separator: "\n")
+                        let attachments = urls.compactMap { PiAgentFileAttachment(url: $0) }
+                        for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
+                            composerFiles.append(attachment)
+                        }
                     },
                     footer: AnyView(PiAgentComposerFooterBar(
                         session: session,
@@ -2157,10 +2219,20 @@ struct PiAgentInspectorPanel: View {
                     metricsFooter: AnyView(PiAgentRuntimeFooter(session: session)),
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !message.isEmpty || !composerImages.isEmpty else { return }
-                        viewModel.sendPiAgentMessage(message, mode: isRunning ? .steer : .prompt, images: composerImages)
+                        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
+                        let filePayload = composerFiles.compactMap { file -> String? in
+                            guard let content = try? String(contentsOf: file.url, encoding: .utf8) else { return nil }
+                            return "<file name=\"\(file.url.path)\">\n\(content)\n</file>"
+                        }.joined(separator: "\n")
+                        if !composerFiles.isEmpty && filePayload.isEmpty {
+                            composerAttachmentError = "Only images and UTF-8 text files are supported."
+                            return
+                        }
+                        let combined = [message, filePayload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
                         composerText = ""
                         composerImages = []
+                        composerFiles = []
                         composerAttachmentError = nil
                     },
                     onStop: { viewModel.stopSelectedPiAgentSession() }
@@ -2202,6 +2274,7 @@ private struct PiAgentSubagentSummary: Hashable {
         var toolCount: Int?
         var tokens: Int?
         var durationMs: Int?
+        var context: String?
         var outputPath: String?
         var sessionFile: String?
         var exitCode: Int?
@@ -2240,7 +2313,7 @@ private struct PiAgentSubagentSummary: Hashable {
         failed = parsedAgents.filter { $0.status == "failed" || (($0.exitCode ?? 0) != 0 && $0.status != "running") }.count
 
         if root.isEmpty && parsedAgents.isEmpty {
-            agents = [Agent(name: "subagent", status: "running", task: entry.text, toolCount: nil, tokens: nil, durationMs: nil, outputPath: nil, sessionFile: nil, exitCode: nil)]
+            agents = [Agent(name: "subagent", status: "running", task: entry.text, toolCount: nil, tokens: nil, durationMs: nil, context: nil, outputPath: nil, sessionFile: nil, exitCode: nil)]
             total = 1
             completed = 0
             running = 1
@@ -2269,6 +2342,7 @@ private struct PiAgentSubagentSummary: Hashable {
             toolCount: progress?["toolCount"] as? Int ?? result["toolCount"] as? Int,
             tokens: progress?["tokens"] as? Int ?? result["tokens"] as? Int,
             durationMs: progress?["durationMs"] as? Int ?? result["durationMs"] as? Int,
+            context: result["context"] as? String ?? progress?["context"] as? String ?? result["contextMode"] as? String ?? progress?["contextMode"] as? String,
             outputPath: artifacts?["outputPath"] as? String ?? result["output"] as? String ?? progress?["outputPath"] as? String,
             sessionFile: result["sessionFile"] as? String ?? progress?["sessionFile"] as? String,
             exitCode: result["exitCode"] as? Int
@@ -2354,6 +2428,7 @@ private struct PiAgentSubagentTranscriptView: View {
 
     private func agentMeta(_ agent: PiAgentSubagentSummary.Agent) -> String {
         [
+            agent.context.map { "[\($0)]" },
             agent.toolCount.map { "\($0) tools" },
             agent.tokens.map { "\(formatTokens($0)) token" },
             agent.durationMs.map { formatDuration($0) }

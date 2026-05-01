@@ -183,11 +183,31 @@ final class PiAgentRunnerService {
     }
 
     private func transcriptText(_ text: String, images: [PiAgentImageAttachment]) -> String {
-        guard !images.isEmpty else { return text }
+        let visibleText = visibleUserText(text)
+        guard !images.isEmpty else { return visibleText }
         let imageList = images.map { image in
             "- <image name=\"\(image.name)\" mimeType=\"\(image.mimeType)\" size=\"\(ByteCountFormatter.string(fromByteCount: Int64(image.sizeBytes), countStyle: .file))\"></image>"
         }.joined(separator: "\n")
-        return "\(text)\n\nAttached images:\n\(imageList)"
+        return "\(visibleText)\n\nAttached images:\n\(imageList)"
+    }
+
+    private func visibleUserText(_ text: String) -> String {
+        let pattern = #"<file name=\"([^\"]+)\">[\s\S]*?</file>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var attachments: [String] = []
+        var stripped = text
+        for match in regex.matches(in: text, range: range).reversed() {
+            let path = (text as NSString).substring(with: match.range(at: 1))
+            attachments.append(URL(fileURLWithPath: path).lastPathComponent)
+            if let range = Range(match.range, in: stripped) {
+                stripped.removeSubrange(range)
+            }
+        }
+        let base = stripped.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard !attachments.isEmpty else { return text }
+        let fileList = attachments.map { "- \($0)" }.joined(separator: "\n")
+        return [base, "Attached files:\n\(fileList)"].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     private func handle(stderr: String, sessionID: UUID) {

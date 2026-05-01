@@ -123,6 +123,16 @@ struct ContentView: View {
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
 
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        viewModel.openTerminalForSelectedPiAgentSession()
+                    } label: {
+                        Image(systemName: "terminal")
+                    }
+                    .help("Open this session's project in Terminal")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+                }
+
                 if selectedPiAgentSessionIsRunning {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
 
