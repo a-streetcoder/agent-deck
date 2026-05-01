@@ -22,12 +22,13 @@ struct AgentPersistence {
             )
         }
 
-        guard agent.builtin != nil else { return nil }
-        let scope: AgentEditingTarget.OverrideScope = preferredOverrideScope ?? (agent.projectRoot == nil ? .global : .project)
+        guard let builtin = agent.builtin?.parsed else { return nil }
+        let scope: AgentEditingTarget.OverrideScope = preferredOverrideScope ?? .global
+        let seededConfig = seededBuiltinOverrideConfig(for: agent, base: builtin, scope: scope)
         return AgentEditorDraft(
             target: .builtinOverride(scope: scope),
             originalName: agent.name,
-            config: agent.resolved,
+            config: seededConfig,
             sourcePath: agent.sourcePath
         )
     }
@@ -73,6 +74,60 @@ struct AgentPersistence {
         }
 
         try writeText(serializeAgent(config), to: path)
+    }
+
+    private func seededBuiltinOverrideConfig(for agent: EffectiveAgentRecord, base: AgentConfig, scope: AgentEditingTarget.OverrideScope) -> AgentConfig {
+        switch scope {
+        case .global:
+            return applyBuiltinOverride(agent.userOverride, to: base)
+        case .project:
+            return applyBuiltinOverride(agent.projectOverride, to: applyBuiltinOverride(agent.userOverride, to: base))
+        }
+    }
+
+    private func applyBuiltinOverride(_ override: BuiltinOverrideRecord?, to config: AgentConfig) -> AgentConfig {
+        guard let override else { return config }
+        var result = config
+
+        for (key, rawValue) in override.values {
+            switch key {
+            case "model":
+                if let value = rawValue as? String { result.model = value }
+                else if rawValue as? Bool == false { result.model = nil }
+            case "thinking":
+                if let value = rawValue as? String { result.thinking = value }
+                else if rawValue as? Bool == false { result.thinking = nil }
+            case "systemPromptMode":
+                if let value = rawValue as? String { result.systemPromptMode = value }
+            case "inheritProjectContext":
+                if let value = rawValue as? Bool { result.inheritProjectContext = value }
+            case "inheritSkills":
+                if let value = rawValue as? Bool { result.inheritSkills = value }
+            case "disabled":
+                if let value = rawValue as? Bool { result.disabled = value }
+            case "skills":
+                if rawValue as? Bool == false { result.skills = [] }
+                else if let values = splitJSONArray(rawValue) { result.skills = values }
+            case "tools":
+                if rawValue as? Bool == false {
+                    result.tools = nil
+                    result.mcpDirectTools = nil
+                } else if let values = splitJSONArray(rawValue) {
+                    let parsedTools = splitToolList(values.joined(separator: ", "))
+                    result.tools = parsedTools.tools
+                    result.mcpDirectTools = parsedTools.mcpDirectTools
+                }
+            case "fallbackModels":
+                if rawValue as? Bool == false { result.fallbackModels = [] }
+                else if let values = splitJSONArray(rawValue) { result.fallbackModels = values }
+            case "systemPrompt":
+                if let value = rawValue as? String { result.systemPrompt = value }
+            default:
+                break
+            }
+        }
+
+        return result
     }
 
     private func saveBuiltinOverride(_ edited: AgentConfig, original: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope, projectRoot: String?) throws {
@@ -188,6 +243,35 @@ struct AgentPersistence {
         }
 
         try writeJSON(root, to: path)
+    }
+
+    private func splitToolList(_ value: String?) -> (tools: [String]?, mcpDirectTools: [String]?) {
+        let items = splitList(value)
+        var tools: [String] = []
+        var mcpDirectTools: [String] = []
+        for item in items {
+            if item.hasPrefix("mcp:") {
+                let name = String(item.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty { mcpDirectTools.append(name) }
+            } else {
+                tools.append(item)
+            }
+        }
+        return (tools.isEmpty ? nil : tools, mcpDirectTools.isEmpty ? nil : mcpDirectTools)
+    }
+
+    private func splitJSONArray(_ value: Any) -> [String]? {
+        guard let array = value as? [Any] else { return nil }
+        let values = array.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return values
+    }
+
+    private func splitList(_ value: String?) -> [String] {
+        guard let value, !value.isEmpty else { return [] }
+        return value
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func serializeAgent(_ config: AgentConfig) -> String {

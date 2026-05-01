@@ -5,7 +5,6 @@ struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
-    @State private var builtinOverrideTargetAgent: EffectiveAgentRecord?
     @State private var chainDraft: ChainEditorDraft?
     @State private var envDraft: EnvEditorDraft?
     @State private var subagentConfigDraft: SubagentConfigDraft?
@@ -139,29 +138,6 @@ struct ContentView: View {
                 }
             )
         }
-        .confirmationDialog("Choose override scope", isPresented: Binding(
-            get: { builtinOverrideTargetAgent != nil },
-            set: { if !$0 { builtinOverrideTargetAgent = nil } }
-        )) {
-            Button("Global Override") {
-                if let agent = builtinOverrideTargetAgent {
-                    editingAgent = agent
-                    agentDraft = viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .global)
-                }
-                builtinOverrideTargetAgent = nil
-            }
-            if viewModel.selectedProjectPath != nil {
-                Button("Project Override") {
-                    if let agent = builtinOverrideTargetAgent {
-                        editingAgent = agent
-                        agentDraft = viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .project)
-                    }
-                    builtinOverrideTargetAgent = nil
-                }
-            }
-        } message: {
-            Text("Builtin agents are edited as settings overrides, matching /agents in pi-subagents.")
-        }
     }
 
     @ViewBuilder
@@ -179,12 +155,8 @@ struct ContentView: View {
                     agentDraft = viewModel.makeNewAgentDraft(scope: scope)
                 },
                 onEditAgent: { agent in
-                    if agent.builtin != nil, agent.globalCustom == nil, agent.projectCustom == nil {
-                        builtinOverrideTargetAgent = agent
-                    } else {
-                        editingAgent = agent
-                        agentDraft = viewModel.makeAgentDraft(for: agent)
-                    }
+                    editingAgent = agent
+                    agentDraft = viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .global)
                 }
             )
         case .chains:
@@ -1418,9 +1390,8 @@ private struct AgentsScreen: View {
                     availableTools: viewModel.availableToolNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
                     availableSkills: viewModel.availableSkillNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
                     availableExtensions: viewModel.availableExtensionNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
-                    makeDraft: { scope in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: scope) },
+                    makeDraft: { _ in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .global) },
                     onSaveDraft: { draft in try viewModel.saveAgentDraft(draft, for: agent) },
-                    onEdit: { onEditAgent(agent) },
                     onSetBuiltinDisabled: { scope, isDisabled in
                         viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
                     }
@@ -1459,14 +1430,13 @@ private struct AgentDetailView: View {
     let availableExtensions: [String]
     let makeDraft: (AgentEditingTarget.OverrideScope?) -> AgentEditorDraft?
     let onSaveDraft: (AgentEditorDraft) throws -> Void
-    let onEdit: () -> Void
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     @State private var selectedTab: DetailTab = .summary
     @State private var isEditing = false
     @State private var inlineDraft: AgentEditorDraft?
     @State private var baselineInlineDraft: AgentEditorDraft?
     @State private var inlineSaveMessage: String?
-    @State private var inlineOverrideScope: AgentEditingTarget.OverrideScope = .global
+    @State private var pendingSaveConfirmation: SaveConfirmation?
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
@@ -1485,10 +1455,6 @@ private struct AgentDetailView: View {
                     Button(isEditing ? "Done" : "Edit") {
                         toggleEditMode()
                     }
-
-                    Button("Prompt & Advanced…") {
-                        onEdit()
-                    }
                 }
             }) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1500,7 +1466,7 @@ private struct AgentDetailView: View {
                     if let badge = stateBadge {
                         AppLabelTag(text: badge.text, color: badge.color)
                     }
-                    Text(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "This builtin is currently customized through a settings override, matching /agents in pi-subagents." : "Builtins are not edited directly. Creating an override writes to Pi settings, matching /agents in pi-subagents.") : "Custom agents are edited as markdown files in the Pi discovery paths.")
+                    Text(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "This builtin is currently customized through a settings override, matching /agents in pi-subagents." : "Builtins are not edited directly. Creating an override writes to the global Pi settings override, matching /agents in pi-subagents.") : "Custom agents are edited as markdown files in the Pi discovery paths.")
                         .foregroundStyle(AppTheme.mutedText)
                 }
             }
@@ -1546,6 +1512,16 @@ private struct AgentDetailView: View {
         .task(id: agent.id) {
             reloadInlineDraft()
         }
+        .alert(item: $pendingSaveConfirmation) { confirmation in
+            Alert(
+                title: Text("Save changes?"),
+                message: Text(confirmation.summary),
+                primaryButton: .default(Text("Save")) {
+                    performConfirmedSave(exitEditMode: confirmation.exitEditMode)
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 
     private var summaryTab: some View {
@@ -1561,7 +1537,7 @@ private struct AgentDetailView: View {
                         }
 
                         Button("Save Changes") {
-                            saveInlineDraft(exitEditMode: true)
+                            requestSaveInlineDraft(exitEditMode: true)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -1581,20 +1557,6 @@ private struct AgentDetailView: View {
                         }
 
                         settingsSection("Model & Prompt") {
-                            if isPlainBuiltin, agent.projectRoot != nil {
-                                configEditorRow("Override Scope") {
-                                    Picker("Override Scope", selection: $inlineOverrideScope) {
-                                        Text("Global").tag(AgentEditingTarget.OverrideScope.global)
-                                        Text("Project").tag(AgentEditingTarget.OverrideScope.project)
-                                    }
-                                    .pickerStyle(.segmented)
-                                    .frame(maxWidth: 260, alignment: .leading)
-                                    .onChange(of: inlineOverrideScope) { _, newValue in
-                                        reloadInlineDraft(preferredOverrideScope: newValue)
-                                    }
-                                }
-                            }
-
                             configEditorRow("Model") {
                                 Picker("Model", selection: inlineModelSelectionBinding) {
                                     Text("Use Pi Default Model").tag("")
@@ -1716,32 +1678,23 @@ private struct AgentDetailView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    AppKeyValueList(rows: [
-                        ("Model", agent.resolved.model ?? "default"),
-                        ("Fallback Models", agent.resolved.fallbackModels.isEmpty ? "—" : agent.resolved.fallbackModels.joined(separator: ", ")),
-                        ("Thinking", agent.resolved.thinking ?? "off"),
-                        ("Prompt Mode", agent.resolved.systemPromptMode ?? "—"),
-                        ("Inherit Project Context", display(agent.resolved.inheritProjectContext)),
-                        ("Inherit Skills", display(agent.resolved.inheritSkills)),
-                        ("Disabled", display(agent.resolved.disabled)),
-                        ("Output", agent.resolved.output ?? "—"),
-                        ("Default Reads", agent.resolved.defaultReads?.joined(separator: ", ") ?? "—"),
-                        ("Default Progress", display(agent.resolved.defaultProgress)),
-                        ("Interactive", display(agent.resolved.interactive)),
-                        ("Max Subagent Depth", agent.resolved.maxSubagentDepth.map(String.init) ?? "—")
-                    ])
+                    VStack(alignment: .leading, spacing: 10) {
+                        readOnlyFieldRow("Model", value: agent.resolved.model ?? "default")
+                        readOnlyFieldRow("Fallback Models", value: agent.resolved.fallbackModels.isEmpty ? "—" : agent.resolved.fallbackModels.joined(separator: ", "))
+                        readOnlyFieldRow("Thinking", value: agent.resolved.thinking ?? "off")
+                        readOnlyFieldRow("Prompt Mode", value: agent.resolved.systemPromptMode ?? "—")
+                        readOnlyFieldRow("Inherit Project Context", value: display(agent.resolved.inheritProjectContext))
+                        readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills))
+                        readOnlyFieldRow("Disabled", value: display(agent.resolved.disabled))
+                        readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
+                        readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
+                        readOnlyFieldRow("Default Progress", value: display(agent.resolved.defaultProgress))
+                        readOnlyFieldRow("Interactive", value: display(agent.resolved.interactive))
+                        readOnlyFieldRow("Max Subagent Depth", value: agent.resolved.maxSubagentDepth.map(String.init) ?? "—", isLast: true)
+                    }
                 }
             }
 
-            AppCard(title: "What These Fields Mean") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Prompt mode: `replace` makes a focused specialist. `append` keeps more of Pi’s normal base behavior and adds this agent on top.")
-                    Text("• Inherit Project Context: keeps Pi’s project-context prompt section, including AGENTS.md / CLAUDE.md style instructions. It does not copy the full parent session history.")
-                    Text("• Inherit Skills: keeps Pi’s discovered skills section in the child prompt when those skills are in scope.")
-                    Text("• Use Prompt & Advanced for prompt text, tools, skills, extensions, and other less frequently changed fields.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
     }
 
@@ -1758,7 +1711,7 @@ private struct AgentDetailView: View {
                         }
 
                         Button("Save Changes") {
-                            saveInlineDraft(exitEditMode: true)
+                            requestSaveInlineDraft(exitEditMode: true)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -1775,8 +1728,10 @@ private struct AgentDetailView: View {
                     .font(.system(.body, design: .monospaced))
                     .padding(8)
                     .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    .help("The system prompt is the main instruction body for this agent. Replace mode uses this as the agent’s primary prompt, while append mode adds it on top of Pi’s normal base behavior.")
                 } else {
                     MarkdownDocumentView(source: agent.resolved.systemPrompt)
+                        .help("The system prompt is the main instruction body for this agent.")
                 }
             }
 
@@ -1801,7 +1756,7 @@ private struct AgentDetailView: View {
                         }
 
                         Button("Save Changes") {
-                            saveInlineDraft(exitEditMode: true)
+                            requestSaveInlineDraft(exitEditMode: true)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -1812,11 +1767,10 @@ private struct AgentDetailView: View {
                 if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Tool Access") {
-                            configEditorRow("Mode") {
+                            configEditorRow("Tool Access") {
                                 HStack(spacing: 10) {
-                                    Button("Use Default Tool Access") {
-                                        inlineDraft?.config.tools = nil
-                                        inlineDraft?.config.mcpDirectTools = nil
+                                    Button("Reset Tool Access") {
+                                        resetInlineToolAccess()
                                     }
                                     .controlSize(.small)
 
@@ -1843,7 +1797,7 @@ private struct AgentDetailView: View {
 
                         if case .custom = draft.target {
                             settingsSection("Extensions") {
-                                configEditorRow("Mode") {
+                                configEditorRow("Extension Mode") {
                                     HStack(spacing: 10) {
                                         Button("Use Default Extensions") {
                                             inlineDraft?.config.extensions = nil
@@ -1891,11 +1845,11 @@ private struct AgentDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        AppKeyValueList(rows: [
-                            ("Extensions", extensionsSummary),
-                            ("Output File", agent.resolved.output ?? "—"),
-                            ("Default Reads", agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
-                        ])
+                        VStack(alignment: .leading, spacing: 10) {
+                            readOnlyFieldRow("Extensions", value: extensionsSummary)
+                            readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
+                            readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—", isLast: true)
+                        }
 
                         if let tools = agent.resolved.tools, !tools.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
@@ -1960,7 +1914,7 @@ private struct AgentDetailView: View {
                         }
 
                         Button("Save Changes") {
-                            saveInlineDraft(exitEditMode: true)
+                            requestSaveInlineDraft(exitEditMode: true)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -1971,7 +1925,7 @@ private struct AgentDetailView: View {
                 if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Skill Selection") {
-                            configEditorRow("Catalog") {
+                            configEditorRow("Skill Catalog") {
                                 Text("Only skills visible in this agent’s scope are selectable here.")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
@@ -1997,10 +1951,10 @@ private struct AgentDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        AppKeyValueList(rows: [
-                            ("Inherit Skills", display(agent.resolved.inheritSkills)),
-                            ("Explicit Skill Count", "\(agent.resolved.skills.count)")
-                        ])
+                        VStack(alignment: .leading, spacing: 10) {
+                            readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills))
+                            readOnlyFieldRow("Explicit Skill Count", value: "\(agent.resolved.skills.count)", isLast: true)
+                        }
 
                         if agent.resolved.skills.isEmpty {
                             Text("No explicit skills")
@@ -2027,52 +1981,6 @@ private struct AgentDetailView: View {
                     Text("• Project-local skills are only visible inside their project. Global skills are visible everywhere.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var resolutionTab: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Resolution") {
-                AppKeyValueList(rows: [
-                    ("Builtin Base", agent.builtin.map { sourceSummary(label: "Builtin", path: $0.filePath) } ?? "—"),
-                    ("Global Override", agent.userOverride.map { sourceSummary(label: "Override", path: $0.settingsPath) } ?? "—"),
-                    ("Project Override", agent.projectOverride.map { sourceSummary(label: "Override", path: $0.settingsPath) } ?? "—"),
-                    ("Global Markdown", agent.globalCustom.map { sourceSummary(label: "Markdown", path: $0.filePath) } ?? "—"),
-                    ("Project Markdown", agent.projectCustom.map { sourceSummary(label: "Markdown", path: $0.filePath) } ?? "—"),
-                    ("Override Status", overrideStatus),
-                    ("Project", agent.projectRoot.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "—"),
-                    ("Winning Source", sourceSummary(label: resolutionSourceKind, path: agent.sourcePath))
-                ])
-            }
-
-            AppCard(title: "Precedence") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(precedenceExplanation)
-                    Text("Builtins are lowest priority. User markdown agents replace builtins. Project markdown agents replace user and builtin agents. Builtin overrides only patch builtins; they do not patch custom markdown replacements.")
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-            }
-
-            if showsComparison {
-                AppCard(title: "Compare Base vs Effective") {
-                    HStack(alignment: .top, spacing: 16) {
-                        compareColumn(title: comparisonLeftTitle, body: comparisonLeftBody)
-                        compareColumn(title: comparisonRightTitle, body: comparisonRightBody)
-                    }
-                }
-            }
-
-            if let overrideValues = activeOverrideValues {
-                AppCard(title: "Active Override Patch") {
-                    Text(prettyJSONObject(overrideValues))
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
         }
     }
@@ -2133,32 +2041,6 @@ private struct AgentDetailView: View {
         (agent.winningRecord?.promptBody ?? agent.resolved.systemPrompt) != agent.resolved.systemPrompt
     }
 
-    private var showsComparison: Bool {
-        comparisonLeftBody != comparisonRightBody
-    }
-
-    private var comparisonLeftTitle: String {
-        agent.builtin != nil ? "Builtin Base" : "Winning Source"
-    }
-
-    private var comparisonRightTitle: String {
-        "Effective Resolved"
-    }
-
-    private var comparisonLeftBody: String {
-        if let builtin = agent.builtin {
-            return comparisonText(for: builtin.parsed)
-        }
-        if let winning = agent.winningRecord {
-            return comparisonText(for: winning.parsed)
-        }
-        return "—"
-    }
-
-    private var comparisonRightBody: String {
-        comparisonText(for: agent.resolved)
-    }
-
     private var inlineHasChanges: Bool {
         guard let inlineDraft, let baselineInlineDraft else { return false }
         return normalizedInlineDraft(inlineDraft) != normalizedInlineDraft(baselineInlineDraft)
@@ -2216,9 +2098,12 @@ private struct AgentDetailView: View {
 
     private var configurationFootnote: String {
         if isPlainBuiltin {
+            if agent.projectOverride != nil {
+                return "Editing here updates the global builtin override. A project override still takes precedence inside this project until you remove it."
+            }
             return hasOverride
-                ? "These changes update the active builtin override settings for this agent."
-                : "Saving creates a builtin override in Pi settings for this agent."
+                ? "These changes update the global builtin override for this agent."
+                : "Saving creates a global builtin override for this agent in ~/.pi/agent/settings.json."
         }
         return "These changes update the agent file directly."
     }
@@ -2237,7 +2122,7 @@ private struct AgentDetailView: View {
 
     private var writeTargetSummary: String {
         if agent.builtin != nil, agent.globalCustom == nil, agent.projectCustom == nil {
-            return hasOverride ? (agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath ?? "Pi settings override") : "Pi settings override (choose global or project on edit)"
+            return agent.userOverride?.settingsPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/settings.json").path
         }
         return agent.sourcePath ?? "—"
     }
@@ -2245,45 +2130,6 @@ private struct AgentDetailView: View {
     private var extensionsSummary: String {
         guard let extensions = agent.resolved.extensions else { return "Default / inherited" }
         return extensions.isEmpty ? "None" : extensions.joined(separator: ", ")
-    }
-
-    private var overrideStatus: String {
-        if let projectOverride = agent.projectOverride {
-            return "Project · \(projectOverride.settingsPath)"
-        }
-        if let userOverride = agent.userOverride {
-            return "Global · \(userOverride.settingsPath)"
-        }
-        return "No override"
-    }
-
-    private var activeOverrideValues: [String: Any]? {
-        agent.projectOverride?.values ?? agent.userOverride?.values
-    }
-
-    private var resolutionSourceKind: String {
-        switch agent.resolutionKind {
-        case .builtin, .builtinWithOverride:
-            return "Builtin"
-        case .globalReplacement, .projectReplacement:
-            return "Markdown"
-        }
-    }
-
-    private var precedenceExplanation: String {
-        if agent.projectCustom != nil {
-            return "This project markdown agent wins over any global custom agent, builtin base, or builtin override."
-        }
-        if agent.globalCustom != nil {
-            return "This global markdown agent wins over the builtin base and any builtin overrides because a custom markdown file replaces the builtin definition."
-        }
-        if agent.projectOverride != nil {
-            return "The builtin base is active, then the project override patch is applied. Project overrides take precedence over user overrides."
-        }
-        if agent.userOverride != nil {
-            return "The builtin base is active, then the user override patch from settings is applied."
-        }
-        return "No custom replacement or override is active, so Pi uses the builtin definition directly."
     }
 
     private var resolvedFrontmatter: [String: Any] {
@@ -2310,47 +2156,6 @@ private struct AgentDetailView: View {
         return values
     }
 
-    private func sourceSummary(label: String, path: String?) -> String {
-        guard let path else { return "—" }
-        return "\(label) · \(path)"
-    }
-
-    @ViewBuilder
-    private func compareColumn(title: String, body: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .fontWidth(.expanded)
-            Text(body)
-                .font(.footnote.monospaced())
-                .foregroundStyle(AppTheme.mutedText)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func comparisonText(for config: AgentConfig) -> String {
-        var lines: [String] = []
-        lines.append("description: \(config.description)")
-        lines.append("model: \(config.model ?? "default")")
-        lines.append("fallbackModels: \(config.fallbackModels.isEmpty ? "—" : config.fallbackModels.joined(separator: ", "))")
-        lines.append("thinking: \(config.thinking ?? "off")")
-        lines.append("systemPromptMode: \(config.systemPromptMode ?? "—")")
-        lines.append("inheritProjectContext: \(display(config.inheritProjectContext))")
-        lines.append("inheritSkills: \(display(config.inheritSkills))")
-        lines.append("disabled: \(display(config.disabled))")
-        lines.append("tools: \(((config.tools ?? []) + (config.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined)")
-        lines.append("extensions: \((config.extensions ?? []).nonEmptyJoined)")
-        lines.append("skills: \(config.skills.nonEmptyJoined)")
-        lines.append("output: \(config.output ?? "—")")
-        lines.append("defaultReads: \((config.defaultReads ?? []).nonEmptyJoined)")
-        lines.append("defaultProgress: \(display(config.defaultProgress))")
-        lines.append("interactive: \(display(config.interactive))")
-        lines.append("maxSubagentDepth: \(config.maxSubagentDepth.map(String.init) ?? "—")")
-        return lines.joined(separator: "\n")
-    }
-
     @ViewBuilder
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2370,16 +2175,49 @@ private struct AgentDetailView: View {
     @ViewBuilder
     private func configEditorRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 18) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AppTheme.mutedText)
-                .frame(width: 150, alignment: .leading)
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+                if let help = fieldHelpText(for: title) {
+                    helpIcon(help)
+                }
+            }
+            .frame(width: 170, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    @ViewBuilder
+    private func readOnlyFieldRow(_ title: String, value: String, isLast: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(AppTheme.mutedText)
+                if let help = fieldHelpText(for: title) {
+                    helpIcon(help)
+                }
+            }
+            Text(value)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if !isLast {
+            Divider()
+        }
+    }
+
+    private func helpIcon(_ text: String) -> some View {
+        Image(systemName: "questionmark.circle")
+            .font(.caption)
+            .foregroundStyle(AppTheme.mutedText)
+            .help(text)
     }
 
     @ViewBuilder
@@ -2421,18 +2259,16 @@ private struct AgentDetailView: View {
         inlineDraft = draft
         baselineInlineDraft = draft
         inlineSaveMessage = nil
-        if case let .builtinOverride(scope) = draft.target {
-            inlineOverrideScope = scope
-        }
     }
 
     private func toggleEditMode() {
         if isEditing {
-            if inlineHasChanges {
-                saveInlineDraft(exitEditMode: true)
-            } else {
-                isEditing = false
+            guard !inlineHasChanges else {
+                NSSound.beep()
+                inlineSaveMessage = "Save or discard your changes first."
+                return
             }
+            isEditing = false
         } else {
             reloadInlineDraft()
             isEditing = true
@@ -2447,7 +2283,14 @@ private struct AgentDetailView: View {
         }
     }
 
-    private func saveInlineDraft(exitEditMode: Bool = false) {
+    private func requestSaveInlineDraft(exitEditMode: Bool = false) {
+        guard let inlineDraft, let baselineInlineDraft else { return }
+        let summary = changedFieldsSummary(from: normalizedInlineDraft(baselineInlineDraft), to: normalizedInlineDraft(inlineDraft))
+        guard !summary.isEmpty else { return }
+        pendingSaveConfirmation = SaveConfirmation(summary: summary, exitEditMode: exitEditMode)
+    }
+
+    private func performConfirmedSave(exitEditMode: Bool = false) {
         guard let inlineDraft else { return }
         do {
             let normalized = normalizedInlineDraft(inlineDraft)
@@ -2455,12 +2298,14 @@ private struct AgentDetailView: View {
             baselineInlineDraft = normalized
             self.inlineDraft = normalized
             inlineSaveMessage = "Saved"
+            pendingSaveConfirmation = nil
             if exitEditMode {
                 isEditing = false
             }
         } catch {
             NSSound.beep()
             inlineSaveMessage = nil
+            pendingSaveConfirmation = nil
         }
     }
 
@@ -2478,6 +2323,16 @@ private struct AgentDetailView: View {
 
     private func removeInlineFallbackModel(_ model: String) {
         inlineDraft?.config.fallbackModels.removeAll { $0 == model }
+    }
+
+    private func resetInlineToolAccess() {
+        if case .builtinOverride = inlineDraft?.target {
+            inlineDraft?.config.tools = agent.builtin?.parsed.tools
+            inlineDraft?.config.mcpDirectTools = agent.builtin?.parsed.mcpDirectTools
+        } else {
+            inlineDraft?.config.tools = nil
+            inlineDraft?.config.mcpDirectTools = nil
+        }
     }
 
     private func addInlineTool(_ tool: String) {
@@ -2549,6 +2404,92 @@ private struct AgentDetailView: View {
         return items.isEmpty ? nil : items
     }
 
+    private func changedFieldsSummary(from before: AgentEditorDraft, to after: AgentEditorDraft) -> String {
+        var changes: [(String, String, String)] = []
+
+        func add(_ field: String, _ old: String, _ new: String) {
+            guard old != new else { return }
+            changes.append((field, old, new))
+        }
+
+        let beforeConfig = before.config
+        let afterConfig = after.config
+        add("Model", beforeConfig.model ?? "default", afterConfig.model ?? "default")
+        add("Fallback Models", beforeConfig.fallbackModels.isEmpty ? "—" : beforeConfig.fallbackModels.joined(separator: ", "), afterConfig.fallbackModels.isEmpty ? "—" : afterConfig.fallbackModels.joined(separator: ", "))
+        add("Thinking", beforeConfig.thinking ?? "off", afterConfig.thinking ?? "off")
+        add("Prompt Mode", beforeConfig.systemPromptMode ?? "—", afterConfig.systemPromptMode ?? "—")
+        add("Inherit Project Context", display(beforeConfig.inheritProjectContext), display(afterConfig.inheritProjectContext))
+        add("Inherit Skills", display(beforeConfig.inheritSkills), display(afterConfig.inheritSkills))
+        add("Disabled", display(beforeConfig.disabled), display(afterConfig.disabled))
+        add("Tools", ((beforeConfig.tools ?? []) + (beforeConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined, ((afterConfig.tools ?? []) + (afterConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined)
+        add("Extensions", (beforeConfig.extensions ?? []).nonEmptyJoined, (afterConfig.extensions ?? []).nonEmptyJoined)
+        add("Skills", beforeConfig.skills.nonEmptyJoined, afterConfig.skills.nonEmptyJoined)
+        add("Output", beforeConfig.output ?? "—", afterConfig.output ?? "—")
+        add("Default Reads", (beforeConfig.defaultReads ?? []).nonEmptyJoined, (afterConfig.defaultReads ?? []).nonEmptyJoined)
+        add("Default Progress", display(beforeConfig.defaultProgress), display(afterConfig.defaultProgress))
+        add("Interactive", display(beforeConfig.interactive), display(afterConfig.interactive))
+        add("Max Subagent Depth", beforeConfig.maxSubagentDepth.map(String.init) ?? "—", afterConfig.maxSubagentDepth.map(String.init) ?? "—")
+        add("Prompt", shortPromptSummary(beforeConfig.systemPrompt), shortPromptSummary(afterConfig.systemPrompt))
+
+        return changes.map { "\($0.0): \($0.1) → \($0.2)" }.joined(separator: "\n")
+    }
+
+    private func shortPromptSummary(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "empty" }
+        if trimmed.count <= 60 { return trimmed }
+        return String(trimmed.prefix(57)) + "..."
+    }
+
+    private func fieldHelpText(for title: String) -> String? {
+        switch title {
+        case "Model":
+            return "Default model for this agent. Builtin overrides can change this. Custom agents save it in frontmatter."
+        case "Fallback Models":
+            return "Ordered backup models Pi can use when the primary model is unavailable or unsuitable."
+        case "Thinking":
+            return "Reasoning effort hint for the selected model. Available options are derived from Pi’s installed model metadata."
+        case "Prompt Mode":
+            return "Replace makes this a focused specialist prompt. Append keeps more of Pi’s normal base behavior and adds this agent’s instructions on top."
+        case "Inherit Project Context", "Project Context":
+            return "When enabled, the agent keeps Pi’s project instruction context, including files like AGENTS.md or CLAUDE.md."
+        case "Inherit Skills", "Skills":
+            return "When enabled, the agent keeps Pi’s discovered skills catalog in its prompt. This mainly matters when the agent has the read tool. Explicit skills listed on the agent are separate."
+        case "Disabled", "Availability":
+            return "Disabled agents are hidden from subagent discovery and normal launches."
+        case "Output", "Output File":
+            return "Default output file for single-agent runs. Most useful in managed workflows such as chains and parallel runs."
+        case "Default Reads":
+            return "Files Pi should read before execution when this agent is launched through managed workflows."
+        case "Default Progress", "Progress":
+            return "When enabled, managed workflows maintain progress.md for this agent."
+        case "Interactive", "Interaction":
+            return "Compatibility frontmatter field for interactive behavior. Parsed and preserved, but not strongly enforced by pi-subagents v1."
+        case "Max Subagent Depth", "Max Depth":
+            return "Limits how many more nested subagent launches this agent can create below itself."
+        case "Extensions":
+            return "Extension loading mode. Omitted means normal extension loading, empty means none, and explicit values act as an allowlist."
+        case "Tool Access":
+            return "If tools are omitted, the agent keeps Pi’s normal tool behavior. If tools are explicitly set, they become an allowlist. Direct MCP tools use the mcp:name form."
+        case "Extension Mode":
+            return "If extensions are omitted, Pi uses normal extension loading. An explicit list acts as an allowlist. An empty list means no discovered extensions."
+        case "Add Tool":
+            return "Choose from built-in Pi tools plus direct MCP tools visible in this agent’s scope."
+        case "Selected":
+            return "Current explicit values for this field. Remove any item with the x button."
+        case "Add Extension":
+            return "Choose from installed Pi package references already visible to Pi Manager."
+        case "Add Skill":
+            return "Choose from skills visible in this agent’s current scope."
+        case "Skill Catalog":
+            return "Only skills discoverable in this scope are offered here."
+        case "Explicit Skill Count":
+            return "Number of skills explicitly attached to this agent."
+        default:
+            return nil
+        }
+    }
+
     private func inlineOptionalStringBinding(for keyPath: WritableKeyPath<AgentConfig, String?>) -> Binding<String> {
         Binding(
             get: { inlineDraft?.config[keyPath: keyPath] ?? "" },
@@ -2611,6 +2552,12 @@ private struct AgentDetailView: View {
         guard let path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
+}
+
+private struct SaveConfirmation: Identifiable {
+    let id = UUID()
+    let summary: String
+    let exitEditMode: Bool
 }
 
 private struct ChainsScreen: View {

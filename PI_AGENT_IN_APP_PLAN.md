@@ -217,6 +217,59 @@ Cons:
 
 Decision: **defer. RPC subprocess is simpler and closer to the referenced apps.**
 
+
+## Non-issue project sessions
+
+Not all work should start from GitHub. Pi Manager should support **project-first agent sessions** as a first-class workflow alongside issue-first sessions.
+
+Entry points:
+
+- From selected project sidebar/card: **New Agent Session**.
+- From Agent screen: **New Session** with project picker if no project is selected.
+- From repo changes screen: **Ask Pi about these changes**.
+- From GitHub issue detail: **Run with Pi Agent** remains the issue-specific shortcut.
+
+A project session has the same app-level session model, but `issueNumber`, `issueTitle`, and `issueURL` are optional. Session type should be explicit:
+
+```text
+enum AgentSessionKind {
+  case project
+  case issue
+  case changesReview
+}
+```
+
+Project session metadata should include:
+
+- app session ID
+- project path
+- repository remote, if present
+- optional branch/worktree
+- optional title/name
+- Pi session file/id
+- model/provider/thinking settings
+- status
+- created/updated timestamps
+
+Prompt behavior:
+
+- For a blank project session, start Pi with no automatic task or with a small native composer prompt.
+- If the user types an initial instruction, send it as the first `prompt`.
+- Set a useful session name after the first message, or let the user rename it.
+- For issue sessions, continue using the richer generated issue prompt.
+
+UI behavior:
+
+- The Agent sidebar should group sessions by project and show both issue-linked and freeform project sessions.
+- Issue sessions display `#123`; project sessions display their custom name or first prompt preview.
+- Users can later link a project session to an issue if needed.
+
+Safety rules are identical:
+
+- Many saved sessions are allowed.
+- Multiple running sessions across different repos are allowed.
+- Multiple running sessions in the same working tree require a warning unless isolated by branch/worktree.
+
 ## Recommended product workflow
 
 ### 1. Select project
