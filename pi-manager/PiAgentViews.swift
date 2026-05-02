@@ -509,18 +509,12 @@ private struct PiAgentStartupResourcesCard: View {
                 Text("Pi startup resources")
                     .font(.title3.bold())
                     .fontWidth(.expanded)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        hintChip("↩", "send / steer")
-                        hintChip("⇧/⌘/⌥ ↩", "newline")
-                        hintChip("Esc", "stop running turn")
-                    }
-                    HStack(spacing: 6) {
-                        hintChip("type /", "commands")
-                        hintChip("type @", "file suggestions")
-                        hintChip("⌘V", "paste images/files")
-                        hintChip("paperclip", "attach")
-                    }
+                HStack(spacing: 6) {
+                    hintChip("↩", "send / steer")
+                    hintChip("⇧/⌘/⌥ ↩", "newline")
+                    hintChip("Esc", "stop running turn")
+                    hintChip("/", "commands")
+                    hintChip("@", "file suggestions")
                 }
             }
             Spacer()
