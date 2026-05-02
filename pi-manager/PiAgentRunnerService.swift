@@ -231,6 +231,14 @@ final class PiAgentRunnerService {
             handleResponse(event, rawLine: rawLine, sessionID: sessionID)
         case "agent_start", "turn_start":
             mark(sessionID, status: .running, error: nil)
+            if event.type == "turn_start" {
+                let entryID = UUID()
+                assistantEntryIDsBySessionID[sessionID] = entryID
+                assistantTextBySessionID[sessionID] = ""
+                thinkingEntryIDsBySessionID[sessionID] = nil
+                thinkingTextBySessionID[sessionID] = nil
+                store.upsert(.init(id: entryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: "", rawJSON: nil))
+            }
         case "agent_end", "turn_end":
             mark(sessionID, status: .idle, error: nil)
             clientsBySessionID[sessionID]?.getState()

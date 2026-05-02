@@ -88,10 +88,12 @@ final class PiAgentSessionStore: ObservableObject {
         selectedSessionID = id
     }
 
-    func updateSession(_ id: UUID, mutate: (inout PiAgentSessionRecord) -> Void) {
+    func updateSession(_ id: UUID, bumpUpdatedAt: Bool = false, mutate: (inout PiAgentSessionRecord) -> Void) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         mutate(&sessions[index])
-        sessions[index].updatedAt = Date()
+        if bumpUpdatedAt {
+            sessions[index].updatedAt = Date()
+        }
         sortSessions()
         save()
     }
@@ -99,11 +101,11 @@ final class PiAgentSessionStore: ObservableObject {
     func renameSession(_ id: UUID, title: String) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
-        updateSession(id) { $0.title = trimmedTitle }
+        updateSession(id, bumpUpdatedAt: false) { $0.title = trimmedTitle }
     }
 
     func setPinned(_ id: UUID, isPinned: Bool) {
-        updateSession(id) { $0.isPinned = isPinned }
+        updateSession(id, bumpUpdatedAt: false) { $0.isPinned = isPinned }
     }
 
     func togglePinned(_ id: UUID) {
@@ -118,21 +120,24 @@ final class PiAgentSessionStore: ObservableObject {
             entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
         }
         transcriptsBySessionID[entry.sessionID] = entries
-        updateSession(entry.sessionID) { $0.updatedAt = Date() }
+        updateSession(entry.sessionID, bumpUpdatedAt: true) { _ in }
     }
 
     func upsert(_ entry: PiAgentTranscriptEntry) {
         var entries = transcriptsBySessionID[entry.sessionID] ?? []
+        let isNewEntry: Bool
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             entries[index] = entry
+            isNewEntry = false
         } else {
             entries.append(entry)
+            isNewEntry = true
         }
         if entries.count > maxTranscriptEntriesPerSession {
             entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
         }
         transcriptsBySessionID[entry.sessionID] = entries
-        updateSession(entry.sessionID) { $0.updatedAt = Date() }
+        updateSession(entry.sessionID, bumpUpdatedAt: isNewEntry) { _ in }
     }
 
     func updateEntry(_ entryID: UUID, in sessionID: UUID, mutate: (inout PiAgentTranscriptEntry) -> Void) {
@@ -140,7 +145,7 @@ final class PiAgentSessionStore: ObservableObject {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         mutate(&entries[index])
         transcriptsBySessionID[sessionID] = entries
-        updateSession(sessionID) { $0.updatedAt = Date() }
+        updateSession(sessionID, bumpUpdatedAt: false) { _ in }
     }
 
     func deleteSession(_ sessionID: UUID) {

@@ -1297,6 +1297,12 @@ final class AppViewModel: ObservableObject {
         appSettingsStore.settings = appSettings
     }
 
+    func setPiAgentThinkingDisplayMode(_ mode: PiAgentThinkingDisplayMode) {
+        guard appSettings.piAgentThinkingDisplayMode != mode else { return }
+        appSettings.piAgentThinkingDisplayMode = mode
+        appSettingsStore.settings = appSettings
+    }
+
     private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {
         switch scope {
         case .global:
@@ -1924,8 +1930,17 @@ process.stdout.write(JSON.stringify(result));
     }
 }
 
+enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
+    case full = "Full"
+    case compact = "Compact"
+    case hidden = "Hidden"
+
+    var id: String { rawValue }
+}
+
 struct AppSettings: Codable, Hashable {
     var gitHubBoardCacheLifetimeMinutes: Int = 15
+    var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
 }
 
 @MainActor

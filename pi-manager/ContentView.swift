@@ -133,20 +133,6 @@ struct ContentView: View {
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
 
-                if selectedPiAgentSessionIsRunning {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            viewModel.stopSelectedPiAgentSession()
-                        } label: {
-                            Image(systemName: "stop.fill")
-                        }
-                        .help("Stop Pi Agent")
-                        .keyboardShortcut(.escape, modifiers: [])
-                    }
-                }
-
                 ToolbarSpacer(.fixed, placement: .primaryAction)
 
                 ToolbarItem(placement: .primaryAction) {
@@ -308,11 +294,6 @@ struct ContentView: View {
         default:
             return viewModel.selectedSidebarItem.rawValue
         }
-    }
-
-    private var selectedPiAgentSessionIsRunning: Bool {
-        guard let session = viewModel.piAgentSessionStore.selectedSession else { return false }
-        return viewModel.isPiAgentSessionRunning(session.id)
     }
 
     private var filteredProjects: [DiscoveredProject] {
@@ -1104,6 +1085,21 @@ private struct SettingsScreen: View {
                 }
             }
 
+            AppCard(title: "Pi Agent") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("Reasoning", selection: piAgentThinkingDisplayBinding) {
+                        ForEach(PiAgentThinkingDisplayMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Matches Pi's thinking visibility behavior: show full reasoning, show a compact preview, or hide thinking blocks from the transcript.")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
             AppCard(title: "Subagents") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("Disable all builtins globally", isOn: userDisableBuiltinsBinding)
@@ -1125,6 +1121,13 @@ private struct SettingsScreen: View {
         Binding(
             get: { viewModel.gitHubBoardCacheLifetimeMinutes },
             set: { viewModel.setGitHubBoardCacheLifetimeMinutes($0) }
+        )
+    }
+
+    private var piAgentThinkingDisplayBinding: Binding<PiAgentThinkingDisplayMode> {
+        Binding(
+            get: { viewModel.appSettings.piAgentThinkingDisplayMode },
+            set: { viewModel.setPiAgentThinkingDisplayMode($0) }
         )
     }
 

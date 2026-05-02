@@ -38,6 +38,10 @@ struct PiAgentScreen: View {
         return source.filter { sessionMatchesSearch($0, query: query) }
     }
 
+    private var visibleSessionIDs: [UUID] {
+        visibleSessions.map(\.id)
+    }
+
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
@@ -115,7 +119,9 @@ struct PiAgentScreen: View {
                                     )
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        viewModel.selectPiAgentSession(session.id)
+                                        withAnimation(.snappy(duration: 0.22)) {
+                                            viewModel.selectPiAgentSession(session.id)
+                                        }
                                     }
                                     .contextMenu {
                                         Button {
@@ -133,6 +139,7 @@ struct PiAgentScreen: View {
                             }
                             .padding(.horizontal, 14)
                             .padding(.bottom, 18)
+                            .animation(.snappy(duration: 0.24), value: visibleSessionIDs)
                         }
                     }
                 }
@@ -221,19 +228,25 @@ struct PiAgentScreen: View {
                                 PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                             }
                             ForEach(visibleTranscriptEntries) { entry in
-                                PiAgentTranscriptCard(entry: entry)
+                                PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode)
                                     .id(entry.id)
                             }
                         }
                     }
-                    .onChange(of: store.selectedTranscript.count) { _, _ in
-                        if let last = store.selectedTranscript.last {
+                    .onChange(of: transcriptVersion) { _, _ in
+                        if let last = visibleTranscriptEntries.last {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
                 }
             }
         }
+    }
+
+    private var transcriptVersion: String {
+        visibleTranscriptEntries
+            .map { "\($0.id.uuidString):\($0.text.count):\($0.timestamp.timeIntervalSince1970)" }
+            .joined(separator: "|")
     }
 
     private var composer: some View {
@@ -496,12 +509,18 @@ private struct PiAgentStartupResourcesCard: View {
                 Text("Pi startup resources")
                     .font(.title3.bold())
                     .fontWidth(.expanded)
-                HStack(spacing: 6) {
-                    ShortcutComboHint(symbols: ["return"], text: "send")
-                    ShortcutComboHint(symbols: ["shift", "return"], text: "newline")
-                    ShortcutComboHint(symbols: ["escape"], text: "stop")
-                    hintChip("/", "commands")
-                    hintChip("@", "files")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        hintChip("↩", "send / steer")
+                        hintChip("⇧/⌘/⌥ ↩", "newline")
+                        hintChip("Esc", "stop running turn")
+                    }
+                    HStack(spacing: 6) {
+                        hintChip("type /", "commands")
+                        hintChip("type @", "file suggestions")
+                        hintChip("⌘V", "paste images/files")
+                        hintChip("paperclip", "attach")
+                    }
                 }
             }
             Spacer()
@@ -1423,6 +1442,12 @@ private struct PiAgentSendButton: View {
         .buttonStyle(.plain)
         .disabled(!isRunning && !canSend)
         .help(isRunning ? "Stop Pi Agent" : "Send message")
+        .background {
+            Button("Stop Pi Agent", action: stopAction)
+                .keyboardShortcut(.escape, modifiers: [])
+                .disabled(!isRunning)
+                .hidden()
+        }
         .animation(.snappy(duration: 0.22), value: isRunning)
     }
 
@@ -2014,8 +2039,34 @@ private struct PiAgentProjectIcon: View {
     }
 }
 
+private struct PiAgentTypingIndicator: View {
+    @State private var phase = 0
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.secondary.opacity(phase == index ? 0.85 : 0.35))
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(phase == index ? 1.15 : 0.9)
+            }
+        }
+        .padding(.vertical, 4)
+        .onAppear {
+            Timer.scheduledTimer(withTimeInterval: 0.28, repeats: true) { _ in
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    phase = (phase + 1) % 3
+                }
+            }
+        }
+        .accessibilityLabel("Pi is typing")
+    }
+}
+
 private struct PiAgentTranscriptCard: View {
     let entry: PiAgentTranscriptEntry
+    let thinkingDisplayMode: PiAgentThinkingDisplayMode
+    @State private var isThinkingExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -2053,16 +2104,9 @@ private struct PiAgentTranscriptCard: View {
         if let subagentSummary = PiAgentSubagentSummary(entry: entry) {
             PiAgentSubagentTranscriptView(summary: subagentSummary)
         } else if entry.role == .thinking {
-            DisclosureGroup("Reasoning", isExpanded: .constant(true)) {
-                Text(entry.text.isEmpty ? "Pi has not emitted reasoning text yet." : entry.text)
-                    .font(.body)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } else if entry.role == .assistant || entry.role == .user || entry.role == .status {
-            MarkdownTextView(source: entry.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            thinkingContent
+        } else if entry.role == .assistant && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            PiAgentTypingIndicator()
         } else {
             Text(entry.text)
                 .font(entry.role == .tool || entry.role == .stderr || entry.role == .raw ? .system(.body, design: .monospaced) : .body)
@@ -2071,7 +2115,50 @@ private struct PiAgentTranscriptCard: View {
         }
     }
 
+    @ViewBuilder
+    private var thinkingContent: some View {
+        switch thinkingDisplayMode {
+        case .full:
+            reasoningDisclosure(source: entry.text, defaultExpanded: true)
+        case .compact:
+            reasoningDisclosure(source: entry.text, defaultExpanded: false)
+        case .hidden:
+            Text("Thinking…")
+                .font(.body.italic())
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+
+    private func reasoningDisclosure(source: String, defaultExpanded: Bool) -> some View {
+        let displayText = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return DisclosureGroup(isExpanded: $isThinkingExpanded) {
+            MarkdownTextView(source: displayText.isEmpty ? "Pi has not emitted reasoning text yet." : displayText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            HStack(spacing: 6) {
+                Text("Reasoning")
+                    .font(.caption.weight(.semibold))
+                if thinkingDisplayMode == .compact && !isThinkingExpanded {
+                    Text(compactPreview(displayText))
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(3)
+                }
+            }
+        }
+        .onAppear {
+            isThinkingExpanded = defaultExpanded
+        }
+    }
+
+    private func compactPreview(_ text: String) -> String {
+        let allLines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let preview = allLines.prefix(3).joined(separator: "\n")
+        return allLines.count > 3 ? preview + "…" : preview
+    }
+
     private var headerTitle: String {
+        if entry.title == "Steering" { return "Steering" }
         switch entry.role {
         case .user: return "You"
         case .assistant: return "Pi"
@@ -2110,7 +2197,7 @@ private struct PiAgentTranscriptCard: View {
 
     private var icon: String {
         switch entry.role {
-        case .user: return "person.crop.circle"
+        case .user: return entry.title == "Steering" ? "arrowshape.turn.up.forward.circle" : "person.crop.circle"
         case .assistant: return "sparkles"
         case .thinking: return "brain.head.profile"
         case .tool: return "hammer"
