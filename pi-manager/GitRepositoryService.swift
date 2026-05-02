@@ -30,7 +30,7 @@ struct GitRepositoryService {
         case .unstaged, .conflicted:
             return try await runDiff(arguments: ["diff", "--", filePath], commandDescription: "git diff -- \(filePath)", in: repositoryURL)
         case .untracked:
-            return try loadUntrackedPreview(for: filePath, in: repositoryURL)
+            return try await loadUntrackedDiff(for: filePath, in: repositoryURL)
         }
     }
 
@@ -72,6 +72,23 @@ struct GitRepositoryService {
         }
 
         return diffResult.stdout
+    }
+
+    private func loadUntrackedDiff(for filePath: String, in repositoryURL: URL) async throws -> String {
+        let diffResult = try await commandRunner.run(
+            "git",
+            arguments: ["diff", "--no-index", "--", "/dev/null", filePath],
+            currentDirectoryURL: repositoryURL,
+            timeout: 15,
+            environment: nil
+        )
+
+        // git diff --no-index exits with 1 when it successfully found differences.
+        guard diffResult.exitCode == 0 || diffResult.exitCode == 1 else {
+            return try loadUntrackedPreview(for: filePath, in: repositoryURL)
+        }
+
+        return diffResult.stdout.isEmpty ? try loadUntrackedPreview(for: filePath, in: repositoryURL) : diffResult.stdout
     }
 
     private func runGitMutation(arguments: [String], commandDescription: String, in repositoryURL: URL, timeout: TimeInterval = 15) async throws {
