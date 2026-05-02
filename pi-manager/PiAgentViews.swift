@@ -485,7 +485,7 @@ private struct PiAgentStartupResourcesCard: View {
                         resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
                         resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
                     }
-                    resourceSection("Agents", count: agentItems.count, icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems)
+                    resourceSection("Agents", count: agentItems.count, icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
                     resourceSection("Skills", count: skillItems.count, icon: "wand.and.stars", color: .purple, items: skillItems)
                     resourceSection("Prompts", count: promptItems.count, icon: "text.badge.star", color: .indigo, items: promptItems)
                     resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
@@ -535,7 +535,15 @@ private struct PiAgentStartupResourcesCard: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return enabled.isEmpty
             ? [.init(title: "No enabled agents", kind: .none)]
-            : enabled.map { .init(title: $0.name, detail: $0.resolutionKind.rawValue, kind: .agent($0.id)) }
+            : enabled.map { agent in
+                let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let modelSuffix = agent.resolved.model.map { " · \($0)" } ?? ""
+                let source = agent.resolutionKind.rawValue
+                let detail = [description, source + modelSuffix]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                return .init(title: agent.name, detail: detail, kind: .agent(agent.id))
+            }
     }
 
     private var skillItems: [PiStartupResourceItem] {
@@ -551,9 +559,13 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private var extensionItems: [PiStartupResourceItem] {
-        Array(Set(viewModel.snapshot.settings.flatMap(\.packages))).sorted().map { package in
-            .init(title: shortExtensionName(package), detail: package, kind: .extensions)
+        let packageItems = Array(Set(viewModel.snapshot.settings.flatMap(\.packages))).map { package in
+            PiStartupResourceItem(title: shortExtensionName(package), detail: package, kind: .extensions)
         }
+        let fileItems = discoveredExtensionFiles().map { url in
+            PiStartupResourceItem(title: url.lastPathComponent, detail: shortPath(url.deletingLastPathComponent().path), kind: .file(url))
+        }
+        return (packageItems + fileItems).sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     private var envItems: [PiStartupResourceItem] {
@@ -569,7 +581,7 @@ private struct PiAgentStartupResourcesCard: View {
         }
     }
 
-    private func resourceSection(_ title: String, count: Int, icon: String, color: Color, items: [PiStartupResourceItem], columns: Int = 5) -> some View {
+    private func resourceSection(_ title: String, count: Int, icon: String, color: Color, items: [PiStartupResourceItem], columns: Int = 5, showsDetails: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -590,7 +602,7 @@ private struct PiAgentStartupResourcesCard: View {
                 ForEach(Array(chunk(items, size: columns).enumerated()), id: \.offset) { _, row in
                     GridRow {
                         ForEach(row) { item in
-                            resourceChip(item)
+                            resourceChip(item, showsDetail: showsDetails)
                         }
                         ForEach(0..<max(columns - row.count, 0), id: \.self) { _ in
                             Color.clear.frame(height: 1)
@@ -628,22 +640,32 @@ private struct PiAgentStartupResourcesCard: View {
         .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
     }
 
-    private func resourceChip(_ item: PiStartupResourceItem, isOverflow: Bool = false) -> some View {
+    private func resourceChip(_ item: PiStartupResourceItem, isOverflow: Bool = false, showsDetail: Bool = false) -> some View {
         Button {
             openResource(item)
         } label: {
-            Text(item.title)
-                .font(.caption.monospaced())
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(isOverflow ? Color.accentColor : AppTheme.mutedText)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.cardFill.opacity(0.75))
-                )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.caption.monospaced().weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(isOverflow ? Color.accentColor : .primary)
+                if showsDetail, let detail = item.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(3)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, showsDetail ? 7 : 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.cardFill.opacity(0.75))
+            )
         }
         .buttonStyle(.plain)
         .disabled(!item.isClickable)
@@ -676,6 +698,33 @@ private struct PiAgentStartupResourcesCard: View {
         if value.hasPrefix("npm:") { return String(value.dropFirst(4)) }
         if value.contains("/") { return URL(fileURLWithPath: value).lastPathComponent }
         return value
+    }
+
+    private func discoveredExtensionFiles() -> [URL] {
+        let global = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions", isDirectory: true)
+        let project = URL(fileURLWithPath: session.projectPath).appendingPathComponent(".pi/extensions", isDirectory: true)
+        return [global, project]
+            .flatMap { extensionFiles(in: $0) }
+            .reduce(into: [URL]()) { result, url in
+                if !result.contains(where: { $0.path == url.path }) {
+                    result.append(url)
+                }
+            }
+    }
+
+    private func extensionFiles(in directory: URL) -> [URL] {
+        guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return [] }
+        return contents.filter { url in
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            return values?.isRegularFile == true && ["ts", "js", "mjs", "cjs"].contains(url.pathExtension.lowercased())
+        }
+    }
+
+    private func shortPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        return path
     }
 
     private func masked(_ value: String) -> String {
