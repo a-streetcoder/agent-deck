@@ -9,6 +9,7 @@ struct PiAgentScreen: View {
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
+    @State private var renamingSessionID: UUID?
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
@@ -27,7 +28,10 @@ struct PiAgentScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear(perform: syncSelectedSessionTitleDraft)
-        .onChange(of: store.selectedSession?.id) { _, _ in syncSelectedSessionTitleDraft() }
+        .onChange(of: store.selectedSession?.id) { _, _ in
+            renamingSessionID = nil
+            syncSelectedSessionTitleDraft()
+        }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
     }
 
@@ -113,16 +117,24 @@ struct PiAgentScreen: View {
                                         project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
                                         isSelected: store.selectedSession?.id == session.id,
                                         isRunning: viewModel.isPiAgentSessionRunning(session.id),
+                                        isRenaming: renamingSessionID == session.id,
+                                        onSelect: {
+                                            renamingSessionID = nil
+                                            withAnimation(.snappy(duration: 0.22)) {
+                                                viewModel.selectPiAgentSession(session.id)
+                                            }
+                                        },
+                                        onBeginRename: {
+                                            withAnimation(.snappy(duration: 0.22)) {
+                                                viewModel.selectPiAgentSession(session.id)
+                                            }
+                                            renamingSessionID = session.id
+                                        },
+                                        onEndRename: { renamingSessionID = nil },
                                         onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
                                         onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) },
                                         onDelete: { viewModel.deletePiAgentSession(session.id) }
                                     )
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        withAnimation(.snappy(duration: 0.22)) {
-                                            viewModel.selectPiAgentSession(session.id)
-                                        }
-                                    }
                                     .contextMenu {
                                         Button {
                                             viewModel.togglePiAgentSessionPinned(session.id)
@@ -362,7 +374,24 @@ struct PiAgentScreen: View {
     }
 
     private var visibleTranscriptEntries: [PiAgentTranscriptEntry] {
-        store.selectedTranscript.filter(isValuableTranscriptEntry)
+        normalizeThinkingOrder(store.selectedTranscript.filter(isValuableTranscriptEntry))
+    }
+
+    private func normalizeThinkingOrder(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
+        var normalized: [PiAgentTranscriptEntry] = []
+        for entry in entries {
+            if entry.role == .thinking,
+               let previous = normalized.last,
+               previous.role == .assistant,
+               abs(entry.timestamp.timeIntervalSince(previous.timestamp)) < 180 {
+                normalized.removeLast()
+                normalized.append(entry)
+                normalized.append(previous)
+            } else {
+                normalized.append(entry)
+            }
+        }
+        return normalized
     }
 
     private func isValuableTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
@@ -471,6 +500,16 @@ private struct PiStartupResourceItem: Identifiable, Hashable {
     }
 }
 
+private extension Array where Element == PiStartupResourceItem {
+    func uniqueByTitleAndDetail() -> [PiStartupResourceItem] {
+        reduce(into: [PiStartupResourceItem]()) { result, item in
+            if !result.contains(where: { $0.title == item.title && $0.detail == item.detail }) {
+                result.append(item)
+            }
+        }
+    }
+}
+
 private struct PiAgentStartupResourcesCard: View {
     @ObservedObject var viewModel: AppViewModel
     let session: PiAgentSessionRecord
@@ -559,13 +598,14 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private var extensionItems: [PiStartupResourceItem] {
-        let packageItems = Array(Set(viewModel.snapshot.settings.flatMap(\.packages))).map { package in
-            PiStartupResourceItem(title: shortExtensionName(package), detail: package, kind: .extensions)
+        let packageItems = Array(Set(viewModel.snapshot.settings.flatMap(\.packages)))
+            .compactMap(extensionPackageItem)
+        let fileItems = discoveredExtensionEntries().map { entry in
+            PiStartupResourceItem(title: entry.title, detail: shortPath(entry.url.path), kind: .file(entry.url))
         }
-        let fileItems = discoveredExtensionFiles().map { url in
-            PiStartupResourceItem(title: url.lastPathComponent, detail: shortPath(url.deletingLastPathComponent().path), kind: .file(url))
-        }
-        return (packageItems + fileItems).sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        return (packageItems + fileItems)
+            .uniqueByTitleAndDetail()
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     private var envItems: [PiStartupResourceItem] {
@@ -700,24 +740,92 @@ private struct PiAgentStartupResourcesCard: View {
         return value
     }
 
-    private func discoveredExtensionFiles() -> [URL] {
+    private func extensionPackageItem(_ package: String) -> PiStartupResourceItem? {
+        let resolved = resolvePackageURL(package)
+        if let resolved, !packageDeclaresExtensions(at: resolved) {
+            return nil
+        }
+        let title = extensionPackageTitle(package, resolvedURL: resolved)
+        return PiStartupResourceItem(title: title, detail: package, kind: .extensions)
+    }
+
+    private func extensionPackageTitle(_ package: String, resolvedURL: URL?) -> String {
+        if let resolvedURL, let manifest = readPackageManifest(at: resolvedURL), let pi = manifest["pi"] as? [String: Any], let extensions = pi["extensions"] as? [String], extensions.count == 1 {
+            return "\(shortExtensionName(package)):\(extensions[0].replacingOccurrences(of: "./", with: ""))"
+        }
+        return shortExtensionName(package)
+    }
+
+    private func packageDeclaresExtensions(at url: URL) -> Bool {
+        guard let manifest = readPackageManifest(at: url) else { return false }
+        if let pi = manifest["pi"] as? [String: Any], let extensions = pi["extensions"] as? [String], !extensions.isEmpty {
+            return true
+        }
+        return extensionFiles(in: url.appendingPathComponent("extensions", isDirectory: true)).isEmpty == false
+    }
+
+    private func readPackageManifest(at url: URL) -> [String: Any]? {
+        let manifestURL = url.appendingPathComponent("package.json")
+        guard let data = try? Data(contentsOf: manifestURL) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private func resolvePackageURL(_ package: String) -> URL? {
+        let raw = package.hasPrefix("npm:") ? String(package.dropFirst(4)) : package
+        if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
+        let candidates = [
+            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules").appendingPathComponent(raw),
+            URL(fileURLWithPath: "/usr/local/lib/node_modules").appendingPathComponent(raw),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/npm/node_modules").appendingPathComponent(raw),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/git").appendingPathComponent(raw)
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private struct ExtensionEntry: Hashable {
+        let title: String
+        let url: URL
+    }
+
+    private func discoveredExtensionEntries() -> [ExtensionEntry] {
         let global = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions", isDirectory: true)
         let project = URL(fileURLWithPath: session.projectPath).appendingPathComponent(".pi/extensions", isDirectory: true)
         return [global, project]
-            .flatMap { extensionFiles(in: $0) }
-            .reduce(into: [URL]()) { result, url in
-                if !result.contains(where: { $0.path == url.path }) {
-                    result.append(url)
+            .flatMap { extensionEntries(in: $0) }
+            .reduce(into: [ExtensionEntry]()) { result, entry in
+                if !result.contains(where: { $0.title == entry.title && $0.url.path == entry.url.path }) {
+                    result.append(entry)
                 }
             }
     }
 
+    private func extensionEntries(in directory: URL) -> [ExtensionEntry] {
+        guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else { return [] }
+        return contents.compactMap { url in
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isRegularFile == true, isExtensionSourceFile(url) {
+                return ExtensionEntry(title: url.lastPathComponent, url: url)
+            }
+            if values?.isDirectory == true, directoryContainsExtension(url) {
+                return ExtensionEntry(title: url.lastPathComponent, url: url)
+            }
+            return nil
+        }
+    }
+
+    private func directoryContainsExtension(_ directory: URL) -> Bool {
+        if packageDeclaresExtensions(at: directory) { return true }
+        return extensionFiles(in: directory).isEmpty == false
+    }
+
     private func extensionFiles(in directory: URL) -> [URL] {
         guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return [] }
-        return contents.filter { url in
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
-            return values?.isRegularFile == true && ["ts", "js", "mjs", "cjs"].contains(url.pathExtension.lowercased())
-        }
+        return contents.filter(isExtensionSourceFile)
+    }
+
+    private func isExtensionSourceFile(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+        return values?.isRegularFile == true && ["ts", "js", "mjs", "cjs"].contains(url.pathExtension.lowercased())
     }
 
     private func shortPath(_ path: String) -> String {
@@ -1938,11 +2046,17 @@ private struct PiAgentSessionRow: View {
     let project: DiscoveredProject?
     let isSelected: Bool
     let isRunning: Bool
+    let isRenaming: Bool
+    let onSelect: () -> Void
+    let onBeginRename: () -> Void
+    let onEndRename: () -> Void
     let onRename: (String) -> Void
     let onTogglePinned: () -> Void
     let onDelete: () -> Void
 
     @State private var draftTitle = ""
+    @State private var isTitleHovered = false
+    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1953,12 +2067,7 @@ private struct PiAgentSessionRow: View {
                     Circle()
                         .fill(session.needsAttention ? Color.accentColor : (isRunning ? .green : statusColor))
                         .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
-                    TextField("Session name", text: $draftTitle)
-                        .textFieldStyle(.plain)
-                        .font(.subheadline.weight(.semibold))
-                        .fontWidth(.expanded)
-                        .lineLimit(1)
-                        .onSubmit(commitRename)
+                    titleView
                     Spacer(minLength: 0)
                     Button(action: onTogglePinned) {
                         Image(systemName: session.isPinned ? "pin.fill" : "pin")
@@ -2002,11 +2111,71 @@ private struct PiAgentSessionRow: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.14) : AppTheme.cardFill)
                 .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
         .help(statusHelp)
         .onAppear { draftTitle = sessionTitle }
-        .onChange(of: session.id) { _, _ in draftTitle = sessionTitle }
+        .onChange(of: session.id) { _, _ in resetRenameState() }
         .onChange(of: session.title) { _, _ in draftTitle = sessionTitle }
+        .onChange(of: isRenaming) { _, renaming in
+            if renaming {
+                draftTitle = sessionTitle
+                isTitleFocused = true
+            } else {
+                isTitleFocused = false
+            }
+        }
+        .onChange(of: isTitleFocused) { _, focused in
+            if !focused && isRenaming { commitRename() }
+        }
         .onDisappear(perform: commitRename)
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        if isRenaming {
+            TextField("Session name", text: $draftTitle)
+                .textFieldStyle(.plain)
+                .font(.subheadline.weight(.semibold))
+                .fontWidth(.expanded)
+                .lineLimit(1)
+                .focused($isTitleFocused)
+                .onSubmit(commitRename)
+                .onExitCommand { resetRenameState() }
+                .onAppear {
+                    draftTitle = sessionTitle
+                    isTitleFocused = true
+                }
+        } else {
+            HStack(spacing: 5) {
+                Text(sessionTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "pencil")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .opacity(isTitleHovered ? 1 : 0)
+            }
+            .font(.subheadline.weight(.semibold))
+            .fontWidth(.expanded)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isTitleHovered ? Color.primary.opacity(0.06) : Color.clear)
+            )
+            .contentShape(Rectangle())
+            .onHover { isTitleHovered = $0 }
+            .onTapGesture(perform: onBeginRename)
+            .help("Rename session")
+        }
+    }
+
+    private func resetRenameState() {
+        draftTitle = sessionTitle
+        onEndRename()
+        isTitleFocused = false
     }
 
     private func commitRename() {
@@ -2016,6 +2185,8 @@ private struct PiAgentSessionRow: View {
         } else if trimmedTitle != session.title {
             onRename(trimmedTitle)
         }
+        onEndRename()
+        isTitleFocused = false
     }
 
     private var sessionTitle: String {
@@ -2216,7 +2387,7 @@ private struct PiAgentTranscriptCard: View {
     private var backgroundColor: Color {
         switch entry.role {
         case .user: return Color.accentColor.opacity(0.08)
-        case .assistant: return AppTheme.cardFill
+        case .assistant: return Color.purple.opacity(0.06)
         case .thinking: return Color.indigo.opacity(0.07)
         case .tool: return Color.orange.opacity(0.08)
         case .status: return AppTheme.subtleFill.opacity(0.7)
@@ -2229,7 +2400,7 @@ private struct PiAgentTranscriptCard: View {
     private var strokeColor: Color {
         switch entry.role {
         case .user: return Color.accentColor.opacity(0.2)
-        case .assistant: return AppTheme.cardStroke
+        case .assistant: return Color.purple.opacity(0.18)
         case .thinking: return Color.indigo.opacity(0.18)
         case .tool: return Color.orange.opacity(0.2)
         case .error: return Color.red.opacity(0.22)

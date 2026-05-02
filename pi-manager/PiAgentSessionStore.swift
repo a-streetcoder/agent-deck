@@ -123,12 +123,15 @@ final class PiAgentSessionStore: ObservableObject {
         updateSession(entry.sessionID, bumpUpdatedAt: true) { _ in }
     }
 
-    func upsert(_ entry: PiAgentTranscriptEntry) {
+    func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil) {
         var entries = transcriptsBySessionID[entry.sessionID] ?? []
         let isNewEntry: Bool
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             entries[index] = entry
             isNewEntry = false
+        } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
+            entries.insert(entry, at: beforeIndex)
+            isNewEntry = true
         } else {
             entries.append(entry)
             isNewEntry = true

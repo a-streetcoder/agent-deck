@@ -412,7 +412,7 @@ final class PiAgentRunnerService {
                     title: "Thinking",
                     text: thinkingTextBySessionID[sessionID] ?? "",
                     rawJSON: nil
-                ))
+                ), before: assistantEntryIDsBySessionID[sessionID])
             } else {
                 let entryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
                 assistantEntryIDsBySessionID[sessionID] = entryID
