@@ -1640,7 +1640,10 @@ final class AppViewModel: ObservableObject {
     func enableSkillGlobally(_ skill: SkillRecord) throws {
         let libraryURL = try ensureLibrarySkill(for: skill)
         let linkURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true)
-        try createSkillSymlink(from: linkURL, to: libraryURL)
+        if !FileManager.default.fileExists(atPath: linkURL.path) {
+            try createSkillSymlink(from: linkURL, to: libraryURL)
+        }
+        try removeProjectVisibility(forSkillNamed: skill.name)
         refresh(includeModels: false)
     }
 
@@ -1714,6 +1717,17 @@ final class AppViewModel: ObservableObject {
         let fileManager = FileManager.default
         for globalSkill in snapshot.skills where globalSkill.name == skillName && globalSkill.source.kind == .global {
             let url = skillRootURL(for: globalSkill)
+            guard fileManager.fileExists(atPath: url.path) else { continue }
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                try fileManager.removeItem(at: url)
+            }
+        }
+    }
+
+    private func removeProjectVisibility(forSkillNamed skillName: String) throws {
+        let fileManager = FileManager.default
+        for project in enabledProjects {
+            let url = URL(fileURLWithPath: project.path).appendingPathComponent(".pi/skills", isDirectory: true).appendingPathComponent(skillName, isDirectory: true)
             guard fileManager.fileExists(atPath: url.path) else { continue }
             if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
                 try fileManager.removeItem(at: url)

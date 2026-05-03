@@ -257,37 +257,6 @@ struct ContentView: View {
                 }
             }
 
-            if viewModel.selectedSidebarItem == .skills, let skill = viewModel.selectedSkill {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        revealSelectedSkillFile()
-                    } label: {
-                        Label("Reveal", systemImage: "folder")
-                    }
-                    .help("Reveal the selected skill file in Finder")
-
-                    Menu {
-                        if viewModel.skillIsEnabledGlobally(skill) {
-                            Button("Disable Globally") { disableSelectedSkillGlobally() }
-                        } else {
-                            Button("Enable Globally") { enableSelectedSkillGlobally() }
-                        }
-
-                        if viewModel.selectedProjectPath != nil {
-                            Divider()
-                            if viewModel.skillIsEnabledForSelectedProject(skill) {
-                                Button("Remove from Project") { removeSelectedSkillFromProject() }
-                            } else {
-                                Button("Add to Project") { addSelectedSkillToProject() }
-                            }
-                        }
-                    } label: {
-                        Label("Visibility", systemImage: "eye")
-                    }
-                    .help("Manage where this skill is discovered by Pi")
-                }
-            }
-
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -3038,7 +3007,7 @@ private struct SkillsInfoPopover: View {
                 infoRow("Package", "Provided by installed packages. Treat as read-only unless imported later.")
             }
 
-            Text("Use the toolbar Visibility menu to enable a library skill globally, add it to the selected project, or remove managed links.")
+            Text("Use Global Visibility and Project Assignment in the right column to manage where library skills are loaded.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -3103,7 +3072,11 @@ private struct SkillsScreen: View {
 
                     if !packageSkills.isEmpty {
                         AppCard(title: "Package Skills") {
-                            skillGrid(packageSkills, emptyText: "No package skills.")
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Package skills are active by default when their package is discovered. They are package-managed, so Pi Manager does not assign or unlink them per project.")
+                                    .foregroundStyle(AppTheme.mutedText)
+                                skillGrid(packageSkills, emptyText: "No package skills.")
+                            }
                         }
                     }
                 }
@@ -3305,7 +3278,7 @@ private struct SkillsScreen: View {
                             catch { NSSound.beep() }
                         }
                     )) {
-                        HStack(spacing: 10) {
+                        HStack(alignment: .center, spacing: 10) {
                             ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(project.name)
@@ -3317,8 +3290,10 @@ private struct SkillsScreen: View {
                                     .truncationMode(.middle)
                             }
                         }
+                        .frame(height: 46, alignment: .center)
                     }
                     .toggleStyle(.checkbox)
+                    .controlSize(.large)
                     .padding(.vertical, 8)
 
                     if project.id != viewModel.enabledProjects.last?.id {
@@ -3330,6 +3305,7 @@ private struct SkillsScreen: View {
     }
 
     private func statusLabel(_ skill: SkillRecord) -> String {
+        if skill.source.kind == .package { return "Package" }
         if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "Active" }
         if viewModel.skillIsEnabledGlobally(skill) { return "Global" }
         if skill.source.kind == .library { return "Library" }
@@ -3338,6 +3314,7 @@ private struct SkillsScreen: View {
 
     private func skillColor(_ skill: SkillRecord) -> Color {
         if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return .green }
+        if viewModel.skillIsEnabledGlobally(skill) { return .blue }
         switch skill.source.kind {
         case .library: return .purple
         case .package: return .orange
