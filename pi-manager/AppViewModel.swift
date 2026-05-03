@@ -1402,8 +1402,9 @@ final class AppViewModel: ObservableObject {
         let effectiveNames = Set(snapshot.effectiveAgents.map(\.name))
         let libraryByName = Dictionary(uniqueKeysWithValues: snapshot.libraryAgents.map { ($0.name, $0) })
         let assignedNames = Set(allProjectSnapshots.values.flatMap(\.projectAgents).map(\.name))
+        let libraryNames = Set(snapshot.libraryAgents.map(\.name))
         return assignedNames
-            .filter { !effectiveNames.contains($0) }
+            .filter { !effectiveNames.contains($0) && !libraryNames.contains($0) }
             .compactMap { libraryByName[$0] }
             .map { libraryDisplayAgent(from: $0, projectRoot: nil) }
     }
