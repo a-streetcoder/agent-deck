@@ -221,6 +221,54 @@ struct ContentView: View {
                 }
             }
 
+            if viewModel.selectedSidebarItem == .environment {
+                ToolbarItem(placement: .confirmationAction) {
+                    Menu {
+                        Button("New Global Key") {
+                            envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                        }
+                        if viewModel.selectedProjectPath != nil {
+                            Button("New Project Key") {
+                                envDraft = viewModel.makeNewEnvDraft(scope: .project)
+                            }
+                        }
+                    } label: {
+                        Label("New Key", systemImage: "plus")
+                    } primaryAction: {
+                        envDraft = viewModel.makeNewEnvDraft(scope: viewModel.selectedProjectPath == nil ? .global : .project)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Create a new environment key")
+                }
+            }
+
+            if viewModel.selectedSidebarItem == .skills, let skill = viewModel.selectedSkill {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        openSelectedSkillFile()
+                    } label: {
+                        Label("Open", systemImage: "folder")
+                    }
+                    .help("Open the selected skill file")
+
+                    Button {
+                        revealSelectedSkillFile()
+                    } label: {
+                        Label("Reveal", systemImage: "arrow.up.forward.app")
+                    }
+                    .help("Reveal the selected skill file in Finder")
+
+                    if skill.source.kind == .global, viewModel.selectedProjectPath != nil {
+                        Button {
+                            moveSelectedSkillToProject()
+                        } label: {
+                            Label("Move to Project", systemImage: "arrow.down.doc")
+                        }
+                        .help("Move this global skill into the selected project’s .pi/skills directory")
+                    }
+                }
+            }
+
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -371,12 +419,6 @@ struct ContentView: View {
         case .environment:
             EnvironmentScreen(
                 snapshot: viewModel.snapshot,
-                onNewGlobalKey: {
-                    envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                },
-                onNewProjectKey: viewModel.selectedProjectPath != nil ? {
-                    envDraft = viewModel.makeNewEnvDraft(scope: .project)
-                } : nil,
                 onEditKey: { record in
                     envDraft = viewModel.makeEnvDraft(for: record)
                 }
@@ -396,6 +438,8 @@ struct ContentView: View {
             return viewModel.selectedAgent?.name ?? "Agents"
         case .agent:
             return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
+        case .skills:
+            return viewModel.selectedSkill?.name ?? "Skills"
         default:
             return viewModel.selectedSidebarItem.rawValue
         }
@@ -428,6 +472,25 @@ struct ContentView: View {
     private func revealSelectedAgentFile() {
         guard let path = selectedAgentFilePath else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    private func openSelectedSkillFile() {
+        guard let skill = viewModel.selectedSkill else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: skill.filePath))
+    }
+
+    private func revealSelectedSkillFile() {
+        guard let skill = viewModel.selectedSkill else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: skill.filePath)])
+    }
+
+    private func moveSelectedSkillToProject() {
+        guard let skill = viewModel.selectedSkill else { return }
+        do {
+            try viewModel.moveSkillToSelectedProject(skill)
+        } catch {
+            NSSound.beep()
+        }
     }
 
     private func setSelectedAgentDisabled(_ isDisabled: Bool) {
@@ -1278,70 +1341,92 @@ private struct ModelsScreen: View {
                 AppMetricTile(title: "Images", value: viewModel.availableModels.filter(\.supportsImages).count)
             }
 
-            AppCard(title: "What These Columns Mean") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Thinking: whether Pi marks the model as supporting reasoning effort levels like low, medium, or high.")
-                    Text("• Images: whether the model can accept image input.")
-                    Text("• ctx: the model’s context window, meaning how much total prompt/history/input it can hold.")
-                    Text("• out: the maximum output tokens Pi expects the model to produce in one response.")
-                    Text("• This list comes from Pi’s own available-model catalog, so Refresh is the source of truth here.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Catalog", trailing: {
-                if let date = viewModel.modelsLastUpdatedAt {
-                    Text(RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date()))
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }) {
-                if viewModel.availableModels.isEmpty {
+            if viewModel.availableModels.isEmpty {
+                AppCard(title: "Catalog", trailing: catalogUpdatedLabel) {
                     Text("No models loaded yet. Use Refresh to query Pi.")
                         .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(groupedModels, id: \.provider) { group in
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Text(group.provider)
-                                        .font(.headline)
-                                        .fontWidth(.expanded)
-                                    Spacer()
-                                    AppLabelTag(text: "\(group.models.count)", color: .blue)
-                                }
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Pi’s model catalog, grouped by provider. Thinking, image input, context, and output limits come directly from `pi --list-models`.")
+                        .foregroundStyle(AppTheme.mutedText)
+                    Spacer()
+                    catalogUpdatedLabel()
+                }
 
-                                ForEach(group.models) { model in
-                                    AppRowCard {
-                                        HStack(alignment: .top, spacing: 12) {
-                                            VStack(alignment: .leading, spacing: 6) {
-                                                Text(model.model)
-                                                    .font(.headline)
-                                                    .fontWidth(.expanded)
-                                                Text(model.identifier)
-                                                    .font(.footnote.monospaced())
-                                                    .foregroundStyle(AppTheme.mutedText)
-                                            }
-
-                                            Spacer()
-
-                                            VStack(alignment: .trailing, spacing: 8) {
-                                                HStack(spacing: 8) {
-                                                    AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
-                                                    AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
-                                                }
-                                                Text("ctx \(model.contextWindow) · out \(model.maxOutput)")
-                                                    .font(.footnote.monospaced())
-                                                    .foregroundStyle(AppTheme.mutedText)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(groupedModels, id: \.provider) { group in
+                        providerSection(group)
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func catalogUpdatedLabel() -> some View {
+        if let date = viewModel.modelsLastUpdatedAt {
+            Text(RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date()))
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+
+    private func providerSection(_ group: (provider: String, models: [AvailableModel])) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(group.provider)
+                    .font(.title3.weight(.bold))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
+                Spacer()
+                AppLabelTag(text: "\(group.models.count)", color: .blue)
+            }
+            .padding(.horizontal, 2)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(group.models.enumerated()), id: \.element.id) { index, model in
+                    modelRow(model)
+                    if index < group.models.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+            .padding(.horizontal, AppTheme.cardPadding)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                    .fill(AppTheme.cardFill)
+                    .stroke(AppTheme.cardStroke, lineWidth: 1)
+            )
+        }
+    }
+
+    private func modelRow(_ model: AvailableModel) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.model)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Text(model.identifier)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .textSelection(.enabled)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
+                    AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
+                    AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
+                }
+                Text("ctx \(model.contextWindow) · out \(model.maxOutput)")
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+        .padding(.vertical, 10)
     }
 
     private var groupedModels: [(provider: String, models: [AvailableModel])] {
@@ -2785,54 +2870,71 @@ private struct ChainsScreen: View {
                         Label("New", systemImage: "plus")
                     }
                 }
+
+                if let selectedChain = viewModel.selectedChain {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            openFile(selectedChain.filePath)
+                        } label: {
+                            Label("Open", systemImage: "folder")
+                        }
+                        .help("Open the selected chain file")
+
+                        Button {
+                            revealInFinder(selectedChain.filePath)
+                        } label: {
+                            Label("Reveal", systemImage: "arrow.up.forward.app")
+                        }
+                        .help("Reveal the selected chain file in Finder")
+
+                        Menu {
+                            Button("Duplicate as Global Chain") {
+                                onDuplicateChain(selectedChain, .global)
+                            }
+                            if viewModel.selectedProjectPath != nil {
+                                Button("Duplicate as Project Chain") {
+                                    onDuplicateChain(selectedChain, .project)
+                                }
+                            }
+                            Divider()
+                            if selectedChain.source.kind != .global {
+                                Button("Move to Global Scope") {
+                                    do {
+                                        try onConvertChain(selectedChain, .global)
+                                    } catch {
+                                        NSSound.beep()
+                                    }
+                                }
+                            }
+                            if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
+                                Button("Move to Project Scope") {
+                                    do {
+                                        try onConvertChain(selectedChain, .project)
+                                    } catch {
+                                        NSSound.beep()
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
+                        }
+                        .help("More chain actions")
+
+                        Button {
+                            onEditChain(selectedChain)
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .help("Edit selected chain")
+                    }
+                }
             }
             .frame(minWidth: 320, idealWidth: 380, maxWidth: 460)
 
             if let chain = viewModel.selectedChain {
                 AppPage(chain.name, subtitle: chain.description.nonEmpty) {
-                    AppCard(trailing: {
-                        HStack(spacing: 10) {
-                            Menu("Actions") {
-                                Button("Open Raw File") { openFile(chain.filePath) }
-                                Button("Reveal in Finder") { revealInFinder(chain.filePath) }
-                                Divider()
-                                Button("Duplicate as Global Chain") {
-                                    onDuplicateChain(chain, .global)
-                                }
-                                if viewModel.selectedProjectPath != nil {
-                                    Button("Duplicate as Project Chain") {
-                                        onDuplicateChain(chain, .project)
-                                    }
-                                }
-                                Divider()
-                                if chain.source.kind != .global {
-                                    Button("Move to Global Scope") {
-                                        do {
-                                            try onConvertChain(chain, .global)
-                                        } catch {
-                                            NSSound.beep()
-                                        }
-                                    }
-                                }
-                                if viewModel.selectedProjectPath != nil, chain.source.kind != .project {
-                                    Button("Move to Project Scope") {
-                                        do {
-                                            try onConvertChain(chain, .project)
-                                        } catch {
-                                            NSSound.beep()
-                                        }
-                                    }
-                                }
-                            }
-                            Button("Edit Chain") {
-                                onEditChain(chain)
-                            }
-                        }
-                    }) {
-                        Text("Chains are saved back as .chain.md files, matching pi-subagents chain serialization. Move scope relocates the same chain to the other discovery location instead of creating a copy.")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
                     AppCard(title: "How Chains Work") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("• Each step runs in order and later steps can use earlier output.")
@@ -2928,18 +3030,6 @@ private struct SkillsScreen: View {
 
             if let skill = viewModel.selectedSkill {
                 AppPage(skill.name, subtitle: skill.description) {
-                    AppCard(trailing: {
-                        Menu("Actions") {
-                            Button("Open Raw File") { openFile(skill.filePath) }
-                            Button("Reveal in Finder") { revealInFinder(skill.filePath) }
-                            Button("Copy Skill Name") { copyToPasteboard(skill.name) }
-                            Button("Copy Skill Path") { copyToPasteboard(skill.filePath) }
-                        }
-                    }) {
-                        Text("Skills are markdown-backed resources. Project skills are only visible inside their project; global skills are visible everywhere.")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
                     AppCard(title: "Location") {
                         AppKeyValueList(rows: [
                             ("Scope", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
@@ -3021,8 +3111,6 @@ private struct SkillsScreen: View {
 
 private struct EnvironmentScreen: View {
     let snapshot: ScanSnapshot
-    let onNewGlobalKey: () -> Void
-    let onNewProjectKey: (() -> Void)?
     let onEditKey: (EnvKeyRecord) -> Void
     @State private var revealedKeys: Set<String> = []
 
@@ -3036,18 +3124,6 @@ private struct EnvironmentScreen: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            AppCard(trailing: {
-                HStack(spacing: 10) {
-                    Button("New Global Key", action: onNewGlobalKey)
-                    if let onNewProjectKey {
-                        Button("New Project Key", action: onNewProjectKey)
-                    }
-                }
-            }) {
-                Text("You can reveal, copy, and edit environment keys directly here. Project keys override global keys when both define the same name.")
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-
             AppCard(title: "Effective Environment") {
                 if effectiveEnvRows.isEmpty {
                     Text("No env files found.")
@@ -3209,73 +3285,30 @@ private struct MCPScreen: View {
     let snapshot: ScanSnapshot
 
     var body: some View {
-        AppPage("MCP", subtitle: "Configured MCP files, detected servers, and likely agent impact") {
-            AppCard(title: "How MCP Access Works") {
+        AppPage("MCP", subtitle: "Configured MCP files, detected servers, and agent references") {
+            AppCard(title: "MCP Access") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• MCP config files only declare available servers.")
-                    Text("• That does not automatically give every agent MCP access.")
-                    Text("• Direct `mcp:name` tools only make sense when a matching server exists in config.")
-                    Text("• So the important question is: which servers exist, and which agents actually reference them?")
+                    Text("MCP config files declare servers. Agents only use them when their configuration explicitly references matching direct `mcp:` tools or relevant extensions.")
+                    AppKeyValueList(rows: [
+                        ("Config Files", "\(snapshot.mcpConfigs.count)"),
+                        ("Configured Servers", "\(allServers.count)"),
+                        ("Agents Using Direct MCP Tools", "\(agentsUsingDirectMCP.count)"),
+                        ("Direct MCP Tool Names", directToolSummary)
+                    ])
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            AppCard(title: "Summary") {
-                AppKeyValueList(rows: [
-                    ("Config Files", "\(snapshot.mcpConfigs.count)"),
-                    ("Configured Servers", "\(allServers.count)"),
-                    ("Agents Using Direct MCP Tools", "\(agentsUsingDirectMCP.count)"),
-                    ("Direct MCP Tool Names", directToolSummary)
-                ])
-            }
-
-            AppCard(title: "How MCP Affects Agents") {
-                Text("MCP access is not automatic. MCP config files declare available servers, but agents still need matching frontmatter configuration such as direct `mcp:` tool entries or other enabled tools/extensions before that access matters.")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if snapshot.mcpConfigs.isEmpty {
-                AppCard {
+            AppCard(title: "Config Files") {
+                if snapshot.mcpConfigs.isEmpty {
                     Text("No MCP config files found.")
                         .foregroundStyle(AppTheme.mutedText)
-                }
-            } else {
-                ForEach(snapshot.mcpConfigs) { config in
-                    AppCard(title: config.path, trailing: {
-                        HStack(spacing: 10) {
-                            Button("Open") { openFile(config.path) }
-                            Button("Reveal") { revealInFinder(config.path) }
-                            Text("\(config.serverNames.count) servers")
-                                .foregroundStyle(AppTheme.mutedText)
-                        }
-                    }) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            AppKeyValueList(rows: [
-                                ("Scope", config.source.kind.rawValue),
-                                ("Project", projectName(from: config.path) ?? "—"),
-                                ("Likely Used By Direct MCP Tools", likelyUsedServersSummary(for: config))
-                            ])
-
-                            Divider()
-
-                            if config.serverNames.isEmpty {
-                                Text("No servers detected.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                            } else {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    ForEach(config.serverNames, id: \.self) { server in
-                                        HStack(spacing: 10) {
-                                            Image(systemName: "server.rack")
-                                                .foregroundStyle(.purple)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(server)
-                                                Text(serverUsageSummary(server, config: config))
-                                                    .font(.caption)
-                                                    .foregroundStyle(AppTheme.mutedText)
-                                            }
-                                        }
-                                    }
-                                }
+                } else {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(Array(snapshot.mcpConfigs.enumerated()), id: \.element.id) { index, config in
+                            mcpConfigSection(config)
+                            if index < snapshot.mcpConfigs.count - 1 {
+                                Divider()
                             }
                         }
                     }
@@ -3287,23 +3320,82 @@ private struct MCPScreen: View {
                     Text("No visible agents currently declare direct `mcp:` tool entries.")
                         .foregroundStyle(AppTheme.mutedText)
                 } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(agentsUsingDirectMCP) { agent in
-                            AppRowCard {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(agent.name)
-                                        .font(.headline)
-                                        .fontWidth(.expanded)
-                                    Text((agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }.joined(separator: ", "))
-                                        .font(.footnote.monospaced())
-                                        .foregroundStyle(AppTheme.mutedText)
-                                }
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(agentsUsingDirectMCP.enumerated()), id: \.element.id) { index, agent in
+                            directMCPAgentRow(agent)
+                            if index < agentsUsingDirectMCP.count - 1 {
+                                Divider()
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func mcpConfigSection(_ config: MCPConfigRecord) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(config.path)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .textSelection(.enabled)
+                    Text("\(config.source.kind.rawValue) · \(config.serverNames.count) servers")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Button("Open") { openFile(config.path) }
+                Button("Reveal") { revealInFinder(config.path) }
+            }
+
+            AppKeyValueList(rows: [
+                ("Project", projectName(from: config.path) ?? "—"),
+                ("Likely Used By Direct MCP Tools", likelyUsedServersSummary(for: config))
+            ])
+
+            if config.serverNames.isEmpty {
+                Text("No servers detected.")
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(config.serverNames.enumerated()), id: \.element) { index, server in
+                        serverRow(server, config: config)
+                        if index < config.serverNames.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func serverRow(_ server: String, config: MCPConfigRecord) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "server.rack")
+                .foregroundStyle(.purple)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(server)
+                    .font(.body.weight(.semibold))
+                Text(serverUsageSummary(server, config: config))
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func directMCPAgentRow(_ agent: EffectiveAgentRecord) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(agent.name)
+                .font(.headline)
+                .fontWidth(.expanded)
+            Text((agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }.joined(separator: ", "))
+                .font(.footnote.monospaced())
+                .foregroundStyle(AppTheme.mutedText)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 10)
     }
 
     private var agentsUsingDirectMCP: [EffectiveAgentRecord] {
@@ -3342,88 +3434,32 @@ private struct DiagnosticsScreen: View {
     let snapshot: ScanSnapshot
 
     var body: some View {
-        AppPage("Diagnostics", subtitle: "Parsed settings, overrides, and warnings") {
-            AppCard(title: "What You Are Looking At") {
+        AppPage("Diagnostics", subtitle: "Parsed settings, overrides, and actionable warnings") {
+            AppCard(title: "Diagnostics") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• This screen explains what Pi parsed from settings files, not what you hoped it would parse.")
-                    Text("• Builtin overrides come from settings JSON patches, not markdown files.")
-                    Text("• Warnings here are useful mismatches or suspicious setup details worth checking.")
+                    Text("This screen shows what Pi Manager parsed from settings files. Builtin overrides are JSON patches; custom agents and chains still come from markdown files.")
+                        .foregroundStyle(AppTheme.mutedText)
+                    AppKeyValueList(rows: [
+                        ("Settings Files", "\(snapshot.settings.count)"),
+                        ("Overrides", "\(snapshot.settings.flatMap(\.agentOverrides).count)"),
+                        ("Warnings", "\(snapshot.warnings.count)")
+                    ])
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            ForEach(snapshot.settings, id: \.path) { settings in
-                AppCard(title: settings.path) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        AppKeyValueList(rows: [
-                            ("Disable Builtins", boolLabel(settings.disableBuiltins)),
-                            ("Override Count", "\(settings.agentOverrides.count)"),
-                            ("Configured Prompt Paths", "\(settings.prompts.count)")
-                        ])
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Packages")
-                                .font(.headline)
-                                .fontWidth(.expanded)
-                            if settings.packages.isEmpty {
-                                Text("None")
-                                    .foregroundStyle(AppTheme.mutedText)
-                            } else {
-                                ForEach(settings.packages, id: \.self) { package in
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "shippingbox")
-                                            .foregroundStyle(AppTheme.mutedText)
-                                        Text(package)
-                                            .textSelection(.enabled)
-                                    }
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Prompt Paths")
-                                .font(.headline)
-                                .fontWidth(.expanded)
-                            if settings.prompts.isEmpty {
-                                Text("None")
-                                    .foregroundStyle(AppTheme.mutedText)
-                            } else {
-                                ForEach(settings.prompts, id: \.self) { path in
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "text.badge.plus")
-                                            .foregroundStyle(AppTheme.mutedText)
-                                        Text(path)
-                                            .textSelection(.enabled)
-                                    }
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Builtin Overrides")
-                                .font(.headline)
-                                .fontWidth(.expanded)
-                            if settings.agentOverrides.isEmpty {
-                                Text("None")
-                                    .foregroundStyle(AppTheme.mutedText)
-                            } else {
-                                ForEach(settings.agentOverrides, id: \.agentName) { override in
-                                    AppRowCard {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text(override.agentName)
-                                                .font(.headline)
-                                                .fontWidth(.expanded)
-                                            Text(prettyJSONObject(override.values))
-                                                .font(.footnote.monospaced())
-                                                .foregroundStyle(AppTheme.mutedText)
-                                                .textSelection(.enabled)
-                                        }
-                                    }
-                                }
+            if snapshot.settings.isEmpty {
+                AppCard(title: "Settings Files") {
+                    Text("No settings files found.")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            } else {
+                AppCard(title: "Settings Files") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(Array(snapshot.settings.enumerated()), id: \.element.path) { index, settings in
+                            settingsSection(settings)
+                            if index < snapshot.settings.count - 1 {
+                                Divider()
                             }
                         }
                     }
@@ -3447,6 +3483,76 @@ private struct DiagnosticsScreen: View {
             }
         }
     }
+
+    private func settingsSection(_ settings: SettingsSummary) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(settings.path)
+                .font(.headline)
+                .fontWidth(.expanded)
+                .textSelection(.enabled)
+
+            AppKeyValueList(rows: [
+                ("Disable Builtins", boolLabel(settings.disableBuiltins)),
+                ("Override Count", "\(settings.agentOverrides.count)"),
+                ("Configured Prompt Paths", "\(settings.prompts.count)")
+            ])
+
+            simpleListSection(title: "Packages", items: settings.packages, icon: "shippingbox")
+            simpleListSection(title: "Prompt Paths", items: settings.prompts, icon: "text.badge.plus")
+            overridesSection(settings.agentOverrides)
+        }
+    }
+
+    private func simpleListSection(title: String, items: [String], icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .fontWidth(.expanded)
+            if items.isEmpty {
+                Text("None")
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                ForEach(items, id: \.self) { item in
+                    HStack(spacing: 10) {
+                        Image(systemName: icon)
+                            .foregroundStyle(AppTheme.mutedText)
+                        Text(item)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+    }
+
+    private func overridesSection(_ overrides: [BuiltinOverrideRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Builtin Overrides")
+                .font(.headline)
+                .fontWidth(.expanded)
+            if overrides.isEmpty {
+                Text("None")
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(overrides.enumerated()), id: \.element.agentName) { index, override in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(override.agentName)
+                                .font(.body.weight(.semibold))
+                            Text(prettyJSONObject(override.values))
+                                .font(.footnote.monospaced())
+                                .foregroundStyle(AppTheme.mutedText)
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, 8)
+
+                        if index < overrides.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @ViewBuilder
@@ -3461,6 +3567,7 @@ private func warningSection(title: String, warnings: [DiagnosticWarning]) -> som
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Text(warning.message)
+                        .textSelection(.enabled)
                 }
             }
         }

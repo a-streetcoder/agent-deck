@@ -843,15 +843,9 @@ struct PiScanner {
         let skillNames = Set(skills.map(\.name))
         let agentNames = Set(effectiveAgents.map(\.name))
         let envNames = Set(envKeys.map(\.key))
-        let duplicateAgentNames = Dictionary(grouping: rawAgents, by: \.name).filter { $0.value.count > 1 }
         let duplicatePromptNames = Dictionary(grouping: promptTemplates, by: \.name).compactMapValues { records in
             let uniqueRecords = dedupePromptWarningRecords(records)
             return uniqueRecords.count > 1 ? uniqueRecords : nil
-        }
-
-        for (name, records) in duplicateAgentNames {
-            let scopes = records.map { "\($0.source.kind.rawValue) · \($0.filePath)" }.sorted().joined(separator: ", ")
-            warnings.append(.init(id: "duplicate-agent:\(name)", message: "Duplicate agent name \(name) exists across scopes: \(scopes)."))
         }
 
         for (name, records) in duplicatePromptNames {

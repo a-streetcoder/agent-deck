@@ -101,18 +101,6 @@ struct CommandsAndPromptsScreen: View {
 
     private func commandDetail(_ command: CommandRecord) -> some View {
         AppPage(command.invocation, subtitle: command.description) {
-            AppCard(trailing: {
-                Menu("Actions") {
-                    Button("Copy Invocation") { copyCommandValue(command.invocation) }
-                    if let packageName = command.packageName {
-                        Button("Copy Package Name") { copyCommandValue(packageName) }
-                    }
-                }
-            }) {
-                Text("Prompt templates expand markdown into prompt text. This screen also shows slash commands so prompt-related invocation can be inspected in one place. Skill commands stay in the Skills section so capabilities are not duplicated here.")
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-
             AppCard(title: "Details") {
                 AppKeyValueList(rows: [
                     ("Invocation", command.invocation),
@@ -132,22 +120,29 @@ struct CommandsAndPromptsScreen: View {
                 }
             }
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    copyCommandValue(command.invocation)
+                } label: {
+                    Label("Copy Invocation", systemImage: "doc.on.doc")
+                }
+                .help("Copy command invocation")
+
+                if let packageName = command.packageName {
+                    Button {
+                        copyCommandValue(packageName)
+                    } label: {
+                        Label("Copy Package", systemImage: "shippingbox")
+                    }
+                    .help("Copy package name")
+                }
+            }
+        }
     }
 
     private func promptDetail(_ prompt: PromptTemplateRecord) -> some View {
         AppPage(prompt.invocation, subtitle: prompt.description) {
-            AppCard(trailing: {
-                Menu("Actions") {
-                    Button("Open Raw File") { openPromptFile(prompt.filePath) }
-                    Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
-                    Button("Copy Invocation") { copyCommandValue(prompt.invocation) }
-                    Button("Copy Prompt Path") { copyCommandValue(prompt.filePath) }
-                }
-            }) {
-                Text("Prompt templates are markdown-backed slash entries. They expand into reusable prompt text rather than performing direct app actions.")
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-
             AppCard(title: "Location") {
                 AppKeyValueList(rows: [
                     ("Invocation", prompt.invocation),
@@ -161,6 +156,31 @@ struct CommandsAndPromptsScreen: View {
 
             AppCard(title: "Template") {
                 MarkdownDocumentView(source: prompt.body, minimumHeight: 24)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    openPromptFile(prompt.filePath)
+                } label: {
+                    Label("Open", systemImage: "folder")
+                }
+                .help("Open the selected prompt file")
+
+                Button {
+                    revealPromptFile(prompt.filePath)
+                } label: {
+                    Label("Reveal", systemImage: "arrow.up.forward.app")
+                }
+                .help("Reveal the selected prompt file in Finder")
+
+                Menu {
+                    Button("Copy Invocation") { copyCommandValue(prompt.invocation) }
+                    Button("Copy Prompt Path") { copyCommandValue(prompt.filePath) }
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .help("Copy selected prompt details")
             }
         }
     }

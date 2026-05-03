@@ -1532,6 +1532,34 @@ final class AppViewModel: ObservableObject {
         refresh(includeModels: false)
     }
 
+    func moveSkillToSelectedProject(_ skill: SkillRecord) throws {
+        guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
+        guard skill.source.kind == .global else { throw CocoaError(.fileWriteNoPermission) }
+
+        let sourceURL = skillRootURL(for: skill)
+        let destinationDirectory = URL(fileURLWithPath: selectedProjectPath)
+            .appendingPathComponent(".pi/skills", isDirectory: true)
+        let destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: sourceURL.hasDirectoryPath)
+
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        guard !fileManager.fileExists(atPath: destinationURL.path) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        try fileManager.moveItem(at: sourceURL, to: destinationURL)
+        refresh(includeModels: false)
+        selectedSkillID = snapshot.skills.first { $0.name == skill.name && $0.source.kind == .project }?.id ?? selectedSkillID
+    }
+
+    private func skillRootURL(for skill: SkillRecord) -> URL {
+        let fileURL = URL(fileURLWithPath: skill.filePath)
+        if fileURL.lastPathComponent == "SKILL.md" {
+            return fileURL.deletingLastPathComponent()
+        }
+        return fileURL
+    }
+
     func convertChain(_ chain: ChainRecord, to scope: AgentEditingTarget.CustomAgentScope) throws {
         try chainPersistence.convert(chain, to: scope, projectRoot: selectedProjectPath)
         refresh(includeModels: false)
