@@ -1732,9 +1732,19 @@ private struct AgentLibraryPane: View {
     }
 
     private var libraryAgents: [EffectiveAgentRecord] {
-        viewModel.filteredAgents.filter { agent in
+        let candidates = viewModel.filteredAgents.filter { agent in
             agent.resolutionKind == .library || libraryBackedActiveAgentNames.contains(agent.name)
         }
+        return preferredAgentsByName(candidates) { records in
+            records.first { $0.resolutionKind == .library }
+            ?? records.first { $0.projectCustom == nil }
+            ?? records.first
+        }
+    }
+
+    private func preferredAgentsByName(_ agents: [EffectiveAgentRecord], prefer: ([EffectiveAgentRecord]) -> EffectiveAgentRecord?) -> [EffectiveAgentRecord] {
+        Dictionary(grouping: agents, by: \.name).values.compactMap(prefer)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private var libraryBackedActiveAgentNames: Set<String> {
