@@ -24,7 +24,6 @@ final class AppViewModel: ObservableObject {
     @Published var githubSelectedSection: GitHubSection = .projectBoard
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
     @Published var githubAggregateBoard: GitHubBoardSnapshot?
-    @Published var githubOverviewBoard: GitHubBoardSnapshot?
     @Published var githubProjectBoard: GitHubBoardSnapshot?
     @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
     @Published var githubSelectedChangePaths: Set<String> = []
@@ -36,7 +35,6 @@ final class AppViewModel: ObservableObject {
     @Published var githubIssueDetail: GitHubIssueDetail?
     @Published var githubCommentDraft = ""
     @Published var githubIsLoadingAggregateBoard = false
-    @Published var githubIsLoadingOverviewBoard = false
     @Published var githubIsLoadingProjectBoard = false
     @Published var githubIsLoadingRepositoryChanges = false
     @Published var githubIsLoadingIssueDetail = false
@@ -70,13 +68,10 @@ final class AppViewModel: ObservableObject {
     private var autoRefreshCancellable: AnyCancellable?
     private var lastWatchFingerprint: String = ""
     private var isRefreshingModels = false
-    private var githubOverviewBoardRequestID = 0
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
     private var githubIssueDetailRequestID = 0
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
-    private var githubOverviewBoardCacheKey: String?
-    private var githubOverviewBoardFetchedAt: Date?
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
@@ -374,7 +369,6 @@ final class AppViewModel: ObservableObject {
 
             await MainActor.run {
                 if self.gitHubSession != nil, self.githubConnectionState.isConnected {
-                    self.refreshOverviewBoard(force: true)
                     self.refreshProjectBoard(force: true)
                 }
 
@@ -394,14 +388,10 @@ final class AppViewModel: ObservableObject {
 
         gitHubAuthService.disconnect()
         gitHubSession = nil
-        githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
         githubRepositoryChangesRequestID += 1
         githubIssueDetailRequestID += 1
         githubAggregateBoard = nil
-        githubOverviewBoard = nil
-        githubOverviewBoardCacheKey = nil
-        githubOverviewBoardFetchedAt = nil
         githubProjectBoard = nil
         githubProjectBoardCacheKey = nil
         githubProjectBoardFetchedAt = nil
@@ -414,7 +404,6 @@ final class AppViewModel: ObservableObject {
         githubIssueDetail = nil
         githubCommentDraft = ""
         githubIsLoadingAggregateBoard = false
-        githubIsLoadingOverviewBoard = false
         githubIsLoadingProjectBoard = false
         githubIsLoadingRepositoryChanges = false
         githubIsLoadingIssueDetail = false
@@ -452,81 +441,6 @@ final class AppViewModel: ObservableObject {
                 await MainActor.run {
                     self.githubAggregateBoard = nil
                     self.githubIsLoadingAggregateBoard = false
-                    self.githubLastError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    func refreshOverviewBoard(force: Bool = false) {
-        guard let session = gitHubSession else {
-            githubIsLoadingOverviewBoard = false
-            githubLastError = "Connect GitHub first."
-            githubOverviewBoard = nil
-            githubOverviewBoardCacheKey = nil
-            githubOverviewBoardFetchedAt = nil
-            return
-        }
-
-        guard let remote = selectedGitHubProject?.gitHubRemote else {
-            githubIsLoadingOverviewBoard = false
-            githubLastError = nil
-            githubOverviewBoard = nil
-            githubOverviewBoardCacheKey = nil
-            githubOverviewBoardFetchedAt = nil
-            return
-        }
-
-        let cacheKey = boardCacheKey(for: remote, state: .open)
-        if !force,
-           githubOverviewBoard != nil,
-           githubOverviewBoardCacheKey == cacheKey,
-           !isGitHubBoardCacheStale(fetchedAt: githubOverviewBoardFetchedAt) {
-            return
-        }
-
-        githubOverviewBoardRequestID += 1
-        let requestID = githubOverviewBoardRequestID
-        githubIsLoadingOverviewBoard = true
-        githubLastError = nil
-
-        Task {
-            do {
-                let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
-                let snapshot = try await service.fetchRepositoryIssues(
-                    repo: remote,
-                    state: .open
-                )
-
-                await MainActor.run {
-                    guard self.githubOverviewBoardRequestID == requestID,
-                          self.selectedGitHubProject?.gitHubRemote == remote else { return }
-
-                    self.githubOverviewBoard = snapshot
-                    self.githubOverviewBoardCacheKey = cacheKey
-                    self.githubOverviewBoardFetchedAt = Date()
-                    self.githubIsLoadingOverviewBoard = false
-
-                    let visibleItemIDs = Set(snapshot.columns.flatMap(\.items).map(\.id))
-                    if let selectedID = self.githubSelectedWorkItem?.id,
-                       !visibleItemIDs.contains(selectedID) {
-                        self.githubIssueDetailRequestID += 1
-                        self.githubSelectedWorkItem = nil
-                        self.githubIssueDetail = nil
-                        self.githubCommentDraft = ""
-                        self.githubIsLoadingIssueDetail = false
-                        self.githubIsSubmittingComment = false
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    guard self.githubOverviewBoardRequestID == requestID,
-                          self.selectedGitHubProject?.gitHubRemote == remote else { return }
-
-                    self.githubOverviewBoard = nil
-                    self.githubOverviewBoardCacheKey = nil
-                    self.githubOverviewBoardFetchedAt = nil
-                    self.githubIsLoadingOverviewBoard = false
                     self.githubLastError = error.localizedDescription
                 }
             }
@@ -1234,7 +1148,6 @@ final class AppViewModel: ObservableObject {
 
                     self.githubCommentDraft = ""
                     self.githubIsSubmittingComment = false
-                    self.githubOverviewBoardFetchedAt = nil
                     self.githubProjectBoardFetchedAt = nil
                     self.loadIssueDetail(for: item)
                 }
@@ -1266,7 +1179,6 @@ final class AppViewModel: ObservableObject {
                 try await service.closeIssue(item)
                 await MainActor.run {
                     self.githubIsClosingIssue = false
-                    self.githubOverviewBoardFetchedAt = nil
                     self.githubProjectBoardFetchedAt = nil
                     self.refreshProjectBoard(force: true)
                     self.loadIssueDetail(for: item)
@@ -1281,13 +1193,9 @@ final class AppViewModel: ObservableObject {
     }
 
     private func refreshGitHubConnectionScopedState() {
-        githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
         githubIssueDetailRequestID += 1
         githubAggregateBoard = nil
-        githubOverviewBoard = nil
-        githubOverviewBoardCacheKey = nil
-        githubOverviewBoardFetchedAt = nil
         githubProjectBoard = nil
         githubProjectBoardCacheKey = nil
         githubProjectBoardFetchedAt = nil
@@ -1295,7 +1203,6 @@ final class AppViewModel: ObservableObject {
         githubIssueDetail = nil
         githubCommentDraft = ""
         githubIsLoadingAggregateBoard = false
-        githubIsLoadingOverviewBoard = false
         githubIsLoadingProjectBoard = false
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
@@ -1303,13 +1210,9 @@ final class AppViewModel: ObservableObject {
     }
 
     private func refreshGitHubProjectScopedState() {
-        githubOverviewBoardRequestID += 1
         githubProjectBoardRequestID += 1
         githubRepositoryChangesRequestID += 1
         githubIssueDetailRequestID += 1
-        githubOverviewBoard = nil
-        githubOverviewBoardCacheKey = nil
-        githubOverviewBoardFetchedAt = nil
         githubProjectBoard = nil
         githubProjectBoardCacheKey = nil
         githubProjectBoardFetchedAt = nil
@@ -1321,7 +1224,6 @@ final class AppViewModel: ObservableObject {
         githubSelectedWorkItem = nil
         githubIssueDetail = nil
         githubCommentDraft = ""
-        githubIsLoadingOverviewBoard = false
         githubIsLoadingProjectBoard = false
         githubIsLoadingRepositoryChanges = false
         githubIsLoadingIssueDetail = false
@@ -2725,7 +2627,6 @@ final class AppSettingsStore {
 }
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case overview = "Overview"
     case projects = "Projects"
     case github = "GitHub"
     case agent = "Pi Agent"
@@ -2738,13 +2639,12 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case settings = "Settings"
     case environment = "Environment"
     case diagnostics = "Diagnostics"
-    case piDocs = "Pi Docs"
+    case piDocs = "Docs"
 
     var id: String { rawValue }
 
     var systemImage: String {
         switch self {
-        case .overview: return "square.grid.2x2"
         case .projects: return "folder"
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .agent: return "sparkles.rectangle.stack"
@@ -2773,7 +2673,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     var items: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.overview, .projects, .github]
+            return [.projects, .github]
         case .piResources:
             return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:

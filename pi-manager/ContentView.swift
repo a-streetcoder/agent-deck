@@ -513,8 +513,6 @@ struct ContentView: View {
     @ViewBuilder
     private var detailView: some View {
         switch viewModel.selectedSidebarItem {
-        case .overview:
-            OverviewScreen(viewModel: viewModel)
         case .projects:
             ProjectsScreen(viewModel: viewModel)
         case .agents:
@@ -579,8 +577,6 @@ struct ContentView: View {
 
     private var toolbarTitle: String {
         switch viewModel.selectedSidebarItem {
-        case .overview:
-            return viewModel.selectedDiscoveredProject?.name ?? "Overview"
         case .agents:
             return viewModel.selectedAgent?.name ?? "Agents"
         case .agent:
@@ -948,6 +944,24 @@ private struct ProjectAssignmentToggleRow: View {
     }
 }
 
+private struct SearchFieldWithProgress: View {
+    let placeholder: String
+    @Binding var text: String
+    let isLoading: Bool
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.roundedBorder)
+            .overlay(alignment: .trailing) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.trailing, 6)
+                }
+            }
+    }
+}
+
 private struct ProjectPickerPopover: View {
     let projects: [DiscoveredProject]
     let selectedProjectPath: String?
@@ -960,15 +974,11 @@ private struct ProjectPickerPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                TextField("Search enabled projects", text: $filterText)
-                    .textFieldStyle(.roundedBorder)
-
-                if isSearchDebouncing {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
+            SearchFieldWithProgress(
+                placeholder: "Search enabled projects",
+                text: $filterText,
+                isLoading: isSearchDebouncing
+            )
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
@@ -1242,21 +1252,14 @@ private struct ProjectsScreen: View {
 
     var body: some View {
         AppPage("Projects", subtitle: "Showing projects from \(viewModel.configuredProjectsRootPath)") {
-            AppCard(title: "Library", trailing: {
-                HStack(spacing: 8) {
-                    if isSearchDebouncing {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    Text("\(visibleProjects.count) projects")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }) {
+            AppCard(title: "Library") {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 12) {
-                        TextField("Search projects", text: $searchText)
-                            .textFieldStyle(.roundedBorder)
+                        SearchFieldWithProgress(
+                            placeholder: "Search projects",
+                            text: $searchText,
+                            isLoading: isSearchDebouncing
+                        )
 
                         Picker("Filter", selection: $filter) {
                             ForEach(Filter.allCases) { option in
@@ -1418,81 +1421,6 @@ private struct ProjectsScreen: View {
     }
 }
 
-private struct OverviewScreen: View {
-    @ObservedObject var viewModel: AppViewModel
-
-    var body: some View {
-        AppPage("Overview", subtitle: viewModel.snapshot.projectRoot ?? "Showing global resources and the selected project’s GitHub work") {
-            AppCard(title: "Open Issues", trailing: {
-                if let board = viewModel.githubOverviewBoard {
-                    Text("\(board.totalCount)")
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }) {
-                GitHubIssuesWorkspace(
-                    viewModel: viewModel,
-                    board: viewModel.githubOverviewBoard,
-                    isLoading: viewModel.githubIsLoadingOverviewBoard,
-                    showStateFilter: false,
-                    refreshAction: { viewModel.refreshOverviewBoard(force: true) }
-                )
-            }
-
-            AppCard(title: "Detected Packages") {
-                if viewModel.packageNames.isEmpty {
-                    Text("No packages found in scanned settings.")
-                        .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(viewModel.packageNames, id: \.self) { package in
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: "shippingbox")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                Text(package)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-                }
-            }
-
-            AppCard(title: "Warnings") {
-                if viewModel.snapshot.warnings.isEmpty {
-                    Label("No warnings in the current scan.", systemImage: "checkmark.circle")
-                        .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(viewModel.snapshot.warnings.prefix(10)) { warning in
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .foregroundStyle(.orange)
-                                Text(warning.message)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .task {
-            await Task.yield()
-            await viewModel.prepareGitHubScreen()
-        }
-        .task(id: overviewBoardRefreshKey) {
-            await Task.yield()
-            guard viewModel.githubConnectionState.isConnected,
-                  viewModel.selectedGitHubProject?.gitHubRemote != nil else { return }
-            viewModel.refreshOverviewBoard(force: false)
-        }
-    }
-
-    private var overviewBoardRefreshKey: String {
-        [
-            viewModel.selectedGitHubProject?.path ?? "none",
-            viewModel.githubConnectionState.isConnected ? "connected" : "disconnected"
-        ].joined(separator: "|")
-    }
-}
-
 private struct SettingsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
@@ -1543,7 +1471,7 @@ private struct SettingsScreen: View {
                                in: 1...240,
                                unit: "minutes")
 
-                    Text("Applies to the issue lists on the Overview and GitHub pages. Use Refresh to bypass the cache at any time.")
+                    Text("Applies to the issue lists on the GitHub page. Use Refresh to bypass the cache at any time.")
                         .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -4279,8 +4207,9 @@ private struct SkillsScreen: View {
                     Spacer(minLength: 8)
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
@@ -4548,7 +4477,7 @@ private struct PiDocsScreen: View {
     @State private var selectedTab: DocsTab = .core
 
     var body: some View {
-        AppPage("Pi Docs", subtitle: "Concise reference from pi-documentation/") {
+        AppPage("Docs", subtitle: "Concise reference from pi-documentation/") {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(DocsTab.allCases) { tab in
