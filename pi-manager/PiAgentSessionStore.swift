@@ -8,6 +8,7 @@ final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
+    var newSessionSubagentsEnabled = true
 
     private let maxTranscriptEntriesPerSession = 500
     private let fileURL: URL
@@ -22,7 +23,7 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     var selectedSession: PiAgentSessionRecord? {
-        guard let selectedSessionID else { return sessions.first }
+        guard let selectedSessionID else { return nil }
         return sessions.first(where: { $0.id == selectedSessionID })
     }
 
@@ -78,6 +79,7 @@ final class PiAgentSessionStore: ObservableObject {
             cost: nil,
             pendingSteeringMessages: [],
             pendingFollowUpMessages: [],
+            subagentsEnabled: newSessionSubagentsEnabled,
             createdAt: now,
             updatedAt: now
         )
@@ -93,6 +95,12 @@ final class PiAgentSessionStore: ObservableObject {
     func select(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         selectedSessionID = id
+        save()
+    }
+
+    func clearSelection() {
+        selectedSessionID = nil
+        save()
     }
 
     func updateSession(_ id: UUID, bumpUpdatedAt: Bool = false, mutate: (inout PiAgentSessionRecord) -> Void) {

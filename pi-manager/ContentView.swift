@@ -16,6 +16,10 @@ struct ContentView: View {
     @State private var isSkillsRecapPresented = false
     @State private var isSubagentsInfoPresented = false
     @State private var isSubagentsRecapPresented = false
+    @State private var showingEnableAllProjectsAlert = false
+    @State private var showingDisableAllProjectsAlert = false
+    @State private var showingPiAgentSubagentsToggleAlert = false
+    @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
 
     var body: some View {
         NavigationSplitView {
@@ -40,8 +44,8 @@ struct ContentView: View {
                         Section(section.rawValue) {
                             ForEach(section.items) { item in
                                 HStack(spacing: 8) {
-                                    if item == .github || item == .agent {
-                                        Image(item == .github ? "github" : "pi")
+                                    if item == .github {
+                                        Image("github")
                                             .resizable()
                                             .renderingMode(.template)
                                             .aspectRatio(contentMode: .fit)
@@ -54,14 +58,6 @@ struct ContentView: View {
                                     }
 
                                     Text(item.rawValue)
-                                    if item == .agent, viewModel.piAgentNeedsAttentionCount > 0 {
-                                        Text("\(viewModel.piAgentNeedsAttentionCount)")
-                                            .font(.caption2.weight(.bold))
-                                            .foregroundStyle(.white)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Capsule(style: .continuous).fill(Color.accentColor))
-                                    }
                                 }
                                 .fontWidth(.expanded)
                                 .tag(item)
@@ -69,6 +65,14 @@ struct ContentView: View {
                         }
                     }
                 }
+
+                PiAgentSidebarButton(
+                    isSelected: viewModel.selectedSidebarItem == .agent,
+                    needsAttentionCount: viewModel.piAgentNeedsAttentionCount,
+                    action: { viewModel.selectedSidebarItem = .agent }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
 
                 Spacer(minLength: 0)
 
@@ -106,9 +110,39 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 760)
         .navigationTitle(toolbarTitle)
+        .alert("Enable all projects?", isPresented: $showingEnableAllProjectsAlert) {
+            Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will enable every project currently in Pi Manager.")
+        }
+        .alert("Disable all projects?", isPresented: $showingDisableAllProjectsAlert) {
+            Button("Disable All", role: .destructive) { viewModel.setAllProjectsEnabled(false) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will disable every project currently in Pi Manager and clear the active project selection.")
+        }
+        .alert(viewModel.areSubagentsEnabledForNewSessions ? "Disable subagents for new sessions?" : "Enable subagents for new sessions?", isPresented: $showingPiAgentSubagentsToggleAlert) {
+            Button(viewModel.areSubagentsEnabledForNewSessions ? "Disable" : "Enable", role: viewModel.areSubagentsEnabledForNewSessions ? .destructive : .none) {
+                viewModel.toggleSubagentsForNewSessions()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(viewModel.areSubagentsEnabledForNewSessions ? "New Pi Agent sessions will have no subagents." : "New Pi Agent sessions will include subagents again.")
+        }
         .toolbar {
             if viewModel.selectedSidebarItem == .projects {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button("Enable All") {
+                        showingEnableAllProjectsAlert = true
+                    }
+                    .help("Enable all discovered projects")
+
+                    Button("Disable All") {
+                        showingDisableAllProjectsAlert = true
+                    }
+                    .help("Disable all discovered projects")
+
                     Button {
                         viewModel.chooseProjectRoot()
                     } label: {
@@ -139,6 +173,14 @@ struct ContentView: View {
                 }
 
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        agentModelQuickEditor = currentAgentModelQuickEditorContext
+                    } label: {
+                        Image(systemName: "cpu")
+                    }
+                    .help("Quick edit agent models and thinking")
+                    .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
+
                     Menu {
                         Button("New Library Agent") {
                             editingAgent = nil
@@ -314,7 +356,16 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .agent {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if viewModel.canShowPiAgentSubagentsToggle {
+                        Button {
+                            showingPiAgentSubagentsToggleAlert = true
+                        } label: {
+                            PiAgentSubagentsToolbarIcon(isEnabled: viewModel.areSubagentsEnabledForNewSessions)
+                        }
+                        .help(viewModel.areSubagentsEnabledForNewSessions ? "Subagents enabled for new sessions" : "Subagents disabled for new sessions")
+                    }
+
                     Button {
                         viewModel.openRepoChangesForSelectedPiAgentSession()
                     } label: {
@@ -387,6 +438,19 @@ struct ContentView: View {
                 }
             )
         }
+        .sheet(item: $agentModelQuickEditor) { context in
+            AgentModelQuickEditorSheet(
+                context: context,
+                availableModels: viewModel.availableModels,
+                modelsLastUpdatedAt: viewModel.modelsLastUpdatedAt,
+                makeDraft: { agent in
+                    viewModel.makeAgentDraft(for: agent, preferredOverrideScope: context.preferredOverrideScope)
+                },
+                onSave: { draft, agent in
+                    try viewModel.saveAgentDraft(draft, for: agent)
+                }
+            )
+        }
         .sheet(item: $envDraft) { draft in
             EnvEditorSheet(
                 draft: draft,
@@ -407,6 +471,52 @@ struct ContentView: View {
                 }
             )
         }
+    }
+
+    private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {
+        AgentModelQuickEditorContext(
+            title: "Agent Models",
+            subtitle: viewModel.selectedDiscoveredProject.map { "Quick edits for agents visible in \($0.name)." } ?? "Quick edits for agents visible in the current global view.",
+            sections: currentAgentModelQuickEditorSections,
+            preferredOverrideScope: viewModel.selectedProjectPath == nil ? .global : .project
+        )
+    }
+
+    private var currentAgentModelQuickEditorSections: [AgentModelQuickEditorSection] {
+        let filteredAgents = viewModel.filteredAgents
+        let plainBuiltins = filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
+        let libraryBackedActiveAgentNames = Set(viewModel.snapshot.libraryAgents.map(\.name))
+
+        func preferredAgentsByName(_ agents: [EffectiveAgentRecord], prefer: ([EffectiveAgentRecord]) -> EffectiveAgentRecord?) -> [EffectiveAgentRecord] {
+            Dictionary(grouping: agents, by: \.name).values.compactMap(prefer)
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+
+        let libraryAgents = preferredAgentsByName(
+            filteredAgents.filter { $0.resolutionKind == .library || libraryBackedActiveAgentNames.contains($0.name) }
+        ) { records in
+            records.first { $0.resolutionKind == .library }
+            ?? records.first { $0.projectCustom == nil }
+            ?? records.first
+        }
+
+        if let selectedProject = viewModel.selectedDiscoveredProject {
+            let activeCustomAgents = filteredAgents.filter { agent in
+                agent.resolutionKind != .library && !(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil)
+            }
+            return [
+                AgentModelQuickEditorSection(title: "Active in \(selectedProject.name)", agents: activeCustomAgents),
+                AgentModelQuickEditorSection(title: "Library Agents", agents: libraryAgents),
+                AgentModelQuickEditorSection(title: "Builtin Agents", agents: plainBuiltins)
+            ]
+        }
+
+        let globalCustomAgents = filteredAgents.filter { $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+        return [
+            AgentModelQuickEditorSection(title: "Global Agents", agents: globalCustomAgents),
+            AgentModelQuickEditorSection(title: "Library Agents", agents: libraryAgents),
+            AgentModelQuickEditorSection(title: "Builtin Agents", agents: plainBuiltins)
+        ]
     }
 
     @ViewBuilder
@@ -471,6 +581,8 @@ struct ContentView: View {
             )
         case .diagnostics:
             DiagnosticsScreen(snapshot: viewModel.snapshot)
+        case .piDocs:
+            PiDocsScreen()
         }
     }
 
@@ -557,6 +669,63 @@ struct ContentView: View {
         }
     }
 
+}
+
+private struct PiAgentSubagentsToolbarIcon: View {
+    let isEnabled: Bool
+
+    var body: some View {
+            Image(systemName: SidebarItem.agents.systemImage)
+            .foregroundStyle(isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.red.gradient))
+    }
+}
+
+private struct PiAgentSidebarButton: View {
+    let isSelected: Bool
+    let needsAttentionCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image("pi")
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 18, height: 18)
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Pi Agent")
+                        .font(.body.weight(.semibold))
+                        .fontWidth(.expanded)
+                        .foregroundStyle(.primary)
+                    Text(isSelected ? "Open now" : "Jump back into sessions")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+
+                Spacer(minLength: 8)
+
+                if needsAttentionCount > 0 {
+                    Text("\(needsAttentionCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule(style: .continuous).fill(Color.accentColor))
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct SidebarProjectGitHubCard: View {
@@ -753,6 +922,41 @@ private struct SidebarProjectGitHubCard: View {
 
 }
 
+private struct ProjectAssignmentToggleRow: View {
+    let project: DiscoveredProject
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: isOn ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(isOn ? Color.accentColor : AppTheme.mutedText)
+                    .frame(width: 24, alignment: .center)
+
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(project.name)
+                        .font(.body.weight(.semibold))
+                    Text(project.repositoryName ?? project.path)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: 46, alignment: .center)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct ProjectPickerPopover: View {
     let projects: [DiscoveredProject]
     let selectedProjectPath: String?
@@ -923,24 +1127,33 @@ private struct ProjectIconEditorButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomTrailing) {
+            ZStack(alignment: .topTrailing) {
                 ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: size)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(isHovering ? Color.black.opacity(0.18) : .clear)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(isHovering ? Color.accentColor.opacity(0.9) : AppTheme.cardStroke, lineWidth: isHovering ? 2 : 1)
+                    }
+                    .overlay {
+                        if isHovering {
+                            Image(systemName: imageURL == nil ? "photo.badge.plus" : "pencil")
+                                .font(.system(size: max(11, size * 0.32), weight: .bold))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 1)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
 
-                if isHovering {
-                    Image(systemName: "pencil.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .background(Circle().fill(Color.accentColor))
-                        .offset(x: 4, y: 4)
-                        .transition(.scale.combined(with: .opacity))
-                }
             }
+            .scaleEffect(isHovering ? 1.03 : 1)
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.16), value: isHovering)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) {
-                isHovering = hovering
-            }
+            isHovering = hovering
         }
         .help(imageURL == nil ? "Set custom icon" : "Change custom icon")
     }
@@ -1037,48 +1250,57 @@ private struct ProjectsScreen: View {
     @State private var debouncedSearchText = ""
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                AppCard(title: "Library", trailing: {
+        AppPage("Projects", subtitle: "Showing projects from \(viewModel.configuredProjectsRootPath)") {
+            AppCard(title: "Library", trailing: {
+                HStack(spacing: 8) {
                     if isSearchDebouncing {
                         ProgressView()
                             .controlSize(.small)
                     }
-                }) {
+                    Text("\(visibleProjects.count) projects")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        TextField("Search projects", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
+
+                        Picker("Filter", selection: $filter) {
+                            ForEach(Filter.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 320)
+                    }
+
                     if viewModel.discoveredProjects.isEmpty {
                         ContentUnavailableView(
                             "No Projects Yet",
                             systemImage: "folder",
-                            description: Text("Projects from ~/Documents/GitHub will appear here automatically.")
+                            description: Text("Projects from \(viewModel.configuredProjectsRootPath) will appear here automatically.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    } else if visibleProjects.isEmpty {
+                        ContentUnavailableView(
+                            "No Matching Projects",
+                            systemImage: "magnifyingglass",
+                            description: Text("Try another search or filter.")
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                     } else {
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack(spacing: 12) {
-                                TextField("Search projects", text: $searchText)
-                                    .textFieldStyle(.roundedBorder)
-
-                                Picker("Filter", selection: $filter) {
-                                    ForEach(Filter.allCases) { option in
-                                        Text(option.rawValue).tag(option)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: 340)
-                            }
-
-                            LazyVStack(alignment: .leading, spacing: 10) {
-                                ForEach(visibleProjects) { project in
-                                    projectCard(project)
-                                }
+                        LazyVStack(alignment: .leading, spacing: 6) {
+                            ForEach(visibleProjects) { project in
+                                projectRow(project)
                             }
                         }
                     }
                 }
             }
-            .padding(AppTheme.pagePadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task(id: searchText) {
             let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1107,98 +1329,100 @@ private struct ProjectsScreen: View {
 
             guard matchesFilter else { return false }
             guard !query.isEmpty else { return true }
-
             return project.searchIndex.contains(query)
         }
     }
 
     @ViewBuilder
-    private func projectCard(_ project: DiscoveredProject) -> some View {
+    private func projectRow(_ project: DiscoveredProject) -> some View {
         let preference = viewModel.projectPreference(for: project.path)
         let isSelected = viewModel.selectedProjectPath == project.path
 
-        AppRowCard {
-            HStack(alignment: .center, spacing: 14) {
+        HStack(spacing: 10) {
                 ProjectIconEditorButton(
                     imageURL: project.iconFileURL,
                     symbolName: project.fallbackSymbolName,
-                    size: 44,
+                    size: 28,
                     action: { viewModel.chooseCustomIcon(for: project) }
                 )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(project.repositoryDisplayName)
-                            .font(.headline)
+                            .font(.subheadline.weight(.semibold))
                             .fontWidth(.expanded)
+                            .lineLimit(1)
 
                         if project.isGitHubRepository {
                             Image("github")
                                 .resizable()
                                 .renderingMode(.template)
                                 .foregroundStyle(.secondary)
-                                .frame(width: 14, height: 14)
+                                .frame(width: 12, height: 12)
+                        }
+
+                        if isSelected {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 8, height: 8)
+                                .help("Active project")
                         }
                     }
 
                     Text(project.path)
-                        .font(.footnote.monospaced())
+                        .font(.caption.monospaced())
                         .foregroundStyle(AppTheme.mutedText)
-                        .textSelection(.enabled)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 8)
 
-                HStack(spacing: 8) {
-                    Button(action: { viewModel.toggleProjectFavorite(project) }) {
-                        Image(systemName: preference.isFavorite ? "star.fill" : "star")
-                            .foregroundStyle(preference.isFavorite ? AnyShapeStyle(LinearGradient(colors: [.yellow, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(AppTheme.mutedText))
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(AppTheme.subtleFill))
-                    }
-                    .buttonStyle(.plain)
-                    .help(preference.isFavorite ? "Remove favorite" : "Add favorite")
+                Toggle("Enabled", isOn: Binding(
+                    get: { preference.isEnabled },
+                    set: { viewModel.setProjectEnabled($0, for: project) }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .help(preference.isEnabled ? "Disable project" : "Enable project")
 
-                    if preference.customIconPath != nil {
-                        Button(action: { viewModel.clearCustomIcon(for: project) }) {
-                            Image(systemName: "trash")
-                                .foregroundStyle(AppTheme.mutedText)
-                                .frame(width: 28, height: 28)
-                                .background(Circle().fill(AppTheme.subtleFill))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Remove custom icon")
-                    }
-
-                    Button(action: {
-                        guard preference.isEnabled else { return }
-                        if isSelected {
-                            viewModel.clearProjectRoot()
-                        } else {
-                            viewModel.setSelectedProject(project.url)
-                        }
-                    }) {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "checkmark.circle")
-                            .foregroundStyle(preference.isEnabled ? (isSelected ? Color.accentColor : AppTheme.mutedText) : AppTheme.mutedText.opacity(0.35))
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(AppTheme.subtleFill))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!preference.isEnabled)
-                    .help(isSelected ? "Show all projects" : "Select project")
-
-                    Toggle("Enabled", isOn: Binding(
-                        get: { preference.isEnabled },
-                        set: { viewModel.setProjectEnabled($0, for: project) }
-                    ))
-                    .toggleStyle(.switch)
-                    .tint(.accentColor)
-                    .labelsHidden()
-                    .help(preference.isEnabled ? "Disable project" : "Enable project")
+                Button {
+                    viewModel.toggleProjectFavorite(project)
+                } label: {
+                    Image(systemName: preference.isFavorite ? "star.fill" : "star")
+                        .foregroundStyle(preference.isFavorite ? .yellow : AppTheme.mutedText)
+                        .frame(width: 20, height: 20)
                 }
+                .buttonStyle(.plain)
+                .help(preference.isFavorite ? "Remove favorite" : "Add favorite")
+
+                Button(role: .destructive) {
+                    viewModel.removeProjectFromLibrary(project)
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .help("Remove from Pi Manager")
             }
-            .opacity(preference.isEnabled ? 1 : 0.5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.28) : AppTheme.cardStroke, lineWidth: 1)
+            )
+            .opacity(preference.isEnabled ? 1 : 0.58)
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture {
+            guard preference.isEnabled else { return }
+            if isSelected {
+                viewModel.clearProjectRoot()
+            } else {
+                viewModel.setSelectedProject(project.url)
+            }
         }
     }
 }
@@ -1221,16 +1445,6 @@ private struct OverviewScreen: View {
                     showStateFilter: false,
                     refreshAction: { viewModel.refreshOverviewBoard(force: true) }
                 )
-            }
-
-            AppCard(title: "How pi-subagents Works") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Pi is the parent session. A subagent is a child session with a narrower job.")
-                    Text("• `context: fork` keeps a branched session history. It is not the same thing as inheriting project context files.")
-                    Text("• Background runs can be checked later with status/doctor tooling; foreground runs stream back into the chat.")
-                    Text("• Parallel editing is safest with worktrees so children do not fight over the same files.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             AppCard(title: "Detected Packages") {
@@ -1293,6 +1507,41 @@ private struct SettingsScreen: View {
 
     var body: some View {
         AppPage("Settings", subtitle: "App-level preferences for Pi Manager") {
+            AppCard(title: "Projects") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose the root folder Pi Manager scans for projects. When no project is selected, Pi Agent starts here too.")
+                        .foregroundStyle(AppTheme.mutedText)
+
+                    TextField("Projects root folder", text: projectsRootPathBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button("Choose Folder") {
+                            viewModel.chooseProjectsRootDirectory()
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("Use Default") {
+                            viewModel.resetProjectsRootPathToDefault()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Spacer()
+
+                        Button("Reveal in Finder") {
+                            revealInFinder(viewModel.configuredProjectsRootPath)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Text("Default: \(ProjectDiscovery.defaultRootDirectoryURL().path)")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
             AppCard(title: "GitHub") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Tune how long GitHub issue data stays fresh before Pi Manager reloads it.")
@@ -1339,6 +1588,13 @@ private struct SettingsScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
         }
+    }
+
+    private var projectsRootPathBinding: Binding<String> {
+        Binding(
+            get: { viewModel.appSettings.projectsRootPath },
+            set: { viewModel.setProjectsRootPath($0) }
+        )
     }
 
     private var cacheLifetimeBinding: Binding<Int> {
@@ -1576,6 +1832,272 @@ private struct SubagentsScreen: View {
 
     private func revealInFinder(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+}
+
+private struct AgentModelQuickEditorContext: Identifiable {
+    let id = UUID()
+    let title: String
+    let subtitle: String
+    let sections: [AgentModelQuickEditorSection]
+    let preferredOverrideScope: AgentEditingTarget.OverrideScope
+}
+
+private struct AgentModelQuickEditorSection: Identifiable {
+    let title: String
+    let agents: [EffectiveAgentRecord]
+
+    var id: String { title }
+}
+
+private struct AgentModelQuickEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let context: AgentModelQuickEditorContext
+    let availableModels: [AvailableModel]
+    let modelsLastUpdatedAt: Date?
+    let makeDraft: (EffectiveAgentRecord) -> AgentEditorDraft?
+    let onSave: (AgentEditorDraft, EffectiveAgentRecord) throws -> Void
+
+    @State private var drafts: [EffectiveAgentRecord.ID: AgentEditorDraft]
+    @State private var baselines: [EffectiveAgentRecord.ID: AgentEditorDraft]
+    @State private var saveMessage: String?
+
+    init(
+        context: AgentModelQuickEditorContext,
+        availableModels: [AvailableModel],
+        modelsLastUpdatedAt: Date?,
+        makeDraft: @escaping (EffectiveAgentRecord) -> AgentEditorDraft?,
+        onSave: @escaping (AgentEditorDraft, EffectiveAgentRecord) throws -> Void
+    ) {
+        self.context = context
+        self.availableModels = availableModels
+        self.modelsLastUpdatedAt = modelsLastUpdatedAt
+        self.makeDraft = makeDraft
+        self.onSave = onSave
+
+        let seeded = Dictionary(uniqueKeysWithValues: context.sections
+            .flatMap(\.agents)
+            .compactMap { agent in makeDraft(agent).map { (agent.id, $0) } })
+        _drafts = State(initialValue: seeded)
+        _baselines = State(initialValue: seeded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(context.title)
+                        .font(.title2.bold())
+                        .fontWidth(.expanded)
+                    Text(context.subtitle)
+                        .foregroundStyle(AppTheme.mutedText)
+                    Text(modelSelectionSummary)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("Model + thinking only")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(context.sections) { section in
+                        if !section.agents.isEmpty {
+                            AppCard(title: section.title) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(section.agents) { agent in
+                                        if let draftBinding = binding(for: agent.id) {
+                                            AgentModelQuickEditRow(
+                                                agent: agent,
+                                                draft: draftBinding,
+                                                availableModels: availableModels,
+                                                isDirty: isDirty(agent.id)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                if let saveMessage {
+                    Text(saveMessage)
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+                Button("Save All") {
+                    saveAll()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(dirtyAgentIDs.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 860, minHeight: 640)
+    }
+
+    private var dirtyAgentIDs: [EffectiveAgentRecord.ID] {
+        drafts.keys.filter(isDirty)
+    }
+
+    private func isDirty(_ id: EffectiveAgentRecord.ID) -> Bool {
+        drafts[id] != baselines[id]
+    }
+
+    private func binding(for id: EffectiveAgentRecord.ID) -> Binding<AgentEditorDraft>? {
+        guard let initial = drafts[id] else { return nil }
+        return Binding(
+            get: { drafts[id] ?? initial },
+            set: { drafts[id] = $0 }
+        )
+    }
+
+    private var modelSelectionSummary: String {
+        let freshness = modelsLastUpdatedAt.map { date in
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .short
+            return " Refreshed \(formatter.localizedString(for: date, relativeTo: Date()))."
+        } ?? ""
+        return "Uses the same model list and thinking rules as the full editor. Thinking choices update automatically for the selected model.\(freshness)"
+    }
+
+    private func saveAll() {
+        var savedCount = 0
+        for section in context.sections {
+            for agent in section.agents where isDirty(agent.id) {
+                guard let draft = drafts[agent.id] else { continue }
+                do {
+                    try onSave(draft, agent)
+                    baselines[agent.id] = draft
+                    savedCount += 1
+                } catch {
+                    NSSound.beep()
+                    saveMessage = nil
+                    return
+                }
+            }
+        }
+
+        saveMessage = savedCount == 1 ? "Saved 1 agent." : "Saved \(savedCount) agents."
+    }
+}
+
+private struct AgentModelQuickEditRow: View {
+    let agent: EffectiveAgentRecord
+    @Binding var draft: AgentEditorDraft
+    let availableModels: [AvailableModel]
+    let isDirty: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(agent.name)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                if isDirty {
+                    AppLabelTag(text: "Unsaved", color: .orange)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Model")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    Picker("Model", selection: modelSelectionBinding) {
+                        Text("Use Pi Default Model").tag("")
+                        ForEach(availableModels, id: \.identifier) { model in
+                            Text(model.identifier).tag(model.identifier)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let summary = selectedModelMetadataSummary {
+                        Text(summary)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Thinking")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    Picker("Thinking", selection: thinkingSelectionBinding) {
+                        ForEach(availableThinkingLevels, id: \.self) { level in
+                            Text(level.capitalized).tag(level)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 180, alignment: .leading)
+                }
+                .frame(width: 220, alignment: .leading)
+                .padding(12)
+                .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.subtleFill.opacity(0.28), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var selectedModel: AvailableModel? {
+        guard let identifier = draft.config.model else { return nil }
+        return availableModels.first { $0.identifier == identifier }
+    }
+
+    private var selectedModelMetadataSummary: String? {
+        guard let model = selectedModel else { return nil }
+        return "context: \(model.contextWindow)"
+    }
+
+    private var availableThinkingLevels: [String] {
+        selectedModel?.supportedThinkingLevels ?? ["off", "minimal", "low", "medium", "high", "xhigh"]
+    }
+
+    private var modelSelectionBinding: Binding<String> {
+        Binding(
+            get: { draft.config.model ?? "" },
+            set: { newValue in
+                draft.config.model = newValue.isEmpty ? nil : newValue
+                clampThinkingSelection()
+            }
+        )
+    }
+
+    private var thinkingSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let current = draft.config.thinking ?? "off"
+                return availableThinkingLevels.contains(current) ? current : (availableThinkingLevels.first ?? "off")
+            },
+            set: { newValue in
+                draft.config.thinking = newValue == "off" ? nil : newValue
+            }
+        )
+    }
+
+    private func clampThinkingSelection() {
+        let current = draft.config.thinking ?? "off"
+        guard !availableThinkingLevels.contains(current) else { return }
+        let fallback = availableThinkingLevels.first ?? "off"
+        draft.config.thinking = fallback == "off" ? nil : fallback
     }
 }
 
@@ -2453,22 +2975,14 @@ private struct AgentDetailView: View {
                             .foregroundStyle(AppTheme.mutedText)
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(projects) { project in
-                                Toggle(isOn: Binding(
-                                    get: { assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id }) },
-                                    set: { enabled in do { try setAgentForProject(managedAgent, project, enabled) } catch { NSSound.beep() } }
-                                )) {
-                                    HStack(spacing: 10) {
-                                        ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(project.name).font(.body.weight(.semibold))
-                                            Text(project.repositoryName ?? project.path).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(1).truncationMode(.middle)
-                                        }
+                                ProjectAssignmentToggleRow(
+                                    project: project,
+                                    isOn: assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id }),
+                                    action: {
+                                        let enabled = !assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id })
+                                        do { try setAgentForProject(managedAgent, project, enabled) } catch { NSSound.beep() }
                                     }
-                                    .frame(height: 46, alignment: .center)
-                                }
-                                .toggleStyle(.checkbox)
-                                .controlSize(.large)
-                                .padding(.vertical, 8)
+                                )
                                 if project.id != projects.last?.id { Divider() }
                             }
                         }
@@ -3302,22 +3816,14 @@ private struct ChainsScreen: View {
                 .foregroundStyle(AppTheme.mutedText)
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(viewModel.enabledProjects) { project in
-                    Toggle(isOn: Binding(
-                        get: { viewModel.chain(chain, isEnabledFor: project) },
-                        set: { enabled in do { try viewModel.setChain(chain, enabled: enabled, for: project) } catch { NSSound.beep() } }
-                    )) {
-                        HStack(spacing: 10) {
-                            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(project.name).font(.body.weight(.semibold))
-                                Text(project.repositoryName ?? project.path).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(1).truncationMode(.middle)
-                            }
+                    ProjectAssignmentToggleRow(
+                        project: project,
+                        isOn: viewModel.chain(chain, isEnabledFor: project),
+                        action: {
+                            do { try viewModel.setChain(chain, enabled: !viewModel.chain(chain, isEnabledFor: project), for: project) }
+                            catch { NSSound.beep() }
                         }
-                        .frame(height: 46, alignment: .center)
-                    }
-                    .toggleStyle(.checkbox)
-                    .controlSize(.large)
-                    .padding(.vertical, 8)
+                    )
                     if project.id != viewModel.enabledProjects.last?.id { Divider() }
                 }
             }
@@ -3833,30 +4339,14 @@ private struct SkillsScreen: View {
 
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(viewModel.enabledProjects) { project in
-                    Toggle(isOn: Binding(
-                        get: { viewModel.skill(skill, isEnabledFor: project) },
-                        set: { enabled in
-                            do { try viewModel.setSkill(skill, enabled: enabled, for: project) }
+                    ProjectAssignmentToggleRow(
+                        project: project,
+                        isOn: viewModel.skill(skill, isEnabledFor: project),
+                        action: {
+                            do { try viewModel.setSkill(skill, enabled: !viewModel.skill(skill, isEnabledFor: project), for: project) }
                             catch { NSSound.beep() }
                         }
-                    )) {
-                        HStack(alignment: .center, spacing: 10) {
-                            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(project.name)
-                                    .font(.body.weight(.semibold))
-                                Text(project.repositoryName ?? project.path)
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-                        .frame(height: 46, alignment: .center)
-                    }
-                    .toggleStyle(.checkbox)
-                    .controlSize(.large)
-                    .padding(.vertical, 8)
+                    )
 
                     if project.id != viewModel.enabledProjects.last?.id {
                         Divider()
@@ -4081,128 +4571,721 @@ private struct EffectiveEnvRow {
     let summary: String
 }
 
-private struct DiagnosticsScreen: View {
-    let snapshot: ScanSnapshot
+private struct PiDocsScreen: View {
+    enum DocsTab: String, CaseIterable, Identifiable {
+        case core = "Core System"
+        case skills = "Skills"
+        case prompts = "Prompts & Commands"
+        case agents = "Agents & Chains"
+        case architecture = "Architecture"
+        case intercom = "Intercom"
+
+        var id: String { rawValue }
+    }
+
+    @State private var selectedTab: DocsTab = .core
 
     var body: some View {
-        AppPage("Diagnostics", subtitle: "Parsed settings, overrides, and actionable warnings") {
-            AppCard(title: "Diagnostics") {
+        AppPage("Pi Docs", subtitle: "Concise reference from pi-documentation/") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(DocsTab.allCases) { tab in
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            Text(tab.rawValue)
+                                .font(.subheadline.weight(.semibold))
+                                .fontWidth(.expanded)
+                                .foregroundStyle(selectedTab == tab ? Color.white : .primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.subtleFill)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
+            switch selectedTab {
+            case .core: coreTab
+            case .skills: skillsTab
+            case .prompts: promptsTab
+            case .agents: agentsTab
+            case .architecture: architectureTab
+            case .intercom: intercomTab
+            }
+        }
+    }
+
+    // MARK: - Core System
+
+    private var coreTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "How Pi Works") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("This screen shows what Pi Manager parsed from settings files. Builtin overrides are JSON patches; custom agents and chains still come from markdown files.")
-                        .foregroundStyle(AppTheme.mutedText)
-                    AppKeyValueList(rows: [
-                        ("Settings Files", "\(snapshot.settings.count)"),
-                        ("Overrides", "\(snapshot.settings.flatMap(\.agentOverrides).count)"),
-                        ("Warnings", "\(snapshot.warnings.count)")
-                    ])
+                    Text("Pi is the parent session. A subagent is a child Pi process with a narrower job. Children inherit tools, skills, and extensions from the parent unless explicitly restricted.")
+                    Text("Settings are layered: project `.pi/settings.json` overrides user `~/.pi/agent/settings.json`. Agent files follow the same precedence: project `.pi/agents/` > global `~/.pi/agent/agents/` > builtins.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if snapshot.settings.isEmpty {
-                AppCard(title: "Settings Files") {
-                    Text("No settings files found.")
+            AppCard(title: "Key File Locations") {
+                VStack(alignment: .leading, spacing: 12) {
+                    docKeyValueRows([
+                        ("User settings", "~/.pi/agent/settings.json"),
+                        ("Project settings", ".pi/settings.json"),
+                        ("User agents", "~/.pi/agent/agents/*.md"),
+                        ("Project agents", ".pi/agents/*.md"),
+                        ("Builtin agents", "<pi-subagents package>/agents/*.md"),
+                        ("User skills", "~/.pi/agent/skills/"),
+                        ("Project skills", ".pi/skills/"),
+                        ("User prompts", "~/.pi/agent/prompts/*.md"),
+                        ("Project prompts", ".pi/prompts/*.md"),
+                        ("User env", "~/.pi/agent/.env"),
+                        ("Project env", ".pi/.env"),
+                        ("Extension config", "~/.pi/agent/extensions/subagent/config.json")
+                    ])
+                }
+            }
+
+            AppCard(title: "Agent Resolution") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("1. Builtin agents are discovered from the installed pi-subagents package.")
+                    Text("2. Global custom agents in `~/.pi/agent/agents/` or `~/.agents/` override builtins by name.")
+                    Text("3. Project agents in `.pi/agents/` override both global and builtin.")
+                    Text("4. Settings overrides (`subagents.agentOverrides`) patch any agent's fields without creating a file.")
+                    Text("5. `disableBuiltins: true` removes all builtins; individual agents can be disabled via overrides.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Context Modes") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• **Fresh** (default): child starts blank, gets only its own system prompt, skills, and task.")
+                    Text("• **Fork**: child inherits the full parent conversation as read-only reference. Used for oracle, worker, planner.")
+                    Text("• Auto-detection: if any requested agent has `defaultContext: fork`, the entire invocation upgrades to fork mode.")
+                    Text("• Recursion guard: max nesting depth (default 2) enforced via `PI_SUBAGENT_DEPTH` environment variable.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Skills
+
+    private var skillsTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Skill Discovery") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Pi loads skills from five source categories: global locations, project locations, installed packages, settings-defined paths, and CLI-provided paths.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Discovery Locations") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Global").font(.headline).fontWidth(.expanded)
+                    docKeyValueRows([
+                        ("Primary", "~/.pi/agent/skills/ — root *.md or */SKILL.md"),
+                        ("Legacy", "~/.agents/skills/ — recursive */SKILL.md only")
+                    ])
+                    Text("Project").font(.headline).fontWidth(.expanded).padding(.top, 6)
+                    docKeyValueRows([
+                        ("Primary", ".pi/skills/ — root *.md or */SKILL.md"),
+                        ("Legacy", ".agents/skills/ — recursive, walks up to git root")
+                    ])
+                    Text("Package").font(.headline).fontWidth(.expanded).padding(.top, 6)
+                    docKeyValueRows([
+                        ("Conventional", "<package>/skills/*/SKILL.md"),
+                        ("Manifest", "package.json → pi.skills")
+                    ])
+                }
+            }
+
+            AppCard(title: "Rules") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• Skills are identified by directory name (the `name` frontmatter field, or directory name if omitted).")
+                    Text("• Same-name skills at higher precedence replace lower: project > global > package.")
+                    Text("• `~/.pi/agent/skills/` supports root `*.md` files as individual skills; `~/.agents/skills/` does not.")
+                    Text("• Package skills are active by default when the package is discovered and are read-only.")
+                    Text("• Skills are non-recursive within their directory (only direct children, not nested subdirs).")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Prompts & Commands
+
+    private var promptsTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Slash Entries") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("In Pi, many things start with `/` but they are not all the same:")
+                    Text("• **Built-in commands** — app actions like `/settings`, `/model`, `/reload`, `/quit`")
+                    Text("• **Extension commands** — registered by packages, e.g. `/agents`, `/subagents-status`")
+                    Text("• **Prompt templates** — file-backed `.md` templates that expand into the composer")
+                    Text("• **Skill commands** — invoke a skill by name")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Prompt Template Locations") {
+                VStack(alignment: .leading, spacing: 12) {
+                    docKeyValueRows([
+                        ("Global", "~/.pi/agent/prompts/*.md"),
+                        ("Project", ".pi/prompts/*.md"),
+                        ("Settings", "settings.json → prompts array (files/dirs)"),
+                        ("Package", "package.json → pi.prompts or conventional prompts/ dir"),
+                        ("CLI", "--prompt-template <path>")
+                    ])
+                }
+            }
+
+            AppCard(title: "Template Frontmatter") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Prompt templates are `.md` files with optional YAML frontmatter:")
+                    Text("• `name` — display name (defaults to filename)")
+                    Text("• `description` — shown in the slash menu")
+                    Text("• `argument-hint` — placeholder text for the argument input")
+                    Text("• Body content is injected into the composer when invoked.")
+                    Text("• Discovery is non-recursive within each directory.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Legacy Commands") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Pi migrates deprecated `commands/` directories to `prompts/` automatically. If you have a `commands/` directory, Pi will read it but you should rename it to `prompts/`.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Agents & Chains
+
+    private var agentsTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Custom Agents") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Custom agents are `.md` files with YAML frontmatter. They live in global or project discovery paths and override builtins by name.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Agent Frontmatter Fields") {
+                VStack(alignment: .leading, spacing: 12) {
+                    docKeyValueRows([
+                        ("name", "Agent name (defaults to filename without extension)"),
+                        ("description", "Short description"),
+                        ("model", "Model identifier, e.g. anthropic/claude-sonnet-4"),
+                        ("fallbackModels", "Ordered backup models"),
+                        ("thinking", "Thinking level: off, low, medium, high"),
+                        ("systemPromptMode", "replace (default) or append"),
+                        ("systemPrompt", "Main instruction body (below frontmatter)"),
+                        ("defaultContext", "fresh or fork — default context mode"),
+                        ("inheritProjectContext", "Whether child reads project context files"),
+                        ("inheritSkills", "Whether child keeps Pi's discovered skills catalog"),
+                        ("tools", "Builtin tool allowlist; mcp: entries for direct MCP tools"),
+                        ("extensions", "Extension loading mode: omitted, empty, or allowlist"),
+                        ("skills", "Explicit skills to attach"),
+                        ("disabled", "Disable this agent"),
+                        ("output", "File path for chain step output"),
+                        ("defaultReads", "Files Pi should read before execution"),
+                        ("defaultProgress", "Enable progress.md tracking"),
+                        ("maxSubagentDepth", "Max nested subagent launches (0-10)")
+                    ])
+                }
+            }
+
+            AppCard(title: "Chains") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Chains are `.chain.md` files defining sequential pipelines where each step's output becomes `{previous}` for the next.")
+                    Text("Locations: `~/.pi/agent/agents/*.chain.md` (user) or `.pi/agents/*.chain.md` (project).")
+                    Text("Steps are defined with `## agent-name` headers. Each step supports: `output`, `reads`, `model`, `skill`/`skills`, `progress`.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Settings Overrides") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("You can patch any agent's fields without creating a file, using `settings.json`:")
+                    Text("```json\n{ \"subagents\": { \"agentOverrides\": { \"worker\": { \"model\": \"anthropic/claude-sonnet-4\", \"thinking\": \"high\" } } } }\n```"   )
+                    Text("Project settings beat user settings. `disableBuiltins: true` removes all builtins.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Architecture
+
+    private var architectureTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Entry Points") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Four entry points can trigger a subagent:")
+                    Text("• **Tool call** — LLM calls `subagent({ agent, task, ... })` as a tool")
+                    Text("• **Slash commands** — `/run`, `/chain`, `/parallel`, `/agents` routed through slash-bridge")
+                    Text("• **Prompt templates** — packaged workflows bridge through prompt-template-bridge")
+                    Text("• **Extension events** — `pi.events` emit/subscribe pattern for async jobs")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Execution Modes") {
+                VStack(alignment: .leading, spacing: 12) {
+                    docKeyValueRows([
+                        ("SINGLE", "`params.agent?` → one agent, one task"),
+                        ("PARALLEL", "`params.tasks?` → concurrent agents"),
+                        ("CHAIN", "`params.chain?` → sequential pipeline with {previous} templating")
+                    ])
+                }
+            }
+
+            AppCard(title: "Foreground vs Background") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• **Foreground (sync)**: spawns a child `pi` process in `--mode json`, parses JSON-lines events from stdout for real-time progress.")
+                    Text("• **Background (async)**: same spawn but detached. Status written to `status.json`, events to `events.jsonl`. Parent tracks async jobs via file watcher.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Control & Visibility") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• `needs_attention` — fired when a child has had no activity for a configured window")
+                    Text("• `active_long_running` — fired when a child has been running beyond a threshold")
+                    Text("• `failed_tool_attempts` — consecutive mutating-tool failures trigger escalation")
+                    Text("• These events route through intercom when available, otherwise appear as in-conversation notifications")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Intercom
+
+    private var intercomTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "What Intercom Does") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Intercom is the optional coordination layer between child subagents and the parent orchestrator. It requires `pi-intercom` installed; without it everything still works, you just lose bidirectional communication.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Without Intercom") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• Communication is one-way: parent fires task, blocks until child finishes")
+                    Text("• Children can't ask questions back or send mid-run updates")
+                    Text("• Simple scout → planner → worker → reviewer workflows work fine without it")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "With Intercom") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• Children can `ask` the parent a question mid-task and wait for an answer")
+                    Text("• Children can `send` status updates without blocking")
+                    Text("• Control events (`needs_attention`, `active_long_running`) route through the intercom channel")
+                    Text("• Enables extended coordination patterns like oracle advisor loops")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AppCard(title: "Activation") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Install `pi-intercom` — no config needed on the pi-subagents side. Detection is automatic:")
+                    Text("1. Bridge mode is not `off` (defaults to `always`)")
+                    Text("2. Orchestrator target exists (auto-generated from session name/ID)")
+                    Text("3. `pi-intercom` extension directory exists")
+                    Text("4. Intercom config is not disabled")
+                    Text("Once active, `intercom` tool and bridge instructions are injected into every child agent automatically.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func docKeyValueRows(_ rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(row.0)
+                        .font(.body.weight(.semibold))
+                        .frame(minWidth: 160, alignment: .trailing)
+                    Text(row.1)
                         .foregroundStyle(AppTheme.mutedText)
                 }
-            } else {
-                AppCard(title: "Settings Files") {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ForEach(Array(snapshot.settings.enumerated()), id: \.element.path) { index, settings in
-                            settingsSection(settings)
-                            if index < snapshot.settings.count - 1 {
-                                Divider()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct DiagnosticsScreen: View {
+    let snapshot: ScanSnapshot
+
+    private struct PackageInfo {
+        let name: String
+        let displayName: String
+        let description: String
+        let repoURL: String?
+        let author: String
+        let category: Category
+        let isInstalled: Bool
+
+        enum Category {
+            case essential, recommended, niceToHave
+        }
+    }
+
+    private var packages: [PackageInfo] {
+        let installed = Set(detectInstalledPackageNames())
+        return [
+            PackageInfo(
+                name: "pi-subagents",
+                displayName: "pi-subagents",
+                description: "Delegate work to subagents with chains, parallel execution, and interactive coordination.",
+                repoURL: "https://github.com/nicobailon/pi-subagents",
+                author: "Nico Bailon",
+                category: .essential,
+                isInstalled: installed.contains("pi-subagents")
+            ),
+            PackageInfo(
+                name: "pi-web-access",
+                displayName: "pi-web-access",
+                description: "Web search, URL fetching, GitHub repo cloning, PDF extraction, and YouTube/local video analysis.",
+                repoURL: "https://github.com/nicobailon/pi-web-access",
+                author: "Nico Bailon",
+                category: .essential,
+                isInstalled: installed.contains("pi-web-access")
+            ),
+            PackageInfo(
+                name: "pi-intercom",
+                displayName: "pi-intercom",
+                description: "Bidirectional coordination between subagents and the parent orchestrator session.",
+                repoURL: nil,
+                author: "",
+                category: .recommended,
+                isInstalled: installed.contains("pi-intercom")
+            ),
+            PackageInfo(
+                name: "pi-ask-user",
+                displayName: "ask-user",
+                description: "Interactive multi-choice and freeform question UI for Pi agents. Provides the ask_user tool.",
+                repoURL: nil,
+                author: "Enzo Lucchesi",
+                category: .niceToHave,
+                isInstalled: FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.pi/agent/extensions/ask-user/index.ts")
+            )
+        ]
+    }
+
+    var body: some View {
+        AppPage("Doctor", subtitle: "Check what Pi Manager is missing and fix the essentials faster") {
+            packageSection
+            helperSection
+            settingsSection
+            warningsSection
+        }
+    }
+
+    // MARK: - Packages
+
+    private var packageSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Essential") {
+                packageRows(packages.filter { $0.category == .essential })
+            }
+
+            let recommended = packages.filter { $0.category == .recommended }
+            if !recommended.isEmpty {
+                AppCard(title: "Recommended") {
+                    packageRows(recommended)
+                }
+            }
+
+            let optional = packages.filter { $0.category == .niceToHave }
+            if !optional.isEmpty {
+                AppCard(title: "Nice to Have") {
+                    packageRows(optional)
+                }
+            }
+        }
+    }
+
+    private func packageRows(_ items: [PackageInfo]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.name) { index, pkg in
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: pkg.isInstalled ? "checkmark.circle.fill" : "xmark.circle")
+                        .font(.title3)
+                        .foregroundStyle(pkg.isInstalled ? .green : .red)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(pkg.displayName)
+                                .font(.body.weight(.semibold))
+                                .fontWidth(.expanded)
+
+                            if let url = pkg.repoURL {
+                                Button {
+                                    NSWorkspace.shared.open(URL(string: url)!)
+                                } label: {
+                                    Image(systemName: "arrow.up.right.square")
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                }
+                                .buttonStyle(.plain)
+                                .help(url)
+                            }
+
+                            if !pkg.author.isEmpty {
+                                Text(pkg.author)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
                             }
                         }
-                    }
-                }
-            }
 
-            AppCard(title: "Warnings") {
-                if snapshot.warnings.isEmpty {
-                    Text("No warnings")
-                        .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 16) {
-                        warningSection(title: "Duplicate / Resolution", warnings: snapshot.warnings.filter { $0.message.contains("Duplicate agent") || $0.message.contains("Duplicate prompt template") })
-                        warningSection(title: "Malformed Files", warnings: snapshot.warnings.filter { $0.message.contains("Malformed") || $0.message.contains("step block") })
-                        warningSection(title: "Prompt Discovery", warnings: snapshot.warnings.filter { $0.message.contains("Prompt path") || $0.message.contains("declares prompt templates") })
-                        warningSection(title: "Missing Skills / Env", warnings: snapshot.warnings.filter { $0.message.contains("missing skill") || $0.message.contains("API key") })
-                        warningSection(title: "Capability Mismatches", warnings: snapshot.warnings.filter { $0.message.contains("extensions") })
-                        warningSection(title: "Chain References", warnings: snapshot.warnings.filter { $0.message.contains("Chain ") && $0.message.contains("missing agent") })
-                    }
-                }
-            }
-        }
-    }
-
-    private func settingsSection(_ settings: SettingsSummary) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(settings.path)
-                .font(.headline)
-                .fontWidth(.expanded)
-                .textSelection(.enabled)
-
-            AppKeyValueList(rows: [
-                ("Disable Builtins", boolLabel(settings.disableBuiltins)),
-                ("Override Count", "\(settings.agentOverrides.count)"),
-                ("Configured Prompt Paths", "\(settings.prompts.count)")
-            ])
-
-            simpleListSection(title: "Packages", items: settings.packages, icon: "shippingbox")
-            simpleListSection(title: "Prompt Paths", items: settings.prompts, icon: "text.badge.plus")
-            overridesSection(settings.agentOverrides)
-        }
-    }
-
-    private func simpleListSection(title: String, items: [String], icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .fontWidth(.expanded)
-            if items.isEmpty {
-                Text("None")
-                    .foregroundStyle(AppTheme.mutedText)
-            } else {
-                ForEach(items, id: \.self) { item in
-                    HStack(spacing: 10) {
-                        Image(systemName: icon)
+                        Text(pkg.description)
+                            .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
-                        Text(item)
-                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    AppLabelTag(
+                        text: pkg.isInstalled ? "Installed" : "Missing",
+                        color: pkg.isInstalled ? .green : .red
+                    )
+                }
+                .padding(.vertical, 12)
+
+                if index < items.count - 1 {
+                    Divider()
+                }
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var helperSection: some View {
+        AppCard(title: "Helper Extension") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Pi Manager only suggests one bundled helper here: `subagents-toggle`. The rest should stay external to the app.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: extensionIsInstalled("subagents-toggle") ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(extensionIsInstalled("subagents-toggle") ? .green : AppTheme.mutedText)
+                        .frame(width: 20)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("subagents-toggle")
+                            .font(.body.weight(.semibold))
+                            .fontWidth(.expanded)
+                        Text("Lets Pi quickly enable, disable, or inspect the `pi-subagents` package from inside Pi.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                        Text("Useful in the Pi TUI today. For Pi Manager's RPC sessions, a live input-bar toggle is not fully reliable yet without a dedicated RPC reload hook.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if extensionIsInstalled("subagents-toggle") {
+                        AppLabelTag(text: "Installed", color: .green)
+                    } else {
+                        Button("Install") {
+                            installExtension("subagents-toggle")
+                        }
+                        .controlSize(.small)
                     }
                 }
             }
         }
     }
 
-    private func overridesSection(_ overrides: [BuiltinOverrideRecord]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Builtin Overrides")
-                .font(.headline)
-                .fontWidth(.expanded)
-            if overrides.isEmpty {
-                Text("None")
+    private func extensionIsInstalled(_ name: String) -> Bool {
+        let extDir = NSHomeDirectory() + "/.pi/agent/extensions"
+        return FileManager.default.fileExists(atPath: "\(extDir)/\(name).ts") ||
+               FileManager.default.fileExists(atPath: "\(extDir)/\(name)/index.ts")
+    }
+
+    private func installExtension(_ name: String) {
+        let extDir = NSHomeDirectory() + "/.pi/agent/extensions"
+        let bundleDir = Bundle.main.resourcePath ?? ""
+
+        // Try .ts file first, then directory
+        let srcFile = bundleDir + "/\(name).ts"
+        let srcDir = bundleDir + "/\(name)"
+        let dstFile = extDir + "/\(name).ts"
+        let dstDir = extDir + "/\(name)"
+
+        do {
+            if FileManager.default.fileExists(atPath: srcFile) {
+                try? FileManager.default.createDirectory(atPath: extDir, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(atPath: srcFile, toPath: dstFile)
+            } else if FileManager.default.fileExists(atPath: srcDir) {
+                try? FileManager.default.createDirectory(atPath: extDir, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(atPath: srcDir, toPath: dstDir)
+            }
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    // MARK: - Settings
+
+    private var settingsSection: some View {
+        AppCard(title: "Settings Files") {
+            if snapshot.settings.isEmpty {
+                Text("No settings files found.")
                     .foregroundStyle(AppTheme.mutedText)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(overrides.enumerated()), id: \.element.agentName) { index, override in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(override.agentName)
-                                .font(.body.weight(.semibold))
-                            Text(prettyJSONObject(override.values))
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(AppTheme.mutedText)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.vertical, 8)
-
-                        if index < overrides.count - 1 {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(Array(snapshot.settings.enumerated()), id: \.element.path) { index, settings in
+                        settingsDetail(settings)
+                        if index < snapshot.settings.count - 1 {
                             Divider()
                         }
                     }
                 }
             }
         }
+    }
+
+    private func settingsDetail(_ settings: SettingsSummary) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(settings.path)
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+                    .textSelection(.enabled)
+                Spacer()
+                Button("Open") { openFile(settings.path) }
+                Button("Reveal") { revealInFinder(settings.path) }
+            }
+
+            AppKeyValueList(rows: [
+                ("Disable Builtins", boolLabel(settings.disableBuiltins)),
+                ("Builtin Agent Overrides", "\(settings.agentOverrides.count)"),
+                ("Extra Prompt Template Paths", "\(settings.prompts.count)"),
+                ("Packages", "\(settings.packages.count)")
+            ])
+
+            if !settings.packages.isEmpty {
+                packageListDetail(settings.packages)
+            }
+
+            if !settings.agentOverrides.isEmpty {
+                overridesDetail(settings.agentOverrides)
+            }
+        }
+    }
+
+    private func packageListDetail(_ packages: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Packages")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            ForEach(packages, id: \.self) { pkg in
+                HStack(spacing: 8) {
+                    Image(systemName: "shippingbox")
+                        .foregroundStyle(.orange)
+                        .frame(width: 16)
+                    Text(pkg)
+                        .font(.footnote)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    private func overridesDetail(_ overrides: [BuiltinOverrideRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Builtin Overrides")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(overrides.enumerated()), id: \.element.agentName) { index, override in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(override.agentName)
+                            .font(.footnote.weight(.semibold))
+                            .frame(minWidth: 100, alignment: .trailing)
+                        Text(prettyJSONObject(override.values))
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.vertical, 6)
+                    if index < overrides.count - 1 { Divider() }
+                }
+            }
+        }
+    }
+
+    // MARK: - Warnings
+
+    private var warningsSection: some View {
+        AppCard(title: "Warnings") {
+            if snapshot.warnings.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("All checks passed.")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(snapshot.warnings.prefix(20).enumerated()), id: \.element.id) { index, warning in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .frame(width: 20)
+                            Text(warning.message)
+                                .font(.body)
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, 8)
+                        if index < min(snapshot.warnings.count, 20) - 1 { Divider() }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func detectInstalledPackageNames() -> [String] {
+        let candidates = [
+            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules"),
+            URL(fileURLWithPath: "/usr/local/lib/node_modules")
+        ]
+        var names: [String] = []
+        for dir in candidates {
+            guard let contents = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for url in contents {
+                let name = url.lastPathComponent
+                if name.hasPrefix("pi-") || name.contains("pi-") {
+                    names.append(name)
+                }
+            }
+        }
+        return names
     }
 }
 
@@ -4266,10 +5349,14 @@ private func revealInFinder(_ path: String) {
 }
 
 private func projectName(from path: String) -> String? {
-    let marker = "/Documents/GitHub/"
-    guard let range = path.range(of: marker) else { return nil }
-    let remainder = path[range.upperBound...]
-    return remainder.split(separator: "/").first.map(String.init)
+    let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+    if let piIndex = components.lastIndex(of: ".pi"), piIndex > 0 {
+        return components[piIndex - 1]
+    }
+    if let agentsIndex = components.lastIndex(of: ".agents"), agentsIndex > 0 {
+        return components[agentsIndex - 1]
+    }
+    return nil
 }
 
 private func skillScopeLabel(_ skill: SkillRecord, selectedProjectRoot: String?) -> String {

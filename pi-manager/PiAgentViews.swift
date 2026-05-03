@@ -28,6 +28,7 @@ struct PiAgentScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
+            syncVisibleSessionSelection()
             syncSelectedSessionTitleDraft()
             applyPendingComposerText()
         }
@@ -37,12 +38,23 @@ struct PiAgentScreen: View {
             applyPendingComposerText()
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
+        .onChange(of: visibleSessionIDs) { _, _ in syncVisibleSessionSelection() }
+        .onChange(of: viewModel.selectedProjectPath) { _, _ in syncVisibleSessionSelection() }
+    }
+
+    private var sessionScopePath: String? {
+        viewModel.selectedProjectPath
+    }
+
+    private var scopedSessions: [PiAgentSessionRecord] {
+        guard let sessionScopePath else { return store.sessions }
+        return store.sessions.filter { $0.projectPath == sessionScopePath }
     }
 
     private var visibleSessions: [PiAgentSessionRecord] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let source = viewModel.showPiAgentAttentionOnly ? store.sessions.filter(\.needsAttention) : store.sessions
-        guard !query.isEmpty else { return Array(source.prefix(10)) }
+        let source = viewModel.showPiAgentAttentionOnly ? scopedSessions.filter(\.needsAttention) : scopedSessions
+        guard !query.isEmpty else { return source }
         return source.filter { sessionMatchesSearch($0, query: query) }
     }
 
@@ -57,7 +69,7 @@ struct PiAgentScreen: View {
                     Text("Sessions")
                         .font(.title2.bold())
                         .fontWidth(.expanded)
-                    Text("\(store.sessions.count) saved · \(runningCount) active")
+                    Text("\(scopedSessions.count) saved · \(runningCount) active")
                         .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -87,19 +99,18 @@ struct PiAgentScreen: View {
                 PiAgentAddSessionButton {
                     viewModel.createPiAgentDraftForSelectedProject()
                 }
-                .disabled(viewModel.selectedDiscoveredProject == nil)
-                .help(viewModel.selectedDiscoveredProject == nil ? "Select a project first" : "New Pi Agent session")
+                .help(viewModel.selectedDiscoveredProject == nil ? "New Pi Agent session in \(viewModel.configuredProjectsRootPath)" : "New Pi Agent session")
             }
             .padding(18)
 
-            if store.sessions.isEmpty {
+            if scopedSessions.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Image(systemName: "sparkles.rectangle.stack")
                         .font(.title2)
                         .foregroundStyle(AppTheme.mutedText)
                     Text("No sessions yet")
                         .font(.headline)
-                    Text("Use + to create a draft, or Open from a GitHub issue.")
+                    Text(emptySessionsMessage)
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .padding(18)
@@ -441,7 +452,14 @@ struct PiAgentScreen: View {
     }
 
     private var runningCount: Int {
-        store.sessions.filter { viewModel.isPiAgentSessionRunning($0.id) }.count
+        scopedSessions.filter { viewModel.isPiAgentSessionRunning($0.id) }.count
+    }
+
+    private var emptySessionsMessage: String {
+        if let project = viewModel.selectedDiscoveredProject {
+            return "Use + to create a draft for \(project.name), or Open from a GitHub issue."
+        }
+        return "Use + to create a draft in \(viewModel.configuredProjectsRootPath), or select a project to narrow the list."
     }
 
     private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {
@@ -463,6 +481,19 @@ struct PiAgentScreen: View {
         PiModelCapability.supportsXhigh(modelID: modelID)
             ? ["off", "minimal", "low", "medium", "high", "xhigh"]
             : ["off", "minimal", "low", "medium", "high"]
+    }
+
+    private func syncVisibleSessionSelection() {
+        if let selectedID = store.selectedSession?.id,
+           visibleSessions.contains(where: { $0.id == selectedID }) {
+            return
+        }
+
+        if let firstVisible = visibleSessions.first {
+            store.select(firstVisible.id)
+        } else {
+            store.clearSelection()
+        }
     }
 
     private func syncSelectedSessionTitleDraft() {
@@ -555,9 +586,9 @@ private struct PiAgentStartupResourcesCard: View {
                         resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
                         resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
                     }
-                    resourceSection("Agents", count: agentItems.count, icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
-                    resourceSection("Skills", count: skillItems.count, icon: "wand.and.stars", color: .purple, items: skillItems)
-                    resourceSection("Prompts", count: promptItems.count, icon: "text.badge.star", color: .indigo, items: promptItems)
+                    resourceSection("Agents", count: effectiveResourceCount(agentItems), icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
+                    resourceSection("Skills", count: effectiveResourceCount(skillItems), icon: "wand.and.stars", color: .purple, items: skillItems)
+                    resourceSection("Prompts", count: effectiveResourceCount(promptItems), icon: "text.badge.star", color: .indigo, items: promptItems)
                     resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
                 }
             }
@@ -605,6 +636,10 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private var agentItems: [PiStartupResourceItem] {
+        guard session.subagentsEnabled else {
+            return [.init(title: "This session started with subagents disabled", detail: "Re-enable subagents before creating a new session if you want agent discovery again.", kind: .none)]
+        }
+
         let enabled = startupSnapshot.effectiveAgents
             .filter { $0.resolved.disabled != true }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -622,7 +657,7 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private var skillItems: [PiStartupResourceItem] {
-        startupSnapshot.skills
+        return startupSnapshot.skills
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { skill in
                 let scope = skill.source.kind == .project ? "Project" : skill.source.kind.rawValue
@@ -698,6 +733,10 @@ private struct PiAgentStartupResourcesCard: View {
                 .fill(AppTheme.subtleFill.opacity(0.65))
                 .stroke(AppTheme.cardStroke.opacity(0.8), lineWidth: 1)
         )
+    }
+
+    private func effectiveResourceCount(_ items: [PiStartupResourceItem]) -> Int {
+        items.count == 1 && items.first?.kind == .none ? 0 : items.count
     }
 
     private func chunk(_ items: [PiStartupResourceItem], size: Int) -> [[PiStartupResourceItem]] {

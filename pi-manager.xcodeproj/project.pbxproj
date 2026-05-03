@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1A90433A8BD204FD61E7FE46 /* subagents-toggle.ts in Resources */ = {isa = PBXBuildFile; fileRef = D56D4791AF03075B76911187 /* subagents-toggle.ts */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		6572B16B2FA2391500596CE4 /* pi-manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pi-manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D56D4791AF03075B76911187 /* subagents-toggle.ts */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.typescript; name = "subagents-toggle.ts"; path = "pi-manager/bundled-extensions/subagents-toggle.ts"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +39,7 @@
 			children = (
 				6572B16D2FA2391500596CE4 /* pi-manager */,
 				6572B16C2FA2391500596CE4 /* Products */,
+				D56D4791AF03075B76911187 /* subagents-toggle.ts */,
 			);
 			sourceTree = "<group>";
 		};
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A90433A8BD204FD61E7FE46 /* subagents-toggle.ts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

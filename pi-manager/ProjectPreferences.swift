@@ -5,12 +5,34 @@ struct ProjectPreference: Codable, Hashable, Identifiable {
     let path: String
     var isEnabled: Bool
     var isFavorite: Bool
+    var isHidden: Bool
     var customIconPath: String?
 
     var id: String { path }
 
     static func `default`(for path: String) -> ProjectPreference {
-        ProjectPreference(path: path, isEnabled: false, isFavorite: false, customIconPath: nil)
+        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case path, isEnabled, isFavorite, isHidden, customIconPath
+    }
+
+    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?) {
+        self.path = path
+        self.isEnabled = isEnabled
+        self.isFavorite = isFavorite
+        self.isHidden = isHidden
+        self.customIconPath = customIconPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
+        customIconPath = try container.decodeIfPresent(String.self, forKey: .customIconPath)
     }
 }
 
@@ -33,6 +55,11 @@ final class ProjectPreferencesStore {
         if preferencesByPath[standardizedPath] == nil {
             preferencesByPath[standardizedPath] = .default(for: standardizedPath)
             persist()
+            return
+        }
+
+        if preferencesByPath[standardizedPath]?.isHidden == true {
+            update(standardizedPath) { $0.isHidden = false }
         }
     }
 
@@ -46,6 +73,21 @@ final class ProjectPreferencesStore {
 
     func setFavorite(_ isFavorite: Bool, for path: String) {
         update(path) { $0.isFavorite = isFavorite }
+    }
+
+    func setHidden(_ isHidden: Bool, for path: String) {
+        update(path) { $0.isHidden = isHidden }
+    }
+
+    func setAllEnabled(_ isEnabled: Bool, for paths: [String]) {
+        let normalizedPaths = paths.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        for path in normalizedPaths {
+            var preference = preferencesByPath[path] ?? .default(for: path)
+            preference.isEnabled = isEnabled
+            preference.isHidden = false
+            preferencesByPath[path] = preference
+        }
+        persist()
     }
 
     func setCustomIcon(from sourceURL: URL, for path: String) throws {
@@ -123,6 +165,7 @@ final class ProjectPreferencesStore {
                 path: standardizedPath,
                 isEnabled: preference.isEnabled,
                 isFavorite: preference.isFavorite,
+                isHidden: preference.isHidden,
                 customIconPath: preference.customIconPath
             ))
         })

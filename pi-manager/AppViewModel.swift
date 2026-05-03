@@ -8,7 +8,7 @@ import UserNotifications
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published var snapshot: ScanSnapshot = .empty
-    @Published var selectedSidebarItem: SidebarItem = .overview
+    @Published var selectedSidebarItem: SidebarItem = .agent
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
     @Published var selectedChainID: ChainRecord.ID?
     @Published var selectedSkillID: SkillRecord.ID?
@@ -88,6 +88,7 @@ final class AppViewModel: ObservableObject {
         self.piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
         appSettings = appSettingsStore.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
+        piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
         refresh(includeModels: true)
         lastWatchFingerprint = watchFingerprint()
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
@@ -111,6 +112,7 @@ final class AppViewModel: ObservableObject {
 
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
         discoveredProjects = projectDiscovery.discoverProjects(
+            rootDirectoryURL: configuredProjectsRootURL,
             additionalProjectPaths: Array(projectPreferencesByPath.keys),
             preferencesByPath: projectPreferencesByPath
         )
@@ -137,6 +139,8 @@ final class AppViewModel: ObservableObject {
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
         lastWatchFingerprint = watchFingerprint()
+
+        piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
 
         if includeModels {
             refreshAvailableModels()
@@ -205,6 +209,35 @@ final class AppViewModel: ObservableObject {
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
 
         if !isEnabled, selectedProjectPath == project.path {
+            projectRootURL = nil
+            selectedProjectPath = nil
+            persistSelectedProjectPath(nil)
+        }
+
+        refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
+    }
+
+    func setAllProjectsEnabled(_ isEnabled: Bool) {
+        let paths = discoveredProjects.map(\.path)
+        projectPreferencesStore.setAllEnabled(isEnabled, for: paths)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+
+        if !isEnabled, selectedProjectPath != nil {
+            projectRootURL = nil
+            selectedProjectPath = nil
+            persistSelectedProjectPath(nil)
+        }
+
+        refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
+    }
+
+    func removeProjectFromLibrary(_ project: DiscoveredProject) {
+        projectPreferencesStore.setHidden(true, for: project.path)
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+
+        if selectedProjectPath == project.path {
             projectRootURL = nil
             selectedProjectPath = nil
             persistSelectedProjectPath(nil)
@@ -899,7 +932,7 @@ final class AppViewModel: ObservableObject {
     func openPiAgentForSelectedProject() {
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        guard let project = selectedDiscoveredProject else { return }
+        let project = piAgentSessionProjectContext()
         if piAgentSessionStore.selectedSession?.projectPath != project.path {
             let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
             if let existing {
@@ -916,11 +949,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func createPiAgentDraftForSelectedProject() {
-        guard let project = selectedDiscoveredProject else {
-            githubLastError = "Select a project before starting Pi Agent."
-            selectedSidebarItem = .agent
-            return
-        }
+        let project = piAgentSessionProjectContext()
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
         _ = piAgentSessionStore.createSession(
@@ -1324,10 +1353,74 @@ final class AppViewModel: ObservableObject {
         appSettingsStore.settings = appSettings
     }
 
+    func chooseProjectsRootDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Folder"
+        panel.message = "Choose the folder Pi Manager should scan for projects and use for projectless Pi Agent sessions."
+        panel.directoryURL = configuredProjectsRootURL
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setProjectsRootPath(url.path)
+    }
+
+    func setProjectsRootPath(_ path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPath = trimmed.isEmpty
+            ? ProjectDiscovery.defaultRootDirectoryURL().path
+            : URL(fileURLWithPath: trimmed).standardizedFileURL.path
+        guard appSettings.projectsRootPath != normalizedPath else { return }
+        appSettings.projectsRootPath = normalizedPath
+        appSettingsStore.settings = appSettings
+        refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
+    }
+
+    func resetProjectsRootPathToDefault() {
+        setProjectsRootPath(ProjectDiscovery.defaultRootDirectoryURL().path)
+    }
+
     func setPiAgentThinkingDisplayMode(_ mode: PiAgentThinkingDisplayMode) {
         guard appSettings.piAgentThinkingDisplayMode != mode else { return }
         appSettings.piAgentThinkingDisplayMode = mode
         appSettingsStore.settings = appSettings
+    }
+
+    var isSubagentsToggleExtensionInstalled: Bool {
+        let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions")
+        let candidates = [
+            base.appendingPathComponent("subagents-toggle.ts"),
+            base.appendingPathComponent("subagents-toggle/index.ts")
+        ]
+        return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    var canShowPiAgentSubagentsToggle: Bool {
+        isSubagentsToggleExtensionInstalled && isPackageInstalled("pi-subagents")
+    }
+
+    var areSubagentsEnabledForNewSessions: Bool {
+        subagentsPackageEntries().contains(where: isSubagentsPackageEntry)
+    }
+
+    func toggleSubagentsForNewSessions() {
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/settings.json")
+
+        var settings = loadJSONSettings(at: settingsURL) ?? [:]
+        let packages = subagentsPackageEntries(from: settings)
+
+        if areSubagentsEnabledForNewSessions {
+            settings["packages"] = packages.filter { !isSubagentsPackageEntry($0) }
+        } else {
+            settings["packages"] = packages + ["npm:pi-subagents"]
+        }
+
+        saveJSONSettings(settings, to: settingsURL)
+        piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
+        refresh(includeModels: false)
     }
 
     private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {
@@ -1482,26 +1575,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func scopedStartupSnapshot(projectSnapshot: ScanSnapshot) -> ScanSnapshot {
-        ScanSnapshot(
-            projectRoot: projectSnapshot.projectRoot,
-            builtinAgents: globalSnapshot.builtinAgents,
-            globalAgents: globalSnapshot.globalAgents,
-            projectAgents: projectSnapshot.projectAgents,
-            legacyProjectAgents: projectSnapshot.legacyProjectAgents,
-            effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
-            chains: globalSnapshot.chains + projectSnapshot.chains,
-            libraryAgents: globalSnapshot.libraryAgents,
-            libraryChains: globalSnapshot.libraryChains,
-            skills: globalSnapshot.skills + projectSnapshot.skills,
-            librarySkills: globalSnapshot.librarySkills,
-            commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
-            promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
-            libraryPromptTemplates: deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshot.libraryPromptTemplates),
-            settings: globalSnapshot.settings + projectSnapshot.settings,
-            envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
-            subagentConfig: globalSnapshot.subagentConfig,
-            warnings: globalSnapshot.warnings + projectSnapshot.warnings
-        )
+        projectSnapshot
     }
 
     var selectedCommand: CommandRecord? {
@@ -1568,6 +1642,17 @@ final class AppViewModel: ObservableObject {
         projectRootURL?.lastPathComponent ?? "All Projects"
     }
 
+    var configuredProjectsRootURL: URL {
+        let trimmed = appSettings.projectsRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = ProjectDiscovery.defaultRootDirectoryURL()
+        guard !trimmed.isEmpty else { return fallback }
+        return URL(fileURLWithPath: trimmed).standardizedFileURL
+    }
+
+    var configuredProjectsRootPath: String {
+        configuredProjectsRootURL.path
+    }
+
     var enabledProjects: [DiscoveredProject] {
         discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
     }
@@ -1588,6 +1673,23 @@ final class AppViewModel: ObservableObject {
     var selectedGitHubProject: DiscoveredProject? {
         guard let selectedDiscoveredProject, selectedDiscoveredProject.isGitHubRepository else { return nil }
         return selectedDiscoveredProject
+    }
+
+    func piAgentSessionProjectContext() -> DiscoveredProject {
+        if let selectedDiscoveredProject {
+            return selectedDiscoveredProject
+        }
+
+        let rootURL = configuredProjectsRootURL
+        let rootName = rootURL.lastPathComponent.isEmpty ? rootURL.path : rootURL.lastPathComponent
+        return DiscoveredProject(
+            url: rootURL,
+            gitHubRemote: nil,
+            isGitRepository: false,
+            iconFileURL: nil,
+            fallbackSymbolName: "folder",
+            searchIndex: [rootName, rootURL.path].joined(separator: "\n").lowercased()
+        )
     }
 
     var availableModelProviders: [String] {
@@ -2301,26 +2403,7 @@ final class AppViewModel: ObservableObject {
         guard includeProject, let selectedProjectPath, let projectSnapshot = allProjectSnapshots[selectedProjectPath] else {
             return globalSnapshot
         }
-        return ScanSnapshot(
-            projectRoot: projectSnapshot.projectRoot,
-            builtinAgents: globalSnapshot.builtinAgents,
-            globalAgents: globalSnapshot.globalAgents,
-            projectAgents: projectSnapshot.projectAgents,
-            legacyProjectAgents: projectSnapshot.legacyProjectAgents,
-            effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
-            chains: globalSnapshot.chains + projectSnapshot.chains,
-            libraryAgents: deduplicateByID(globalSnapshot.libraryAgents + projectSnapshot.libraryAgents),
-            libraryChains: deduplicateByID(globalSnapshot.libraryChains + projectSnapshot.libraryChains),
-            skills: globalSnapshot.skills + projectSnapshot.skills,
-            librarySkills: deduplicateByID(globalSnapshot.librarySkills + projectSnapshot.librarySkills),
-            commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
-            promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
-            libraryPromptTemplates: deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshot.libraryPromptTemplates),
-            settings: globalSnapshot.settings + projectSnapshot.settings,
-            envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
-            subagentConfig: globalSnapshot.subagentConfig,
-            warnings: globalSnapshot.warnings + projectSnapshot.warnings
-        )
+        return projectSnapshot
     }
 
     private func refreshAvailableModels() {
@@ -2467,10 +2550,14 @@ process.stdout.write(JSON.stringify(result));
     }
 
     private func projectName(from path: String) -> String? {
-        let marker = "/Documents/GitHub/"
-        guard let range = path.range(of: marker) else { return nil }
-        let remainder = path[range.upperBound...]
-        return remainder.split(separator: "/").first.map(String.init)
+        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        if let piIndex = components.lastIndex(of: ".pi"), piIndex > 0 {
+            return components[piIndex - 1]
+        }
+        if let agentsIndex = components.lastIndex(of: ".agents"), agentsIndex > 0 {
+            return components[agentsIndex - 1]
+        }
+        return nil
     }
 
     private func defaultCustomScope(for agent: EffectiveAgentRecord) -> AgentEditingTarget.CustomAgentScope {
@@ -2562,6 +2649,39 @@ process.stdout.write(JSON.stringify(result));
         ]
         return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
+
+    private func loadJSONSettings(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private func saveJSONSettings(_ settings: [String: Any], to url: URL) {
+        let directory = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard JSONSerialization.isValidJSONObject(settings),
+              let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private func subagentsPackageEntries() -> [Any] {
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/settings.json")
+        return subagentsPackageEntries(from: loadJSONSettings(at: settingsURL) ?? [:])
+    }
+
+    private func subagentsPackageEntries(from settings: [String: Any]) -> [Any] {
+        settings["packages"] as? [Any] ?? []
+    }
+
+    private func isSubagentsPackageEntry(_ entry: Any) -> Bool {
+        if let value = entry as? String {
+            return value == "npm:pi-subagents"
+        }
+        if let value = entry as? [String: Any], let source = value["source"] as? String {
+            return source == "npm:pi-subagents"
+        }
+        return false
+    }
 }
 
 enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
@@ -2575,6 +2695,7 @@ enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
 struct AppSettings: Codable, Hashable {
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
+    var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
 }
 
 @MainActor
@@ -2617,6 +2738,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case settings = "Settings"
     case environment = "Environment"
     case diagnostics = "Diagnostics"
+    case piDocs = "Pi Docs"
 
     var id: String { rawValue }
 
@@ -2635,6 +2757,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .settings: return "gearshape"
         case .environment: return "key"
         case .diagnostics: return "stethoscope"
+        case .piDocs: return "book"
         }
     }
 }
@@ -2643,17 +2766,20 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case workspace = "Workspace"
     case piResources = "Pi Resources"
     case runtime = "Runtime"
+    case reference = "Reference"
 
     var id: String { rawValue }
 
     var items: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.overview, .projects, .github, .agent]
+            return [.overview, .projects, .github]
         case .piResources:
             return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:
             return [.models, .settings, .environment, .diagnostics]
+        case .reference:
+            return [.piDocs]
         }
     }
 }

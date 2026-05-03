@@ -1,155 +1,48 @@
+---
+head: 353b1b58279f6ea2186a2773baf61a50f28fdd97
+dirty: true
+generatedAt: 2026-05-03T22:28:16Z
+taskScope: default view, sidebar, Pi Agent sessions/project filtering, session/root-folder settings, projects layout
+changeSummarySincePrevious: cache existed but had no required metadata and covered unrelated agent override scope; working tree dirty in AppViewModel.swift and ContentView.swift, both relevant
+reusedCache: false
+---
+
 # Code Context
 
+## Scope
+Likely edit points for initial/default view, sidebar items/badges, Pi Agent session filtering by selected project, session creation/root folder config, settings for projects root folder, and Projects layout.
+
 ## Files Retrieved
-1. `pi-manager/Models.swift` (lines 54-159, 244-292) - core agent/settings data models, including `AgentConfig.disabled`, `BuiltinOverrideRecord`, `SettingsSummary`, and `ScanSnapshot`.
-2. `pi-manager/PiScanner.swift` (lines 5-90, 632-826) - settings discovery/parsing, builtin override resolution, global/project disable-builtins behavior, and per-agent `disabled` override application.
-3. `pi-manager/AgentPersistence.swift` (lines 78-141, 184-189) - current JSON write path for builtin overrides under `subagents.agentOverrides` and settings file target paths.
-4. `pi-manager/AppViewModel.swift` (lines 1007-1033, 1125-1131, 1248-1309) - Agents screen data source/filtering, save refresh flow, aggregate/scope snapshot behavior.
-5. `pi-manager/ContentView.swift` (lines 1278-1437, 1438-1843, 2540-2629, 2959-2994) - Agents UI/list/detail/edit controls plus Diagnostics settings summary and agent editor disabled toggle.
-6. `pi-manager/EditingModels.swift` (lines 1-29) - `AgentEditingTarget` and `AgentEditorDraft` targets used by builtin override editing.
+1. `pi-manager/AppViewModel.swift` (lines 1-140, 146-205, 880-1059, 1568-1591, 2575-2665) - app state, default selection, project selection, Pi Agent session creation, settings/sidebar enums.
+2. `pi-manager/ContentView.swift` (lines 1-120, 330-540, 564-824, 1026-1205, 1288-1367) - NavigationSplitView sidebar/detail routing, badges, project picker, Projects screen, Settings screen.
+3. `pi-manager/PiAgentViews.swift` (lines 1-115) - Pi Agent sessions list and current filters.
+4. `pi-manager/PiAgentSessionStore.swift` (lines 1-95, 184-220) - persisted sessions, selected session behavior, create/delete.
+5. `pi-manager/PiAgentRunnerService.swift` (lines 1-42) - running project/issue sessions creates records and cwd source.
+6. `pi-manager/ProjectDiscovery.swift` (lines 1-65) - current hardcoded discovery root.
+7. `pi-manager/ProjectPreferences.swift` (lines 4-31, 74-91) - per-project enable/favorite/icon persisted in UserDefaults.
+8. `pi-manager/Models.swift` (lines 1-45) and `pi-manager/EnvPersistence.swift` (lines 10-16) - subagent `defaultSessionDir` model/persistence, not app projects root.
 
 ## Key Code
-
-### Settings and agent models
-`pi-manager/Models.swift`:
-```swift
-struct AgentConfig: Hashable {
-    var name: String
-    ...
-    var disabled: Bool?
-    ...
-}
-
-struct BuiltinOverrideRecord: Hashable {
-    let agentName: String
-    let scope: ScopeID
-    let settingsPath: String
-    let values: [String: Any]
-}
-
-struct SettingsSummary: Hashable {
-    let path: String
-    let packages: [String]
-    let prompts: [String]
-    let disableBuiltins: Bool?
-    let agentOverrides: [BuiltinOverrideRecord]
-}
-```
-`SettingsSummary.disableBuiltins` already models the global/project `subagents.disableBuiltins` value for display and resolution. Per-builtin toggles are already representable as `subagents.agentOverrides.<agent>.disabled` via `AgentConfig.disabled` and `BuiltinOverrideRecord.values`.
-
-### Settings scan and current disable flow
-`pi-manager/PiScanner.swift` parses settings:
-```swift
-let subagents = root["subagents"] as? [String: Any]
-let disableBuiltins = subagents?["disableBuiltins"] as? Bool
-let overridesRoot = (subagents?["agentOverrides"] as? [String: Any]) ?? [:]
-...
-return SettingsSummary(path: file.path, packages: packages, prompts: prompts, disableBuiltins: disableBuiltins, agentOverrides: overrides)
-```
-`scan(projectRoot:)` passes global/project settings into resolution:
-```swift
-userOverrides: globalSettingsSummary?.agentOverrides ?? [],
-projectOverrides: projectSettingsSummary?.agentOverrides ?? [],
-userDisableBuiltins: globalSettingsSummary?.disableBuiltins,
-projectDisableBuiltins: projectSettingsSummary?.disableBuiltins
-```
-Resolution precedence for builtins (`PiScanner.swift` lines 749-762):
-```swift
-if winner?.source.kind == .builtin {
-    if let projectOverride {
-        resolved = applyOverride(projectOverride, to: resolved)
-    } else if projectDisableBuiltins == true {
-        resolved.disabled = true
-    } else if let userOverride {
-        resolved = applyOverride(userOverride, to: resolved)
-    } else if projectDisableBuiltins == nil, userDisableBuiltins == true {
-        resolved.disabled = true
-    }
-}
-if resolved.disabled == true { return nil }
-```
-Important behavior: effective disabled builtins are removed from `snapshot.effectiveAgents`, so the current Agents list cannot show disabled builtins or toggle them back on unless the data model/UI gains access to hidden builtin records or disabled effective records.
-
-### Per-builtin override persistence
-`pi-manager/AgentPersistence.swift` writes builtin overrides:
-```swift
-let overridePath = settingsPath(for: scope, projectRoot: projectRoot)
-let overrideValues = buildBuiltinOverride(base: builtin, edited: edited)
-var root = try loadJSONObject(at: overridePath)
-var subagents = root["subagents"] as? [String: Any] ?? [:]
-var agentOverrides = subagents["agentOverrides"] as? [String: Any] ?? [:]
-
-if let overrideValues {
-    agentOverrides[original.name] = overrideValues
-} else {
-    agentOverrides.removeValue(forKey: original.name)
-}
-...
-root["subagents"] = subagents
-try writeJSON(root, to: overridePath)
-```
-`buildBuiltinOverride` already includes per-builtin disabled:
-```swift
-if edited.disabled != base.disabled { values["disabled"] = edited.disabled ?? false }
-```
-Settings paths:
-```swift
-.global  -> ~/.pi/agent/settings.json
-.project -> <projectRoot>/.pi/settings.json
-```
-
-### Agents UI and current edit points
-`pi-manager/ContentView.swift`:
-- `AgentsScreen` list is driven by `viewModel.filteredAgents` and only shows `snapshot.effectiveAgents`.
-- `AgentDetailView` action button calls `onEdit()`; for pure builtins this creates/edits a settings override.
-- `AgentEditorSheet` already has `Toggle("Disabled", isOn: optionalBoolBinding(for: \.disabled))`, so per-builtin enable/disable can be done through the existing override editor if the disabled builtin remains reachable.
-
-`pi-manager/AppViewModel.swift`:
-```swift
-var filteredAgents: [EffectiveAgentRecord] { snapshot.effectiveAgents.filter { ... } }
-func makeAgentDraft(for agent: EffectiveAgentRecord, preferredOverrideScope: ...) -> AgentEditorDraft? { ... }
-func saveAgentDraft(_ draft: AgentEditorDraft, for agent: EffectiveAgentRecord) throws {
-    try agentPersistence.save(draft, original: agent, projectRoot: selectedProjectPath)
-    refresh(includeModels: false)
-}
-```
-
-### Diagnostics settings summary
-`pi-manager/ContentView.swift` lines 2551-2618 display parsed settings:
-```swift
-("Disable Builtins", boolLabel(settings.disableBuiltins)),
-("Override Count", "\(settings.agentOverrides.count)"),
-...
-ForEach(settings.agentOverrides, id: \.agentName) { override in
-    Text(override.agentName)
-    Text(prettyJSONObject(override.values))
-}
-```
-This will automatically display per-agent `{ "disabled": true/false }` once persisted under `agentOverrides`, but it is read-only.
+- Default initial view: `AppViewModel.selectedSidebarItem` is initialized to `.overview` at `AppViewModel.swift:11`; `ContentView.detailView` routes `.overview` to `OverviewScreen` at `ContentView.swift:413-418`. Change default tab here if needed.
+- Sidebar structure/badges: `SidebarItem` and icons at `AppViewModel.swift:2606-2641`; grouping/order in `SidebarSection.items` at `AppViewModel.swift:2644-2665`. Sidebar UI iterates sections/items at `ContentView.swift:33-65`. Only current badge is Pi Agent attention count (`ContentView.swift:49-56`), sourced by `AppViewModel.piAgentNeedsAttentionCount` (`AppViewModel.swift:964-966`).
+- Project selection state: `selectedProjectPath` is persisted with key `lastSelectedProjectPath` (`AppViewModel.swift:19, 77`). `setSelectedProject`, `clearProjectRoot`, `chooseProjectRoot/addProject` are at `AppViewModel.swift:146-190`; `selectedDiscoveredProject` and `enabledProjects` at `AppViewModel.swift:1571-1585`.
+- Discovery root: `ProjectDiscovery.discoverProjects` hardcodes `~/Documents/GitHub` (`ProjectDiscovery.swift:12-20`). Manual project paths come from `ProjectPreferencesStore` and are merged in (`ProjectDiscovery.swift:45-47`).
+- Pi Agent sessions view: `PiAgentScreen.visibleSessions` currently filters only attention/search and prefixes all store sessions to 10 (`PiAgentViews.swift:35-42`); it does **not** filter by active project. Header counts also use all sessions (`PiAgentViews.swift:62-67`). New session button requires `selectedDiscoveredProject` and calls `createPiAgentDraftForSelectedProject` (`PiAgentViews.swift:86-91`).
+- Session creation: `PiAgentSessionStore.createSession` records `projectPath`/`projectName`, inserts at front, selects it, persists (`PiAgentSessionStore.swift:35-85`). `AppViewModel.createPiAgentDraftForSelectedProject` always creates a new draft for the selected project (`AppViewModel.swift:918-932`). `openPiAgentForSelectedProject` reuses first existing `.project` session for project or creates one (`AppViewModel.swift:899-916`). `PiAgentRunnerService.startProjectSession/resume` runs in `project.url` or `session.worktreePath ?? session.projectPath` (`PiAgentRunnerService.swift:22-32, 43-46`).
+- Settings: `AppSettings` currently only stores GitHub cache lifetime and Pi Agent thinking display (`AppViewModel.swift:2575-2578`), persisted by `AppSettingsStore` (`AppViewModel.swift:2581-2604`). `SettingsScreen` has cards for GitHub, Pi Agent, Subagents, Future Settings (`ContentView.swift:1288-1334`). No projects-root setting exists today.
+- Projects layout: `ProjectsScreen` is private in `ContentView.swift:1026-1205`: ScrollView > AppCard("Library") with search + segmented filter and row cards. `visibleProjects` searches all discovered projects and filters by enabled/favorite/disabled (`ContentView.swift:1097-1114`). Rows contain icon editor, repo/path, favorite, select, enabled toggle (`ContentView.swift:1118-1204`).
 
 ## Architecture
-
-Data flow today:
-1. `PiScanner.scan(projectRoot:)` reads builtin markdown agents from `/opt/homebrew/lib/node_modules/pi-subagents/agents`, global/project markdown agents, and settings files (`~/.pi/agent/settings.json`, `<project>/.pi/settings.json`).
-2. `scanSettings` returns `SettingsSummary` with `disableBuiltins` and parsed `BuiltinOverrideRecord`s from `subagents.agentOverrides`.
-3. `resolveAgents` combines builtins/custom agents/overrides. Builtin overrides patch `AgentConfig`; `disabled == true` causes the resolved agent to be omitted entirely.
-4. `AppViewModel.refresh` stores the selected/aggregate `ScanSnapshot`; `filteredAgents` feeds `AgentsScreen`.
-5. `ContentView` opens `AgentEditorSheet` for builtins as `.builtinOverride(scope)` drafts.
-6. `AgentPersistence.saveBuiltinOverride` writes only changed fields to `subagents.agentOverrides.<name>`, including `disabled`.
-
-Cleanest edit points:
-- Global disable-builtins toggle persistence: add focused methods in `AgentPersistence` (or a small new settings persistence type) that read/write `subagents.disableBuiltins` at the same settings paths as `settingsPath(for:)`. Then expose through `AppViewModel` and call from either Settings screen or Agents toolbar/card.
-- Global disable-builtins UI state: use `snapshot.settings` to find the global settings summary (`~/.pi/agent/settings.json`) and display/control `disableBuiltins`. Beware absent settings file currently means no `SettingsSummary`; persistence should create JSON as needed.
-- Per-builtin toggles: `AgentEditorSheet` and `buildBuiltinOverride` already support `disabled`; the missing piece is visibility/reachability of disabled builtins. Consider changing `resolveAgents` to retain disabled effective records for UI (then filter them out only where runtime-active lists are needed), or add a separate `disabledBuiltinAgents`/`allBuiltinAgentStates` model. Current `.disabled` filter is ineffective for disabled builtins because they are removed before reaching `snapshot.effectiveAgents`.
-- Diagnostics summary: `SettingsSummary` already contains `disableBuiltins` and override JSON; add richer UI if needed, but not required for persistence.
-
-Constraints / risks:
-- Current precedence lets a project override beat `projectDisableBuiltins == true`; a global override also beats global disable unless project `disableBuiltins` is true. Confirm this matches intended pi-subagents behavior before changing.
-- `resolveAgents` removal of disabled agents affects warnings, chains, filters, selection, and aggregate snapshots. If retaining disabled records, distinguish “runtime active agents” from “manager-visible agents” to avoid false warnings and chain availability changes.
-- Project/global scopes matter: global toggle requested as “global disable-builtins” likely maps to `~/.pi/agent/settings.json` `subagents.disableBuiltins`; project settings also already support the field.
+`ContentView` owns the main `AppViewModel` and uses `selectedSidebarItem` for navigation. `AppViewModel.refresh` discovers projects, scans enabled projects, restores selected project if still enabled, or falls back to aggregate/all-project snapshot. Project preferences are separate UserDefaults records; app settings are another UserDefaults blob. Pi Agent sessions are persisted independently under Application Support and only reference projects by path.
 
 ## Start Here
-Open `pi-manager/PiScanner.swift` at lines 632-762 first. It shows exactly how `disableBuiltins` and per-builtin `disabled` overrides are parsed and why disabled builtins disappear from the Agents screen.
+Open `pi-manager/AppViewModel.swift`: it contains the default view, selected project state, Pi Agent session actions, app settings, and sidebar enums. Then open `PiAgentViews.swift` for session list filtering UI.
+
+## Constraints And Risks
+- Working tree is dirty in `AppViewModel.swift` and `ContentView.swift`; inspect current diffs before editing.
+- Filtering Pi Agent sessions by active project must decide what happens in “All Projects” mode and how selected hidden sessions behave.
+- Adding a projects-root setting requires touching `AppSettings`, `AppSettingsStore`, `SettingsScreen`, and `ProjectDiscovery.discoverProjects` signature/default behavior; update empty text that currently says `~/Documents/GitHub`.
+- `defaultSessionDir` is subagent package config, not the Pi Manager project discovery root.
 
 ## Pi-intercom handoff
-No safe orchestrator target was named; no intercom handoff sent.
+Not sent; no safe orchestrator target required for routine completion.

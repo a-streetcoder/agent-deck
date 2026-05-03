@@ -19,12 +19,28 @@ struct DiscoveredProject: Identifiable, Hashable {
 struct ProjectDiscovery {
     private let fileManager = FileManager.default
 
+    static func defaultRootDirectoryURL(fileManager: FileManager = .default) -> URL {
+        let home = fileManager.homeDirectoryForCurrentUser
+        let candidates = [
+            home.appendingPathComponent("Documents/GitHub", isDirectory: true),
+            home.appendingPathComponent("GitHub", isDirectory: true),
+            home.appendingPathComponent("Code", isDirectory: true),
+            home.appendingPathComponent("Developer", isDirectory: true)
+        ].map(\.standardizedFileURL)
+
+        for candidate in candidates where directoryExists(candidate, fileManager: fileManager) {
+            return candidate
+        }
+
+        return candidates.first ?? home.standardizedFileURL
+    }
+
     func discoverProjects(
+        rootDirectoryURL: URL = ProjectDiscovery.defaultRootDirectoryURL(),
         additionalProjectPaths: [String] = [],
         preferencesByPath: [String: ProjectPreference] = [:]
     ) -> [DiscoveredProject] {
-        let root = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/GitHub", isDirectory: true)
+        let root = rootDirectoryURL.standardizedFileURL
 
         let discoveredRootChildren = (try? fileManager.contentsOfDirectory(
             at: root,
@@ -42,6 +58,7 @@ struct ProjectDiscovery {
 
             let remote = gitHubRemote(for: standardizedURL)
             let preference = preferencesByPath[standardizedURL.path]
+            guard preference?.isHidden != true else { return }
             let repositoryName = remote?.nameWithOwner ?? standardizedURL.lastPathComponent
             let searchIndex = [
                 repositoryName,
@@ -289,5 +306,10 @@ struct ProjectDiscovery {
         (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.contains {
             $0.pathExtension == pathExtension
         } ?? false
+    }
+
+    private static func directoryExists(_ url: URL, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

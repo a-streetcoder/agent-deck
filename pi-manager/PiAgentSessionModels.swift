@@ -108,6 +108,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var cost: Double?
     var pendingSteeringMessages: [String]
     var pendingFollowUpMessages: [String]
+    var subagentsEnabled: Bool
     var createdAt: Date
     var updatedAt: Date
 
@@ -123,7 +124,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, thinkingLevel, launchCommand, branchName, worktreePath
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, cost
-        case pendingSteeringMessages, pendingFollowUpMessages, createdAt, updatedAt
+        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, createdAt, updatedAt
     }
 
     init(
@@ -165,6 +166,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         cost: Double?,
         pendingSteeringMessages: [String],
         pendingFollowUpMessages: [String],
+        subagentsEnabled: Bool,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -206,6 +208,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.cost = cost
         self.pendingSteeringMessages = pendingSteeringMessages
         self.pendingFollowUpMessages = pendingFollowUpMessages
+        self.subagentsEnabled = subagentsEnabled
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -251,6 +254,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             cost: try container.decodeIfPresent(Double.self, forKey: .cost),
             pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
             pendingFollowUpMessages: try container.decodeIfPresent([String].self, forKey: .pendingFollowUpMessages) ?? [],
+            subagentsEnabled: try container.decodeIfPresent(Bool.self, forKey: .subagentsEnabled) ?? true,
             createdAt: try container.decode(Date.self, forKey: .createdAt),
             updatedAt: try container.decode(Date.self, forKey: .updatedAt)
         )
