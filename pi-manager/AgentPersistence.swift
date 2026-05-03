@@ -103,6 +103,9 @@ struct AgentPersistence {
                 if let value = rawValue as? Bool { result.inheritProjectContext = value }
             case "inheritSkills":
                 if let value = rawValue as? Bool { result.inheritSkills = value }
+            case "defaultContext":
+                if let value = rawValue as? String { result.defaultContext = value }
+                else if rawValue as? Bool == false { result.defaultContext = nil }
             case "disabled":
                 if let value = rawValue as? Bool { result.disabled = value }
             case "skills":
@@ -177,6 +180,7 @@ struct AgentPersistence {
         let editedInheritSkills = edited.inheritSkills ?? false
         let baseInheritSkills = base.inheritSkills ?? false
         if editedInheritSkills != baseInheritSkills { values["inheritSkills"] = editedInheritSkills }
+        if edited.defaultContext != base.defaultContext { values["defaultContext"] = edited.defaultContext ?? false }
         if edited.disabled != base.disabled { values["disabled"] = edited.disabled ?? false }
         if !arraysEqual(edited.skills, base.skills) { values["skills"] = edited.skills.isEmpty ? false : edited.skills }
         let editedToolList = joinedTools(from: edited)
@@ -285,6 +289,7 @@ struct AgentPersistence {
         lines.append("systemPromptMode: \(config.systemPromptMode ?? defaultSystemPromptMode(name: config.name))")
         lines.append("inheritProjectContext: \((config.inheritProjectContext ?? defaultInheritProjectContext(name: config.name)) ? "true" : "false")")
         lines.append("inheritSkills: \((config.inheritSkills ?? false) ? "true" : "false")")
+        if let defaultContext = config.defaultContext { lines.append("defaultContext: \(defaultContext)") }
         if let skills = joinComma(config.skills) { lines.append("skills: \(skills)") }
         if let extensions = config.extensions { lines.append("extensions: \(joinComma(extensions) ?? "")") }
         if let output = config.output { lines.append("output: \(output)") }
@@ -328,6 +333,7 @@ struct AgentPersistence {
         switch scope {
         case .global:
             return path.hasPrefix(homeDirectory().appendingPathComponent(".pi/agent/agents").path) ||
+                path.hasPrefix(homeDirectory().appendingPathComponent(".pi/agent/agent-library/agents").path) ||
                 path.hasPrefix(homeDirectory().appendingPathComponent(".agents").path)
         case .project:
             guard let projectRoot else { return false }

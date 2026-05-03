@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
     @State private var isSkillsRecapPresented = false
+    @State private var isSubagentsInfoPresented = false
+    @State private var isSubagentsRecapPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -118,6 +120,26 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agents {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        isSubagentsInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .help("Explain subagent library visibility")
+                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+                        SubagentsInfoPopover()
+                    }
+
+                    Button {
+                        isSubagentsRecapPresented.toggle()
+                    } label: {
+                        Label("Project Recap", systemImage: "sidebar.right")
+                    }
+                    .help("Show subagents available for the selected project")
+                    .disabled(viewModel.selectedProjectPath == nil)
+
+                    Divider()
+
                     Menu {
                         ForEach(AgentFilter.allCases) { filter in
                             Button {
@@ -241,6 +263,28 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .help("Create a new environment key")
+                }
+            }
+
+            if viewModel.selectedSidebarItem == .chains {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        isSubagentsInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .help("Explain subagent library visibility")
+                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+                        SubagentsInfoPopover()
+                    }
+
+                    Button {
+                        isSubagentsRecapPresented.toggle()
+                    } label: {
+                        Label("Project Recap", systemImage: "sidebar.right")
+                    }
+                    .help("Show subagents available for the selected project")
+                    .disabled(viewModel.selectedProjectPath == nil)
                 }
             }
 
@@ -373,7 +417,8 @@ struct ContentView: View {
             AgentsScreen(
                 viewModel: viewModel,
                 editCommand: agentDetailEditCommand,
-                isEditing: $agentDetailIsEditing
+                isEditing: $agentDetailIsEditing,
+                isRecapPresented: $isSubagentsRecapPresented
             )
         case .chains:
             ChainsScreen(
@@ -389,7 +434,8 @@ struct ContentView: View {
                 },
                 onEditChain: { chain in
                     chainDraft = viewModel.makeChainDraft(for: chain)
-                }
+                },
+                isRecapPresented: $isSubagentsRecapPresented
             )
         case .skills:
             SkillsScreen(viewModel: viewModel, isRecapPresented: $isSkillsRecapPresented)
@@ -1563,76 +1609,13 @@ private struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     let editCommand: Int
     @Binding var isEditing: Bool
+    @Binding var isRecapPresented: Bool
 
     var body: some View {
-        HSplitView {
-            AppSidebarPane(title: "Agents", subtitle: "\(viewModel.filteredAgents.count) visible") {
-                List(selection: $viewModel.selectedAgentID) {
-                        ForEach(viewModel.filteredAgents) { agent in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(alignment: .top) {
-                                    Text(agent.name)
-                                        .font(.headline)
-                                        .fontWidth(.expanded)
-                                        .lineLimit(2)
-                                        .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
-                                    Spacer(minLength: 8)
-                                    AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
-                                }
-
-                                Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .lineLimit(2)
-
-                                HStack(spacing: 8) {
-                                    if !agent.resolved.skills.isEmpty {
-                                        rowIndicator("sparkles", color: .green)
-                                    }
-                                    if agent.resolved.inheritSkills == true {
-                                        rowIndicator("square.stack.3d.up", color: .mint)
-                                    }
-                                    if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
-                                        rowIndicator("wrench.and.screwdriver", color: .blue)
-                                    }
-                                    if let extensions = agent.resolved.extensions, !extensions.isEmpty {
-                                        rowIndicator("puzzlepiece.extension", color: .orange)
-                                    }
-                                    if agent.resolved.output != nil {
-                                        rowIndicator("arrow.down.doc", color: .purple)
-                                    }
-                                    if agent.resolved.disabled == true {
-                                        rowIndicator("nosign", color: .red)
-                                    }
-                                    if !viewModel.warnings(for: agent).isEmpty {
-                                        rowIndicator("exclamationmark.triangle", color: .orange)
-                                    }
-                                }
-
-                                HStack(alignment: .center, spacing: 8) {
-                                    if let projectRoot = agent.projectRoot,
-                                       viewModel.selectedProjectPath == nil,
-                                       (agent.projectCustom != nil || agent.projectOverride != nil) {
-                                        Text(URL(fileURLWithPath: projectRoot).lastPathComponent)
-                                            .font(.caption)
-                                            .foregroundStyle(AppTheme.mutedText)
-                                    }
-
-                                    if let stateBadge = viewModel.builtinStateBadge(for: agent) {
-                                        Text(stateBadge.text)
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(stateBadge.color)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 6)
-                            .opacity(agent.resolved.disabled == true ? 0.68 : 1)
-                            .saturation(agent.resolved.disabled == true ? 0 : 1)
-                            .tag(agent.id)
-                        }
-                    }
-                    .listStyle(.inset)
-            }
-            .frame(minWidth: 340, idealWidth: 400, maxWidth: 500)
+        HStack(spacing: 0) {
+            HSplitView {
+                AgentLibraryPane(viewModel: viewModel)
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
             if let agent = viewModel.selectedAgent {
                 AgentDetailView(
@@ -1648,14 +1631,233 @@ private struct AgentsScreen: View {
                     onSaveDraft: { draft in try viewModel.saveAgentDraft(draft, for: agent) },
                     onSetBuiltinDisabled: { scope, isDisabled in
                         viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
-                    }
+                    },
+                    managedAgent: agentIsLibraryManageable(agent) ? agent.winningRecord : nil,
+                    isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
+                    assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
+                    setAgentGlobal: { record, enabled in
+                        if enabled { try viewModel.enableAgentGlobally(record) } else { try viewModel.disableAgentGlobally(record) }
+                    },
+                    setAgentForProject: { record, project, enabled in
+                        try viewModel.setAgent(record, enabled: enabled, for: project)
+                    },
+                    moveAgentToLibrary: { record in
+                        try viewModel.moveAgentToLibrary(record)
+                    },
+                    projects: viewModel.enabledProjects
                 )
             } else {
                 ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+
+            if isRecapPresented, let project = viewModel.selectedDiscoveredProject {
+                Divider()
+                SubagentsProjectRecapPanel(
+                    project: project,
+                    snapshot: viewModel.startupSnapshot(forProjectPath: project.path),
+                    libraryAgents: viewModel.snapshot.libraryAgents,
+                    libraryChains: viewModel.snapshot.libraryChains,
+                    onClose: { isRecapPresented = false }
+                )
+                .frame(width: 400)
+            }
+        }
     }
+}
+
+private struct AgentLibraryPane: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        AppPage("Agents", subtitle: subtitle) {
+            VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                if let selectedProject = viewModel.selectedDiscoveredProject {
+                    AppCard(title: "Active in \(selectedProject.name)") {
+                        agentGrid(activeCustomAgents, emptyText: "No custom agents are active for this project.")
+                    }
+
+                    if !libraryAgents.isEmpty {
+                        AppCard(title: "Library Agents") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Library agents are centrally stored and only become active when assigned to this project or enabled globally.")
+                                    .foregroundStyle(AppTheme.mutedText)
+                                agentGrid(libraryAgents, emptyText: "No unassigned library agents.")
+                            }
+                        }
+                    }
+                } else {
+                    AppCard(title: "Global Agents") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Select a project to see exactly which custom agents are active there and to manage project assignment.")
+                                .foregroundStyle(AppTheme.mutedText)
+                            agentGrid(globalCustomAgents, emptyText: "No global custom agents.")
+                        }
+                    }
+
+                    if !libraryAgents.isEmpty {
+                        AppCard(title: "Library Agents") {
+                            agentGrid(libraryAgents, emptyText: "No library agents.")
+                        }
+                    }
+                }
+
+                AppCard(title: "Builtin Agents") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Builtins are package-managed and customized through settings overrides or replacement files.")
+                            .foregroundStyle(AppTheme.mutedText)
+                        agentGrid(builtinAgents, emptyText: "No builtin agents discovered.")
+                    }
+                }
+            }
+        }
+    }
+
+    private var subtitle: String {
+        if let selectedProject = viewModel.selectedDiscoveredProject {
+            return "Active agents for \(selectedProject.name), plus central library assignment"
+        }
+        return "Select a project to manage project-specific agent assignment"
+    }
+
+    private var activeCustomAgents: [EffectiveAgentRecord] {
+        viewModel.filteredAgents.filter { agent in
+            agent.resolutionKind != .library && !(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil)
+        }
+    }
+
+    private var globalCustomAgents: [EffectiveAgentRecord] {
+        viewModel.filteredAgents.filter { $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+    }
+
+    private var libraryAgents: [EffectiveAgentRecord] {
+        viewModel.filteredAgents.filter { agent in
+            agent.resolutionKind == .library || libraryBackedActiveAgentNames.contains(agent.name)
+        }
+    }
+
+    private var libraryBackedActiveAgentNames: Set<String> {
+        Set(viewModel.snapshot.libraryAgents.map(\.name))
+    }
+
+    private var builtinAgents: [EffectiveAgentRecord] {
+        viewModel.filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
+    }
+
+    private func agentGrid(_ agents: [EffectiveAgentRecord], emptyText: String) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+            if agents.isEmpty {
+                Text(emptyText)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(agents) { agent in
+                    agentTile(agent)
+                }
+            }
+        }
+    }
+
+    private func agentTile(_ agent: EffectiveAgentRecord) -> some View {
+        Button {
+            viewModel.selectedAgentID = agent.id
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: icon(for: agent))
+                        .foregroundStyle(color(for: agent))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(agent.name)
+                            .font(.headline)
+                            .fontWidth(.expanded)
+                            .foregroundStyle(.primary)
+                            .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
+                        Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(2)
+
+                        capabilityStrip(for: agent)
+                    }
+                    Spacer()
+                    AppLabelTag(text: statusLabel(agent), color: color(for: agent))
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
+                    .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+            )
+            .opacity(agent.resolved.disabled == true ? 0.62 : 1)
+            .saturation(agent.resolved.disabled == true ? 0.25 : 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
+        HStack(spacing: 6) {
+            if !agent.resolved.skills.isEmpty {
+                capabilityPill("Skills", symbol: "sparkles", color: .green)
+            }
+            if agent.resolved.inheritSkills == true {
+                capabilityPill("Inherits", symbol: "square.stack.3d.up", color: .mint)
+            }
+            if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
+                capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: .blue)
+            }
+            if agent.resolved.disabled == true {
+                capabilityPill("Disabled", symbol: "nosign", color: .red)
+            }
+            if !viewModel.warnings(for: agent).isEmpty {
+                capabilityPill("Warning", symbol: "exclamationmark.triangle", color: .orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func capabilityPill(_ text: String, symbol: String, color: Color) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.10), in: Capsule(style: .continuous))
+    }
+
+    private func statusLabel(_ agent: EffectiveAgentRecord) -> String {
+        if agent.resolved.disabled == true { return "Disabled" }
+        if libraryBackedActiveAgentNames.contains(agent.name) {
+            if viewModel.selectedProjectPath != nil, agent.resolutionKind != .library { return "Active" }
+            return "Library"
+        }
+        if viewModel.selectedProjectPath != nil, agent.resolutionKind != .library { return "Active" }
+        return agent.resolutionKind.rawValue
+    }
+
+    private func icon(for agent: EffectiveAgentRecord) -> String {
+        "rectangle.connected.to.line.below"
+    }
+
+    private func color(for agent: EffectiveAgentRecord) -> Color {
+        if agent.resolved.disabled == true { return .red }
+        if agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil { return .orange }
+        if agent.resolutionKind == .library || libraryBackedActiveAgentNames.contains(agent.name) { return .purple }
+        if viewModel.selectedProjectPath != nil { return .green }
+        return .blue
+    }
+}
+
+private func agentIsLibraryManageable(_ agent: EffectiveAgentRecord) -> Bool {
+    guard let winningRecord = agent.winningRecord else { return false }
+    guard winningRecord.source.kind != .builtin else { return false }
+    // Same-name custom agents that replace builtins are intentional pi-subagents overrides.
+    // Keep them in their chosen scope instead of offering reusable library assignment.
+    if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) { return false }
+    return true
 }
 
 private func rowIndicator(_ symbol: String, color: Color) -> some View {
@@ -1670,7 +1872,7 @@ private struct AgentDetailView: View {
         case prompt = "Prompt"
         case tools = "Tools & Extensions"
         case skills = "Skills"
-        case sourceFiles = "Source Files"
+        case sourceFiles = "Manage"
         case advanced = "Advanced"
 
         var id: String { rawValue }
@@ -1687,6 +1889,13 @@ private struct AgentDetailView: View {
     @Binding var isEditing: Bool
     let onSaveDraft: (AgentEditorDraft) throws -> Void
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
+    let managedAgent: AgentRecord?
+    let isAgentGlobal: (AgentRecord) -> Bool
+    let assignedAgentProjects: (AgentRecord) -> [DiscoveredProject]
+    let setAgentGlobal: (AgentRecord, Bool) throws -> Void
+    let setAgentForProject: (AgentRecord, DiscoveredProject, Bool) throws -> Void
+    let moveAgentToLibrary: (AgentRecord) throws -> Void
+    let projects: [DiscoveredProject]
     @State private var selectedTab: DetailTab = .summary
     @State private var inlineDraft: AgentEditorDraft?
     @State private var baselineInlineDraft: AgentEditorDraft?
@@ -1769,6 +1978,8 @@ private struct AgentDetailView: View {
 
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            agentVisibilityManagementCards
+
             AppCard(title: "Configuration", trailing: {
                 if isEditing {
                     HStack(spacing: 10) {
@@ -2233,23 +2444,109 @@ private struct AgentDetailView: View {
         }
     }
 
-    private var sourceFilesTab: some View {
-        AppCard(title: "Source Files") {
-            VStack(alignment: .leading, spacing: 16) {
-                AppKeyValueList(rows: [
-                    ("Builtin File", agent.builtin?.filePath ?? "—"),
-                    ("Global File", agent.globalCustom?.filePath ?? "—"),
-                    ("Project File", agent.projectCustom?.filePath ?? "—"),
-                    ("Global Override", agent.userOverride?.settingsPath ?? "—"),
-                    ("Project Override", agent.projectOverride?.settingsPath ?? "—"),
-                    ("Write Target", writeTargetSummary)
-                ])
+    private var agentVisibilityManagementCards: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            if let managedAgent {
+                AppCard(title: "Library & Visibility") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Move reusable custom agents into the library, then choose whether they are active globally or only in specific projects.")
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 10) {
-                    Button("Open Raw File") { openFile(primarySourcePath) }
-                    Button("Reveal in Finder") { revealInFinder(primarySourcePath) }
+                        AppKeyValueList(rows: [
+                            ("In Library", managedAgent.source.kind == .library ? "Yes" : "No"),
+                            ("Active Globally", isAgentGlobal(managedAgent) ? "Yes" : "No"),
+                            ("Assigned Projects", assignedAgentProjects(managedAgent).map(\.name).joined(separator: ", ").nonEmpty ?? "—")
+                        ])
+
+                        HStack(spacing: 10) {
+                            if managedAgent.source.kind != .library {
+                                Button("Move to Library") { do { try moveAgentToLibrary(managedAgent) } catch { NSSound.beep() } }
+                            }
+
+                            if isAgentGlobal(managedAgent) {
+                                Button("Disable Globally") { do { try setAgentGlobal(managedAgent, false) } catch { NSSound.beep() } }
+                            } else {
+                                Button("Enable Globally") { do { try setAgentGlobal(managedAgent, true) } catch { NSSound.beep() } }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                        }
+                    }
+                }
+
+                AppCard(title: "Project Assignment") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Check each project that should load this agent. Assigning to a project removes managed global visibility, like Skills.")
+                            .foregroundStyle(AppTheme.mutedText)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(projects) { project in
+                                Toggle(isOn: Binding(
+                                    get: { assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id }) },
+                                    set: { enabled in do { try setAgentForProject(managedAgent, project, enabled) } catch { NSSound.beep() } }
+                                )) {
+                                    HStack(spacing: 10) {
+                                        ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(project.name).font(.body.weight(.semibold))
+                                            Text(project.repositoryName ?? project.path).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(1).truncationMode(.middle)
+                                        }
+                                    }
+                                    .frame(height: 46, alignment: .center)
+                                }
+                                .toggleStyle(.checkbox)
+                                .controlSize(.large)
+                                .padding(.vertical, 8)
+                                if project.id != projects.last?.id { Divider() }
+                            }
+                        }
+                    }
+                }
+            } else {
+                AppCard(title: unmanagedAgentTitle) {
+                    Text(unmanagedAgentMessage)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+        }
+    }
+
+    private var unmanagedAgentTitle: String {
+        if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) {
+            return "Replacement Agent"
+        }
+        return "Builtin Agent"
+    }
+
+    private var unmanagedAgentMessage: String {
+        if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) {
+            return "This custom agent intentionally replaces a builtin in its current scope. Replacements stay in that scope and are not moved into the reusable library or assigned per project."
+        }
+        return "Builtins are package-managed. Use settings overrides or replacement files; they are not moved into the library."
+    }
+
+    private var sourceFilesTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            agentVisibilityManagementCards
+
+            AppCard(title: "Source Files") {
+                VStack(alignment: .leading, spacing: 16) {
+                    AppKeyValueList(rows: [
+                        ("Builtin File", agent.builtin?.filePath ?? "—"),
+                        ("Global File", agent.globalCustom?.filePath ?? "—"),
+                        ("Project File", agent.projectCustom?.filePath ?? "—"),
+                        ("Global Override", agent.userOverride?.settingsPath ?? "—"),
+                        ("Project Override", agent.projectOverride?.settingsPath ?? "—"),
+                        ("Write Target", writeTargetSummary)
+                    ])
+
+                    HStack(spacing: 10) {
+                        Button("Open Raw File") { openFile(primarySourcePath) }
+                        Button("Reveal in Finder") { revealInFinder(primarySourcePath) }
+                    }
+                }
+            }
+
         }
     }
 
@@ -2814,11 +3111,13 @@ private struct ChainsScreen: View {
     let onDuplicateChain: (ChainRecord, AgentEditingTarget.CustomAgentScope) -> Void
     let onConvertChain: (ChainRecord, AgentEditingTarget.CustomAgentScope) throws -> Void
     let onEditChain: (ChainRecord) -> Void
+    @Binding var isRecapPresented: Bool
 
     var body: some View {
+        HStack(spacing: 0) {
         HSplitView {
-            AppSidebarPane(title: "Chains", subtitle: "\(viewModel.snapshot.chains.count) total") {
-                List(viewModel.snapshot.chains, selection: $viewModel.selectedChainID) { chain in
+            AppSidebarPane(title: "Chains", subtitle: "\(viewModel.allVisibleChainRecords.count) total") {
+                List(viewModel.allVisibleChainRecords, selection: $viewModel.selectedChainID) { chain in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(chain.name)
                             .font(.headline)
@@ -2953,12 +3252,43 @@ private struct ChainsScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    AppCard(title: "Source") {
-                        AppKeyValueList(rows: [
-                            ("Scope", chain.source.kind.rawValue),
-                            ("Path", chain.filePath),
-                            ("Steps", "\(chain.steps.count)")
-                        ])
+                    AppCard(title: "Library & Source") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Reusable chains live in ~/.pi/agent/agent-library/chains. Pi only sees them when Pi Manager links them globally or into a project.")
+                                .foregroundStyle(AppTheme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            AppKeyValueList(rows: [
+                                ("Scope", chain.source.kind.rawValue),
+                                ("In Library", chain.source.kind == .library ? "Yes" : "No"),
+                                ("Active Globally", viewModel.chainIsEnabledGlobally(chain) ? "Yes" : "No"),
+                                ("Assigned Projects", assignedProjectSummary(chain)),
+                                ("Path", chain.filePath),
+                                ("Steps", "\(chain.steps.count)")
+                            ])
+
+                            if chain.source.kind != .library {
+                                Button("Move to Library") { do { try viewModel.moveChainToLibrary(chain) } catch { NSSound.beep() } }
+                            }
+                        }
+                    }
+
+                    AppCard(title: "Global Visibility") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(viewModel.chainIsEnabledGlobally(chain) ? "This chain is available in every project." : "Make this chain available globally instead of only selected projects.")
+                                .foregroundStyle(AppTheme.mutedText)
+                            if viewModel.chainIsEnabledGlobally(chain) {
+                                Button("Disable Globally") { do { try viewModel.disableChainGlobally(chain) } catch { NSSound.beep() } }
+                            } else {
+                                Button("Enable Globally") { do { try viewModel.enableChainGlobally(chain) } catch { NSSound.beep() } }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    AppCard(title: "Project Assignment") {
+                        chainProjectAssignmentList(for: chain)
                     }
 
                     AppCard(title: "Raw Chain") {
@@ -2991,6 +3321,52 @@ private struct ChainsScreen: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+
+        if isRecapPresented, let project = viewModel.selectedDiscoveredProject {
+            Divider()
+            SubagentsProjectRecapPanel(
+                project: project,
+                snapshot: viewModel.startupSnapshot(forProjectPath: project.path),
+                libraryAgents: viewModel.snapshot.libraryAgents,
+                libraryChains: viewModel.snapshot.libraryChains,
+                onClose: { isRecapPresented = false }
+            )
+            .frame(width: 400)
+        }
+        }
+    }
+
+    private func chainProjectAssignmentList(for chain: ChainRecord) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Check each project that should load this chain. Project links are created in PROJECT/.pi/chains.")
+                .foregroundStyle(AppTheme.mutedText)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(viewModel.enabledProjects) { project in
+                    Toggle(isOn: Binding(
+                        get: { viewModel.chain(chain, isEnabledFor: project) },
+                        set: { enabled in do { try viewModel.setChain(chain, enabled: enabled, for: project) } catch { NSSound.beep() } }
+                    )) {
+                        HStack(spacing: 10) {
+                            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(project.name).font(.body.weight(.semibold))
+                                Text(project.repositoryName ?? project.path).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(1).truncationMode(.middle)
+                            }
+                        }
+                        .frame(height: 46, alignment: .center)
+                    }
+                    .toggleStyle(.checkbox)
+                    .controlSize(.large)
+                    .padding(.vertical, 8)
+                    if project.id != viewModel.enabledProjects.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    private func assignedProjectSummary(_ chain: ChainRecord) -> String {
+        let projects = viewModel.assignedProjects(for: chain).map(\.name)
+        return projects.isEmpty ? "—" : projects.joined(separator: ", ")
     }
 
     private func openFile(_ path: String) {
@@ -2999,6 +3375,118 @@ private struct ChainsScreen: View {
 
     private func revealInFinder(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+}
+
+private struct SubagentsInfoPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Subagent library")
+                .font(.headline)
+                .fontWidth(.expanded)
+            VStack(alignment: .leading, spacing: 10) {
+                infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until linked.")
+                infoRow("Chain Library", "Central storage in ~/.pi/agent/agent-library/chains. Pi does not load these until linked.")
+                infoRow("Global", "Agent links are created where pi-subagents would create user agents (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
+                infoRow("Project", "Links are created in PROJECT/.pi/agents and PROJECT/.pi/chains.")
+                infoRow("Builtins", "Package-provided builtins stay read-only. Customize them with pi-subagents settings overrides.")
+            }
+        }
+        .padding(16)
+        .frame(width: 390, alignment: .leading)
+    }
+
+    private func infoRow(_ title: String, _ description: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.subheadline.weight(.semibold)).fontWidth(.expanded)
+            Text(description).font(.caption).foregroundStyle(AppTheme.mutedText).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct SubagentsProjectRecapPanel: View {
+    let project: DiscoveredProject
+    let snapshot: ScanSnapshot
+    let libraryAgents: [AgentRecord]
+    let libraryChains: [ChainRecord]
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pi Subagents Recap").font(.headline).fontWidth(.expanded)
+                    Text(project.name).font(.caption).foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain)
+            }
+            .padding(16)
+            Divider()
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("These are the agents and chains Pi Manager expects pi-subagents to discover for this project, after global/project precedence and builtin overrides.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    agentRecapSection("Effective Agents", agents: snapshot.effectiveAgents, color: .purple)
+                    chainRecapSection("Effective Chains", chains: snapshot.chains, color: .blue)
+                    if !libraryAgents.isEmpty { libraryAgentSection }
+                    if !libraryChains.isEmpty { libraryChainSection }
+                }
+                .padding(16)
+            }
+        }
+        .background(AppTheme.subtleFill)
+    }
+
+    private func agentRecapSection(_ title: String, agents: [EffectiveAgentRecord], color: Color) -> some View {
+        recapShell(title, count: agents.count, color: color) {
+            ForEach(agents) { agent in
+                recapRow(icon: agent.resolved.disabled == true ? "nosign" : "sparkles.rectangle.stack", color: agent.resolved.disabled == true ? .red : color, title: agent.name, subtitle: agent.resolutionKind.rawValue)
+            }
+        }
+    }
+
+    private func chainRecapSection(_ title: String, chains: [ChainRecord], color: Color) -> some View {
+        recapShell(title, count: chains.count, color: color) {
+            ForEach(chains) { chain in
+                recapRow(icon: "point.3.connected.trianglepath.dotted", color: color, title: chain.name, subtitle: "\(chain.source.kind.rawValue) · \(chain.steps.count) steps")
+            }
+        }
+    }
+
+    private var libraryAgentSection: some View {
+        recapShell("Library Agents", count: libraryAgents.count, color: .secondary) {
+            ForEach(libraryAgents) { agent in recapRow(icon: "books.vertical", color: .secondary, title: agent.name, subtitle: "Stored, not loaded until assigned") }
+        }
+    }
+
+    private var libraryChainSection: some View {
+        recapShell("Library Chains", count: libraryChains.count, color: .secondary) {
+            ForEach(libraryChains) { chain in recapRow(icon: "books.vertical", color: .secondary, title: chain.name, subtitle: "Stored, not loaded until assigned") }
+        }
+    }
+
+    private func recapShell<Content: View>(_ title: String, count: Int, color: Color, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { Text(title).font(.headline).fontWidth(.expanded); Spacer(); AppLabelTag(text: "\(count)", color: color) }
+            if count == 0 { Text("None").font(.caption).foregroundStyle(AppTheme.mutedText) } else { VStack(alignment: .leading, spacing: 8) { content() } }
+        }
+    }
+
+    private func recapRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(subtitle).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -3141,11 +3629,13 @@ private struct SkillsScreen: View {
                             skillGrid(activeSkills, emptyText: "No skills are active for this project.")
                         }
 
-                        AppCard(title: "Library Skills") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Library skills are centrally stored and only become active when assigned to this project or enabled globally.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.")
+                        if !inactiveLibrarySkills.isEmpty {
+                            AppCard(title: "Library Skills") {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Library skills are centrally stored and only become active when assigned to this project or enabled globally.")
+                                        .foregroundStyle(AppTheme.mutedText)
+                                    skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.")
+                                }
                             }
                         }
                     } else {
@@ -3157,8 +3647,10 @@ private struct SkillsScreen: View {
                             }
                         }
 
-                        AppCard(title: "Library Skills") {
-                            skillGrid(librarySkills, emptyText: "No library skills.")
+                        if !librarySkills.isEmpty {
+                            AppCard(title: "Library Skills") {
+                                skillGrid(librarySkills, emptyText: "No library skills.")
+                            }
                         }
                     }
 

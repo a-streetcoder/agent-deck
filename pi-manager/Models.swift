@@ -79,6 +79,7 @@ struct AgentConfig: Hashable {
     var systemPromptMode: String?
     var inheritProjectContext: Bool?
     var inheritSkills: Bool?
+    var defaultContext: String?
     var disabled: Bool?
     var tools: [String]?
     var mcpDirectTools: [String]?
@@ -101,6 +102,7 @@ struct AgentConfig: Hashable {
         systemPromptMode: nil,
         inheritProjectContext: nil,
         inheritSkills: nil,
+        defaultContext: nil,
         disabled: nil,
         tools: nil,
         mcpDirectTools: nil,
@@ -152,10 +154,13 @@ struct BuiltinOverrideRecord: Hashable {
 }
 
 enum ResolutionKind: String {
-    case builtin
+    case builtin = "Builtin"
     case builtinWithOverride = "Builtin + Override"
+    case globalCustom = "Global"
+    case projectCustom = "Project"
     case globalReplacement = "Global Replacement"
     case projectReplacement = "Project Replacement"
+    case library = "Library"
 }
 
 struct EffectiveAgentRecord: Identifiable, Hashable {
@@ -309,6 +314,8 @@ struct ScanSnapshot: Hashable {
     let legacyProjectAgents: [AgentRecord]
     let effectiveAgents: [EffectiveAgentRecord]
     let chains: [ChainRecord]
+    let libraryAgents: [AgentRecord]
+    let libraryChains: [ChainRecord]
     let skills: [SkillRecord]
     let librarySkills: [SkillRecord]
     let commands: [CommandRecord]
@@ -327,6 +334,8 @@ struct ScanSnapshot: Hashable {
         legacyProjectAgents: [],
         effectiveAgents: [],
         chains: [],
+        libraryAgents: [],
+        libraryChains: [],
         skills: [],
         librarySkills: [],
         commands: [],

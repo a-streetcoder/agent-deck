@@ -132,7 +132,7 @@ final class AppViewModel: ObservableObject {
         }
 
         selectedAgentID = filteredAgents.contains(where: { $0.id == previousAgentID }) ? previousAgentID : filteredAgents.first?.id
-        selectedChainID = snapshot.chains.contains(where: { $0.id == previousChainID }) ? previousChainID : snapshot.chains.first?.id
+        selectedChainID = allVisibleChainRecords.contains(where: { $0.id == previousChainID }) ? previousChainID : allVisibleChainRecords.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == previousSkillID }) ? previousSkillID : allVisibleSkillRecords.first?.id
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + snapshot.promptTemplates.map(\.id))
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? snapshot.promptTemplates.first?.id)
@@ -1352,15 +1352,24 @@ final class AppViewModel: ObservableObject {
         selectedSidebarItem == .github || currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
     }
 
+    private var allDisplayAgents: [EffectiveAgentRecord] {
+        var byID: [EffectiveAgentRecord.ID: EffectiveAgentRecord] = [:]
+        for agent in snapshot.effectiveAgents { byID[agent.id] = agent }
+        for agent in libraryOnlyEffectiveAgents { byID[agent.id] = agent }
+        for agent in projectAssignedLibraryAgentsForAggregateView { byID[agent.id] = agent }
+        return Array(byID.values)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     var filteredAgents: [EffectiveAgentRecord] {
-        snapshot.effectiveAgents.filter { agent in
+        allDisplayAgents.filter { agent in
             switch selectedAgentFilter {
             case .all:
                 return true
             case .builtin:
                 return agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil
             case .global:
-                return agent.globalCustom != nil
+                return agent.globalCustom?.source.kind == .global
             case .project:
                 return agent.projectCustom != nil
             case .overriddenBuiltins:
@@ -1378,11 +1387,79 @@ final class AppViewModel: ObservableObject {
     }
 
     var selectedAgent: EffectiveAgentRecord? {
-        filteredAgents.first(where: { $0.id == selectedAgentID }) ?? snapshot.effectiveAgents.first(where: { $0.id == selectedAgentID })
+        filteredAgents.first(where: { $0.id == selectedAgentID }) ?? (snapshot.effectiveAgents + libraryOnlyEffectiveAgents).first(where: { $0.id == selectedAgentID })
+    }
+
+    private var libraryOnlyEffectiveAgents: [EffectiveAgentRecord] {
+        let effectiveNames = Set(snapshot.effectiveAgents.map(\.name))
+        return snapshot.libraryAgents
+            .filter { !effectiveNames.contains($0.name) }
+            .map { libraryDisplayAgent(from: $0, projectRoot: snapshot.projectRoot) }
+    }
+
+    private var projectAssignedLibraryAgentsForAggregateView: [EffectiveAgentRecord] {
+        guard snapshot.projectRoot == nil else { return [] }
+        let effectiveNames = Set(snapshot.effectiveAgents.map(\.name))
+        let libraryByName = Dictionary(uniqueKeysWithValues: snapshot.libraryAgents.map { ($0.name, $0) })
+        let assignedNames = Set(allProjectSnapshots.values.flatMap(\.projectAgents).map(\.name))
+        return assignedNames
+            .filter { !effectiveNames.contains($0) }
+            .compactMap { libraryByName[$0] }
+            .map { libraryDisplayAgent(from: $0, projectRoot: nil) }
+    }
+
+    private func libraryDisplayAgent(from record: AgentRecord, projectRoot: String?) -> EffectiveAgentRecord {
+        EffectiveAgentRecord(
+            id: "library::\(record.name)",
+            name: record.name,
+            projectRoot: projectRoot,
+            builtin: nil,
+            globalCustom: record,
+            projectCustom: nil,
+            userOverride: nil,
+            projectOverride: nil,
+            resolved: record.parsed,
+            resolutionKind: .library
+        )
     }
 
     var selectedChain: ChainRecord? {
-        snapshot.chains.first(where: { $0.id == selectedChainID })
+        allVisibleChainRecords.first(where: { $0.id == selectedChainID })
+    }
+
+    var allVisibleAgentRecords: [AgentRecord] {
+        let activeCustom = snapshot.effectiveAgents.compactMap { $0.projectCustom ?? $0.globalCustom }
+        return deduplicateByID(activeCustom + snapshot.libraryAgents)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var allVisibleChainRecords: [ChainRecord] {
+        var byName: [String: ChainRecord] = [:]
+        for chain in snapshot.chains {
+            if shouldReplaceChain(existing: byName[chain.name], candidate: chain) {
+                byName[chain.name] = chain
+            }
+        }
+        for chain in snapshot.libraryChains where byName[chain.name] == nil {
+            byName[chain.name] = chain
+        }
+        return Array(byName.values)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func shouldReplaceChain(existing: ChainRecord?, candidate: ChainRecord) -> Bool {
+        guard let existing else { return true }
+        return chainPrecedence(candidate.source.kind) >= chainPrecedence(existing.source.kind)
+    }
+
+    private func chainPrecedence(_ kind: ResourceScopeKind) -> Int {
+        switch kind {
+        case .project: return 4
+        case .legacyProject: return 3
+        case .global: return 2
+        case .library: return 1
+        default: return 0
+        }
     }
 
     var selectedSkill: SkillRecord? {
@@ -1412,6 +1489,8 @@ final class AppViewModel: ObservableObject {
             legacyProjectAgents: projectSnapshot.legacyProjectAgents,
             effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
             chains: globalSnapshot.chains + projectSnapshot.chains,
+            libraryAgents: globalSnapshot.libraryAgents,
+            libraryChains: globalSnapshot.libraryChains,
             skills: globalSnapshot.skills + projectSnapshot.skills,
             librarySkills: globalSnapshot.librarySkills,
             commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
@@ -1537,6 +1616,7 @@ final class AppViewModel: ObservableObject {
             systemPromptMode: "replace",
             inheritProjectContext: false,
             inheritSkills: false,
+            defaultContext: nil,
             disabled: nil,
             tools: nil,
             mcpDirectTools: nil,
@@ -1592,6 +1672,98 @@ final class AppViewModel: ObservableObject {
     func saveChainDraft(_ draft: ChainEditorDraft) throws {
         try chainPersistence.save(draft)
         refresh(includeModels: false)
+    }
+
+    func agent(_ agent: AgentRecord, isEnabledFor project: DiscoveredProject) -> Bool {
+        allProjectSnapshots[project.path]?.projectAgents.contains { $0.name == agent.name } == true
+    }
+
+    func assignedProjects(for agent: AgentRecord) -> [DiscoveredProject] {
+        enabledProjects.filter { self.agent(agent, isEnabledFor: $0) }
+    }
+
+    func agentIsEnabledGlobally(_ agent: AgentRecord) -> Bool {
+        globalSnapshot.globalAgents.contains { $0.name == agent.name }
+    }
+
+    func setAgent(_ agent: AgentRecord, enabled: Bool, for project: DiscoveredProject) throws {
+        if enabled { try addAgent(agent, toProjectPath: project.path) }
+        else { try removeManagedFileLink(projectAgentLinkURL(name: agent.name, projectPath: project.path)) }
+        refresh(includeModels: false)
+    }
+
+    func enableAgentGlobally(_ agent: AgentRecord) throws {
+        let libraryURL = try ensureLibraryAgent(for: agent)
+        try createManagedSymlink(from: globalAgentLinkURL(name: agent.name), to: libraryURL)
+        try removeProjectVisibility(forAgentNamed: agent.name)
+        refresh(includeModels: false)
+    }
+
+    func disableAgentGlobally(_ agent: AgentRecord) throws {
+        if agent.source.kind == .global {
+            _ = try ensureLibraryAgent(for: agent)
+        } else if let globalRecord = globalSnapshot.globalAgents.first(where: { $0.name == agent.name }) {
+            _ = try ensureLibraryAgent(for: globalRecord)
+        }
+        try removeGlobalVisibility(forAgentNamed: agent.name)
+        refresh(includeModels: false)
+    }
+
+    func moveAgentToLibrary(_ agent: AgentRecord) throws {
+        _ = try ensureLibraryAgent(for: agent)
+        refresh(includeModels: false)
+    }
+
+    private func addAgent(_ agent: AgentRecord, toProjectPath projectPath: String) throws {
+        let libraryURL = try ensureLibraryAgent(for: agent)
+        try removeGlobalVisibility(forAgentNamed: agent.name)
+        try createManagedSymlink(from: projectAgentLinkURL(name: agent.name, projectPath: projectPath), to: libraryURL)
+    }
+
+    func chain(_ chain: ChainRecord, isEnabledFor project: DiscoveredProject) -> Bool {
+        allProjectSnapshots[project.path]?.chains.contains { $0.name == chain.name && $0.source.kind == .project } == true
+    }
+
+    func assignedProjects(for chain: ChainRecord) -> [DiscoveredProject] {
+        enabledProjects.filter { self.chain(chain, isEnabledFor: $0) }
+    }
+
+    func chainIsEnabledGlobally(_ chain: ChainRecord) -> Bool {
+        globalSnapshot.chains.contains { $0.name == chain.name && $0.source.kind == .global }
+    }
+
+    func setChain(_ chain: ChainRecord, enabled: Bool, for project: DiscoveredProject) throws {
+        if enabled { try addChain(chain, toProjectPath: project.path) }
+        else { try removeManagedFileLink(projectChainLinkURL(name: chain.name, projectPath: project.path)) }
+        refresh(includeModels: false)
+    }
+
+    func enableChainGlobally(_ chain: ChainRecord) throws {
+        let libraryURL = try ensureLibraryChain(for: chain)
+        try createManagedSymlink(from: globalChainLinkURL(name: chain.name), to: libraryURL)
+        try removeProjectVisibility(forChainNamed: chain.name)
+        refresh(includeModels: false)
+    }
+
+    func disableChainGlobally(_ chain: ChainRecord) throws {
+        if chain.source.kind == .global {
+            _ = try ensureLibraryChain(for: chain)
+        } else if let globalRecord = globalSnapshot.chains.first(where: { $0.name == chain.name && $0.source.kind == .global }) {
+            _ = try ensureLibraryChain(for: globalRecord)
+        }
+        try removeManagedFileLinkIfExists(globalChainLinkURL(name: chain.name))
+        refresh(includeModels: false)
+    }
+
+    func moveChainToLibrary(_ chain: ChainRecord) throws {
+        _ = try ensureLibraryChain(for: chain)
+        refresh(includeModels: false)
+    }
+
+    private func addChain(_ chain: ChainRecord, toProjectPath projectPath: String) throws {
+        let libraryURL = try ensureLibraryChain(for: chain)
+        try removeGlobalVisibility(forChainNamed: chain.name)
+        try createManagedSymlink(from: projectChainLinkURL(name: chain.name, projectPath: projectPath), to: libraryURL)
     }
 
     func addSkillToSelectedProject(_ skill: SkillRecord) throws {
@@ -1666,6 +1838,101 @@ final class AppViewModel: ObservableObject {
     func skillIsEnabledForSelectedProject(_ skill: SkillRecord) -> Bool {
         snapshot.skills.contains { $0.name == skill.name && $0.source.kind == .project }
     }
+
+    private func ensureLibraryAgent(for agent: AgentRecord) throws -> URL {
+        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agent-library/agents", isDirectory: true)
+        let libraryURL = libraryRoot.appendingPathComponent("\(agent.name).md")
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: libraryURL.path) { return libraryURL }
+
+        let sourceURL = URL(fileURLWithPath: agent.filePath)
+        if agent.source.kind == .global {
+            try fileManager.moveItem(at: sourceURL, to: libraryURL)
+        } else if agent.source.kind == .library {
+            return sourceURL
+        } else {
+            try fileManager.copyItem(at: sourceURL, to: libraryURL)
+        }
+        return libraryURL
+    }
+
+    private func ensureLibraryChain(for chain: ChainRecord) throws -> URL {
+        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agent-library/chains", isDirectory: true)
+        let libraryURL = libraryRoot.appendingPathComponent("\(chain.name).chain.md")
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: libraryURL.path) { return libraryURL }
+
+        let sourceURL = URL(fileURLWithPath: chain.filePath)
+        if chain.source.kind == .global {
+            try fileManager.moveItem(at: sourceURL, to: libraryURL)
+        } else if chain.source.kind == .library {
+            return sourceURL
+        } else {
+            try fileManager.copyItem(at: sourceURL, to: libraryURL)
+        }
+        return libraryURL
+    }
+
+    private func createManagedSymlink(from linkURL: URL, to targetURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: linkURL.path) {
+            guard isManagedAgentLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteFileExists) }
+            try fileManager.removeItem(at: linkURL)
+        }
+        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+    }
+
+    private func removeManagedFileLink(_ linkURL: URL) throws {
+        guard FileManager.default.fileExists(atPath: linkURL.path) else { return }
+        guard isManagedAgentLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteNoPermission) }
+        try FileManager.default.removeItem(at: linkURL)
+    }
+
+    private func isManagedAgentLibrarySymlink(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true,
+              let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else { return false }
+        let destinationURL = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent()).standardizedFileURL
+        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agent-library", isDirectory: true).standardizedFileURL.path
+        return destinationURL.path.hasPrefix(libraryRoot + "/")
+    }
+
+    private func removeGlobalVisibility(forAgentNamed name: String) throws {
+        for url in globalAgentLinkURLs(name: name) {
+            try removeManagedFileLinkIfExists(url)
+        }
+    }
+    private func removeProjectVisibility(forAgentNamed name: String) throws { for project in enabledProjects { try removeManagedFileLinkIfExists(projectAgentLinkURL(name: name, projectPath: project.path)) } }
+    private func removeGlobalVisibility(forChainNamed name: String) throws { try removeManagedFileLinkIfExists(globalChainLinkURL(name: name)) }
+    private func removeProjectVisibility(forChainNamed name: String) throws { for project in enabledProjects { try removeManagedFileLinkIfExists(projectChainLinkURL(name: name, projectPath: project.path)) } }
+
+    private func removeManagedFileLinkIfExists(_ url: URL) throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try removeManagedFileLink(url)
+    }
+
+    private func globalAgentLinkURL(name: String) -> URL {
+        let legacyGlobal = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
+        if FileManager.default.fileExists(atPath: legacyGlobal.path) {
+            return legacyGlobal.appendingPathComponent("\(name).md")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agents/\(name).md")
+    }
+
+    private func globalAgentLinkURLs(name: String) -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".agents/\(name).md"),
+            home.appendingPathComponent(".pi/agent/agents/\(name).md")
+        ]
+    }
+
+    private func projectAgentLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/agents/\(name).md") }
+    private func globalChainLinkURL(name: String) -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/chains/\(name).chain.md") }
+    private func projectChainLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/chains/\(name).chain.md") }
 
     private func ensureLibrarySkill(for skill: SkillRecord) throws -> URL {
         let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
@@ -1857,6 +2124,8 @@ final class AppViewModel: ObservableObject {
             .filter { $0.projectCustom != nil || $0.projectOverride != nil }
 
         let chains = deduplicateByID(globalSnapshot.chains + projectSnapshots.flatMap(\.chains))
+        let libraryAgents = deduplicateByID(globalSnapshot.libraryAgents + projectSnapshots.flatMap(\.libraryAgents))
+        let libraryChains = deduplicateByID(globalSnapshot.libraryChains + projectSnapshots.flatMap(\.libraryChains))
         let skills = deduplicateByID(globalSnapshot.skills + projectSnapshots.flatMap(\.skills))
         let librarySkills = deduplicateByID(globalSnapshot.librarySkills + projectSnapshots.flatMap(\.librarySkills))
         let commands = deduplicateByID(globalSnapshot.commands + projectSnapshots.flatMap(\.commands))
@@ -1874,6 +2143,8 @@ final class AppViewModel: ObservableObject {
             legacyProjectAgents: deduplicateByID(projectSnapshots.flatMap(\.legacyProjectAgents)),
             effectiveAgents: globalSnapshot.effectiveAgents + projectSpecificEffectiveAgents,
             chains: chains,
+            libraryAgents: libraryAgents,
+            libraryChains: libraryChains,
             skills: skills,
             librarySkills: librarySkills,
             commands: commands,
@@ -1907,6 +2178,8 @@ final class AppViewModel: ObservableObject {
             legacyProjectAgents: projectSnapshot.legacyProjectAgents,
             effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
             chains: globalSnapshot.chains + projectSnapshot.chains,
+            libraryAgents: deduplicateByID(globalSnapshot.libraryAgents + projectSnapshot.libraryAgents),
+            libraryChains: deduplicateByID(globalSnapshot.libraryChains + projectSnapshot.libraryChains),
             skills: globalSnapshot.skills + projectSnapshot.skills,
             librarySkills: deduplicateByID(globalSnapshot.librarySkills + projectSnapshot.librarySkills),
             commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),

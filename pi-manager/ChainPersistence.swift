@@ -125,13 +125,9 @@ struct ChainPersistence {
     private func chainPath(name: String, scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> String {
         switch scope {
         case .global:
-            let newPath = homeDirectory().appendingPathComponent(".agents", isDirectory: true)
-            if fileManager.fileExists(atPath: newPath.path) {
-                return newPath.appendingPathComponent("\(name).chain.md").path
-            }
-            return homeDirectory().appendingPathComponent(".pi/agent/agents/\(name).chain.md").path
+            return homeDirectory().appendingPathComponent(".pi/agent/chains/\(name).chain.md").path
         case .project:
-            return URL(fileURLWithPath: projectRoot ?? "").appendingPathComponent(".pi/agents/\(name).chain.md").path
+            return URL(fileURLWithPath: projectRoot ?? "").appendingPathComponent(".pi/chains/\(name).chain.md").path
         }
     }
 
@@ -152,7 +148,10 @@ struct ChainPersistence {
     private func isWritableChainPath(_ path: String) -> Bool {
         let home = fileManager.homeDirectoryForCurrentUser.path
         if path.hasPrefix(URL(fileURLWithPath: home).appendingPathComponent(".pi/agent/agents").path) { return true }
+        if path.hasPrefix(URL(fileURLWithPath: home).appendingPathComponent(".pi/agent/chains").path) { return true }
+        if path.hasPrefix(URL(fileURLWithPath: home).appendingPathComponent(".pi/agent/agent-library/chains").path) { return true }
         if path.contains("/.pi/agents/") { return true }
+        if path.contains("/.pi/chains/") { return true }
         if path.contains("/.agents/") { return true }
         return false
     }
