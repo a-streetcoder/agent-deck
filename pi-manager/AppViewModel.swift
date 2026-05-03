@@ -1499,7 +1499,6 @@ final class AppViewModel: ObservableObject {
             libraryPromptTemplates: deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshot.libraryPromptTemplates),
             settings: globalSnapshot.settings + projectSnapshot.settings,
             envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
-            mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,
             subagentConfig: globalSnapshot.subagentConfig,
             warnings: globalSnapshot.warnings + projectSnapshot.warnings
         )
@@ -1557,9 +1556,7 @@ final class AppViewModel: ObservableObject {
         }
 
         let explicitTools = scopeSnapshot.effectiveAgents.flatMap { $0.resolved.tools ?? [] }
-        let directMCPTools = scopeSnapshot.mcpConfigs.flatMap(\.serverNames).map { "mcp:\($0)" }
-        let existingMCPTools = scopeSnapshot.effectiveAgents.flatMap { ($0.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" } }
-        return Array(Set(tools + explicitTools + directMCPTools + existingMCPTools))
+        return Array(Set(tools + explicitTools))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -2266,7 +2263,6 @@ final class AppViewModel: ObservableObject {
         let promptTemplates = deduplicateByID(globalSnapshot.promptTemplates + projectSnapshots.flatMap(\.promptTemplates))
         let libraryPromptTemplates = deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshots.flatMap(\.libraryPromptTemplates))
         let envKeys = deduplicateByID(globalSnapshot.envKeys + projectSnapshots.flatMap(\.envKeys))
-        let mcpConfigs = deduplicateByID(globalSnapshot.mcpConfigs + projectSnapshots.flatMap(\.mcpConfigs))
         let warnings = deduplicateByID(globalSnapshot.warnings + projectSnapshots.flatMap(\.warnings))
         let settings = Array(Set(globalSnapshot.settings + projectSnapshots.flatMap(\.settings))).sorted { $0.path < $1.path }
 
@@ -2287,7 +2283,6 @@ final class AppViewModel: ObservableObject {
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
-            mcpConfigs: mcpConfigs,
             subagentConfig: globalSnapshot.subagentConfig,
             warnings: warnings
         )
@@ -2323,7 +2318,6 @@ final class AppViewModel: ObservableObject {
             libraryPromptTemplates: deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshot.libraryPromptTemplates),
             settings: globalSnapshot.settings + projectSnapshot.settings,
             envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
-            mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,
             subagentConfig: globalSnapshot.subagentConfig,
             warnings: globalSnapshot.warnings + projectSnapshot.warnings
         )
@@ -2546,7 +2540,6 @@ process.stdout.write(JSON.stringify(result));
         for project in enabledProjects {
             urls.append(project.url.appendingPathComponent(".pi", isDirectory: true))
             urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))
-            urls.append(project.url.appendingPathComponent(".mcp.json"))
         }
 
         urls += snapshot.promptTemplates.map { URL(fileURLWithPath: $0.filePath) }
@@ -2623,7 +2616,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case models = "Models"
     case settings = "Settings"
     case environment = "Environment"
-    case mcp = "MCP"
     case diagnostics = "Diagnostics"
 
     var id: String { rawValue }
@@ -2642,7 +2634,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .models: return "cpu"
         case .settings: return "gearshape"
         case .environment: return "key"
-        case .mcp: return "cable.connector"
         case .diagnostics: return "stethoscope"
         }
     }
@@ -2662,7 +2653,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .piResources:
             return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:
-            return [.models, .settings, .environment, .mcp, .diagnostics]
+            return [.models, .settings, .environment, .diagnostics]
         }
     }
 }

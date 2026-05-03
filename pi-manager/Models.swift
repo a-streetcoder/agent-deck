@@ -277,13 +277,6 @@ struct EnvKeyRecord: Identifiable, Hashable {
     let source: ScopeID
 }
 
-struct MCPConfigRecord: Identifiable, Hashable {
-    let id: String
-    let path: String
-    let source: ScopeID
-    let serverNames: [String]
-}
-
 struct SubagentConfigRecord: Identifiable, Hashable {
     let id: String
     let path: String
@@ -323,7 +316,6 @@ struct ScanSnapshot: Hashable {
     let libraryPromptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
     let envKeys: [EnvKeyRecord]
-    let mcpConfigs: [MCPConfigRecord]
     let subagentConfig: SubagentConfigRecord?
     let warnings: [DiagnosticWarning]
 
@@ -344,7 +336,6 @@ struct ScanSnapshot: Hashable {
         libraryPromptTemplates: [],
         settings: [],
         envKeys: [],
-        mcpConfigs: [],
         subagentConfig: nil,
         warnings: []
     )

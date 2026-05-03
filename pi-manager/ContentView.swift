@@ -469,8 +469,6 @@ struct ContentView: View {
                     envDraft = viewModel.makeEnvDraft(for: record)
                 }
             )
-        case .mcp:
-            MCPScreen(snapshot: viewModel.snapshot)
         case .diagnostics:
             DiagnosticsScreen(snapshot: viewModel.snapshot)
         }
@@ -1041,13 +1039,6 @@ private struct ProjectsScreen: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
-                    AppMetricTile(title: "All Projects", value: viewModel.discoveredProjects.count)
-                    AppMetricTile(title: "Enabled", value: viewModel.enabledProjects.count)
-                    AppMetricTile(title: "Favorites", value: viewModel.favoriteProjects.count)
-                    AppMetricTile(title: "GitHub Repos", value: viewModel.gitHubProjects.count)
-                }
-
                 AppCard(title: "Library", trailing: {
                     if isSearchDebouncing {
                         ProgressView()
@@ -1217,19 +1208,6 @@ private struct OverviewScreen: View {
 
     var body: some View {
         AppPage("Overview", subtitle: viewModel.snapshot.projectRoot ?? "Showing global resources and the selected project’s GitHub work") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
-                AppMetricTile(title: "Builtin Agents", value: viewModel.snapshot.builtinAgents.count)
-                AppMetricTile(title: "Global Agents", value: viewModel.snapshot.globalAgents.count)
-                AppMetricTile(title: "Project Agents", value: viewModel.snapshot.projectAgents.count)
-                AppMetricTile(title: "Overrides", value: viewModel.snapshot.settings.flatMap(\.agentOverrides).count)
-                AppMetricTile(title: "Chains", value: viewModel.snapshot.chains.count)
-                AppMetricTile(title: "Skills", value: viewModel.snapshot.skills.count)
-                AppMetricTile(title: "Commands", value: viewModel.snapshot.commands.count)
-                AppMetricTile(title: "Prompt Templates", value: viewModel.snapshot.promptTemplates.count)
-                AppMetricTile(title: "Warnings", value: viewModel.snapshot.warnings.count)
-                AppMetricTile(title: "Open Issues", value: viewModel.githubOverviewBoard?.totalCount ?? 0)
-            }
-
             AppCard(title: "Open Issues", trailing: {
                 if let board = viewModel.githubOverviewBoard {
                     Text("\(board.totalCount)")
@@ -1391,13 +1369,6 @@ private struct ModelsScreen: View {
 
     var body: some View {
         AppPage("Models", subtitle: "Available models from `pi --list-models`") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
-                AppMetricTile(title: "Models", value: viewModel.availableModels.count)
-                AppMetricTile(title: "Providers", value: viewModel.availableModelProviders.count)
-                AppMetricTile(title: "Thinking", value: viewModel.availableModels.filter(\.supportsThinking).count)
-                AppMetricTile(title: "Images", value: viewModel.availableModels.filter(\.supportsImages).count)
-            }
-
             if viewModel.availableModels.isEmpty {
                 AppCard(title: "Catalog", trailing: catalogUpdatedLabel) {
                     Text("No models loaded yet. Use Refresh to query Pi.")
@@ -1887,7 +1858,6 @@ private struct AgentDetailView: View {
         case prompt = "Prompt"
         case tools = "Tools & Extensions"
         case skills = "Skills"
-        case sourceFiles = "Manage"
         case advanced = "Advanced"
 
         var id: String { rawValue }
@@ -1966,8 +1936,6 @@ private struct AgentDetailView: View {
                 toolsTab
             case .skills:
                 skillsTab
-            case .sourceFiles:
-                sourceFilesTab
             case .advanced:
                 advancedTab
             }
@@ -2333,21 +2301,6 @@ private struct AgentDetailView: View {
                             }
                         }
 
-                        if let mcpTools = agent.resolved.mcpDirectTools, !mcpTools.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Direct MCP Tools")
-                                    .font(.headline)
-                                    .fontWidth(.expanded)
-                                ForEach(mcpTools, id: \.self) { tool in
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "cable.connector")
-                                            .foregroundStyle(.purple)
-                                        Text("mcp:\(tool)")
-                                    }
-                                }
-                            }
-                        }
-
                         if (agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty {
                             Text("Default Pi tool access")
                                 .foregroundStyle(AppTheme.mutedText)
@@ -2360,7 +2313,6 @@ private struct AgentDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("• If `tools` is omitted, the child gets Pi’s normal default built-in tools.")
                     Text("• If `tools` is set, it acts like an allowlist for regular tool names.")
-                    Text("• `mcp:name` entries are separate direct MCP tools and only make sense when that MCP server exists in config.")
                     Text("• Extensions are offered from installed package references Pi already knows about.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2546,33 +2498,19 @@ private struct AgentDetailView: View {
         return "Builtins are package-managed. Use settings overrides or replacement files; they are not moved into the library."
     }
 
-    private var sourceFilesTab: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            agentVisibilityManagementCards
-
-            AppCard(title: "Source Files") {
-                VStack(alignment: .leading, spacing: 16) {
-                    AppKeyValueList(rows: [
-                        ("Builtin File", agent.builtin?.filePath ?? "—"),
-                        ("Global File", agent.globalCustom?.filePath ?? "—"),
-                        ("Project File", agent.projectCustom?.filePath ?? "—"),
-                        ("Global Override", agent.userOverride?.settingsPath ?? "—"),
-                        ("Project Override", agent.projectOverride?.settingsPath ?? "—"),
-                        ("Write Target", writeTargetSummary)
-                    ])
-
-                    HStack(spacing: 10) {
-                        Button("Open Raw File") { openFile(primarySourcePath) }
-                        Button("Reveal in Finder") { revealInFinder(primarySourcePath) }
-                    }
-                }
-            }
-
-        }
-    }
-
     private var advancedTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Source Files") {
+                AppKeyValueList(rows: [
+                    ("Builtin File", agent.builtin?.filePath ?? "—"),
+                    ("Global File", agent.globalCustom?.filePath ?? "—"),
+                    ("Project File", agent.projectCustom?.filePath ?? "—"),
+                    ("Global Override", agent.userOverride?.settingsPath ?? "—"),
+                    ("Project Override", agent.projectOverride?.settingsPath ?? "—"),
+                    ("Write Target", writeTargetSummary)
+                ])
+            }
+
             AppCard(title: "Resolved Frontmatter") {
                 Text(prettyJSONObject(resolvedFrontmatter))
                     .font(.footnote.monospaced())
@@ -3037,11 +2975,11 @@ private struct AgentDetailView: View {
         case "Extensions":
             return "Extension loading mode. Omitted means normal extension loading, empty means none, and explicit values act as an allowlist."
         case "Tool Access":
-            return "If tools are omitted, the agent keeps Pi’s normal tool behavior. If tools are explicitly set, they become an allowlist. Direct MCP tools use the mcp:name form."
+            return "If tools are omitted, the agent keeps Pi’s normal tool behavior. If tools are explicitly set, they become an allowlist."
         case "Extension Mode":
             return "If extensions are omitted, Pi uses normal extension loading. An explicit list acts as an allowlist. An empty list means no discovered extensions."
         case "Add Tool":
-            return "Choose from built-in Pi tools plus direct MCP tools visible in this agent’s scope."
+            return "Choose from built-in Pi tools visible in this agent’s scope."
         case "Selected":
             return "Current explicit values for this field. Remove any item with the x button."
         case "Add Extension":
@@ -4141,155 +4079,6 @@ private struct EffectiveEnvRow {
     let winningRecord: EnvKeyRecord
     let winningSource: ScopeID
     let summary: String
-}
-
-private struct MCPScreen: View {
-    let snapshot: ScanSnapshot
-
-    var body: some View {
-        AppPage("MCP", subtitle: "Configured MCP files, detected servers, and agent references") {
-            AppCard(title: "MCP Access") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("MCP config files declare servers. Agents only use them when their configuration explicitly references matching direct `mcp:` tools or relevant extensions.")
-                    AppKeyValueList(rows: [
-                        ("Config Files", "\(snapshot.mcpConfigs.count)"),
-                        ("Configured Servers", "\(allServers.count)"),
-                        ("Agents Using Direct MCP Tools", "\(agentsUsingDirectMCP.count)"),
-                        ("Direct MCP Tool Names", directToolSummary)
-                    ])
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Config Files") {
-                if snapshot.mcpConfigs.isEmpty {
-                    Text("No MCP config files found.")
-                        .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ForEach(Array(snapshot.mcpConfigs.enumerated()), id: \.element.id) { index, config in
-                            mcpConfigSection(config)
-                            if index < snapshot.mcpConfigs.count - 1 {
-                                Divider()
-                            }
-                        }
-                    }
-                }
-            }
-
-            AppCard(title: "Agents with Direct MCP Tools") {
-                if agentsUsingDirectMCP.isEmpty {
-                    Text("No visible agents currently declare direct `mcp:` tool entries.")
-                        .foregroundStyle(AppTheme.mutedText)
-                } else {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(agentsUsingDirectMCP.enumerated()), id: \.element.id) { index, agent in
-                            directMCPAgentRow(agent)
-                            if index < agentsUsingDirectMCP.count - 1 {
-                                Divider()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func mcpConfigSection(_ config: MCPConfigRecord) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(config.path)
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                        .textSelection(.enabled)
-                    Text("\(config.source.kind.rawValue) · \(config.serverNames.count) servers")
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                Spacer()
-                Button("Open") { openFile(config.path) }
-                Button("Reveal") { revealInFinder(config.path) }
-            }
-
-            AppKeyValueList(rows: [
-                ("Project", projectName(from: config.path) ?? "—"),
-                ("Likely Used By Direct MCP Tools", likelyUsedServersSummary(for: config))
-            ])
-
-            if config.serverNames.isEmpty {
-                Text("No servers detected.")
-                    .foregroundStyle(AppTheme.mutedText)
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(config.serverNames.enumerated()), id: \.element) { index, server in
-                        serverRow(server, config: config)
-                        if index < config.serverNames.count - 1 {
-                            Divider()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func serverRow(_ server: String, config: MCPConfigRecord) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "server.rack")
-                .foregroundStyle(.purple)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(server)
-                    .font(.body.weight(.semibold))
-                Text(serverUsageSummary(server, config: config))
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-        }
-        .padding(.vertical, 8)
-    }
-
-    private func directMCPAgentRow(_ agent: EffectiveAgentRecord) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(agent.name)
-                .font(.headline)
-                .fontWidth(.expanded)
-            Text((agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }.joined(separator: ", "))
-                .font(.footnote.monospaced())
-                .foregroundStyle(AppTheme.mutedText)
-                .textSelection(.enabled)
-        }
-        .padding(.vertical, 10)
-    }
-
-    private var agentsUsingDirectMCP: [EffectiveAgentRecord] {
-        snapshot.effectiveAgents
-            .filter { !(($0.resolved.mcpDirectTools ?? []).isEmpty) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private var allServers: [String] {
-        Array(Set(snapshot.mcpConfigs.flatMap(\.serverNames))).sorted()
-    }
-
-    private var allDirectTools: [String] {
-        Array(Set(agentsUsingDirectMCP.flatMap { $0.resolved.mcpDirectTools ?? [] })).sorted()
-    }
-
-    private var directToolSummary: String {
-        allDirectTools.isEmpty ? "None" : allDirectTools.map { "mcp:\($0)" }.joined(separator: ", ")
-    }
-
-    private func likelyUsedServersSummary(for config: MCPConfigRecord) -> String {
-        let matches = config.serverNames.filter { allDirectTools.contains($0) }
-        return matches.isEmpty ? "No obvious direct name match" : matches.joined(separator: ", ")
-    }
-
-    private func serverUsageSummary(_ server: String, config: MCPConfigRecord) -> String {
-        let matchingAgents = agentsUsingDirectMCP.filter { ($0.resolved.mcpDirectTools ?? []).contains(server) }.map(\.name)
-        if matchingAgents.isEmpty {
-            return "No visible agent declares mcp:\(server)."
-        }
-        return "Referenced by \(matchingAgents.joined(separator: ", "))."
-    }
 }
 
 private struct DiagnosticsScreen: View {

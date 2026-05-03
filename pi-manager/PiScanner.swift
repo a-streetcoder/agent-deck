@@ -12,7 +12,6 @@ struct PiScanner {
         let chainLibraryDirectory = homeDirectory().appendingPathComponent(".pi/agent/agent-library/chains", isDirectory: true)
         let globalSettings = homeDirectory().appendingPathComponent(".pi/agent/settings.json")
         let globalEnv = homeDirectory().appendingPathComponent(".pi/agent/.env")
-        let globalMCP = homeDirectory().appendingPathComponent(".pi/agent/mcp.json")
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
         let librarySkillsDirectory = homeDirectory().appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
         let globalPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompts", isDirectory: true)
@@ -25,8 +24,6 @@ struct PiScanner {
         let legacyProjectAgentDirectory = projectRoot?.appendingPathComponent(".agents", isDirectory: true)
         let projectSettings = projectRoot?.appendingPathComponent(".pi/settings.json")
         let projectEnv = projectRoot?.appendingPathComponent(".pi/.env")
-        let projectPiMCP = projectRoot?.appendingPathComponent(".pi/mcp.json")
-        let projectRootMCP = projectRoot?.appendingPathComponent(".mcp.json")
         let projectSkills = projectRoot?.appendingPathComponent(".pi/skills", isDirectory: true)
         let projectPrompts = projectRoot?.appendingPathComponent(".pi/prompts", isDirectory: true)
 
@@ -63,12 +60,6 @@ struct PiScanner {
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +
             scanEnv(at: projectEnv, scope: .project)
-
-        let mcpConfigs = [
-            scanMCP(at: globalMCP, scope: .global),
-            scanMCP(at: projectRootMCP, scope: .project),
-            scanMCP(at: projectPiMCP, scope: .project)
-        ].compactMap { $0 }
 
         let parsedSubagentConfig = scanSubagentConfig(at: subagentConfig)
 
@@ -127,7 +118,6 @@ struct PiScanner {
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
-            mcpConfigs: mcpConfigs,
             subagentConfig: parsedSubagentConfig,
             warnings: warnings
         )
@@ -694,13 +684,6 @@ struct PiScanner {
                 let value = parts.count > 1 ? String(parts[1]) : nil
                 return EnvKeyRecord(id: "\(scope.rawValue):\(key):\(file.path)", key: key, value: value, source: ScopeID(kind: scope, path: file.path))
             }
-    }
-
-    private func scanMCP(at file: URL?, scope: ResourceScopeKind) -> MCPConfigRecord? {
-        guard let file, let data = try? Data(contentsOf: file) else { return nil }
-        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let servers = ((json?["mcpServers"] as? [String: Any]) ?? [:]).keys.sorted()
-        return MCPConfigRecord(id: "\(scope.rawValue):\(file.path)", path: file.path, source: ScopeID(kind: scope, path: file.path), serverNames: servers)
     }
 
     private func scanSubagentConfig(at file: URL) -> SubagentConfigRecord? {
