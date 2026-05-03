@@ -132,7 +132,7 @@ final class AppViewModel: ObservableObject {
 
         selectedAgentID = filteredAgents.contains(where: { $0.id == previousAgentID }) ? previousAgentID : filteredAgents.first?.id
         selectedChainID = snapshot.chains.contains(where: { $0.id == previousChainID }) ? previousChainID : snapshot.chains.first?.id
-        selectedSkillID = snapshot.skills.contains(where: { $0.id == previousSkillID }) ? previousSkillID : snapshot.skills.first?.id
+        selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == previousSkillID }) ? previousSkillID : allVisibleSkillRecords.first?.id
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + snapshot.promptTemplates.map(\.id))
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? snapshot.promptTemplates.first?.id)
         lastWatchFingerprint = watchFingerprint()
@@ -1359,7 +1359,42 @@ final class AppViewModel: ObservableObject {
     }
 
     var selectedSkill: SkillRecord? {
-        snapshot.skills.first(where: { $0.id == selectedSkillID })
+        allVisibleSkillRecords.first(where: { $0.id == selectedSkillID })
+    }
+
+    var allVisibleSkillRecords: [SkillRecord] {
+        deduplicateByID(snapshot.skills + snapshot.librarySkills)
+            .sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.source.kind.rawValue < rhs.source.kind.rawValue
+            }
+    }
+
+    func startupSnapshot(forProjectPath path: String) -> ScanSnapshot {
+        guard let projectSnapshot = allProjectSnapshots[path] else { return snapshot }
+        return scopedStartupSnapshot(projectSnapshot: projectSnapshot)
+    }
+
+    private func scopedStartupSnapshot(projectSnapshot: ScanSnapshot) -> ScanSnapshot {
+        ScanSnapshot(
+            projectRoot: projectSnapshot.projectRoot,
+            builtinAgents: globalSnapshot.builtinAgents,
+            globalAgents: globalSnapshot.globalAgents,
+            projectAgents: projectSnapshot.projectAgents,
+            legacyProjectAgents: projectSnapshot.legacyProjectAgents,
+            effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
+            chains: globalSnapshot.chains + projectSnapshot.chains,
+            skills: globalSnapshot.skills + projectSnapshot.skills,
+            librarySkills: globalSnapshot.librarySkills,
+            commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
+            promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
+            settings: globalSnapshot.settings + projectSnapshot.settings,
+            envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
+            mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,
+            subagentConfig: globalSnapshot.subagentConfig,
+            warnings: globalSnapshot.warnings + projectSnapshot.warnings
+        )
     }
 
     var selectedCommand: CommandRecord? {
@@ -1532,31 +1567,99 @@ final class AppViewModel: ObservableObject {
         refresh(includeModels: false)
     }
 
-    func moveSkillToSelectedProject(_ skill: SkillRecord) throws {
+    func addSkillToSelectedProject(_ skill: SkillRecord) throws {
         guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
-        guard skill.source.kind == .global else { throw CocoaError(.fileWriteNoPermission) }
-
-        let sourceURL = skillRootURL(for: skill)
-        let destinationDirectory = URL(fileURLWithPath: selectedProjectPath)
+        let libraryURL = try ensureLibrarySkill(for: skill)
+        let linkURL = URL(fileURLWithPath: selectedProjectPath)
             .appendingPathComponent(".pi/skills", isDirectory: true)
-        let destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: sourceURL.hasDirectoryPath)
-
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-        guard !fileManager.fileExists(atPath: destinationURL.path) else {
-            throw CocoaError(.fileWriteFileExists)
-        }
-
-        try fileManager.moveItem(at: sourceURL, to: destinationURL)
+            .appendingPathComponent(skill.name, isDirectory: true)
+        try createSkillSymlink(from: linkURL, to: libraryURL)
         refresh(includeModels: false)
         selectedSkillID = snapshot.skills.first { $0.name == skill.name && $0.source.kind == .project }?.id ?? selectedSkillID
     }
 
+    func removeSkillFromSelectedProject(_ skill: SkillRecord) throws {
+        guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
+        try removeManagedSkillLink(URL(fileURLWithPath: selectedProjectPath).appendingPathComponent(".pi/skills/", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true))
+        refresh(includeModels: false)
+    }
+
+    func enableSkillGlobally(_ skill: SkillRecord) throws {
+        let libraryURL = try ensureLibrarySkill(for: skill)
+        let linkURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true)
+        try createSkillSymlink(from: linkURL, to: libraryURL)
+        refresh(includeModels: false)
+    }
+
+    func disableSkillGlobally(_ skill: SkillRecord) throws {
+        let globalURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true)
+        if (try? globalURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            try FileManager.default.removeItem(at: globalURL)
+        } else if skill.source.kind == .global {
+            _ = try ensureLibrarySkill(for: skill)
+        } else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        refresh(includeModels: false)
+    }
+
+    func skillIsEnabledGlobally(_ skill: SkillRecord) -> Bool {
+        snapshot.skills.contains { $0.name == skill.name && $0.source.kind == .global }
+    }
+
+    func skillIsEnabledForSelectedProject(_ skill: SkillRecord) -> Bool {
+        snapshot.skills.contains { $0.name == skill.name && $0.source.kind == .project }
+    }
+
+    private func ensureLibrarySkill(for skill: SkillRecord) throws -> URL {
+        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
+        let libraryURL = libraryRoot.appendingPathComponent(skill.name, isDirectory: true)
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: libraryURL.appendingPathComponent("SKILL.md").path) { return libraryURL }
+
+        let sourceURL = skillRootURL(for: skill)
+        var isDirectory: ObjCBool = false
+        fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory)
+
+        if isDirectory.boolValue {
+            if skill.source.kind == .global {
+                try fileManager.moveItem(at: sourceURL, to: libraryURL)
+            } else if skill.source.kind == .library {
+                return sourceURL
+            } else {
+                try fileManager.copyItem(at: sourceURL, to: libraryURL)
+            }
+        } else {
+            try fileManager.createDirectory(at: libraryURL, withIntermediateDirectories: true)
+            let destinationFile = libraryURL.appendingPathComponent("SKILL.md")
+            if skill.source.kind == .global {
+                try fileManager.moveItem(at: sourceURL, to: destinationFile)
+            } else if skill.source.kind == .library {
+                try fileManager.copyItem(at: sourceURL, to: destinationFile)
+            } else {
+                try fileManager.copyItem(at: sourceURL, to: destinationFile)
+            }
+        }
+        return libraryURL
+    }
+
+    private func createSkillSymlink(from linkURL: URL, to targetURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard !fileManager.fileExists(atPath: linkURL.path) else { throw CocoaError(.fileWriteFileExists) }
+        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+    }
+
+    private func removeManagedSkillLink(_ linkURL: URL) throws {
+        let values = try linkURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard values.isSymbolicLink == true else { throw CocoaError(.fileWriteNoPermission) }
+        try FileManager.default.removeItem(at: linkURL)
+    }
+
     private func skillRootURL(for skill: SkillRecord) -> URL {
         let fileURL = URL(fileURLWithPath: skill.filePath)
-        if fileURL.lastPathComponent == "SKILL.md" {
-            return fileURL.deletingLastPathComponent()
-        }
+        if fileURL.lastPathComponent == "SKILL.md" { return fileURL.deletingLastPathComponent() }
         return fileURL
     }
 
@@ -1677,6 +1780,7 @@ final class AppViewModel: ObservableObject {
 
         let chains = deduplicateByID(globalSnapshot.chains + projectSnapshots.flatMap(\.chains))
         let skills = deduplicateByID(globalSnapshot.skills + projectSnapshots.flatMap(\.skills))
+        let librarySkills = deduplicateByID(globalSnapshot.librarySkills + projectSnapshots.flatMap(\.librarySkills))
         let commands = deduplicateByID(globalSnapshot.commands + projectSnapshots.flatMap(\.commands))
         let promptTemplates = deduplicateByID(globalSnapshot.promptTemplates + projectSnapshots.flatMap(\.promptTemplates))
         let envKeys = deduplicateByID(globalSnapshot.envKeys + projectSnapshots.flatMap(\.envKeys))
@@ -1693,6 +1797,7 @@ final class AppViewModel: ObservableObject {
             effectiveAgents: globalSnapshot.effectiveAgents + projectSpecificEffectiveAgents,
             chains: chains,
             skills: skills,
+            librarySkills: librarySkills,
             commands: commands,
             promptTemplates: promptTemplates,
             settings: settings,
@@ -1725,6 +1830,7 @@ final class AppViewModel: ObservableObject {
             effectiveAgents: globalSnapshot.effectiveAgents + projectSnapshot.effectiveAgents.filter { $0.projectCustom != nil || $0.projectOverride != nil },
             chains: globalSnapshot.chains + projectSnapshot.chains,
             skills: globalSnapshot.skills + projectSnapshot.skills,
+            librarySkills: deduplicateByID(globalSnapshot.librarySkills + projectSnapshot.librarySkills),
             commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
             promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
             settings: globalSnapshot.settings + projectSnapshot.settings,

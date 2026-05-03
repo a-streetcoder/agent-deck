@@ -59,6 +59,7 @@ enum ResourceScopeKind: String, CaseIterable, Codable {
     case legacyProject = "Legacy Project"
     case override = "Override"
     case package = "Package"
+    case library = "Library"
 }
 
 struct ScopeID: Hashable, Identifiable {
@@ -309,6 +310,7 @@ struct ScanSnapshot: Hashable {
     let effectiveAgents: [EffectiveAgentRecord]
     let chains: [ChainRecord]
     let skills: [SkillRecord]
+    let librarySkills: [SkillRecord]
     let commands: [CommandRecord]
     let promptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
@@ -326,6 +328,7 @@ struct ScanSnapshot: Hashable {
         effectiveAgents: [],
         chains: [],
         skills: [],
+        librarySkills: [],
         commands: [],
         promptTemplates: [],
         settings: [],

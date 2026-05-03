@@ -245,27 +245,31 @@ struct ContentView: View {
             if viewModel.selectedSidebarItem == .skills, let skill = viewModel.selectedSkill {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
-                        openSelectedSkillFile()
-                    } label: {
-                        Label("Open", systemImage: "folder")
-                    }
-                    .help("Open the selected skill file")
-
-                    Button {
                         revealSelectedSkillFile()
                     } label: {
-                        Label("Reveal", systemImage: "arrow.up.forward.app")
+                        Label("Reveal", systemImage: "folder")
                     }
                     .help("Reveal the selected skill file in Finder")
 
-                    if skill.source.kind == .global, viewModel.selectedProjectPath != nil {
-                        Button {
-                            moveSelectedSkillToProject()
-                        } label: {
-                            Label("Move to Project", systemImage: "arrow.down.doc")
+                    Menu {
+                        if viewModel.skillIsEnabledGlobally(skill) {
+                            Button("Disable Globally") { disableSelectedSkillGlobally() }
+                        } else {
+                            Button("Enable Globally") { enableSelectedSkillGlobally() }
                         }
-                        .help("Move this global skill into the selected project’s .pi/skills directory")
+
+                        if viewModel.selectedProjectPath != nil {
+                            Divider()
+                            if viewModel.skillIsEnabledForSelectedProject(skill) {
+                                Button("Remove from Project") { removeSelectedSkillFromProject() }
+                            } else {
+                                Button("Add to Project") { addSelectedSkillToProject() }
+                            }
+                        }
+                    } label: {
+                        Label("Visibility", systemImage: "eye")
                     }
+                    .help("Manage where this skill is discovered by Pi")
                 }
             }
 
@@ -484,13 +488,24 @@ struct ContentView: View {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: skill.filePath)])
     }
 
-    private func moveSelectedSkillToProject() {
+    private func addSelectedSkillToProject() {
         guard let skill = viewModel.selectedSkill else { return }
-        do {
-            try viewModel.moveSkillToSelectedProject(skill)
-        } catch {
-            NSSound.beep()
-        }
+        do { try viewModel.addSkillToSelectedProject(skill) } catch { NSSound.beep() }
+    }
+
+    private func removeSelectedSkillFromProject() {
+        guard let skill = viewModel.selectedSkill else { return }
+        do { try viewModel.removeSkillFromSelectedProject(skill) } catch { NSSound.beep() }
+    }
+
+    private func enableSelectedSkillGlobally() {
+        guard let skill = viewModel.selectedSkill else { return }
+        do { try viewModel.enableSkillGlobally(skill) } catch { NSSound.beep() }
+    }
+
+    private func disableSelectedSkillGlobally() {
+        guard let skill = viewModel.selectedSkill else { return }
+        do { try viewModel.disableSkillGlobally(skill) } catch { NSSound.beep() }
     }
 
     private func setSelectedAgentDisabled(_ isDisabled: Bool) {
@@ -2999,8 +3014,8 @@ private struct SkillsScreen: View {
 
     var body: some View {
         HSplitView {
-            AppSidebarPane(title: "Skills", subtitle: "\(viewModel.snapshot.skills.count) total") {
-                List(viewModel.snapshot.skills, selection: $viewModel.selectedSkillID) { skill in
+            AppSidebarPane(title: "Skills", subtitle: "\(viewModel.snapshot.skills.count) active · \(viewModel.snapshot.librarySkills.count) library") {
+                List(viewModel.allVisibleSkillRecords, selection: $viewModel.selectedSkillID) { skill in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .top) {
                             Text(skill.name)
@@ -3010,7 +3025,7 @@ private struct SkillsScreen: View {
                             Spacer(minLength: 8)
                             AppLabelTag(
                                 text: skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot),
-                                color: skill.source.kind == .project ? .green : (skill.source.kind == .package ? .orange : .blue)
+                                color: skill.source.kind == .project ? .green : (skill.source.kind == .package ? .orange : (skill.source.kind == .library ? .purple : .blue))
                             )
                         }
                         Text(skill.description ?? "No description")
@@ -3030,9 +3045,15 @@ private struct SkillsScreen: View {
 
             if let skill = viewModel.selectedSkill {
                 AppPage(skill.name, subtitle: skill.description) {
-                    AppCard(title: "Location") {
+                    AppCard(title: "Visibility") {
+                        Text("Library skills live in `~/.pi/agent/skill-library` and are not loaded by Pi until they are linked into global or project skill folders. Global links apply everywhere; project links apply only inside the selected project.")
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
                         AppKeyValueList(rows: [
-                            ("Scope", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
+                            ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
+                            ("Enabled Globally", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
+                            ("Enabled For Selected Project", viewModel.selectedProjectPath == nil ? "Select a project" : (viewModel.skillIsEnabledForSelectedProject(skill) ? "Yes" : "No")),
                             ("Project", skillProjectLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot) ?? "—"),
                             ("Path", skill.filePath)
                         ])
@@ -3627,6 +3648,8 @@ private func skillScopeLabel(_ skill: SkillRecord, selectedProjectRoot: String?)
         return "Project"
     case .package:
         return "Package"
+    case .library:
+        return "Library"
     default:
         return "Global"
     }

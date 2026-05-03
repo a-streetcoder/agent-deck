@@ -11,6 +11,7 @@ struct PiScanner {
         let globalEnv = homeDirectory().appendingPathComponent(".pi/agent/.env")
         let globalMCP = homeDirectory().appendingPathComponent(".pi/agent/mcp.json")
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
+        let librarySkillsDirectory = homeDirectory().appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
         let globalPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompts", isDirectory: true)
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
         let subagentConfig = homeDirectory().appendingPathComponent(".pi/agent/extensions/subagent/config.json")
@@ -49,9 +50,10 @@ struct PiScanner {
 
         let skills =
             scanSkills(at: globalSkills, scope: .global) +
-            scanSkills(at: extraGlobalSkills, scope: .global) +
+            scanSkills(at: extraGlobalSkills, scope: .global, allowRootMarkdown: false) +
             scanSkills(at: projectSkills, scope: .project) +
             packageSkillScan.skills
+        let librarySkills = scanSkills(at: librarySkillsDirectory, scope: .library)
 
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +
@@ -111,6 +113,7 @@ struct PiScanner {
             effectiveAgents: effectiveAgents,
             chains: chains,
             skills: skills,
+            librarySkills: librarySkills,
             commands: commands,
             promptTemplates: promptScan.templates,
             settings: settings,
@@ -181,30 +184,33 @@ struct PiScanner {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private func scanSkills(at directory: URL?, scope: ResourceScopeKind) -> [SkillRecord] {
+    private func scanSkills(at directory: URL?, scope: ResourceScopeKind, allowRootMarkdown: Bool = true) -> [SkillRecord] {
         guard let directory, let urls = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return []
         }
 
-        return urls.compactMap { folder in
+        return urls.compactMap { url in
             var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-                return nil
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+
+            if isDirectory.boolValue {
+                let skillFile = url.appendingPathComponent("SKILL.md")
+                guard let text = try? String(contentsOf: skillFile, encoding: .utf8) else { return nil }
+                let document = parseMarkdownDocument(text)
+                let name = document.frontmatter["name"]?.nonEmpty ?? url.lastPathComponent
+                let description = document.frontmatter["description"]?.nonEmpty
+                return SkillRecord(
+                    id: "\(scope.rawValue):\(name):\(skillFile.path)",
+                    name: name,
+                    description: description,
+                    source: ScopeID(kind: scope, path: skillFile.path),
+                    filePath: skillFile.path,
+                    body: text
+                )
             }
 
-            let skillFile = folder.appendingPathComponent("SKILL.md")
-            guard let text = try? String(contentsOf: skillFile, encoding: .utf8) else { return nil }
-            let document = parseMarkdownDocument(text)
-            let name = document.frontmatter["name"]?.nonEmpty ?? folder.lastPathComponent
-            let description = document.frontmatter["description"]?.nonEmpty
-            return SkillRecord(
-                id: "\(scope.rawValue):\(name):\(skillFile.path)",
-                name: name,
-                description: description,
-                source: ScopeID(kind: scope, path: skillFile.path),
-                filePath: skillFile.path,
-                body: text
-            )
+            guard allowRootMarkdown, url.pathExtension == "md", url.lastPathComponent != "SKILL.md" else { return nil }
+            return scanStandaloneSkillFile(at: url, scope: scope)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }

@@ -568,8 +568,12 @@ private struct PiAgentStartupResourcesCard: View {
         return [.init(title: "No AGENTS.md detected", kind: .none)]
     }
 
+    private var startupSnapshot: ScanSnapshot {
+        viewModel.startupSnapshot(forProjectPath: session.projectPath)
+    }
+
     private var agentItems: [PiStartupResourceItem] {
-        let enabled = viewModel.snapshot.effectiveAgents
+        let enabled = startupSnapshot.effectiveAgents
             .filter { $0.resolved.disabled != true }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return enabled.isEmpty
@@ -586,19 +590,23 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private var skillItems: [PiStartupResourceItem] {
-        viewModel.snapshot.skills
+        startupSnapshot.skills
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { .init(title: $0.name, detail: $0.description, kind: .skill($0.id)) }
+            .map { skill in
+                let scope = skill.source.kind == .project ? "Project" : skill.source.kind.rawValue
+                let detail = [scope, skill.description].compactMap { $0 }.joined(separator: " · ")
+                return .init(title: skill.name, detail: detail, kind: .skill(skill.id))
+            }
     }
 
     private var promptItems: [PiStartupResourceItem] {
-        let commands = viewModel.snapshot.commands.map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .command($0.id)) }
-        let prompts = viewModel.snapshot.promptTemplates.map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .prompt($0.id)) }
+        let commands = startupSnapshot.commands.map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .command($0.id)) }
+        let prompts = startupSnapshot.promptTemplates.map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .prompt($0.id)) }
         return (commands + prompts).sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     private var extensionItems: [PiStartupResourceItem] {
-        let packageItems = Array(Set(viewModel.snapshot.settings.flatMap(\.packages)))
+        let packageItems = Array(Set(startupSnapshot.settings.flatMap(\.packages)))
             .compactMap(extensionPackageItem)
         let fileItems = discoveredExtensionEntries().map { entry in
             PiStartupResourceItem(title: entry.title, detail: shortPath(entry.url.path), kind: .file(entry.url))
@@ -609,7 +617,7 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private var envItems: [PiStartupResourceItem] {
-        viewModel.snapshot.envKeys.map { env in
+        startupSnapshot.envKeys.map { env in
             let scope = env.source.kind.rawValue.lowercased()
             let title: String
             if let value = env.value, !value.isEmpty {
