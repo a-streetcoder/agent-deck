@@ -318,7 +318,7 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
     }
 }
 
-struct PiAgentRPCEvent: Decodable {
+nonisolated struct PiAgentRPCEvent: Decodable {
     let type: String?
     let id: String?
     let command: String?
@@ -347,7 +347,7 @@ struct PiAgentRPCEvent: Decodable {
     let errorMessage: String?
 }
 
-enum JSONValue: Codable, Hashable {
+nonisolated enum JSONValue: Codable, Hashable {
     case string(String)
     case number(Double)
     case bool(Bool)

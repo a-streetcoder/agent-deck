@@ -261,19 +261,10 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .environment {
                 ToolbarItem(placement: .confirmationAction) {
-                    Menu {
-                        Button("New Global Key") {
-                            envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                        }
-                        if viewModel.selectedProjectPath != nil {
-                            Button("New Project Key") {
-                                envDraft = viewModel.makeNewEnvDraft(scope: .project)
-                            }
-                        }
+                    Button {
+                        envDraft = viewModel.makeNewEnvDraft(scope: viewModel.selectedProjectPath == nil ? .global : .project)
                     } label: {
                         Label("New Key", systemImage: "plus")
-                    } primaryAction: {
-                        envDraft = viewModel.makeNewEnvDraft(scope: viewModel.selectedProjectPath == nil ? .global : .project)
                     }
                     .buttonStyle(.borderedProminent)
                     .help("Create a new environment key")
@@ -700,7 +691,7 @@ private struct PiAgentSidebarButton: View {
                         .font(.body.weight(.semibold))
                         .fontWidth(.expanded)
                         .foregroundStyle(.primary)
-                    Text(isSelected ? "Open now" : "Jump back into sessions")
+                    Text(isSelected ? "Ready" : "Open")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -924,36 +915,36 @@ private struct SidebarProjectGitHubCard: View {
 
 private struct ProjectAssignmentToggleRow: View {
     let project: DiscoveredProject
-    let isOn: Bool
-    let action: () -> Void
+    @Binding var isOn: Bool
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(isOn ? Color.accentColor : AppTheme.mutedText)
-                    .frame(width: 24, alignment: .center)
+        HStack(alignment: .center, spacing: 12) {
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .controlSize(.regular)
+                .frame(width: 18)
 
-                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
+            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(project.name)
-                        .font(.body.weight(.semibold))
-                    Text(project.repositoryName ?? project.path)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(project.name)
+                    .font(.body.weight(.semibold))
+                Text(project.repositoryName ?? project.path)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            .frame(minHeight: 46, alignment: .center)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
+
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 46, alignment: .center)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isOn.toggle()
+        }
     }
 }
 
@@ -2411,21 +2402,6 @@ private struct AgentDetailView: View {
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
-            AppCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let projectRoot = agent.projectRoot {
-                        Text(URL(fileURLWithPath: projectRoot).lastPathComponent)
-                            .font(.headline)
-                            .fontWidth(.expanded)
-                    }
-                    if let badge = stateBadge {
-                        AppLabelTag(text: badge.text, color: badge.color)
-                    }
-                    Text(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "This builtin is currently customized through a settings override, matching /agents in pi-subagents." : "Builtins are not edited directly. Use Edit for supported settings overrides, or the toolbar replacement menu for frontmatter fields such as output.") : "Custom agents are edited as markdown files in the Pi discovery paths.")
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }
-
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(DetailTab.allCases) { tab in
@@ -2977,40 +2953,22 @@ private struct AgentDetailView: View {
                             ForEach(projects) { project in
                                 ProjectAssignmentToggleRow(
                                     project: project,
-                                    isOn: assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id }),
-                                    action: {
-                                        let enabled = !assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id })
-                                        do { try setAgentForProject(managedAgent, project, enabled) } catch { NSSound.beep() }
-                                    }
+                                    isOn: Binding(
+                                        get: { assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id }) },
+                                        set: { enabled in
+                                            do { try setAgentForProject(managedAgent, project, enabled) } catch { NSSound.beep() }
+                                        }
+                                    )
                                 )
                                 if project.id != projects.last?.id { Divider() }
                             }
                         }
                     }
                 }
-            } else {
-                AppCard(title: unmanagedAgentTitle) {
-                    Text(unmanagedAgentMessage)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
         }
     }
 
-    private var unmanagedAgentTitle: String {
-        if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) {
-            return "Replacement Agent"
-        }
-        return "Builtin Agent"
-    }
-
-    private var unmanagedAgentMessage: String {
-        if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) {
-            return "This custom agent intentionally replaces a builtin in its current scope. Replacements stay in that scope and are not moved into the reusable library or assigned per project."
-        }
-        return "Builtins are package-managed. Use settings overrides or replacement files; they are not moved into the library."
-    }
 
     private var advancedTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
@@ -3818,11 +3776,13 @@ private struct ChainsScreen: View {
                 ForEach(viewModel.enabledProjects) { project in
                     ProjectAssignmentToggleRow(
                         project: project,
-                        isOn: viewModel.chain(chain, isEnabledFor: project),
-                        action: {
-                            do { try viewModel.setChain(chain, enabled: !viewModel.chain(chain, isEnabledFor: project), for: project) }
-                            catch { NSSound.beep() }
-                        }
+                        isOn: Binding(
+                            get: { viewModel.chain(chain, isEnabledFor: project) },
+                            set: { enabled in
+                                do { try viewModel.setChain(chain, enabled: enabled, for: project) }
+                                catch { NSSound.beep() }
+                            }
+                        )
                     )
                     if project.id != viewModel.enabledProjects.last?.id { Divider() }
                 }
@@ -4341,11 +4301,13 @@ private struct SkillsScreen: View {
                 ForEach(viewModel.enabledProjects) { project in
                     ProjectAssignmentToggleRow(
                         project: project,
-                        isOn: viewModel.skill(skill, isEnabledFor: project),
-                        action: {
-                            do { try viewModel.setSkill(skill, enabled: !viewModel.skill(skill, isEnabledFor: project), for: project) }
-                            catch { NSSound.beep() }
-                        }
+                        isOn: Binding(
+                            get: { viewModel.skill(skill, isEnabledFor: project) },
+                            set: { enabled in
+                                do { try viewModel.setSkill(skill, enabled: enabled, for: project) }
+                                catch { NSSound.beep() }
+                            }
+                        )
                     )
 
                     if project.id != viewModel.enabledProjects.last?.id {
@@ -4938,9 +4900,12 @@ private struct DiagnosticsScreen: View {
         let displayName: String
         let description: String
         let repoURL: String?
+        let homepageURL: String?
         let author: String
+        let installCommand: String
         let category: Category
         let isInstalled: Bool
+        let installedVersion: String?
 
         enum Category {
             case essential, recommended, niceToHave
@@ -4955,36 +4920,48 @@ private struct DiagnosticsScreen: View {
                 displayName: "pi-subagents",
                 description: "Delegate work to subagents with chains, parallel execution, and interactive coordination.",
                 repoURL: "https://github.com/nicobailon/pi-subagents",
+                homepageURL: "https://github.com/nicobailon/pi-subagents#readme",
                 author: "Nico Bailon",
+                installCommand: "pi install npm:pi-subagents",
                 category: .essential,
-                isInstalled: installed.contains("pi-subagents")
+                isInstalled: installed.contains("pi-subagents"),
+                installedVersion: installedPackageVersion("pi-subagents")
             ),
             PackageInfo(
                 name: "pi-web-access",
                 displayName: "pi-web-access",
                 description: "Web search, URL fetching, GitHub repo cloning, PDF extraction, and YouTube/local video analysis.",
                 repoURL: "https://github.com/nicobailon/pi-web-access",
+                homepageURL: "https://github.com/nicobailon/pi-web-access#readme",
                 author: "Nico Bailon",
+                installCommand: "pi install npm:pi-web-access",
                 category: .essential,
-                isInstalled: installed.contains("pi-web-access")
+                isInstalled: installed.contains("pi-web-access"),
+                installedVersion: installedPackageVersion("pi-web-access")
             ),
             PackageInfo(
                 name: "pi-intercom",
                 displayName: "pi-intercom",
-                description: "Bidirectional coordination between subagents and the parent orchestrator session.",
-                repoURL: nil,
-                author: "",
+                description: "Direct 1:1 messaging between Pi sessions on the same machine.",
+                repoURL: "https://github.com/nicobailon/pi-intercom",
+                homepageURL: "https://github.com/nicobailon/pi-intercom#readme",
+                author: "Nico Bailon",
+                installCommand: "pi install npm:pi-intercom",
                 category: .recommended,
-                isInstalled: installed.contains("pi-intercom")
+                isInstalled: installed.contains("pi-intercom"),
+                installedVersion: installedPackageVersion("pi-intercom")
             ),
             PackageInfo(
                 name: "pi-ask-user",
-                displayName: "ask-user",
+                displayName: "pi-ask-user",
                 description: "Interactive multi-choice and freeform question UI for Pi agents. Provides the ask_user tool.",
-                repoURL: nil,
+                repoURL: "https://github.com/edlsh/pi-ask-user",
+                homepageURL: "https://github.com/edlsh/pi-ask-user#readme",
                 author: "Enzo Lucchesi",
+                installCommand: "pi install npm:pi-ask-user",
                 category: .niceToHave,
-                isInstalled: FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.pi/agent/extensions/ask-user/index.ts")
+                isInstalled: installed.contains("pi-ask-user") || FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.pi/agent/extensions/ask-user/index.ts"),
+                installedVersion: installedPackageVersion("pi-ask-user")
             )
         ]
     }
@@ -5031,27 +5008,15 @@ private struct DiagnosticsScreen: View {
                         .foregroundStyle(pkg.isInstalled ? .green : .red)
                         .frame(width: 24)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(pkg.displayName)
                                 .font(.body.weight(.semibold))
                                 .fontWidth(.expanded)
 
-                            if let url = pkg.repoURL {
-                                Button {
-                                    NSWorkspace.shared.open(URL(string: url)!)
-                                } label: {
-                                    Image(systemName: "arrow.up.right.square")
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.mutedText)
-                                }
-                                .buttonStyle(.plain)
-                                .help(url)
-                            }
-
-                            if !pkg.author.isEmpty {
-                                Text(pkg.author)
-                                    .font(.caption)
+                            if let version = pkg.installedVersion {
+                                Text(version)
+                                    .font(.caption.monospaced())
                                     .foregroundStyle(AppTheme.mutedText)
                             }
                         }
@@ -5060,6 +5025,33 @@ private struct DiagnosticsScreen: View {
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 8) {
+                            if !pkg.author.isEmpty {
+                                doctorMetaChip("Author", value: pkg.author)
+                            }
+                            if let repoURL = pkg.repoURL {
+                                doctorLinkChip("GitHub", url: repoURL)
+                            }
+                            if let homepageURL = pkg.homepageURL {
+                                doctorLinkChip("Docs", url: homepageURL)
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            Text(pkg.installCommand)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(AppTheme.mutedText)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+
+                            Button("Copy") {
+                                copyToPasteboard(pkg.installCommand)
+                            }
+                            .controlSize(.small)
+                        }
                     }
 
                     Spacer(minLength: 8)
@@ -5079,6 +5071,36 @@ private struct DiagnosticsScreen: View {
     }
 
     // MARK: - Helpers
+
+    private func doctorMetaChip(_ title: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .foregroundStyle(AppTheme.mutedText)
+            Text(value)
+        }
+        .font(.caption)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+    }
+
+    private func doctorLinkChip(_ title: String, url: String) -> some View {
+        Button {
+            guard let resolvedURL = URL(string: url) else { return }
+            NSWorkspace.shared.open(resolvedURL)
+        } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                Image(systemName: "arrow.up.right.square")
+            }
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        }
+        .buttonStyle(.plain)
+        .help(url)
+    }
 
     private var helperSection: some View {
         AppCard(title: "Helper Extension") {
@@ -5269,6 +5291,25 @@ private struct DiagnosticsScreen: View {
     }
 
     // MARK: - Helpers
+
+    private func installedPackageVersion(_ name: String) -> String? {
+        let candidates = [
+            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(name)/package.json"),
+            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(name)/package.json"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/lib/node_modules/\(name)/package.json"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("node_modules/\(name)/package.json")
+        ]
+
+        for candidate in candidates {
+            guard let data = try? Data(contentsOf: candidate),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let version = json["version"] as? String,
+                  !version.isEmpty else { continue }
+            return version
+        }
+
+        return nil
+    }
 
     private func detectInstalledPackageNames() -> [String] {
         let candidates = [

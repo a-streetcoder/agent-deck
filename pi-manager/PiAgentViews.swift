@@ -736,7 +736,11 @@ private struct PiAgentStartupResourcesCard: View {
     }
 
     private func effectiveResourceCount(_ items: [PiStartupResourceItem]) -> Int {
-        items.count == 1 && items.first?.kind == .none ? 0 : items.count
+        guard items.count == 1, let first = items.first else { return items.count }
+        if case PiStartupResourceItem.Kind.none = first.kind {
+            return 0
+        }
+        return items.count
     }
 
     private func chunk(_ items: [PiStartupResourceItem], size: Int) -> [[PiStartupResourceItem]] {
