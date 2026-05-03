@@ -134,8 +134,8 @@ final class AppViewModel: ObservableObject {
         selectedAgentID = filteredAgents.contains(where: { $0.id == previousAgentID }) ? previousAgentID : filteredAgents.first?.id
         selectedChainID = allVisibleChainRecords.contains(where: { $0.id == previousChainID }) ? previousChainID : allVisibleChainRecords.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == previousSkillID }) ? previousSkillID : allVisibleSkillRecords.first?.id
-        let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + snapshot.promptTemplates.map(\.id))
-        selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? snapshot.promptTemplates.first?.id)
+        let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
+        selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
         lastWatchFingerprint = watchFingerprint()
 
         if includeModels {
@@ -1496,6 +1496,7 @@ final class AppViewModel: ObservableObject {
             librarySkills: globalSnapshot.librarySkills,
             commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
             promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
+            libraryPromptTemplates: deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshot.libraryPromptTemplates),
             settings: globalSnapshot.settings + projectSnapshot.settings,
             envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
             mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,
@@ -1509,7 +1510,16 @@ final class AppViewModel: ObservableObject {
     }
 
     var selectedPromptTemplate: PromptTemplateRecord? {
-        snapshot.promptTemplates.first(where: { $0.id == selectedCommandItemID })
+        allVisiblePromptTemplateRecords.first(where: { $0.id == selectedCommandItemID })
+    }
+
+    var allVisiblePromptTemplateRecords: [PromptTemplateRecord] {
+        deduplicateByID(snapshot.promptTemplates + snapshot.libraryPromptTemplates)
+            .sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.source.kind.rawValue < rhs.source.kind.rawValue
+            }
     }
 
     var packageNames: [String] {
@@ -1525,6 +1535,7 @@ final class AppViewModel: ObservableObject {
     func availableSkillNames(for target: AgentEditingTarget) -> [String] {
         let snapshot = scopeSnapshot(for: target)
         return Array(Set(snapshot.skills.map(\.name)))
+            .filter { $0 != "pi-subagents" }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -1673,6 +1684,75 @@ final class AppViewModel: ObservableObject {
     func saveChainDraft(_ draft: ChainEditorDraft) throws {
         try chainPersistence.save(draft)
         refresh(includeModels: false)
+    }
+
+    func createLibraryPromptTemplate() throws {
+        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
+        try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        var candidate = "new-prompt"
+        var index = 2
+        while FileManager.default.fileExists(atPath: libraryRoot.appendingPathComponent("\(candidate).md").path) {
+            candidate = "new-prompt-\(index)"
+            index += 1
+        }
+        let url = libraryRoot.appendingPathComponent("\(candidate).md")
+        let text = """
+        ---
+        description: Describe this reusable prompt template.
+        argument-hint: <task>
+        ---
+
+        Write the reusable prompt template here. Use {argument} where the slash-command argument should be inserted.
+        """
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        refresh(includeModels: false)
+        selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == candidate }?.id ?? selectedCommandItemID
+    }
+
+    func prompt(_ prompt: PromptTemplateRecord, isEnabledFor project: DiscoveredProject) -> Bool {
+        allProjectSnapshots[project.path]?.promptTemplates.contains { $0.name == prompt.name && $0.source.kind == .project } == true
+    }
+
+    func assignedProjects(for prompt: PromptTemplateRecord) -> [DiscoveredProject] {
+        enabledProjects.filter { self.prompt(prompt, isEnabledFor: $0) }
+    }
+
+    func promptIsEnabledGlobally(_ prompt: PromptTemplateRecord) -> Bool {
+        globalSnapshot.promptTemplates.contains { $0.name == prompt.name && $0.source.kind == .global }
+    }
+
+    func setPrompt(_ prompt: PromptTemplateRecord, enabled: Bool, for project: DiscoveredProject) throws {
+        if enabled { try addPrompt(prompt, toProjectPath: project.path) }
+        else { try removeManagedPromptLink(projectPromptLinkURL(name: prompt.name, projectPath: project.path)) }
+        refresh(includeModels: false)
+    }
+
+    func enablePromptGlobally(_ prompt: PromptTemplateRecord) throws {
+        let libraryURL = try ensureLibraryPrompt(for: prompt)
+        try createPromptSymlink(from: globalPromptLinkURL(name: prompt.name), to: libraryURL)
+        try removeProjectVisibility(forPromptNamed: prompt.name)
+        refresh(includeModels: false)
+    }
+
+    func disablePromptGlobally(_ prompt: PromptTemplateRecord) throws {
+        if prompt.source.kind == .global {
+            _ = try ensureLibraryPrompt(for: prompt)
+        } else if let globalRecord = globalSnapshot.promptTemplates.first(where: { $0.name == prompt.name && $0.source.kind == .global }) {
+            _ = try ensureLibraryPrompt(for: globalRecord)
+        }
+        try removeManagedPromptLinkIfExists(globalPromptLinkURL(name: prompt.name))
+        refresh(includeModels: false)
+    }
+
+    func movePromptToLibrary(_ prompt: PromptTemplateRecord) throws {
+        _ = try ensureLibraryPrompt(for: prompt)
+        refresh(includeModels: false)
+    }
+
+    private func addPrompt(_ prompt: PromptTemplateRecord, toProjectPath projectPath: String) throws {
+        let libraryURL = try ensureLibraryPrompt(for: prompt)
+        try removeGlobalVisibility(forPromptNamed: prompt.name)
+        try createPromptSymlink(from: projectPromptLinkURL(name: prompt.name, projectPath: projectPath), to: libraryURL)
     }
 
     func agent(_ agent: AgentRecord, isEnabledFor project: DiscoveredProject) -> Bool {
@@ -1935,6 +2015,59 @@ final class AppViewModel: ObservableObject {
     private func globalChainLinkURL(name: String) -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/chains/\(name).chain.md") }
     private func projectChainLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/chains/\(name).chain.md") }
 
+    private func ensureLibraryPrompt(for prompt: PromptTemplateRecord) throws -> URL {
+        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
+        let libraryURL = libraryRoot.appendingPathComponent("\(prompt.name).md")
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: libraryURL.path) { return libraryURL }
+
+        let sourceURL = URL(fileURLWithPath: prompt.filePath)
+        if prompt.source.kind == .global {
+            try fileManager.moveItem(at: sourceURL, to: libraryURL)
+        } else if prompt.source.kind == .library {
+            return sourceURL
+        } else {
+            try fileManager.copyItem(at: sourceURL, to: libraryURL)
+        }
+        return libraryURL
+    }
+
+    private func createPromptSymlink(from linkURL: URL, to targetURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: linkURL.path) {
+            guard isManagedPromptLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteFileExists) }
+            try fileManager.removeItem(at: linkURL)
+        }
+        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+    }
+
+    private func removeManagedPromptLink(_ linkURL: URL) throws {
+        guard FileManager.default.fileExists(atPath: linkURL.path) else { return }
+        guard isManagedPromptLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteNoPermission) }
+        try FileManager.default.removeItem(at: linkURL)
+    }
+
+    private func removeManagedPromptLinkIfExists(_ url: URL) throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try removeManagedPromptLink(url)
+    }
+
+    private func isManagedPromptLibrarySymlink(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true,
+              let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else { return false }
+        let destinationURL = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent()).standardizedFileURL
+        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true).standardizedFileURL.path
+        return destinationURL.path.hasPrefix(libraryRoot + "/")
+    }
+
+    private func removeGlobalVisibility(forPromptNamed name: String) throws { try removeManagedPromptLinkIfExists(globalPromptLinkURL(name: name)) }
+    private func removeProjectVisibility(forPromptNamed name: String) throws { for project in enabledProjects { try removeManagedPromptLinkIfExists(projectPromptLinkURL(name: name, projectPath: project.path)) } }
+    private func globalPromptLinkURL(name: String) -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompts/\(name).md") }
+    private func projectPromptLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/prompts/\(name).md") }
+
     private func ensureLibrarySkill(for skill: SkillRecord) throws -> URL {
         let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
         let libraryURL = libraryRoot.appendingPathComponent(skill.name, isDirectory: true)
@@ -2131,6 +2264,7 @@ final class AppViewModel: ObservableObject {
         let librarySkills = deduplicateByID(globalSnapshot.librarySkills + projectSnapshots.flatMap(\.librarySkills))
         let commands = deduplicateByID(globalSnapshot.commands + projectSnapshots.flatMap(\.commands))
         let promptTemplates = deduplicateByID(globalSnapshot.promptTemplates + projectSnapshots.flatMap(\.promptTemplates))
+        let libraryPromptTemplates = deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshots.flatMap(\.libraryPromptTemplates))
         let envKeys = deduplicateByID(globalSnapshot.envKeys + projectSnapshots.flatMap(\.envKeys))
         let mcpConfigs = deduplicateByID(globalSnapshot.mcpConfigs + projectSnapshots.flatMap(\.mcpConfigs))
         let warnings = deduplicateByID(globalSnapshot.warnings + projectSnapshots.flatMap(\.warnings))
@@ -2150,6 +2284,7 @@ final class AppViewModel: ObservableObject {
             librarySkills: librarySkills,
             commands: commands,
             promptTemplates: promptTemplates,
+            libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
             mcpConfigs: mcpConfigs,
@@ -2185,6 +2320,7 @@ final class AppViewModel: ObservableObject {
             librarySkills: deduplicateByID(globalSnapshot.librarySkills + projectSnapshot.librarySkills),
             commands: deduplicateByID(globalSnapshot.commands + projectSnapshot.commands),
             promptTemplates: deduplicateByID(globalSnapshot.promptTemplates + projectSnapshot.promptTemplates),
+            libraryPromptTemplates: deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshot.libraryPromptTemplates),
             settings: globalSnapshot.settings + projectSnapshot.settings,
             envKeys: globalSnapshot.envKeys + projectSnapshot.envKeys,
             mcpConfigs: globalSnapshot.mcpConfigs + projectSnapshot.mcpConfigs,

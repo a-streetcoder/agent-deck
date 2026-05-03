@@ -16,6 +16,7 @@ struct PiScanner {
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
         let librarySkillsDirectory = homeDirectory().appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
         let globalPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompts", isDirectory: true)
+        let libraryPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
         let subagentConfig = homeDirectory().appendingPathComponent(".pi/agent/extensions/subagent/config.json")
 
@@ -80,6 +81,7 @@ struct PiScanner {
             globalSettings: globalSettingsSummary,
             projectSettings: projectSettingsSummary
         )
+        let libraryPromptTemplates = scanPromptTemplates(at: libraryPrompts, scope: .library, discoveryKind: .standardDirectory, packageName: nil)
         let commands = scanRuntimeExtensionCommands(projectRoot: projectRoot)
 
         let effectiveAgents = resolveAgents(
@@ -122,6 +124,7 @@ struct PiScanner {
             librarySkills: librarySkills,
             commands: commands,
             promptTemplates: promptScan.templates,
+            libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
             mcpConfigs: mcpConfigs,
@@ -882,6 +885,9 @@ struct PiScanner {
         for agent in effectiveAgents {
             for skill in agent.resolved.skills where !skillNames.contains(skill) {
                 warnings.append(.init(id: "skill:\(agent.name):\(skill)", message: "Agent \(agent.name) references missing skill \(skill)."))
+            }
+            if agent.resolved.skills.contains("pi-subagents") {
+                warnings.append(.init(id: "parent-only-skill:\(agent.name):pi-subagents", message: "Agent \(agent.name) explicitly injects pi-subagents, but that skill is parent/orchestrator-only and should not be assigned to spawned agents."))
             }
             if let tools = agent.resolved.tools, tools.contains("web_search") && !envNames.contains("EXA_API_KEY") && !envNames.contains("GEMINI_API_KEY") && !envNames.contains("PERPLEXITY_API_KEY") {
                 warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses web search tools but no known web provider API key was found."))

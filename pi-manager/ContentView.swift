@@ -260,6 +260,37 @@ struct ContentView: View {
                 }
             }
 
+            if viewModel.selectedSidebarItem == .commandsAndPrompts {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        do { try viewModel.createLibraryPromptTemplate() }
+                        catch { NSSound.beep() }
+                    } label: {
+                        Label("New", systemImage: "plus")
+                    }
+                    .help("Create a new library prompt template")
+
+                    if let prompt = viewModel.selectedPromptTemplate {
+                        Menu {
+                            Button("Open Raw File") { openPromptFile(prompt.filePath) }
+                            Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
+                            Button("Copy Invocation") { copyCommandValue(prompt.invocation) }
+                            Button("Copy Prompt Path") { copyCommandValue(prompt.filePath) }
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
+                        }
+                        .help("More actions for the selected prompt")
+                    } else if let command = viewModel.selectedCommand {
+                        Button {
+                            copyCommandValue(command.invocation)
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                        .help("Copy command invocation")
+                    }
+                }
+            }
+
             if viewModel.selectedSidebarItem == .skills {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
@@ -917,7 +948,7 @@ private struct ProjectIconEditorButton: View {
     }
 }
 
-private struct ProjectIconView: View {
+struct ProjectIconView: View {
     let imageURL: URL?
     let symbolName: String
     let size: CGFloat
@@ -1604,7 +1635,7 @@ private struct AgentsScreen: View {
                     onSetBuiltinDisabled: { scope, isDisabled in
                         viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
                     },
-                    managedAgent: agentIsLibraryManageable(agent) ? agent.winningRecord : nil,
+                    managedAgent: libraryManagedAgentRecord(for: agent, libraryAgents: viewModel.snapshot.libraryAgents),
                     isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
                     assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
                     setAgentGlobal: { record, enabled in
@@ -1762,8 +1793,7 @@ private struct AgentLibraryPane: View {
 
                         capabilityStrip(for: agent)
                     }
-                    Spacer()
-                    AppLabelTag(text: statusLabel(agent), color: color(for: agent))
+                    Spacer(minLength: 8)
                 }
             }
             .padding(14)
@@ -1781,6 +1811,9 @@ private struct AgentLibraryPane: View {
 
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
         HStack(spacing: 6) {
+            if agent.resolutionKind == .globalReplacement || agent.resolutionKind == .projectReplacement {
+                capabilityPill("Replacement", symbol: "arrow.triangle.2.circlepath", color: .blue)
+            }
             if !agent.resolved.skills.isEmpty {
                 capabilityPill("Skills", symbol: "sparkles", color: .green)
             }
@@ -1833,13 +1866,13 @@ private struct AgentLibraryPane: View {
     }
 }
 
-private func agentIsLibraryManageable(_ agent: EffectiveAgentRecord) -> Bool {
-    guard let winningRecord = agent.winningRecord else { return false }
-    guard winningRecord.source.kind != .builtin else { return false }
+private func libraryManagedAgentRecord(for agent: EffectiveAgentRecord, libraryAgents: [AgentRecord]) -> AgentRecord? {
+    guard let winningRecord = agent.winningRecord else { return nil }
+    guard winningRecord.source.kind != .builtin else { return nil }
     // Same-name custom agents that replace builtins are intentional pi-subagents overrides.
     // Keep them in their chosen scope instead of offering reusable library assignment.
-    if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) { return false }
-    return true
+    if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) { return nil }
+    return libraryAgents.first { $0.name == agent.name } ?? winningRecord
 }
 
 private func rowIndicator(_ symbol: String, color: Color) -> some View {
@@ -1978,13 +2011,6 @@ private struct AgentDetailView: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                         .disabled(!inlineHasChanges || inlineDraft == nil)
-                    }
-                } else {
-                    HStack(spacing: 8) {
-                        if let badge = stateBadge {
-                            AppLabelTag(text: badge.text, color: badge.color)
-                        }
-                        AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
                     }
                 }
             }) {
@@ -2367,7 +2393,7 @@ private struct AgentDetailView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Skill Selection") {
                             configEditorRow("Skill Catalog") {
-                                Text("Only skills visible in this agent’s scope are selectable here.")
+                                Text("Only skills visible in this agent’s scope are selectable here. The parent-only pi-subagents orchestration skill is intentionally excluded.")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             }
@@ -2395,6 +2421,19 @@ private struct AgentDetailView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills))
                             readOnlyFieldRow("Explicit Skill Count", value: "\(agent.resolved.skills.count)", isLast: true)
+                        }
+
+                        if agent.resolved.skills.contains("pi-subagents") {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("pi-subagents is parent/orchestrator-only and should not be injected into spawned agents. Remove it from this agent’s explicit skills.")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(10)
+                            .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
                         if agent.resolved.skills.isEmpty {
@@ -2900,6 +2939,7 @@ private struct AgentDetailView: View {
     }
 
     private func addInlineSkill(_ skill: String) {
+        guard skill != "pi-subagents" else { return }
         guard inlineDraft?.config.skills.contains(skill) == false else { return }
         inlineDraft?.config.skills.append(skill)
     }
@@ -3758,8 +3798,7 @@ private struct SkillsScreen: View {
     private var librarySkills: [SkillRecord] {
         managedSkills.filter {
             $0.source.kind == .library &&
-            !viewModel.skillIsEnabledGlobally($0) &&
-            viewModel.assignedProjects(for: $0).isEmpty
+            !viewModel.skillIsEnabledGlobally($0)
         }
     }
 
@@ -3821,7 +3860,7 @@ private struct SkillsScreen: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: skill.source.kind == .package ? "shippingbox" : "wand.and.stars")
+                    Image(systemName: skillIcon(skill))
                         .foregroundStyle(skillColor(skill))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(skill.name)
@@ -3833,14 +3872,7 @@ private struct SkillsScreen: View {
                             .foregroundStyle(AppTheme.mutedText)
                             .lineLimit(2)
                     }
-                    Spacer()
-                    AppLabelTag(text: statusLabel(skill), color: skillColor(skill))
-                }
-
-                if selectedProject != nil, !skillIsActiveForCurrentProject(skill) {
-                    Text("Not active in selected project")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
+                    Spacer(minLength: 8)
                 }
             }
             .padding(14)
@@ -3901,13 +3933,24 @@ private struct SkillsScreen: View {
         if skill.source.kind == .package { return "Package" }
         if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "Active" }
         if viewModel.skillIsEnabledGlobally(skill) { return "Global" }
+        if skill.source.kind == .library && !viewModel.assignedProjects(for: skill).isEmpty { return "Assigned" }
         if skill.source.kind == .library { return "Library" }
         return skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)
     }
 
+    private func skillIcon(_ skill: SkillRecord) -> String {
+        if skill.source.kind == .package { return "shippingbox" }
+        if viewModel.skillIsEnabledGlobally(skill) { return "globe" }
+        if skill.source.kind == .library { return "building.columns" }
+        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "checkmark.circle" }
+        return "wand.and.stars"
+    }
+
     private func skillColor(_ skill: SkillRecord) -> Color {
-        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return .green }
+        if skill.source.kind == .package { return .orange }
         if viewModel.skillIsEnabledGlobally(skill) { return .blue }
+        if skill.source.kind == .library { return .purple }
+        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return .green }
         switch skill.source.kind {
         case .library: return .purple
         case .package: return .orange

@@ -320,6 +320,7 @@ struct ScanSnapshot: Hashable {
     let librarySkills: [SkillRecord]
     let commands: [CommandRecord]
     let promptTemplates: [PromptTemplateRecord]
+    let libraryPromptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
     let envKeys: [EnvKeyRecord]
     let mcpConfigs: [MCPConfigRecord]
@@ -340,6 +341,7 @@ struct ScanSnapshot: Hashable {
         librarySkills: [],
         commands: [],
         promptTemplates: [],
+        libraryPromptTemplates: [],
         settings: [],
         envKeys: [],
         mcpConfigs: [],
