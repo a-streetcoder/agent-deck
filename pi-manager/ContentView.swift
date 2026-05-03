@@ -3053,7 +3053,7 @@ private struct SkillsScreen: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("Library skills are centrally stored and only become active when assigned to this project or enabled globally.")
                                     .foregroundStyle(AppTheme.mutedText)
-                                skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.", inactive: true)
+                                skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.")
                             }
                         }
                     } else {
@@ -3258,8 +3258,8 @@ private struct SkillsScreen: View {
                     .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
                     .stroke(selectedSkillName == skill.name ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
             )
-            .opacity(inactive ? 0.62 : 1)
-            .saturation(inactive ? 0.25 : 1)
+            .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
+            .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)
         }
         .buttonStyle(.plain)
     }
@@ -3305,6 +3305,7 @@ private struct SkillsScreen: View {
     }
 
     private func statusLabel(_ skill: SkillRecord) -> String {
+        if skillIsUnusedLibrarySkill(skill) { return "Unused" }
         if skill.source.kind == .package { return "Package" }
         if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "Active" }
         if viewModel.skillIsEnabledGlobally(skill) { return "Global" }
@@ -3321,6 +3322,12 @@ private struct SkillsScreen: View {
         case .project, .legacyProject: return .green
         default: return .blue
         }
+    }
+
+    private func skillIsUnusedLibrarySkill(_ skill: SkillRecord) -> Bool {
+        skill.source.kind == .library &&
+        !viewModel.skillIsEnabledGlobally(skill) &&
+        viewModel.assignedProjects(for: skill).isEmpty
     }
 
     private func assignedProjectSummary(_ skill: SkillRecord) -> String {
