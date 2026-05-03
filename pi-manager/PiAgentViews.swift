@@ -27,10 +27,14 @@ struct PiAgentScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear(perform: syncSelectedSessionTitleDraft)
+        .onAppear {
+            syncSelectedSessionTitleDraft()
+            applyPendingComposerText()
+        }
         .onChange(of: store.selectedSession?.id) { _, _ in
             renamingSessionID = nil
             syncSelectedSessionTitleDraft()
+            applyPendingComposerText()
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
     }
@@ -291,7 +295,8 @@ struct PiAgentScreen: View {
                 },
                 metricsFooter: store.selectedSession.map { AnyView(PiAgentRuntimeFooter(session: $0)) },
                 onSend: sendComposerMessage,
-                onStop: { viewModel.stopSelectedPiAgentSession() }
+                onStop: { viewModel.stopSelectedPiAgentSession() },
+                onClear: clearComposerInput
             )
         }
     }
@@ -323,6 +328,21 @@ struct PiAgentScreen: View {
         for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
             composerFiles.append(attachment)
         }
+    }
+
+    private func applyPendingComposerText() {
+        guard let pending = viewModel.consumePendingPiAgentComposerText() else { return }
+        composerText = pending
+        composerImages = []
+        composerFiles = []
+        composerAttachmentError = nil
+    }
+
+    private func clearComposerInput() {
+        composerText = ""
+        composerImages = []
+        composerFiles = []
+        composerAttachmentError = nil
     }
 
     private func sendComposerMessage() {
@@ -552,6 +572,7 @@ private struct PiAgentStartupResourcesCard: View {
                     hintChip("↩", "send / steer")
                     hintChip("⇧/⌘/⌥ ↩", "newline")
                     hintChip("Esc", "stop running turn")
+                    hintChip("Esc Esc", "clear input")
                     hintChip("/", "commands")
                     hintChip("@", "file suggestions")
                 }
@@ -995,6 +1016,7 @@ private struct PiAgentComposerBox: View {
     let metricsFooter: AnyView?
     let onSend: () -> Void
     let onStop: () -> Void
+    let onClear: () -> Void
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -1034,7 +1056,8 @@ private struct PiAgentComposerBox: View {
                     onImages: addImages,
                     onFiles: onFiles,
                     onUnsupportedDrop: { attachmentError = "Drop images or UTF-8 text files." },
-                    onSend: onSend
+                    onSend: onSend,
+                    onClear: onClear
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -1165,6 +1188,7 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     var onFiles: ([URL]) -> Void
     var onUnsupportedDrop: () -> Void
     var onSend: () -> Void
+    var onClear: () -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -1244,6 +1268,10 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         func send() {
             parent.onSend()
         }
+
+        func clear() {
+            parent.onClear()
+        }
     }
 }
 
@@ -1254,11 +1282,13 @@ private protocol DropSafeNSTextViewDropHandler: AnyObject {
 
 private protocol DropSafeNSTextViewKeyHandler: AnyObject {
     func send()
+    func clear()
 }
 
 private final class DropSafeNSTextView: NSTextView {
     weak var dropHandler: DropSafeNSTextViewDropHandler?
     weak var keyHandler: DropSafeNSTextViewKeyHandler?
+    private var lastEscapeAt: TimeInterval?
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard acceptsDrop(sender.draggingPasteboard) else {
@@ -1303,6 +1333,17 @@ private final class DropSafeNSTextView: NSTextView {
         }
         if isReturn && (modifiers.contains(.shift) || modifiers.contains(.command) || modifiers.contains(.option)) {
             insertNewlineIgnoringFieldEditor(self)
+            return
+        }
+        if event.keyCode == 53 {
+            let now = event.timestamp
+            if let lastEscapeAt, now - lastEscapeAt < 0.6 {
+                keyHandler?.clear()
+                self.lastEscapeAt = nil
+                return
+            }
+            self.lastEscapeAt = now
+            super.keyDown(with: event)
             return
         }
         super.keyDown(with: event)
@@ -2544,7 +2585,13 @@ struct PiAgentInspectorPanel: View {
                         composerFiles = []
                         composerAttachmentError = nil
                     },
-                    onStop: { viewModel.stopSelectedPiAgentSession() }
+                    onStop: { viewModel.stopSelectedPiAgentSession() },
+                    onClear: {
+                        composerText = ""
+                        composerImages = []
+                        composerFiles = []
+                        composerAttachmentError = nil
+                    }
                 )
             } else {
                 Text("Start a project session from the sidebar project card, the Agent screen, or a GitHub issue.")

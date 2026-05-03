@@ -50,6 +50,7 @@ final class AppViewModel: ObservableObject {
     @Published var appSettings: AppSettings = AppSettingsStore.shared.settings
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
+    @Published private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore: PiAgentSessionStore
 
     private let scanner = PiScanner()
@@ -947,8 +948,22 @@ final class AppViewModel: ObservableObject {
             return
         }
         selectedSidebarItem = .agent
-        isPiAgentInspectorPresented = true
-        piAgentRunner.startIssueSession(detail: detail, project: project)
+        isPiAgentInspectorPresented = false
+        _ = piAgentSessionStore.createSession(
+            kind: .issue,
+            title: detail.item.title,
+            project: project,
+            repository: detail.item.repository,
+            issueNumber: detail.item.number,
+            issueURL: detail.item.url
+        )
+        piAgentPendingComposerText = PiIssuePromptBuilder.issuePrompt(detail: detail, project: project)
+    }
+
+    func consumePendingPiAgentComposerText() -> String? {
+        let pending = piAgentPendingComposerText
+        piAgentPendingComposerText = nil
+        return pending
     }
 
     func selectPiAgentSession(_ id: UUID) {
