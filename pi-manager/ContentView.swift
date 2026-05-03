@@ -119,27 +119,7 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .agents {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        isSubagentsInfoPresented.toggle()
-                    } label: {
-                        Label("Info", systemImage: "info.circle")
-                    }
-                    .help("Explain subagent library visibility")
-                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
-                        SubagentsInfoPopover()
-                    }
-
-                    Button {
-                        isSubagentsRecapPresented.toggle()
-                    } label: {
-                        Label("Project Recap", systemImage: "sidebar.right")
-                    }
-                    .help("Show subagents available for the selected project")
-                    .disabled(viewModel.selectedProjectPath == nil)
-
-                    Divider()
-
+                ToolbarItemGroup(placement: .navigation) {
                     Menu {
                         ForEach(AgentFilter.allCases) { filter in
                             Button {
@@ -158,11 +138,11 @@ struct ContentView: View {
                     .help("Filter agents")
                 }
 
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Menu {
-                        Button("New Global Agent") {
+                        Button("New Library Agent") {
                             editingAgent = nil
-                            agentDraft = viewModel.makeNewAgentDraft(scope: .global)
+                            agentDraft = viewModel.makeNewAgentDraft(scope: .library)
                         }
                         if viewModel.selectedProjectPath != nil {
                             Button("New Project Agent") {
@@ -171,69 +151,23 @@ struct ContentView: View {
                             }
                         }
                     } label: {
-                        Label("New Agent", systemImage: "plus")
-                    } primaryAction: {
-                        editingAgent = nil
-                        agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .global : .project)
+                        Label("New", systemImage: "plus")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .help("Create a new custom agent")
-                }
-
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Menu {
-                        if let agent = viewModel.selectedAgent {
-                            Button("Create Global Replacement File") {
-                                editingAgent = nil
-                                agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
-                            }
-                            .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
-
-                            if viewModel.selectedProjectPath != nil {
-                                Button("Create Project Replacement File") {
-                                    editingAgent = nil
-                                    agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .project)
-                                }
-                                .disabled(agent.projectCustom != nil)
-                            }
-                        } else {
-                            Text("Select an agent first")
-                        }
-                    } label: {
-                        Label("Replacement", systemImage: "doc.on.doc")
-                    }
-                    .help("Create a same-name agent file that overrides the selected agent")
+                    .help("Create a library agent, then choose global or project visibility")
                 }
 
                 if let agent = viewModel.selectedAgent {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
 
                     ToolbarItemGroup(placement: .primaryAction) {
-                        Menu {
-                            Button("Open Raw File") { openSelectedAgentFile() }
-                                .disabled(selectedAgentFilePath == nil)
-                            Button("Reveal in Finder") { revealSelectedAgentFile() }
-                                .disabled(selectedAgentFilePath == nil)
+                        Button {
+                            editingAgent = nil
+                            agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
                         } label: {
-                            Label("Open", systemImage: "folder")
+                            Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
                         }
-                        .help("Open or reveal the selected agent file")
-
-                        if agent.resolved.disabled == true {
-                            Button {
-                                setSelectedAgentDisabled(false)
-                            } label: {
-                                Label("Enable", systemImage: "checkmark.circle")
-                            }
-                            .help("Enable selected agent")
-                        } else {
-                            Button(role: .destructive) {
-                                setSelectedAgentDisabled(true)
-                            } label: {
-                                Label("Disable", systemImage: "nosign")
-                            }
-                            .help("Disable selected agent")
-                        }
+                        .help("Create a global replacement for this builtin agent")
+                        .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
 
                         Button {
                             agentDetailEditCommand += 1
@@ -241,6 +175,44 @@ struct ContentView: View {
                             Label(agentDetailIsEditing ? "Done" : "Edit", systemImage: agentDetailIsEditing ? "checkmark" : "pencil")
                         }
                         .help(agentDetailIsEditing ? "Finish editing selected agent" : "Edit selected agent")
+
+                        Menu {
+                            Button("Open Raw File") { openSelectedAgentFile() }
+                                .disabled(selectedAgentFilePath == nil)
+                            Button("Reveal in Finder") { revealSelectedAgentFile() }
+                                .disabled(selectedAgentFilePath == nil)
+                            Divider()
+                            if agent.resolved.disabled == true {
+                                Button("Enable Agent") { setSelectedAgentDisabled(false) }
+                            } else {
+                                Button("Disable Agent", role: .destructive) { setSelectedAgentDisabled(true) }
+                            }
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
+                        }
+                        .help("More actions for the selected agent")
+                    }
+                }
+
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        isSubagentsRecapPresented.toggle()
+                    } label: {
+                        Label("Project Recap", systemImage: "sidebar.right")
+                    }
+                    .help("Show subagents available for the selected project")
+                    .disabled(viewModel.selectedProjectPath == nil)
+
+                    Button {
+                        isSubagentsInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .help("Explain subagent library visibility")
+                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+                        SubagentsInfoPopover()
                     }
                 }
             }
@@ -3784,7 +3756,11 @@ private struct SkillsScreen: View {
     }
 
     private var librarySkills: [SkillRecord] {
-        managedSkills.filter { $0.source.kind == .library }
+        managedSkills.filter {
+            $0.source.kind == .library &&
+            !viewModel.skillIsEnabledGlobally($0) &&
+            viewModel.assignedProjects(for: $0).isEmpty
+        }
     }
 
     private var inactiveLibrarySkills: [SkillRecord] {
@@ -4855,8 +4831,8 @@ private struct AgentEditorSheet: View {
 
     private var toolSelectionSummary: String {
         switch draft.target {
-        case .builtinOverride(scope: .global), .custom(scope: .global):
-            return "Global agent: tools are based on the global environment only."
+        case .builtinOverride(scope: .global), .custom(scope: .global), .custom(scope: .library):
+            return "Library/global agent: tools are based on the global environment only."
         case .builtinOverride(scope: .project), .custom(scope: .project):
             return "Project agent: tools are based on global + selected project scope."
         }
@@ -4864,8 +4840,8 @@ private struct AgentEditorSheet: View {
 
     private var skillSelectionSummary: String {
         switch draft.target {
-        case .builtinOverride(scope: .global), .custom(scope: .global):
-            return "Global agent: skills come from the global catalog only."
+        case .builtinOverride(scope: .global), .custom(scope: .global), .custom(scope: .library):
+            return "Library/global agent: skills come from the global catalog only."
         case .builtinOverride(scope: .project), .custom(scope: .project):
             return "Project agent: skills come from the global catalog plus project-local skills in the selected project."
         }

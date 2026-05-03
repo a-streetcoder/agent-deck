@@ -309,6 +309,8 @@ struct AgentPersistence {
 
     private func customAgentPath(name: String, scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> String {
         switch scope {
+        case .library:
+            return homeDirectory().appendingPathComponent(".pi/agent/agent-library/agents/\(name).md").path
         case .global:
             let newPath = homeDirectory().appendingPathComponent(".agents", isDirectory: true)
             if fileManager.fileExists(atPath: newPath.path) {
@@ -331,6 +333,8 @@ struct AgentPersistence {
 
     private func isWritableCustomAgentPath(_ path: String, scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> Bool {
         switch scope {
+        case .library:
+            return path.hasPrefix(homeDirectory().appendingPathComponent(".pi/agent/agent-library/agents").path)
         case .global:
             return path.hasPrefix(homeDirectory().appendingPathComponent(".pi/agent/agents").path) ||
                 path.hasPrefix(homeDirectory().appendingPathComponent(".pi/agent/agent-library/agents").path) ||

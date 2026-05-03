@@ -65,7 +65,7 @@ struct EnvPersistence {
 
     func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> EnvEditorDraft {
         let path = switch scope {
-        case .global:
+        case .library, .global:
             fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env").path
         case .project:
             URL(fileURLWithPath: projectRoot ?? "").appendingPathComponent(".pi/.env").path

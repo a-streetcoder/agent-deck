@@ -124,6 +124,8 @@ struct ChainPersistence {
 
     private func chainPath(name: String, scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> String {
         switch scope {
+        case .library:
+            return homeDirectory().appendingPathComponent(".pi/agent/agent-library/chains/\(name).chain.md").path
         case .global:
             return homeDirectory().appendingPathComponent(".pi/agent/chains/\(name).chain.md").path
         case .project:

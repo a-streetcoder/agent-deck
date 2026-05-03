@@ -13,6 +13,7 @@ enum AgentEditingTarget: Hashable {
     }
 
     enum CustomAgentScope: String, CaseIterable, Identifiable, Hashable {
+        case library
         case global
         case project
 
