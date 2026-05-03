@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var agentDetailEditCommand = 0
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
+    @State private var isSkillsRecapPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -244,7 +245,7 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .skills {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         isSkillsInfoPresented.toggle()
                     } label: {
@@ -254,6 +255,14 @@ struct ContentView: View {
                     .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
                         SkillsInfoPopover()
                     }
+
+                    Button {
+                        isSkillsRecapPresented.toggle()
+                    } label: {
+                        Label("Project Recap", systemImage: "sidebar.right")
+                    }
+                    .help("Show skills Pi will load for the selected project")
+                    .disabled(viewModel.selectedProjectPath == nil)
                 }
             }
 
@@ -383,7 +392,7 @@ struct ContentView: View {
                 }
             )
         case .skills:
-            SkillsScreen(viewModel: viewModel)
+            SkillsScreen(viewModel: viewModel, isRecapPresented: $isSkillsRecapPresented)
         case .commandsAndPrompts:
             CommandsAndPromptsScreen(viewModel: viewModel)
         case .github:
@@ -3029,20 +3038,103 @@ private struct SkillsInfoPopover: View {
     }
 }
 
+private struct SkillsProjectRecapPanel: View {
+    let project: DiscoveredProject
+    let globalSkills: [SkillRecord]
+    let projectSkills: [SkillRecord]
+    let packageSkills: [SkillRecord]
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 10) {
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pi Skill Recap")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text(project.name)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.plain)
+                .help("Close recap")
+            }
+            .padding(16)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("These are the skills Pi will effectively see when launched in this project: global skills, project-assigned library skills, and package-provided skills.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    recapSection("Global", skills: globalSkills, color: .blue, emptyText: "No global skills")
+                    recapSection("Project", skills: projectSkills, color: .green, emptyText: "No project-assigned skills")
+                    recapSection("Package", skills: packageSkills, color: .orange, emptyText: "No package skills")
+                }
+                .padding(16)
+            }
+        }
+        .background(AppTheme.subtleFill)
+    }
+
+    private func recapSection(_ title: String, skills: [SkillRecord], color: Color, emptyText: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Spacer()
+                AppLabelTag(text: "\(skills.count)", color: color)
+            }
+
+            if skills.isEmpty {
+                Text(emptyText)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(skills, id: \.name) { skill in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: title == "Package" ? "shippingbox" : "wand.and.stars")
+                                .foregroundStyle(color)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(skill.name)
+                                    .font(.subheadline.weight(.semibold))
+                                if let description = skill.description, !description.isEmpty {
+                                    Text(description)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
+    @Binding var isRecapPresented: Bool
     @State private var selectedSkillName: String?
 
     var body: some View {
-        AppPage("Skills", subtitle: pageSubtitle) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 16)], spacing: 16) {
-                AppMetricTile(title: selectedProject == nil ? "Global Active" : "Active Here", value: activeSkills.count)
-                AppMetricTile(title: "Library", value: librarySkills.count)
-                AppMetricTile(title: "Projects", value: viewModel.enabledProjects.count)
-                AppMetricTile(title: "Packages", value: packageSkills.count)
-            }
-
-            HStack(alignment: .top, spacing: AppTheme.sectionSpacing) {
+        HStack(spacing: 0) {
+            AppPage("Skills", subtitle: pageSubtitle) {
+                HStack(alignment: .top, spacing: AppTheme.sectionSpacing) {
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     if let selectedProject {
                         AppCard(title: "Active in \(selectedProject.name)") {
@@ -3137,6 +3229,19 @@ private struct SkillsScreen: View {
                     }
                 }
                 .frame(minWidth: 360, idealWidth: 460, maxWidth: 560, alignment: .topLeading)
+                }
+            }
+
+            if isRecapPresented, let selectedProject {
+                Divider()
+                SkillsProjectRecapPanel(
+                    project: selectedProject,
+                    globalSkills: globalSkills,
+                    projectSkills: projectAssignedSkills,
+                    packageSkills: packageSkills,
+                    onClose: { isRecapPresented = false }
+                )
+                .frame(width: 380)
             }
         }
         .onAppear { ensureSelection() }
@@ -3186,6 +3291,15 @@ private struct SkillsScreen: View {
 
     private var packageSkills: [SkillRecord] {
         managedSkills.filter { $0.source.kind == .package }
+    }
+
+    private var projectAssignedSkills: [SkillRecord] {
+        guard let selectedProject else { return [] }
+        return managedSkills.filter {
+            viewModel.skill($0, isEnabledFor: selectedProject) &&
+            !viewModel.skillIsEnabledGlobally($0) &&
+            $0.source.kind != .package
+        }
     }
 
     private func preferredSkillRecord(_ records: [SkillRecord]) -> SkillRecord? {
