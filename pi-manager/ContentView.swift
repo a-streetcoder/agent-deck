@@ -10,6 +10,8 @@ struct ContentView: View {
     @State private var subagentConfigDraft: SubagentConfigDraft?
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
+    @State private var agentDetailEditCommand = 0
+    @State private var agentDetailIsEditing = false
 
     var body: some View {
         NavigationSplitView {
@@ -109,6 +111,113 @@ struct ContentView: View {
                         Image(systemName: "plus")
                     }
                     .help("Add project manually")
+                }
+            }
+
+            if viewModel.selectedSidebarItem == .agents {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Menu {
+                        ForEach(AgentFilter.allCases) { filter in
+                            Button {
+                                viewModel.selectedAgentFilter = filter
+                            } label: {
+                                if viewModel.selectedAgentFilter == filter {
+                                    Label(filter.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(filter.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    .help("Filter agents")
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Menu {
+                        Button("New Global Agent") {
+                            editingAgent = nil
+                            agentDraft = viewModel.makeNewAgentDraft(scope: .global)
+                        }
+                        if viewModel.selectedProjectPath != nil {
+                            Button("New Project Agent") {
+                                editingAgent = nil
+                                agentDraft = viewModel.makeNewAgentDraft(scope: .project)
+                            }
+                        }
+                    } label: {
+                        Label("New Agent", systemImage: "plus")
+                    } primaryAction: {
+                        editingAgent = nil
+                        agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .global : .project)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Create a new custom agent")
+                }
+
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Menu {
+                        if let agent = viewModel.selectedAgent {
+                            Button("Create Global Replacement File") {
+                                editingAgent = nil
+                                agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
+                            }
+                            .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
+
+                            if viewModel.selectedProjectPath != nil {
+                                Button("Create Project Replacement File") {
+                                    editingAgent = nil
+                                    agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .project)
+                                }
+                                .disabled(agent.projectCustom != nil)
+                            }
+                        } else {
+                            Text("Select an agent first")
+                        }
+                    } label: {
+                        Label("Replacement", systemImage: "doc.on.doc")
+                    }
+                    .help("Create a same-name agent file that overrides the selected agent")
+                }
+
+                if let agent = viewModel.selectedAgent {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Menu {
+                            Button("Open Raw File") { openSelectedAgentFile() }
+                                .disabled(selectedAgentFilePath == nil)
+                            Button("Reveal in Finder") { revealSelectedAgentFile() }
+                                .disabled(selectedAgentFilePath == nil)
+                        } label: {
+                            Label("Open", systemImage: "folder")
+                        }
+                        .help("Open or reveal the selected agent file")
+
+                        if agent.resolved.disabled == true {
+                            Button {
+                                setSelectedAgentDisabled(false)
+                            } label: {
+                                Label("Enable", systemImage: "checkmark.circle")
+                            }
+                            .help("Enable selected agent")
+                        } else {
+                            Button(role: .destructive) {
+                                setSelectedAgentDisabled(true)
+                            } label: {
+                                Label("Disable", systemImage: "nosign")
+                            }
+                            .help("Disable selected agent")
+                        }
+
+                        Button {
+                            agentDetailEditCommand += 1
+                        } label: {
+                            Label(agentDetailIsEditing ? "Done" : "Edit", systemImage: agentDetailIsEditing ? "checkmark" : "pencil")
+                        }
+                        .help(agentDetailIsEditing ? "Finish editing selected agent" : "Edit selected agent")
+                    }
                 }
             }
 
@@ -218,14 +327,8 @@ struct ContentView: View {
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,
-                onCreateAgent: { scope in
-                    editingAgent = nil
-                    agentDraft = viewModel.makeNewAgentDraft(scope: scope)
-                },
-                onEditAgent: { agent in
-                    editingAgent = agent
-                    agentDraft = viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .global)
-                }
+                editCommand: agentDetailEditCommand,
+                isEditing: $agentDetailIsEditing
             )
         case .chains:
             ChainsScreen(
@@ -289,6 +392,8 @@ struct ContentView: View {
         switch viewModel.selectedSidebarItem {
         case .overview:
             return viewModel.selectedDiscoveredProject?.name ?? "Overview"
+        case .agents:
+            return viewModel.selectedAgent?.name ?? "Agents"
         case .agent:
             return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
         default:
@@ -308,6 +413,30 @@ struct ContentView: View {
     private var selectedProject: DiscoveredProject? {
         guard let selectedProjectPath = viewModel.selectedProjectPath else { return nil }
         return viewModel.discoveredProjects.first(where: { $0.path == selectedProjectPath })
+    }
+
+    private var selectedAgentFilePath: String? {
+        guard let agent = viewModel.selectedAgent else { return nil }
+        return agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
+    }
+
+    private func openSelectedAgentFile() {
+        guard let path = selectedAgentFilePath else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    private func revealSelectedAgentFile() {
+        guard let path = selectedAgentFilePath else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    private func setSelectedAgentDisabled(_ isDisabled: Bool) {
+        guard let agent = viewModel.selectedAgent else { return }
+        do {
+            try viewModel.setAgentDisabled(isDisabled, for: agent)
+        } catch {
+            NSSound.beep()
+        }
     }
 
 }
@@ -803,9 +932,6 @@ private struct ProjectsScreen: View {
                     if isSearchDebouncing {
                         ProgressView()
                             .controlSize(.small)
-                    } else {
-                        Text("\(visibleProjects.count) visible")
-                            .foregroundStyle(AppTheme.mutedText)
                     }
                 }) {
                     if viewModel.discoveredProjects.isEmpty {
@@ -1342,8 +1468,8 @@ private struct SubagentsScreen: View {
 
 private struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
-    let onCreateAgent: (AgentEditingTarget.CustomAgentScope) -> Void
-    let onEditAgent: (EffectiveAgentRecord) -> Void
+    let editCommand: Int
+    @Binding var isEditing: Bool
 
     var body: some View {
         HSplitView {
@@ -1413,52 +1539,6 @@ private struct AgentsScreen: View {
                     }
                     .listStyle(.inset)
             }
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Menu {
-                        Button("New Global Agent") {
-                            onCreateAgent(.global)
-                        }
-                        if viewModel.selectedProjectPath != nil {
-                            Button("New Project Agent") {
-                                onCreateAgent(.project)
-                            }
-                        }
-                    } label: {
-                        Label("New", systemImage: "plus")
-                    }
-
-                    Menu {
-                        ForEach(AgentFilter.allCases) { filter in
-                            Button {
-                                viewModel.selectedAgentFilter = filter
-                            } label: {
-                                if viewModel.selectedAgentFilter == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(filter.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
-                    }
-
-                    Menu {
-                        Button {
-                            viewModel.setDisableBuiltins(!viewModel.userDisableBuiltins, scope: .global)
-                        } label: {
-                            if viewModel.userDisableBuiltins {
-                                Label("Disable All Builtins Globally", systemImage: "checkmark")
-                            } else {
-                                Text("Disable All Builtins Globally")
-                            }
-                        }
-                    } label: {
-                        Label("Builtins", systemImage: "nosign")
-                    }
-                }
-            }
             .frame(minWidth: 340, idealWidth: 400, maxWidth: 500)
 
             if let agent = viewModel.selectedAgent {
@@ -1469,7 +1549,9 @@ private struct AgentsScreen: View {
                     availableTools: viewModel.availableToolNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
                     availableSkills: viewModel.availableSkillNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
                     availableExtensions: viewModel.availableExtensionNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
-                    makeDraft: { _ in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .global) },
+                    makeDraft: { scope in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: scope ?? .global) },
+                    editCommand: editCommand,
+                    isEditing: $isEditing,
                     onSaveDraft: { draft in try viewModel.saveAgentDraft(draft, for: agent) },
                     onSetBuiltinDisabled: { scope, isDisabled in
                         viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
@@ -1508,10 +1590,11 @@ private struct AgentDetailView: View {
     let availableSkills: [String]
     let availableExtensions: [String]
     let makeDraft: (AgentEditingTarget.OverrideScope?) -> AgentEditorDraft?
+    let editCommand: Int
+    @Binding var isEditing: Bool
     let onSaveDraft: (AgentEditorDraft) throws -> Void
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     @State private var selectedTab: DetailTab = .summary
-    @State private var isEditing = false
     @State private var inlineDraft: AgentEditorDraft?
     @State private var baselineInlineDraft: AgentEditorDraft?
     @State private var inlineSaveMessage: String?
@@ -1519,23 +1602,7 @@ private struct AgentDetailView: View {
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
-            AppCard(trailing: {
-                HStack(spacing: 10) {
-                    Menu("Actions") {
-                        Button("Open Raw File") { openFile(primarySourcePath) }
-                        Button("Reveal in Finder") { revealInFinder(primarySourcePath) }
-                        if isPlainBuiltin {
-                            Divider()
-                            Button(agent.resolved.disabled == true ? "Enable Globally" : "Disable Globally") {
-                                onSetBuiltinDisabled(.global, !(agent.resolved.disabled ?? false))
-                            }
-                        }
-                    }
-                    Button(isEditing ? "Done" : "Edit") {
-                        toggleEditMode()
-                    }
-                }
-            }) {
+            AppCard {
                 VStack(alignment: .leading, spacing: 8) {
                     if let projectRoot = agent.projectRoot {
                         Text(URL(fileURLWithPath: projectRoot).lastPathComponent)
@@ -1545,7 +1612,7 @@ private struct AgentDetailView: View {
                     if let badge = stateBadge {
                         AppLabelTag(text: badge.text, color: badge.color)
                     }
-                    Text(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "This builtin is currently customized through a settings override, matching /agents in pi-subagents." : "Builtins are not edited directly. Creating an override writes to the global Pi settings override, matching /agents in pi-subagents.") : "Custom agents are edited as markdown files in the Pi discovery paths.")
+                    Text(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil ? (hasOverride ? "This builtin is currently customized through a settings override, matching /agents in pi-subagents." : "Builtins are not edited directly. Use Edit for supported settings overrides, or the toolbar replacement menu for frontmatter fields such as output.") : "Custom agents are edited as markdown files in the Pi discovery paths.")
                         .foregroundStyle(AppTheme.mutedText)
                 }
             }
@@ -1589,7 +1656,11 @@ private struct AgentDetailView: View {
             }
         }
         .task(id: agent.id) {
+            isEditing = false
             reloadInlineDraft()
+        }
+        .onChange(of: editCommand) { _, _ in
+            toggleEditMode()
         }
         .alert(item: $pendingSaveConfirmation) { confirmation in
             Alert(
@@ -1623,7 +1694,12 @@ private struct AgentDetailView: View {
                         .disabled(!inlineHasChanges || inlineDraft == nil)
                     }
                 } else {
-                    AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
+                    HStack(spacing: 8) {
+                        if let badge = stateBadge {
+                            AppLabelTag(text: badge.text, color: badge.color)
+                        }
+                        AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
+                    }
                 }
             }) {
                 if isEditing, let draft = inlineDraft {
@@ -3696,7 +3772,7 @@ private struct AgentEditorSheet: View {
                             Text(modelSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
                             TextField("Model", text: binding(for: \ .model))
-                                .help("Set the primary model used by this subagent. Values come from `pi --list-models`, and the saved frontmatter should usually use `provider/model`.")
+                                .help(Text(verbatim: "Set the primary model used by this subagent. Values come from `pi --list-models`, and the saved frontmatter should usually use `provider/model`."))
                             Menu("Choose Model") {
                                 Button("Use Pi Default Model") {
                                     draft.config.model = nil
@@ -3724,7 +3800,7 @@ private struct AgentEditorSheet: View {
                             .pickerStyle(.menu)
                             .help("Thinking options are derived from Pi’s installed model metadata for the selected model. If no model is selected, Pi’s generic thinking levels are shown.")
                             TextField("Prompt Mode", text: binding(for: \ .systemPromptMode))
-                                .help("`replace` makes a focused specialist. `append` keeps more of Pi’s normal behavior and adds your instructions on top.")
+                                .help(Text(verbatim: "`replace` makes a focused specialist. `append` keeps more of Pi’s normal behavior and adds your instructions on top."))
                             Toggle("Inherit Project Context", isOn: defaultedOptionalBoolBinding(for: \ .inheritProjectContext) { draft.config.name == "delegate" })
                                 .help("When enabled, the child keeps Pi’s project-context prompt section, including instructions loaded from files like AGENTS.md or CLAUDE.md. This is prompt context, not the full parent session history.")
                             Toggle("Inherit Skills", isOn: defaultedOptionalBoolBinding(for: \ .inheritSkills, default: false))

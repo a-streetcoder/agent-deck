@@ -1,91 +1,44 @@
 ---
-head: 7055c7cada4ad1e24682180773449ca83ab16419
-dirty: false
-generatedAt: 2026-05-01T21:43:47Z
-taskScope: Pi CLI busy-submit behavior and pi-manager transcript/tool rendering noise
-changeSummarySincePrevious: previous cache unrelated/stale; refreshed targeted context
+head: 3ccdf9adfacbce1ac179ff743bb950a3dbbae1a9
+dirty: true
+generatedAt: 2026-05-03T06:31:52Z
+taskScope: Agents view, global/project/user agents, builtin overrides, toolbar/actions for creating local/global override from selected builtin/global agent
+changeSummarySincePrevious: previous cache was unrelated and stale; dirty files are docs/untracked planning docs, not Swift app code
 reusedCache: false
 ---
 
 # Code Context
 
 ## Scope
-Answer whether Pi CLI sends steering or follow-up when user presses Enter while the LLM is replying, and identify minimal pi-manager changes to reduce noisy transcript entries.
+Map Pi Manager code for the Agents view and persistence/scanning of builtin/global/project agents and overrides. Supports adding a toolbar/action to create a local/global override from a selected builtin/global agent.
 
 ## Files Retrieved
-1. `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js` (lines 2078-2111, 2690-2721, 2914-2926) - CLI Enter vs Alt+Enter behavior and queued-message display.
-2. `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/core/agent-session.js` (lines 720-745, 905-934) - `prompt(...streamingBehavior)` dispatches to steer/follow-up queues.
-3. `pi-manager/PiAgentRunnerService.swift` (lines 60-70, 176-182, 380-515) - current app sends follow-up by default while active and renders tool events.
-4. `pi-manager/PiRPCClient.swift` (lines 50-60) - RPC prompt includes optional `streamingBehavior`.
-5. `pi-manager/PiAgentViews.swift` (lines 250-305, 326-334, 898-908, 1982-2040) - current composer mode UI and transcript visibility/rendering.
+1. `pi-manager/ContentView.swift` (lines 1343-1476, 1504-1548, 2178-2205, 2332-2388, 3662-3790) - Agents UI, toolbar, detail Actions menu, inline edit flow, full editor sheet.
+2. `pi-manager/AppViewModel.swift` (lines 1328-1354, 1452-1496, 1560-1589, 2029-2040) - filtered/selected agent state, draft/save methods, builtin disable actions/filter enum.
+3. `pi-manager/AgentPersistence.swift` (lines 6-45, 79-195, 198-244, 305-324) - creates builtin override drafts and writes `subagents.agentOverrides` to settings.
+4. `pi-manager/PiScanner.swift` (lines 5-34, 635-653, 720-784, 788-815) - discovers builtin/global/project agents/settings and resolves effective agents with overrides.
+5. `pi-manager/Models.swift` (lines 58-174, 258-320) - agent/override/effective record/snapshot types.
+6. `pi-manager/EditingModels.swift` (lines 3-34) - `AgentEditingTarget` and `AgentEditorDraft`.
 
 ## Key Code
-Pi CLI normal Enter while streaming is steering:
-```js
-// interactive-mode.js 2092-2098
-if (this.session.isStreaming) {
-  this.editor.addToHistory?.(text);
-  this.editor.setText("");
-  await this.session.prompt(text, { streamingBehavior: "steer" });
-  this.updatePendingMessagesDisplay();
-  this.ui.requestRender();
-  return;
-}
-```
-
-Pi CLI follow-up is explicit Alt+Enter only:
-```js
-// interactive-mode.js 2706-2712
-if (this.session.isStreaming) {
-  this.editor.addToHistory?.(text);
-  this.editor.setText("");
-  await this.session.prompt(text, { streamingBehavior: "followUp" });
-  this.updatePendingMessagesDisplay();
-  this.ui.requestRender();
-}
-```
-
-Core RPC/session behavior requires an explicit streaming behavior while active:
-```js
-// agent-session.js 726-737
-if (this.isStreaming) {
-  if (!options?.streamingBehavior) throw new Error(...);
-  if (options.streamingBehavior === "followUp") await this._queueFollowUp(...);
-  else await this._queueSteer(...);
-  return;
-}
-```
-
-Current pi-manager diverges: `PiAgentRunnerService.send` converts `.prompt` during active streaming to `.followUp` and sends `streamingBehavior: "followUp"` (`PiAgentRunnerService.swift` lines 60-70). UI also defaults `inputMode` to `.followUp` and shows follow-up placeholder/toggle (`PiAgentViews.swift` lines 9, 254, 305, 898-908).
-
-Noisy tool source:
-```swift
-// PiAgentRunnerService.swift 395-396
-case "toolcall_start":
-    store.append(.init(... role: .tool, title: "Tool Call", text: "Preparing tool call…" ...))
-```
-This creates low-value “Preparing tool call…” cards. `handleToolExecution` then upserts richer `Tool: <toolName>` entries for `tool_execution_start/update/end` (lines 425-444). `transcriptEntry(from:)` also falls back to rendering any `type.contains("tool")` event as a tool card (lines 507-508), which can duplicate/proliferate raw tool protocol noise.
-
-Current visible transcript filter only hides `.raw` and non Compaction/Retry statuses; it shows all `.tool` entries (`PiAgentViews.swift` lines 326-334).
+- `AgentsScreen` (`ContentView.swift:1343`) owns the Agents split view. Sidebar `List(selection: $viewModel.selectedAgentID)` renders `viewModel.filteredAgents` and state badges. Toolbar (`1416-1461`) currently has menus: `New` (global/project custom agents), filter, and `Builtins` disable-all globally.
+- Detail is `AgentDetailView` (`ContentView.swift:1504`). Its top `Menu("Actions")` (`1524-1532`) currently has Open/Reveal and `Disable/Enable Globally` for `isPlainBuiltin`.
+- `AgentDetailView` edit path: `makeDraft` closure is supplied by `AgentsScreen` as `viewModel.makeAgentDraft(for: agent, preferredOverrideScope: .global)` (`1472`), so inline Edit always creates/edits a global builtin override for plain builtins. `reloadInlineDraft(preferredOverrideScope:)` supports scope, but closure ignores the parameter.
+- `isPlainBuiltin` = `agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil` (`ContentView.swift:2194-2196`). `hasOverride` checks `userOverride || projectOverride` (`2190-2192`). `writeTargetSummary` for builtins points to `~/.pi/agent/settings.json` (`2202-2205`).
+- `AgentEditorSheet` (`ContentView.swift:3662`) supports `AgentEditorDraft.target == .builtinOverride(scope: .global/.project)` and labels it “Edit Builtin Override · scope”. Existing sheet state is wired in `ContentView.swift:157-177` via `agentDraft` + `editingAgent`.
+- View model selection/helpers: `selectedAgentID`, `selectedAgentFilter` (`AppViewModel.swift:12,16`); `filteredAgents` (`1328-1350`); `selectedAgent` (`1353-1354`); `makeAgentDraft(for:preferredOverrideScope:)` (`1452-1454`); `saveAgentDraft` refreshes after persistence (`1456-1459`).
+- Persistence draft logic (`AgentPersistence.swift:6-34`): custom project wins, then custom global; otherwise builtin creates `AgentEditorDraft(target: .builtinOverride(scope: preferredOverrideScope ?? .global), originalName: agent.name, config: seededBuiltinOverrideConfig(...), sourcePath: agent.sourcePath)`.
+- Override seeding (`AgentPersistence.swift:79-85`): global seed = builtin + userOverride; project seed = builtin + userOverride + projectOverride.
+- Override saving (`AgentPersistence.swift:133-162`): diffs edited config vs builtin via `buildBuiltinOverride` and writes/removes `root["subagents"]["agentOverrides"][original.name]` in global `~/.pi/agent/settings.json` or project `.pi/settings.json` (`318-324`).
 
 ## Architecture
-- CLI Enter -> `InteractiveMode` -> `session.prompt(..., streamingBehavior: "steer")` when `session.isStreaming`.
-- CLI Alt+Enter -> `handleFollowUp()` -> `streamingBehavior: "followUp"`.
-- `AgentSession.prompt()` maps `streamingBehavior` to `_queueSteer`/`_queueFollowUp`, emits `queue_update`, and later the agent emits user-message events when delivered.
-- pi-manager sends RPC JSON via `PiRPCClient.prompt(message, streamingBehavior:)`.
-- pi-manager currently appends a local user transcript entry immediately in `PiAgentRunnerService.send`, with titles “Queued steering” or “Queued follow-up”. Pi echoes delivered user messages later, but app ignores echoed role `user`.
+`PiScanner.scan(projectRoot:)` reads builtins from `/opt/homebrew/lib/node_modules/pi-subagents/agents`, global custom agents from `~/.pi/agent/agents` and `~/.agents`, project custom agents from `<project>/.pi/agents` and legacy `<project>/.agents`, and settings from global/project JSON. `scanSettings` extracts `subagents.disableBuiltins` and `subagents.agentOverrides`. `resolveAgents` combines records by name: project custom > global custom > builtin; overrides only apply when winner is builtin. UI works with `EffectiveAgentRecord` from `snapshot.effectiveAgents`.
 
 ## Start Here
-Start with `PiAgentRunnerService.swift` lines 60-70. Change active `.prompt` behavior from follow-up to steering, then remove follow-up toggle UI in `PiAgentViews.swift`.
+Open `pi-manager/ContentView.swift` at `AgentsScreen` lines 1416-1461 and `AgentDetailView` lines 1524-1535. Likely change: add an Actions/toolbar menu item based on `viewModel.selectedAgent`, then set `editingAgent = selectedAgent` and `agentDraft = viewModel.makeAgentDraft(for:selectedAgent, preferredOverrideScope: .project/.global)`.
 
 ## Constraints And Risks
-- To match CLI: busy Return should send `streamingBehavior: "steer"`; explicit follow-up UI should be removed/hidden unless reintroduced as an Alt+Enter advanced shortcut.
-- Since send button becomes Stop while running, active-turn message submission must rely on Return. The AppKit text editor already calls `onSend` for Return; ensure placeholder says “Steer the current turn…” while active.
-- Local transcript should title active submits as “Queued steering” (or simply “Steering”) and not “Queued follow-up”. Queue counts/footer should stop emphasizing follow-up if UI no longer exposes it.
-- Minimal tool-noise filter: do not append `toolcall_start` “Preparing tool call…”. Let `tool_execution_*` produce/update the meaningful tool card.
-- Also consider returning `nil` for fallback `type.contains("tool")` in `transcriptEntry(from:)` unless it is an error or has a meaningful result; otherwise protocol events can leak as cards.
-- Keep subagent handling: `PiAgentSubagentSummary(entry:)` detects tool entries whose title/text contains “subagent” and renders a summarized view. Preserve tool entries for actual subagent results; filter only preparation/start/protocol noise.
-- Local stored Pi Manager session list has only one recent session (`claude-code-meter`), not `claude-code-manager`, so no useful historical transcript was available locally to inspect.
-
-## Pi-intercom handoff
-No safe orchestrator target was provided.
+- Existing `AgentsScreen` has `onEditAgent` prop but does not use it; parent `ContentView` wires it to global override only (`225-227`). For local/project override, pass scope explicitly or add a new closure.
+- Project/local override should only be enabled when `viewModel.selectedProjectPath != nil`; persistence writes project overrides to `<project>/.pi/settings.json`.
+- “global agent” can mean custom global replacement (`agent.globalCustom != nil`). `AgentPersistence.makeDraft` will edit that markdown directly, not create an override. Builtin overrides require `agent.builtin != nil` and no custom replacement (`isPlainBuiltin`) unless product wants overriding replaced builtins, which current resolution does not support.
+- Current inline detail `makeDraft` closure ignores requested scope; fix if using inline edit for project overrides.

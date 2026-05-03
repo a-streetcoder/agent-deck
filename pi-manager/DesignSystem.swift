@@ -116,15 +116,6 @@ struct AppSidebarPane<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let subtitle {
-                Text(subtitle)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
-            }
-
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -13,6 +13,9 @@ Use this file as the main source of truth for:
 - discovery rules for agents, chains, skills, prompts, and related files
 - machine-specific setup notes that affect this repository's Pi usage
 
+Companion reference:
+- `pi-skills-discovery.md` for the dedicated skills discovery breakdown, including global vs project lookup rules and `.pi` vs `.agents` behavior
+
 ---
 
 ## Scope of this document
@@ -114,6 +117,8 @@ Project-scope note for `pi-subagents`:
 - project skills:
   - `.pi/skills/`
   - `.agents/skills/` in `cwd` and ancestor directories up to git repo root, or filesystem root when not in a repo
+- dedicated reference:
+  - `pi-skills-discovery.md`
 
 ### Prompt templates
 - global:

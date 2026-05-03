@@ -1458,6 +1458,13 @@ final class AppViewModel: ObservableObject {
         refresh(includeModels: false)
     }
 
+    func setAgentDisabled(_ isDisabled: Bool, for agent: EffectiveAgentRecord) throws {
+        let overrideScope: AgentEditingTarget.OverrideScope = selectedProjectPath == nil ? .global : .project
+        guard var draft = makeAgentDraft(for: agent, preferredOverrideScope: overrideScope) else { return }
+        draft.config.disabled = isDisabled
+        try saveAgentDraft(draft, for: agent)
+    }
+
     func makeNewAgentDraft(scope: AgentEditingTarget.CustomAgentScope) -> AgentEditorDraft {
         let base = AgentConfig(
             name: "new-agent",
@@ -1489,6 +1496,18 @@ final class AppViewModel: ObservableObject {
         var config = agent.winningRecord?.parsed ?? agent.resolved
         config.name = duplicatedName(for: config.name)
         return agentPersistence.makeNewDraft(scope: targetScope, base: config)
+    }
+
+    func makeReplacementAgentDraft(from agent: EffectiveAgentRecord, scope: AgentEditingTarget.CustomAgentScope) -> AgentEditorDraft {
+        var config: AgentConfig
+        if scope == .global, agent.builtin != nil, agent.globalCustom == nil {
+            // Global replacement files should not accidentally bake in project-only overrides.
+            config = makeAgentDraft(for: agent, preferredOverrideScope: .global)?.config ?? agent.resolved
+        } else {
+            config = agent.resolved
+        }
+        config.name = agent.name
+        return agentPersistence.makeNewDraft(scope: scope, base: config)
     }
 
     func saveNewAgentDraft(_ draft: AgentEditorDraft) throws {
