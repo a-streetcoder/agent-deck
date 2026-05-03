@@ -172,8 +172,19 @@ struct PiAgentScreen: View {
 
             Divider()
 
-            composer
-                .padding(18)
+            VStack(spacing: 12) {
+                if let request = store.selectedUIRequest {
+                    PiAgentUIRequestCard(
+                        request: request,
+                        onSubmitValue: { viewModel.respondToPiAgentUIRequest(request, value: $0) },
+                        onConfirm: { viewModel.confirmPiAgentUIRequest(request, confirmed: $0) },
+                        onCancel: { viewModel.cancelPiAgentUIRequest(request) }
+                    )
+                }
+
+                composer
+            }
+            .padding(18)
         }
     }
 
@@ -986,6 +997,93 @@ private struct ShortcutComboHint: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
         .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+    }
+}
+
+private struct PiAgentUIRequestCard: View {
+    let request: PiAgentUIRequest
+    let onSubmitValue: (String) -> Void
+    let onConfirm: (Bool) -> Void
+    let onCancel: () -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "questionmark.bubble.fill")
+                        .foregroundStyle(Color.accentColor)
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(request.title)
+                            .font(.headline)
+                            .fontWidth(.expanded)
+                        if let message = request.message, !message.isEmpty, message != request.title {
+                            Text(message)
+                                .foregroundStyle(AppTheme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer()
+                    Button("Cancel", action: onCancel)
+                }
+
+                switch request.method {
+                case .select:
+                    if request.options.isEmpty {
+                        emptyOptions
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(request.options, id: \.self) { option in
+                                Button {
+                                    onSubmitValue(option)
+                                } label: {
+                                    HStack {
+                                        Text(option)
+                                            .fontWeight(.semibold)
+                                        Spacer()
+                                        Image(systemName: "arrow.right.circle.fill")
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                case .confirm:
+                    HStack(spacing: 10) {
+                        Button("No") { onConfirm(false) }
+                        Button("Yes") { onConfirm(true) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                case .input, .editor:
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField(request.placeholder ?? "Response", text: $draft, axis: request.method == .editor ? .vertical : .horizontal)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(request.method == .editor ? 4...10 : 1...3)
+                        HStack {
+                            Spacer()
+                            Button("Submit") { onSubmitValue(draft) }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear {
+            if draft.isEmpty, let prefill = request.prefill {
+                draft = prefill
+            }
+        }
+    }
+
+    private var emptyOptions: some View {
+        Text("Pi requested a selection, but no options were provided.")
+            .foregroundStyle(AppTheme.mutedText)
     }
 }
 

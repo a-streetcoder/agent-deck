@@ -1124,6 +1124,18 @@ final class AppViewModel: ObservableObject {
         refreshRepositoryChangesForPiAgentSession()
     }
 
+    func respondToPiAgentUIRequest(_ request: PiAgentUIRequest, value: String) {
+        piAgentRunner.respondToExtensionUI(sessionID: request.sessionID, requestID: request.id, value: value)
+    }
+
+    func confirmPiAgentUIRequest(_ request: PiAgentUIRequest, confirmed: Bool) {
+        piAgentRunner.confirmExtensionUI(sessionID: request.sessionID, requestID: request.id, confirmed: confirmed)
+    }
+
+    func cancelPiAgentUIRequest(_ request: PiAgentUIRequest) {
+        piAgentRunner.cancelExtensionUI(sessionID: request.sessionID, requestID: request.id)
+    }
+
     func deletePiAgentSession(_ sessionID: UUID) {
         if piAgentRunner.isRunning(sessionID: sessionID) {
             piAgentRunner.stop(sessionID: sessionID)
@@ -1584,19 +1596,45 @@ final class AppViewModel: ObservableObject {
 
     func addSkillToSelectedProject(_ skill: SkillRecord) throws {
         guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
-        let libraryURL = try ensureLibrarySkill(for: skill)
-        let linkURL = URL(fileURLWithPath: selectedProjectPath)
-            .appendingPathComponent(".pi/skills", isDirectory: true)
-            .appendingPathComponent(skill.name, isDirectory: true)
-        try createSkillSymlink(from: linkURL, to: libraryURL)
-        refresh(includeModels: false)
-        selectedSkillID = snapshot.skills.first { $0.name == skill.name && $0.source.kind == .project }?.id ?? selectedSkillID
+        try addSkill(skill, toProjectPath: selectedProjectPath)
     }
 
     func removeSkillFromSelectedProject(_ skill: SkillRecord) throws {
         guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
-        try removeManagedSkillLink(URL(fileURLWithPath: selectedProjectPath).appendingPathComponent(".pi/skills/", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true))
+        try removeSkill(skill, fromProjectPath: selectedProjectPath)
+    }
+
+    func setSkill(_ skill: SkillRecord, enabled: Bool, for project: DiscoveredProject) throws {
+        if enabled {
+            try addSkill(skill, toProjectPath: project.path)
+        } else {
+            try removeSkill(skill, fromProjectPath: project.path)
+        }
+    }
+
+    func skill(_ skill: SkillRecord, isEnabledFor project: DiscoveredProject) -> Bool {
+        allProjectSnapshots[project.path]?.skills.contains { $0.name == skill.name && $0.source.kind == .project } == true
+    }
+
+    func assignedProjects(for skill: SkillRecord) -> [DiscoveredProject] {
+        enabledProjects.filter { self.skill(skill, isEnabledFor: $0) }
+    }
+
+    private func addSkill(_ skill: SkillRecord, toProjectPath projectPath: String) throws {
+        let libraryURL = try ensureLibrarySkill(for: skill)
+        try removeGlobalVisibility(forSkillNamed: skill.name)
+        let linkURL = URL(fileURLWithPath: projectPath)
+            .appendingPathComponent(".pi/skills", isDirectory: true)
+            .appendingPathComponent(skill.name, isDirectory: true)
+        try createSkillSymlink(from: linkURL, to: libraryURL)
         refresh(includeModels: false)
+        selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
+    }
+
+    private func removeSkill(_ skill: SkillRecord, fromProjectPath projectPath: String) throws {
+        try removeManagedSkillLink(URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/skills/", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true))
+        refresh(includeModels: false)
+        selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
 
     func enableSkillGlobally(_ skill: SkillRecord) throws {
@@ -1670,6 +1708,17 @@ final class AppViewModel: ObservableObject {
         let values = try linkURL.resourceValues(forKeys: [.isSymbolicLinkKey])
         guard values.isSymbolicLink == true else { throw CocoaError(.fileWriteNoPermission) }
         try FileManager.default.removeItem(at: linkURL)
+    }
+
+    private func removeGlobalVisibility(forSkillNamed skillName: String) throws {
+        let fileManager = FileManager.default
+        for globalSkill in snapshot.skills where globalSkill.name == skillName && globalSkill.source.kind == .global {
+            let url = skillRootURL(for: globalSkill)
+            guard fileManager.fileExists(atPath: url.path) else { continue }
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                try fileManager.removeItem(at: url)
+            }
+        }
     }
 
     private func skillRootURL(for skill: SkillRecord) -> URL {

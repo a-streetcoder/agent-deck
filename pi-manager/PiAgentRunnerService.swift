@@ -72,6 +72,21 @@ final class PiAgentRunnerService {
         mark(sessionID, status: .running, error: nil)
     }
 
+    func respondToExtensionUI(sessionID: UUID, requestID: String, value: String) {
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: value)
+        store.clearUIRequest(sessionID: sessionID, id: requestID)
+    }
+
+    func confirmExtensionUI(sessionID: UUID, requestID: String, confirmed: Bool) {
+        clientsBySessionID[sessionID]?.confirmExtensionUI(id: requestID, confirmed: confirmed)
+        store.clearUIRequest(sessionID: sessionID, id: requestID)
+    }
+
+    func cancelExtensionUI(sessionID: UUID, requestID: String) {
+        clientsBySessionID[sessionID]?.cancelExtensionUI(id: requestID)
+        store.clearUIRequest(sessionID: sessionID, id: requestID)
+    }
+
     func stop(sessionID: UUID) {
         guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
         client.stop()
@@ -510,13 +525,33 @@ final class PiAgentRunnerService {
     private func handleExtensionUIRequest(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
         let method = event.method ?? "extension UI"
         let title = event.title ?? method
-        let text: String
-        if method == "setTitle" || method == "setStatus" || method == "setWidget" {
-            text = title
-        } else {
-            text = "Pi requested UI interaction: \(title). If this blocks, use the prompt composer or resume in terminal."
+
+        if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
+            let options: [String]
+            if case let .array(values)? = event.options {
+                options = values.compactMap(\.stringValue)
+            } else {
+                options = []
+            }
+            store.setUIRequest(.init(
+                id: requestID,
+                sessionID: sessionID,
+                method: requestMethod,
+                title: title,
+                message: event.message?.compactDescription,
+                options: options,
+                placeholder: event.placeholder,
+                prefill: event.prefill
+            ))
+            store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: title, rawJSON: rawLine))
+            return
         }
-        store.append(.init(sessionID: sessionID, role: .status, title: "Pi UI · \(method)", text: text, rawJSON: rawLine))
+
+        if method == "notify" {
+            store.append(.init(sessionID: sessionID, role: .status, title: "Pi", text: event.message?.compactDescription ?? title, rawJSON: rawLine))
+        } else if method != "setTitle" && method != "setStatus" && method != "setWidget" && method != "set_editor_text" {
+            store.append(.init(sessionID: sessionID, role: .status, title: "Pi UI · \(method)", text: title, rawJSON: rawLine))
+        }
     }
 
     private func transcriptEntry(from event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) -> PiAgentTranscriptEntry? {

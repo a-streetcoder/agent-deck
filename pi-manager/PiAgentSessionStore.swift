@@ -5,6 +5,7 @@ import Foundation
 final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var sessions: [PiAgentSessionRecord] = []
     @Published private(set) var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]] = [:]
+    @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
 
@@ -28,6 +29,11 @@ final class PiAgentSessionStore: ObservableObject {
     var selectedTranscript: [PiAgentTranscriptEntry] {
         guard let session = selectedSession else { return [] }
         return transcriptsBySessionID[session.id] ?? []
+    }
+
+    var selectedUIRequest: PiAgentUIRequest? {
+        guard let session = selectedSession else { return nil }
+        return uiRequestsBySessionID[session.id]
     }
 
     @discardableResult
@@ -78,6 +84,7 @@ final class PiAgentSessionStore: ObservableObject {
         sessions.insert(record, at: 0)
         sortSessions()
         transcriptsBySessionID[record.id] = []
+        uiRequestsBySessionID[record.id] = nil
         selectedSessionID = record.id
         save()
         return record
@@ -111,6 +118,21 @@ final class PiAgentSessionStore: ObservableObject {
     func togglePinned(_ id: UUID) {
         guard let session = sessions.first(where: { $0.id == id }) else { return }
         setPinned(id, isPinned: !session.isPinned)
+    }
+
+    func setUIRequest(_ request: PiAgentUIRequest?) {
+        guard let sessionID = request?.sessionID ?? selectedSessionID else { return }
+        uiRequestsBySessionID[sessionID] = request
+    }
+
+    func clearUIRequest(sessionID: UUID, id: String? = nil) {
+        guard let id else {
+            uiRequestsBySessionID[sessionID] = nil
+            return
+        }
+        if uiRequestsBySessionID[sessionID]?.id == id {
+            uiRequestsBySessionID[sessionID] = nil
+        }
     }
 
     func append(_ entry: PiAgentTranscriptEntry) {

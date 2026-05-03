@@ -268,6 +268,24 @@ enum PiAgentTranscriptRole: String, Codable, Hashable {
     case raw
 }
 
+struct PiAgentUIRequest: Identifiable, Hashable {
+    enum Method: String, Hashable {
+        case select
+        case confirm
+        case input
+        case editor
+    }
+
+    let id: String
+    let sessionID: UUID
+    let method: Method
+    let title: String
+    let message: String?
+    let options: [String]
+    let placeholder: String?
+    let prefill: String?
+}
+
 struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
     let id: UUID
     var sessionID: UUID
@@ -316,6 +334,8 @@ struct PiAgentRPCEvent: Decodable {
     let method: String?
     let title: String?
     let options: JSONValue?
+    let placeholder: String?
+    let prefill: String?
     let steering: JSONValue?
     let followUp: JSONValue?
     let aborted: Bool?

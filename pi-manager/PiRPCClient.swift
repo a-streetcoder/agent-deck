@@ -52,6 +52,9 @@ final class PiRPCClient: @unchecked Sendable {
     }
     func steer(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "steer", message: message, images: images) }
     func followUp(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "follow_up", message: message, images: images) }
+    func respondToExtensionUI(id: String, value: String) { send(type: "extension_ui_response", fields: ["id": id, "value": value]) }
+    func confirmExtensionUI(id: String, confirmed: Bool) { send(type: "extension_ui_response", fields: ["id": id, "confirmed": confirmed]) }
+    func cancelExtensionUI(id: String) { send(type: "extension_ui_response", fields: ["id": id, "cancelled": true]) }
 
     private func sendUserMessage(type: String, message: String, images: [PiAgentImageAttachment], streamingBehavior: String? = nil) {
         var fields: [String: Any] = ["message": message]
