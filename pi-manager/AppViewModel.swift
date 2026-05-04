@@ -2125,6 +2125,26 @@ final class AppViewModel: ObservableObject {
         enabledProjects.filter { self.agent(agent, isEnabledFor: $0) }
     }
 
+    func explicitSkillVisibilityIssues(for agent: EffectiveAgentRecord) -> [AgentSkillVisibilityIssue] {
+        guard !agent.resolved.skills.isEmpty else { return [] }
+        let explicitSkills = agent.resolved.skills
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "pi-subagents" }
+        guard !explicitSkills.isEmpty else { return [] }
+
+        let managedRecord = snapshot.libraryAgents.first { $0.name == agent.name }
+            ?? agent.globalCustom
+            ?? agent.projectCustom
+        guard let managedRecord else { return [] }
+
+        return assignedProjects(for: managedRecord).compactMap { project in
+            let visibleSkillNames = Set(allProjectSnapshots[project.path]?.skills.map(\.name) ?? [])
+            let missingSkills = explicitSkills.filter { !visibleSkillNames.contains($0) }
+            guard !missingSkills.isEmpty else { return nil }
+            return AgentSkillVisibilityIssue(project: project, missingSkills: missingSkills)
+        }
+    }
+
     func agentIsEnabledGlobally(_ agent: AgentRecord) -> Bool {
         globalSnapshot.globalAgents.contains { $0.name == agent.name }
     }

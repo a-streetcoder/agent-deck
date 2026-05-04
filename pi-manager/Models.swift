@@ -297,6 +297,13 @@ struct DiagnosticWarning: Identifiable, Hashable {
     let message: String
 }
 
+struct AgentSkillVisibilityIssue: Identifiable, Hashable {
+    let project: DiscoveredProject
+    let missingSkills: [String]
+
+    var id: String { "\(project.id):\(missingSkills.joined(separator: ","))" }
+}
+
 struct SettingsSummary: Hashable {
     let path: String
     let packages: [String]

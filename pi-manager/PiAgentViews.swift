@@ -400,6 +400,8 @@ struct PiAgentScreen: View {
                         onConfirm: { viewModel.confirmPiAgentUIRequest(request, confirmed: $0) },
                         onCancel: { viewModel.cancelPiAgentUIRequest(request) }
                     )
+                } else if store.selectedSession?.status.isActive == true {
+                    PiAgentInlineWorkingIndicator()
                 }
 
                 composer
@@ -985,12 +987,6 @@ private struct PiAgentStartupResourcesCard: View {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Text("\(count)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(color)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Capsule(style: .continuous).fill(color.opacity(0.12)))
             }
 
             Grid(horizontalSpacing: 8, verticalSpacing: 7) {
@@ -2868,6 +2864,28 @@ private struct PiAgentProjectIcon: View {
                     .padding(8)
                     .foregroundStyle(Color.accentColor)
             }
+    }
+}
+
+private struct PiAgentInlineWorkingIndicator: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(Color.purple)
+            Text("Pi is thinking")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.primary)
+            PiAgentTypingIndicator()
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppTheme.cardStroke, lineWidth: 1)
+        )
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 }
 

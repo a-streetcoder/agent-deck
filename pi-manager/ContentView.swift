@@ -1802,9 +1802,6 @@ private struct ExtensionsScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Text("\(records.count)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
             }
             .padding(.horizontal, 2)
 
@@ -1963,7 +1960,6 @@ private struct ModelsScreen: View {
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
                 Spacer()
-                AppLabelTag(text: "\(group.models.count)", color: .blue)
             }
             .padding(.horizontal, 2)
 
@@ -2431,6 +2427,7 @@ private struct AgentsScreen: View {
                     managedAgent: libraryManagedAgentRecord(for: agent, libraryAgents: viewModel.snapshot.libraryAgents),
                     isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
                     assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
+                    skillVisibilityIssues: { viewModel.explicitSkillVisibilityIssues(for: $0) },
                     setAgentGlobal: { record, enabled in
                         if enabled { try viewModel.enableAgentGlobally(record) } else { try viewModel.disableAgentGlobally(record) }
                     },
@@ -2463,8 +2460,62 @@ private struct AgentsScreen: View {
     }
 }
 
+private struct AgentWarningPopover: View {
+    let agent: EffectiveAgentRecord
+    let warnings: [DiagnosticWarning]
+    let skillIssues: [AgentSkillVisibilityIssue]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Agent warnings", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.orange)
+
+            if !skillIssues.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Explicit skills not visible in assigned projects")
+                        .font(.subheadline.weight(.semibold))
+                    Text("The agent stores skill names only. Assign the missing skills to these projects or enable them globally.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(skillIssues) { issue in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(issue.project.name)
+                                .font(.caption.weight(.semibold))
+                            Text(issue.missingSkills.joined(separator: ", "))
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.orange)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+
+            if !warnings.isEmpty {
+                if !skillIssues.isEmpty { Divider() }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Other scanner warnings")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(warnings) { warning in
+                        Text("• \(warning.message)")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 360, alignment: .leading)
+    }
+}
+
 private struct AgentLibraryPane: View {
     @ObservedObject var viewModel: AppViewModel
+    @State private var warningPopoverAgentID: String?
 
     var body: some View {
         AppPage("Agents", subtitle: subtitle) {
@@ -2566,40 +2617,63 @@ private struct AgentLibraryPane: View {
     }
 
     private func agentTile(_ agent: EffectiveAgentRecord) -> some View {
-        Button {
-            viewModel.selectedAgentID = agent.id
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: icon(for: agent))
-                        .foregroundStyle(color(for: agent))
-                    VStack(alignment: .leading, spacing: 6) {
+        let warnings = viewModel.warnings(for: agent)
+        let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
+        let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: icon(for: agent))
+                    .foregroundStyle(color(for: agent))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(agent.name)
                             .font(.headline)
                             .fontWidth(.expanded)
                             .foregroundStyle(.primary)
                             .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
-                        Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(2)
-
-                        capabilityStrip(for: agent)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        if hasWarningDetails {
+                            Button {
+                                warningPopoverAgentID = agent.id
+                            } label: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                    .imageScale(.small)
+                                    .accessibilityLabel("Agent warnings")
+                            }
+                            .buttonStyle(.plain)
+                            .popover(isPresented: Binding(
+                                get: { warningPopoverAgentID == agent.id },
+                                set: { if !$0 { warningPopoverAgentID = nil } }
+                            )) {
+                                AgentWarningPopover(agent: agent, warnings: warnings, skillIssues: skillIssues)
+                            }
+                        }
                     }
-                    Spacer(minLength: 8)
+                    Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(2)
+
+                    capabilityStrip(for: agent)
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                    .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
-            )
-            .opacity(agent.resolved.disabled == true ? 0.62 : 1)
-            .saturation(agent.resolved.disabled == true ? 0.25 : 1)
         }
-        .buttonStyle(.plain)
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
+                .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+        )
+        .opacity(agent.resolved.disabled == true ? 0.62 : 1)
+        .saturation(agent.resolved.disabled == true ? 0.25 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture {
+            viewModel.selectedAgentID = agent.id
+        }
     }
 
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
@@ -2619,7 +2693,7 @@ private struct AgentLibraryPane: View {
             if agent.resolved.disabled == true {
                 capabilityPill("Disabled", symbol: "nosign", color: .red)
             }
-            if !viewModel.warnings(for: agent).isEmpty {
+            if !viewModel.warnings(for: agent).isEmpty || !viewModel.explicitSkillVisibilityIssues(for: agent).isEmpty {
                 capabilityPill("Warning", symbol: "exclamationmark.triangle", color: .orange)
             }
         }
@@ -2699,6 +2773,7 @@ private struct AgentDetailView: View {
     let managedAgent: AgentRecord?
     let isAgentGlobal: (AgentRecord) -> Bool
     let assignedAgentProjects: (AgentRecord) -> [DiscoveredProject]
+    let skillVisibilityIssues: (EffectiveAgentRecord) -> [AgentSkillVisibilityIssue]
     let setAgentGlobal: (AgentRecord, Bool) throws -> Void
     let setAgentForProject: (AgentRecord, DiscoveredProject, Bool) throws -> Void
     let moveAgentToLibrary: (AgentRecord) throws -> Void
@@ -3194,6 +3269,10 @@ private struct AgentDetailView: View {
                             .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
+                        if !skillVisibilityIssues(agent).isEmpty {
+                            skillVisibilityWarningBlock(skillVisibilityIssues(agent))
+                        }
+
                         if agent.resolved.skills.isEmpty {
                             Text("No explicit skills")
                                 .foregroundStyle(AppTheme.mutedText)
@@ -3221,6 +3300,31 @@ private struct AgentDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private func skillVisibilityWarningBlock(_ issues: [AgentSkillVisibilityIssue]) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Some assigned projects cannot resolve this agent's explicit skills.")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text("Agents carry skill names only. Assign the missing skills to these projects or enable them globally.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(issues) { issue in
+                    Text("\(issue.project.name): \(issue.missingSkills.joined(separator: ", "))")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var agentVisibilityManagementCards: some View {
@@ -3257,8 +3361,12 @@ private struct AgentDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Check each project that should load this agent. Assigning to a project removes managed global visibility, like Skills.")
                             .foregroundStyle(AppTheme.mutedText)
+                        if !skillVisibilityIssues(agent).isEmpty {
+                            skillVisibilityWarningBlock(skillVisibilityIssues(agent))
+                        }
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(projects) { project in
+                                let projectIssue = skillVisibilityIssues(agent).first { $0.project.id == project.id }
                                 ProjectAssignmentToggleRow(
                                     project: project,
                                     isOn: Binding(
@@ -3268,6 +3376,18 @@ private struct AgentDetailView: View {
                                         }
                                     )
                                 )
+                                if let projectIssue {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundStyle(.orange)
+                                        Text("Missing skills here: \(projectIssue.missingSkills.joined(separator: ", "))")
+                                            .font(.caption)
+                                            .foregroundStyle(AppTheme.mutedText)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.leading, 60)
+                                    .padding(.bottom, 8)
+                                }
                                 if project.id != projects.last?.id { Divider() }
                             }
                         }
@@ -4205,7 +4325,7 @@ private struct SubagentsProjectRecapPanel: View {
 
     private func recapShell<Content: View>(_ title: String, count: Int, color: Color, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { Text(title).font(.headline).fontWidth(.expanded); Spacer(); AppLabelTag(text: "\(count)", color: color) }
+            HStack { Text(title).font(.headline).fontWidth(.expanded); Spacer() }
             if count == 0 { Text("None").font(.caption).foregroundStyle(AppTheme.mutedText) } else { VStack(alignment: .leading, spacing: 8) { content() } }
         }
     }
@@ -4314,7 +4434,6 @@ private struct SkillsProjectRecapPanel: View {
                     .font(.headline)
                     .fontWidth(.expanded)
                 Spacer()
-                AppLabelTag(text: "\(skills.count)", color: color)
             }
 
             if skills.isEmpty {
@@ -4364,106 +4483,14 @@ private struct SkillsScreen: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            AppPage("Skills", subtitle: pageSubtitle) {
-                HStack(alignment: .top, spacing: AppTheme.sectionSpacing) {
-                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                    if let selectedProject {
-                        AppCard(title: "Active in \(selectedProject.name)") {
-                            skillGrid(activeSkills, emptyText: "No skills are active for this project.")
-                        }
-
-                        if !inactiveLibrarySkills.isEmpty {
-                            AppCard(title: "Library Skills") {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("Library skills are centrally stored and only become active when assigned to this project or enabled globally.")
-                                        .foregroundStyle(AppTheme.mutedText)
-                                    skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.")
-                                }
-                            }
-                        }
-                    } else {
-                        AppCard(title: "Global Skills") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Select a project to see exactly which skills are active there and to manage project assignment.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                skillGrid(globalSkills, emptyText: "No global skills.")
-                            }
-                        }
-
-                        if !librarySkills.isEmpty {
-                            AppCard(title: "Library Skills") {
-                                skillGrid(librarySkills, emptyText: "No library skills.")
-                            }
-                        }
-                    }
-
-                    if !packageSkills.isEmpty {
-                        AppCard(title: "Package Skills") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Package skills are active by default when their package is discovered. They are package-managed, so Pi Manager does not assign or unlink them per project.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                skillGrid(packageSkills, emptyText: "No package skills.")
-                            }
-                        }
-                    }
+            HSplitView {
+                AppPage("Skills", subtitle: pageSubtitle) {
+                    skillLibraryContent
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
-                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                    if let skill = selectedSkill {
-                        if skill.source.kind == .package {
-                            AppCard(title: "Package Skill") {
-                                Text("This skill is provided by an installed package and is active through Pi/package discovery. Project assignment is disabled to avoid copying or modifying package-managed content.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        } else {
-                            AppCard(title: "Global Visibility") {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text(viewModel.skillIsEnabledGlobally(skill) ? "This skill is active in every project." : "Make this skill active everywhere instead of only selected projects.")
-                                        .foregroundStyle(AppTheme.mutedText)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                                    if viewModel.skillIsEnabledGlobally(skill) {
-                                        Button("Disable Globally") {
-                                            do { try viewModel.disableSkillGlobally(skill) }
-                                            catch { NSSound.beep() }
-                                        }
-                                    } else {
-                                        Button("Enable Globally") {
-                                            do { try viewModel.enableSkillGlobally(skill) }
-                                            catch { NSSound.beep() }
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                    }
-                                }
-                            }
-
-                            AppCard(title: "Project Assignment") {
-                                projectAssignmentList(for: skill)
-                            }
-                        }
-
-                        AppCard(title: "Definition") {
-                            MarkdownDocumentView(source: skill.body, minimumHeight: 220)
-                        }
-
-                        AppCard(title: "Manage \(skill.name)") {
-                            AppKeyValueList(rows: [
-                                ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
-                                ("Active Globally", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
-                                ("Assigned Projects", assignedProjectSummary(skill)),
-                                ("Path", skill.filePath)
-                            ])
-                        }
-                    } else {
-                        AppCard {
-                            ContentUnavailableView("No Skill Selected", systemImage: "wand.and.stars")
-                                .frame(maxWidth: .infinity, minHeight: 240)
-                        }
-                    }
-                }
-                .frame(minWidth: 360, idealWidth: 460, maxWidth: 560, alignment: .topLeading)
+                AppPage(selectedSkill?.name ?? "Skill Details", subtitle: selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }) {
+                    skillDetailContent
                 }
             }
 
@@ -4497,6 +4524,107 @@ private struct SkillsScreen: View {
             }
         } message: {
             Text(importErrorMessage ?? importSummaryMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var skillLibraryContent: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            if let selectedProject {
+                AppCard(title: "Active in \(selectedProject.name)") {
+                    skillGrid(activeSkills, emptyText: "No skills are active for this project.")
+                }
+
+                if !inactiveLibrarySkills.isEmpty {
+                    AppCard(title: "Library Skills") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Library skills are centrally stored and only become active when assigned to this project or enabled globally.")
+                                .foregroundStyle(AppTheme.mutedText)
+                            skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.")
+                        }
+                    }
+                }
+            } else {
+                AppCard(title: "Global Skills") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Select a project to see exactly which skills are active there and to manage project assignment.")
+                            .foregroundStyle(AppTheme.mutedText)
+                        skillGrid(globalSkills, emptyText: "No global skills.")
+                    }
+                }
+
+                if !librarySkills.isEmpty {
+                    AppCard(title: "Library Skills") {
+                        skillGrid(librarySkills, emptyText: "No library skills.")
+                    }
+                }
+            }
+
+            if !packageSkills.isEmpty {
+                AppCard(title: "Package Skills") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Package skills are active by default when their package is discovered. They are package-managed, so Pi Manager does not assign or unlink them per project.")
+                            .foregroundStyle(AppTheme.mutedText)
+                        skillGrid(packageSkills, emptyText: "No package skills.")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var skillDetailContent: some View {
+        if let skill = selectedSkill {
+            if skill.source.kind == .package {
+                AppCard(title: "Package Skill") {
+                    Text("This skill is provided by an installed package and is active through Pi/package discovery. Project assignment is disabled to avoid copying or modifying package-managed content.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                AppCard(title: "Global Visibility") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(viewModel.skillIsEnabledGlobally(skill) ? "This skill is active in every project." : "Make this skill active everywhere instead of only selected projects.")
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if viewModel.skillIsEnabledGlobally(skill) {
+                            Button("Disable Globally") {
+                                do { try viewModel.disableSkillGlobally(skill) }
+                                catch { NSSound.beep() }
+                            }
+                        } else {
+                            Button("Enable Globally") {
+                                do { try viewModel.enableSkillGlobally(skill) }
+                                catch { NSSound.beep() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                }
+
+                AppCard(title: "Project Assignment") {
+                    projectAssignmentList(for: skill)
+                }
+            }
+
+            AppCard(title: "Definition") {
+                MarkdownDocumentView(source: skill.body, minimumHeight: 220)
+            }
+
+            AppCard(title: "Manage \(skill.name)") {
+                AppKeyValueList(rows: [
+                    ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
+                    ("Active Globally", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
+                    ("Assigned Projects", assignedProjectSummary(skill)),
+                    ("Path", skill.filePath)
+                ])
+            }
+        } else {
+            AppCard {
+                ContentUnavailableView("No Skill Selected", systemImage: "wand.and.stars")
+                    .frame(maxWidth: .infinity, minHeight: 240)
+            }
         }
     }
 

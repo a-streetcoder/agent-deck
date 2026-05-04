@@ -1,81 +1,53 @@
 ---
 head: 584345607c26d3a527e4e190a6222b7aaa6c5b29
 dirty: true
-generatedAt: 2026-05-04T21:28:37Z
-taskScope: pi-manager ask-user extension UI rendering and RPC response handling
-changeSummarySincePrevious: previous cache was unrelated/stale; refreshed targeted context; working tree dirty in AppViewModel/ContentView/ExtensionManagement but relevant ask-user files inspected are not listed dirty
+generatedAt: 2026-05-04T21:55:53Z
+taskScope: agent cards, project assignment UI, warning surfaces, and skill/project visibility data model
+changeSummarySincePrevious: previous cache scope unrelated; refreshed despite dirty tree because requested files are currently dirty/relevant
 reusedCache: false
 ---
 
 # Code Context
 
 ## Scope
-Investigate why Pi Manager renders ask-user options but tapping a real option or custom response does not behave like Pi CLI/TUI/RPC expects.
+Implement detection/UI for library/global agents assigned to projects while explicitly listing skills that are not visible in those projects.
 
 ## Files Retrieved
-1. `pi-manager/PiAgentRunnerService.swift` (lines 92-104, 704-731) - sends extension UI responses and parses incoming UI requests.
-2. `pi-manager/PiRPCClient.swift` (lines 56-64) - RPC command shape for `extension_ui_response`.
-3. `pi-manager/PiAgentSessionModels.swift` (lines 283-299) - `PiAgentUIRequest` model.
-4. `pi-manager/PiAgentViews.swift` (lines 394-400, 1320-1407) - card rendering and button actions.
-5. `~/Library/Application Support/Pi Manager/agent-sessions.json` session `C10E3294-D29C-43C1-89A9-2521DE6D6BE4` entries 4-5, 17-18 - app transcript evidence.
-6. `~/.pi/agent/sessions/--Users-andrea-Documents-GitHub--/2026-05-04T21-20-37-547Z_019df4dd-4eaa-75b9-a2d1-711764cfc631.jsonl` lines 7-15 - real session evidence.
-7. `~/.pi/agent/extensions/ask-user/index.ts` (lines 1250-1313) - ask-user RPC/headless fallback behavior.
-8. `node_modules/@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-mode.js` (source map/source around RPC UI context) - expected RPC request/response protocol.
+1. `pi-manager/Models.swift` (lines 55-64, 73-118, 121-143, 166-209, 212-219, 295-302, 337-361) - scopes, agent/skill/warning/snapshot data.
+2. `pi-manager/PiScanner.swift` (lines 1-122, 852-899) - scanner sources and existing warning generation.
+3. `pi-manager/AppViewModel.swift` (lines 1711-1779, 1871-1876, 2120-2137, 2612-2634, 2636-2668, 2821-2838) - displayed agents, available skills, project assignment helpers, skill visibility helper.
+4. `pi-manager/ContentView.swift` (lines 2404-2630, 2677-2760, 3129-3278, 5827-5908) - agent cards, agent detail tabs, skills UI, project assignment UI, warnings UI.
 
 ## Key Code
-- App receives `extension_ui_request` and stores a `PiAgentUIRequest` only if method is `select|confirm|input|editor`; options are parsed only as `[String]`:
-  ```swift
-  if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
-      let options: [String]
-      if case let .array(values)? = event.options { options = values.compactMap(\.stringValue) } else { options = [] }
-      store.setUIRequest(.init(id: requestID, sessionID: sessionID, method: requestMethod, title: title,
-          message: event.message?.compactDescription, options: options, placeholder: event.placeholder, prefill: event.prefill))
-      store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: title, rawJSON: rawLine))
-  }
-  ```
-  `PiAgentRunnerService.swift:704-731`
-- App sends select/input/editor responses as `{type:"extension_ui_response", id, value}` and immediately clears UI:
-  ```swift
-  func respondToExtensionUI(...) {
-      clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: value)
-      store.clearUIRequest(sessionID: sessionID, id: requestID)
-  }
-  ```
-  `PiAgentRunnerService.swift:92-95`, `PiRPCClient.swift:62`
-- UI card for `.select` blindly treats every option as final and submits its label:
-  ```swift
-  ForEach(request.options, id: \.self) { option in
-      Button { onSubmitValue(option) } label: { Text(option) ... }
-  }
-  ```
-  `PiAgentViews.swift:1345-1364`
-- ask-user RPC fallback intentionally uses two-step custom flow:
-  ```ts
-  const selected = await ui.select(prompt, selectOptions, dialogOpts)
-  if (selected === FREEFORM_SENTINEL) {
-      const answer = await ui.input(prompt, "Type your answer...", dialogOpts)
-      return createFreeformResponse(answer)
-  }
-  return createSelectionResponse([selected])
-  ```
-  `~/.pi/agent/extensions/ask-user/index.ts:1291-1304`
-- Pi RPC protocol expects select response value to be the selected string, and will emit a *new* `extension_ui_request` for `input` if the sentinel is selected. `rpc-mode.js` parses `extension_ui_response` by `id` and resolves the pending request.
+- `AgentConfig.skills` / `inheritSkills` live in `Models.swift:73-118`; `EffectiveAgentRecord.projectRoot` and `resolved` are in `Models.swift:166-209`; `SkillRecord.source/filePath` in `Models.swift:212-219`; warnings are only `{id,message}` at `Models.swift:295-302`.
+- Scanner builds project-scoped snapshots from global + project resources, including project skills (`PiScanner.swift:1-122`). Existing warnings only check missing skill name globally within that snapshot, not per-assigned-project visibility (`PiScanner.swift:876-888`).
+- Assignment: `AppViewModel.agent(_:isEnabledFor:)`, `assignedProjects(for:)`, `setAgent(_:enabled:for:)` use `allProjectSnapshots[project.path]?.projectAgents` (`AppViewModel.swift:2120-2137`).
+- Available skill picker is scope-based: `availableSkillNames(for:)` uses `scopeSnapshot(for:)` (`AppViewModel.swift:1871-1876`), so project-local skills are only selectable when editing in project scope.
+- Existing visibility logic: `skillVisible(to:skill:)` returns true for global/package/etc.; for `.project`/`.legacyProject`, compares project name parsed from skill path to `agent.projectRoot` last path component (`AppViewModel.swift:2821-2838`). This is private and name-based, so risky for cross-project assignment checks.
+- Agent cards add a generic Warning pill when `viewModel.warnings(for: agent)` is non-empty (`ContentView.swift:2610-2624`). No warning popover exists on agent cards today.
+- Agent detail Skills tab has read-only explicit skill list and pi-subagents warning (`ContentView.swift:3129-3225`). Project assignment card toggles all `projects` for `managedAgent` (`ContentView.swift:3237-3278`). Warnings page/card is generic in `ContentView.swift:5827-5908`.
 
 ## Architecture
-`pi --mode rpc` emits `extension_ui_request` for ask-user. Pi Manager maps that into one `PiAgentUIRequest` shown above the transcript. User taps -> `AppViewModel.respondToPiAgentUIRequest` -> `PiAgentRunnerService.respondToExtensionUI` -> `PiRPCClient.send(type:"extension_ui_response", fields:["id":id,"value":value])` -> Pi RPC resolves the pending dialog. For ask-user with freeform enabled, resolving the select with `✏️ Type custom response...` should cause ask-user to call `ui.input`, generating another `extension_ui_request` that Pi Manager should render as a text field.
+`PiScanner.scan(projectRoot:)` produces one snapshot per selected/global project; `AppViewModel` keeps `globalSnapshot`, `allProjectSnapshots`, and aggregate `snapshot`. Library agents are assigned by symlinking/copying into each project (`setAgent`). To detect the target issue, compare a managed agent’s explicit `resolved.skills` against each assigned project’s `ScanSnapshot.skills` names (plus globally visible skills included in that project snapshot). A skill missing from the assigned project snapshot is not visible there.
 
 ## Start Here
-Open `pi-manager/PiAgentViews.swift` at `PiAgentUIRequestCard` (`1320-1407`). The likely fix is in the select-option handling/rendering, then verify `PiAgentRunnerService.respondToExtensionUI`/`PiRPCClient.respondToExtensionUI` around response sending.
+Start in `AppViewModel.swift` near `assignedProjects(for agent:)` (`2124`) and `skillVisible(to:)` (`2821`). Add a small typed helper like `invisibleExplicitSkills(for agent: AgentRecord, in project: DiscoveredProject) -> [String]` using `allProjectSnapshots[project.path]?.skills.map(\.name)`.
 
 ## Constraints And Risks
-- Logs show the app got the ask-user requests correctly:
-  - First request raw JSON: `method:"select"`, title `How old are you?`, options `["31","35","42","✏️ Type custom response..."]`.
-  - Second request raw JSON includes context in title and same options.
-- Logs do **not** show a resulting ask-user `toolResult` after user interaction in the GitHub-root session; transcript instead shows user steering text then stop. So the selection/custom response did not complete the tool from the app path.
-- Likely product/UX bug: the app renders the sentinel `✏️ Type custom response...` as a normal final option. It should behave like CLI/TUI: tapping it should transition to/respond through the subsequent `input` request, not be treated as the final user answer. If Pi emits the input request after the sentinel, the app must not obscure/lose it; consider not clearing old UI until next request/response is observed or adding a local “waiting for custom input…” state.
-- Possible protocol bug to test: `respondToExtensionUI` uses `clientsBySessionID[sessionID]?` optional chaining and clears the UI even if no live client exists or send fails. If the process already ended/restarted or client is missing, the user sees the card disappear but no response reaches Pi. Safer behavior: only clear after a known live client/send, or append/status on missing client.
-- Options with descriptions are lost in app UI because `event.options` from RPC is only strings; the detailed option descriptions are present in `tool_execution_update.partialResult.details.options`, not in `extension_ui_request`. Rendering descriptions like TUI would need correlating with ask_user tool details or changing upstream RPC to include object options.
-- Working tree is dirty (`AppViewModel.swift`, `ContentView.swift`, `ExtensionManagement.swift`); do not assume clean baseline.
+- Do not rely on `skillVisible(to:)` project-name parsing for this feature; project paths are available through `DiscoveredProject.path` and `allProjectSnapshots`.
+- Existing `DiagnosticWarning` lacks structured fields; for popovers prefer a dedicated view-model helper instead of parsing warning text.
+- Existing `warnings(for:)` only reads current aggregate/selected snapshot; assigned-project warnings should consider all assigned projects.
+- UI touch points: add per-agent warning popover/state in `AgentLibraryPane.agentTile/capabilityStrip`; add inline warnings in `AgentDetailView.skillsTab` and/or `agentVisibilityManagementCards` project rows.
 
 ## Pi-intercom handoff
-No safe orchestrator target required; findings written to this file.
+No safe orchestrator target named by task; no intercom handoff sent.
+
+## Concise Implementation Plan
+1. Add AppViewModel helpers beside `assignedProjects(for agent:)`:
+   - `explicitSkillVisibilityIssues(for agent: AgentRecord) -> [(project: DiscoveredProject, missingSkills: [String])]`.
+   - For each assigned project, build `visible = Set(allProjectSnapshots[project.path]?.skills.map(\.name) ?? [])`; `missing = agent.parsed.skills.filter { !visible.contains($0) }`, ignoring `pi-subagents` if handled separately.
+2. Pass helper output from `AgentsScreen` into `AgentDetailView` and/or expose closure to `AgentLibraryPane`.
+3. Agent cards (`ContentView.swift:2560-2630`): show orange pill/popover when helper has issues; popover text: project name + missing skill names.
+4. Project Assignment card (`ContentView.swift:3256-3278`): under each checked row or above list, show warning if that project lacks explicit skills. This is the highest-value placement because assignment creates the problem.
+5. Skills tab (`ContentView.swift:3129-3225`): annotate explicit skill list with projects where not visible, or add a compact warning card above the list.
+6. Optional scanner-level warnings (`PiScanner.swift:876-888`) are harder because a single scan only knows one project; aggregate check belongs in `AppViewModel` unless `DiagnosticWarning` is extended with structured project/agent fields.
