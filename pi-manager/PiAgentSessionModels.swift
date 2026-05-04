@@ -283,6 +283,7 @@ enum PiAgentTranscriptRole: String, Codable, Hashable {
 struct PiAgentUIRequest: Identifiable, Hashable {
     enum Method: String, Hashable {
         case select
+        case multiSelect
         case confirm
         case input
         case editor

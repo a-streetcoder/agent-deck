@@ -11,6 +11,7 @@ final class PiAgentRunnerService {
     private var toolEntryIDsByCallID: [String: UUID] = [:]
     private var compactionEntryIDsBySessionID: [UUID: UUID] = [:]
     private var pendingCompactionInstructionsBySessionID: [UUID: String] = [:]
+    private var pendingFreeformResponsesBySessionID: [UUID: String] = [:]
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     var onTurnFinished: ((UUID) -> Void)?
 
@@ -90,17 +91,36 @@ final class PiAgentRunnerService {
     }
 
     func respondToExtensionUI(sessionID: UUID, requestID: String, value: String) {
-        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: value)
+        guard let client = clientsBySessionID[sessionID], client.isRunning else {
+            store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
+            return
+        }
+        client.respondToExtensionUI(id: requestID, value: value)
         store.clearUIRequest(sessionID: sessionID, id: requestID)
     }
 
+    func respondToFreeformExtensionUI(sessionID: UUID, requestID: String, sentinel: String, value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingFreeformResponsesBySessionID[sessionID] = trimmed
+        respondToExtensionUI(sessionID: sessionID, requestID: requestID, value: sentinel)
+    }
+
     func confirmExtensionUI(sessionID: UUID, requestID: String, confirmed: Bool) {
-        clientsBySessionID[sessionID]?.confirmExtensionUI(id: requestID, confirmed: confirmed)
+        guard let client = clientsBySessionID[sessionID], client.isRunning else {
+            store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
+            return
+        }
+        client.confirmExtensionUI(id: requestID, confirmed: confirmed)
         store.clearUIRequest(sessionID: sessionID, id: requestID)
     }
 
     func cancelExtensionUI(sessionID: UUID, requestID: String) {
-        clientsBySessionID[sessionID]?.cancelExtensionUI(id: requestID)
+        guard let client = clientsBySessionID[sessionID], client.isRunning else {
+            store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the cancellation could not be delivered."))
+            return
+        }
+        client.cancelExtensionUI(id: requestID)
         store.clearUIRequest(sessionID: sessionID, id: requestID)
     }
 
@@ -706,22 +726,23 @@ final class PiAgentRunnerService {
         let title = event.title ?? method
 
         if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
-            let options: [String]
-            if case let .array(values)? = event.options {
-                options = values.compactMap(\.stringValue)
-            } else {
-                options = []
+            if requestMethod == .input, let pendingFreeform = pendingFreeformResponsesBySessionID.removeValue(forKey: sessionID) {
+                clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: pendingFreeform)
+                store.append(.init(sessionID: sessionID, role: .status, title: "Input Sent", text: "Custom response sent.", rawJSON: rawLine))
+                return
             }
-            store.setUIRequest(.init(
+
+            let parsedRequest = parsedUIRequest(
                 id: requestID,
                 sessionID: sessionID,
                 method: requestMethod,
                 title: title,
                 message: event.message?.compactDescription,
-                options: options,
+                options: event.options,
                 placeholder: event.placeholder,
                 prefill: event.prefill
-            ))
+            )
+            store.setUIRequest(parsedRequest)
             store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: title, rawJSON: rawLine))
             return
         }
@@ -731,6 +752,70 @@ final class PiAgentRunnerService {
         } else if method != "setTitle" && method != "setStatus" && method != "setWidget" && method != "set_editor_text" {
             store.append(.init(sessionID: sessionID, role: .status, title: "Pi UI · \(method)", text: title, rawJSON: rawLine))
         }
+    }
+
+    private func parsedUIRequest(
+        id: String,
+        sessionID: UUID,
+        method: PiAgentUIRequest.Method,
+        title: String,
+        message: String?,
+        options: JSONValue?,
+        placeholder: String?,
+        prefill: String?
+    ) -> PiAgentUIRequest {
+        if method == .input,
+           placeholder == "Type your selection(s)...",
+           let parsed = parseMultiSelectInputTitle(title) {
+            return .init(
+                id: id,
+                sessionID: sessionID,
+                method: .multiSelect,
+                title: parsed.question,
+                message: parsed.context,
+                options: parsed.options,
+                placeholder: placeholder,
+                prefill: prefill
+            )
+        }
+
+        let optionTitles: [String]
+        if case let .array(values)? = options {
+            optionTitles = values.compactMap(\.stringValue)
+        } else {
+            optionTitles = []
+        }
+        return .init(
+            id: id,
+            sessionID: sessionID,
+            method: method,
+            title: title,
+            message: message,
+            options: optionTitles,
+            placeholder: placeholder,
+            prefill: prefill
+        )
+    }
+
+    private func parseMultiSelectInputTitle(_ title: String) -> (question: String, context: String?, options: [String])? {
+        let marker = "\n\nOptions (select one or more):\n"
+        guard let markerRange = title.range(of: marker) else { return nil }
+        let prompt = String(title[..<markerRange.lowerBound])
+        let optionLines = title[markerRange.upperBound...].split(whereSeparator: \.isNewline)
+        let options = optionLines.compactMap { line -> String? in
+            guard let separator = line.firstIndex(of: ".") else { return nil }
+            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        guard !options.isEmpty else { return nil }
+
+        let contextMarker = "\n\nContext:\n"
+        if let contextRange = prompt.range(of: contextMarker) {
+            let question = String(prompt[..<contextRange.lowerBound])
+            let context = String(prompt[contextRange.upperBound...])
+            return (question, context, options)
+        }
+        return (prompt, nil, options)
     }
 
     private func transcriptEntry(from event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) -> PiAgentTranscriptEntry? {

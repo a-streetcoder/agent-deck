@@ -59,9 +59,9 @@ final class PiRPCClient: @unchecked Sendable {
     }
     func steer(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "steer", message: message, images: images) }
     func followUp(_ message: String, images: [PiAgentImageAttachment] = []) { sendUserMessage(type: "follow_up", message: message, images: images) }
-    func respondToExtensionUI(id: String, value: String) { send(type: "extension_ui_response", fields: ["id": id, "value": value]) }
-    func confirmExtensionUI(id: String, confirmed: Bool) { send(type: "extension_ui_response", fields: ["id": id, "confirmed": confirmed]) }
-    func cancelExtensionUI(id: String) { send(type: "extension_ui_response", fields: ["id": id, "cancelled": true]) }
+    func respondToExtensionUI(id: String, value: String) { sendExtensionUIResponse(["id": id, "value": value]) }
+    func confirmExtensionUI(id: String, confirmed: Bool) { sendExtensionUIResponse(["id": id, "confirmed": confirmed]) }
+    func cancelExtensionUI(id: String) { sendExtensionUIResponse(["id": id, "cancelled": true]) }
 
     private func sendUserMessage(type: String, message: String, images: [PiAgentImageAttachment], streamingBehavior: String? = nil) {
         var fields: [String: Any] = ["message": message]
@@ -83,7 +83,16 @@ final class PiRPCClient: @unchecked Sendable {
         var command = fields
         command["id"] = requestID
         command["type"] = type
+        write(command)
+    }
 
+    private func sendExtensionUIResponse(_ fields: [String: Any]) {
+        var command = fields
+        command["type"] = "extension_ui_response"
+        write(command)
+    }
+
+    private func write(_ command: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(command),
               let data = try? JSONSerialization.data(withJSONObject: command),
               let line = String(data: data, encoding: .utf8) else { return }

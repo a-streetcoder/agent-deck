@@ -396,6 +396,7 @@ struct PiAgentScreen: View {
                     PiAgentUIRequestCard(
                         request: request,
                         onSubmitValue: { viewModel.respondToPiAgentUIRequest(request, value: $0) },
+                        onSubmitFreeform: { sentinel, value in viewModel.respondToPiAgentFreeformUIRequest(request, sentinel: sentinel, value: value) },
                         onConfirm: { viewModel.confirmPiAgentUIRequest(request, confirmed: $0) },
                         onCancel: { viewModel.cancelPiAgentUIRequest(request) }
                     )
@@ -481,6 +482,10 @@ struct PiAgentScreen: View {
                                 )
                                     .id(thread.id)
                             }
+                            if isSelectedSessionProcessing {
+                                PiAgentProcessingIndicatorCard()
+                                    .id("pi-agent-processing")
+                            }
                         }
                     }
                     .onChange(of: transcriptCache.renderRevision) { _, _ in
@@ -492,6 +497,20 @@ struct PiAgentScreen: View {
                 }
             }
         }
+    }
+
+    private var isSelectedSessionProcessing: Bool {
+        guard store.selectedSession?.status.isActive == true, store.selectedUIRequest == nil else { return false }
+        let recentEntries = store.selectedTranscript.suffix(4)
+        if recentEntries.contains(where: { $0.role == .assistant && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return false
+        }
+        if let lastEntry = store.selectedTranscript.last,
+           lastEntry.role == .assistant,
+           !lastEntry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+        return true
     }
 
     private func scheduleTranscriptCacheUpdate() {
@@ -1318,58 +1337,28 @@ private struct ShortcutComboHint: View {
 }
 
 private struct PiAgentUIRequestCard: View {
+    private let freeformSentinel = "✏️ Type custom response..."
+
     let request: PiAgentUIRequest
     let onSubmitValue: (String) -> Void
+    let onSubmitFreeform: (String, String) -> Void
     let onConfirm: (Bool) -> Void
     let onCancel: () -> Void
+
     @State private var draft = ""
+    @State private var isComposingFreeform = false
+    @State private var selectedOptions: Set<String> = []
 
     var body: some View {
         AppCard {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "questionmark.bubble.fill")
-                        .foregroundStyle(Color.accentColor)
-                        .font(.title3)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(request.title)
-                            .font(.headline)
-                            .fontWidth(.expanded)
-                        if let message = request.message, !message.isEmpty, message != request.title {
-                            Text(message)
-                                .foregroundStyle(AppTheme.mutedText)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    Spacer()
-                    Button("Cancel", action: onCancel)
-                }
+                header
 
                 switch request.method {
                 case .select:
-                    if request.options.isEmpty {
-                        emptyOptions
-                    } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(request.options, id: \.self) { option in
-                                Button {
-                                    onSubmitValue(option)
-                                } label: {
-                                    HStack {
-                                        Text(option)
-                                            .fontWeight(.semibold)
-                                        Spacer()
-                                        Image(systemName: "arrow.right.circle.fill")
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
+                    isComposingFreeform ? AnyView(freeformComposer) : AnyView(selectOptions)
+                case .multiSelect:
+                    multiSelectOptions
                 case .confirm:
                     HStack(spacing: 10) {
                         Button("No") { onConfirm(false) }
@@ -1377,23 +1366,129 @@ private struct PiAgentUIRequestCard: View {
                             .buttonStyle(.borderedProminent)
                     }
                 case .input, .editor:
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField(request.placeholder ?? "Response", text: $draft, axis: request.method == .editor ? .vertical : .horizontal)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(request.method == .editor ? 4...10 : 1...3)
-                        HStack {
-                            Spacer()
-                            Button("Submit") { onSubmitValue(draft) }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                    }
+                    textInput(submitTitle: "Submit", cancelTitle: "Cancel", cancelAction: onCancel) { onSubmitValue(draft) }
                 }
             }
         }
         .onAppear {
             if draft.isEmpty, let prefill = request.prefill {
                 draft = prefill
+            }
+        }
+        .onChange(of: request.id) { _, _ in
+            draft = request.prefill ?? ""
+            isComposingFreeform = false
+            selectedOptions = []
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "questionmark.bubble.fill")
+                .foregroundStyle(Color.accentColor)
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(request.title)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                if let message = request.message, !message.isEmpty, message != request.title {
+                    Text(message)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            if request.method != .input && request.method != .editor && !isComposingFreeform {
+                Button("Cancel", action: onCancel)
+            }
+        }
+    }
+
+    private var selectOptions: some View {
+        Group {
+            if request.options.isEmpty {
+                emptyOptions
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(request.options, id: \.self) { option in
+                        Button {
+                            if option == freeformSentinel {
+                                isComposingFreeform = true
+                            } else {
+                                onSubmitValue(option)
+                            }
+                        } label: {
+                            HStack {
+                                Text(option)
+                                    .fontWeight(.semibold)
+                                Spacer()
+                                Image(systemName: option == freeformSentinel ? "square.and.pencil" : "arrow.right.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var freeformComposer: some View {
+        textInput(submitTitle: "Submit", cancelTitle: "Back", cancelAction: {
+            draft = ""
+            isComposingFreeform = false
+        }) {
+            onSubmitFreeform(freeformSentinel, draft)
+        }
+    }
+
+    private var multiSelectOptions: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(request.options, id: \.self) { option in
+                Button {
+                    if selectedOptions.contains(option) {
+                        selectedOptions.remove(option)
+                    } else {
+                        selectedOptions.insert(option)
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: selectedOptions.contains(option) ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(selectedOptions.contains(option) ? Color.accentColor : AppTheme.mutedText)
+                        Text(option)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Submit") { onSubmitValue(request.options.filter { selectedOptions.contains($0) }.joined(separator: ", ")) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selectedOptions.isEmpty)
+            }
+        }
+    }
+
+    private func textInput(submitTitle: String, cancelTitle: String, cancelAction: @escaping () -> Void, submitAction: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(request.placeholder ?? "Response", text: $draft, axis: request.method == .editor ? .vertical : .horizontal)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(request.method == .editor ? 4...10 : 1...3)
+            HStack(spacing: 10) {
+                Spacer()
+                Button(cancelTitle, action: cancelAction)
+                Button(submitTitle, action: submitAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -2773,6 +2868,24 @@ private struct PiAgentProjectIcon: View {
                     .padding(8)
                     .foregroundStyle(Color.accentColor)
             }
+    }
+}
+
+private struct PiAgentProcessingIndicatorCard: View {
+    var body: some View {
+        AppRowCard {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color.purple)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pi is working")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    PiAgentTypingIndicator()
+                }
+                Spacer()
+            }
+        }
     }
 }
 

@@ -22,6 +22,9 @@ struct PiExtensionRecord: Identifiable, Hashable {
     let origin: Origin
     let settingsPath: String
     let packageSource: String?
+    let packageName: String?
+    let packageDescription: String?
+    let repositoryURL: String?
 
     var sourceSummary: String {
         switch origin {
@@ -44,10 +47,11 @@ struct PiExtensionManagementService {
         let globalSettings = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/settings.json")
         let projectSettings = projectRoot?.appendingPathComponent(".pi/settings.json")
 
-        records.append(contentsOf: scanTopLevel(scope: .project, projectRoot: projectRoot, settingsURL: projectSettings, seen: &seen))
-        records.append(contentsOf: scanTopLevel(scope: .global, projectRoot: nil, settingsURL: globalSettings, seen: &seen))
+        // Match Pi's first-wins resolution order: packages before top-level auto discovery.
         records.append(contentsOf: scanPackages(settingsURL: projectSettings, scope: .project, projectRoot: projectRoot, seen: &seen))
         records.append(contentsOf: scanPackages(settingsURL: globalSettings, scope: .global, projectRoot: projectRoot, seen: &seen))
+        records.append(contentsOf: scanTopLevel(scope: .project, projectRoot: projectRoot, settingsURL: projectSettings, seen: &seen))
+        records.append(contentsOf: scanTopLevel(scope: .global, projectRoot: nil, settingsURL: globalSettings, seen: &seen))
 
         return records.sorted {
             if $0.enabled != $1.enabled { return $0.enabled && !$1.enabled }
@@ -117,18 +121,22 @@ struct PiExtensionManagementService {
     }
 
     private func addRecord(url: URL, pattern: String, enabled: Bool, scope: PiExtensionRecord.Scope, origin: PiExtensionRecord.Origin, settingsURL: URL, packageSource: String?, seen: inout Set<String>, to records: inout [PiExtensionRecord]) {
-        let key = "\(origin.rawValue):\(scope.rawValue):\(url.standardizedFileURL.path):\(packageSource ?? "")"
+        let key = url.standardizedFileURL.path
         guard seen.insert(key).inserted else { return }
+        let metadata = nearestPackageMetadata(for: url)
         records.append(PiExtensionRecord(
-            id: key,
-            displayName: displayName(for: url),
+            id: "\(origin.rawValue):\(scope.rawValue):\(key):\(packageSource ?? "")",
+            displayName: extensionDisplayName(for: url, origin: origin, packageSource: packageSource, packageName: metadata.name),
             path: url.path,
             relativePattern: pattern,
             enabled: enabled,
             scope: scope,
             origin: origin,
             settingsPath: settingsURL.path,
-            packageSource: packageSource
+            packageSource: packageSource,
+            packageName: metadata.name,
+            packageDescription: metadata.description,
+            repositoryURL: metadata.repositoryURL
         ))
     }
 
@@ -265,7 +273,9 @@ struct PiExtensionManagementService {
     private func resolvePath(_ path: String, baseDir: URL) -> URL {
         let expanded = NSString(string: path).expandingTildeInPath
         if expanded.hasPrefix("/") { return URL(fileURLWithPath: expanded) }
-        return baseDir.appendingPathComponent(expanded)
+        var relative = expanded
+        if relative.hasPrefix("./") { relative.removeFirst(2) }
+        return baseDir.appendingPathComponent(relative)
     }
 
     private func relativePath(from base: URL, to url: URL) -> String {
@@ -275,9 +285,40 @@ struct PiExtensionManagementService {
         return path
     }
 
+    private func extensionDisplayName(for url: URL, origin: PiExtensionRecord.Origin, packageSource: String?, packageName: String?) -> String {
+        if origin == .package {
+            return packageName ?? packageSource.map(normalizedPackageName) ?? displayName(for: url)
+        }
+        return displayName(for: url)
+    }
+
     private func displayName(for url: URL) -> String {
         if ["index.ts", "index.js"].contains(url.lastPathComponent) { return url.deletingLastPathComponent().lastPathComponent }
         return url.lastPathComponent
+    }
+
+    private func nearestPackageMetadata(for url: URL) -> (name: String?, description: String?, repositoryURL: String?) {
+        var directory = url.deletingLastPathComponent()
+        let home = fileManager.homeDirectoryForCurrentUser.standardizedFileURL.path
+        while directory.path.hasPrefix(home) || directory.path.hasPrefix("/opt/homebrew") || directory.path.hasPrefix("/usr/local") {
+            let manifest = directory.appendingPathComponent("package.json")
+            if let object = loadObjectIfPresent(at: manifest) {
+                return (
+                    object["name"] as? String,
+                    object["description"] as? String,
+                    repositoryURL(from: object["repository"])
+                )
+            }
+            let parent = directory.deletingLastPathComponent()
+            if parent.path == directory.path { break }
+            directory = parent
+        }
+        return (nil, nil, nil)
+    }
+
+    private func repositoryURL(from value: Any?) -> String? {
+        if let string = value as? String { return string }
+        return (value as? [String: Any])?["url"] as? String
     }
 
     private func matchesPattern(_ file: URL, pattern: String, baseDir: URL) -> Bool {
@@ -309,8 +350,12 @@ struct PiExtensionManagementService {
     }
 
     private func loadObject(at url: URL) -> [String: Any] {
+        loadObjectIfPresent(at: url) ?? [:]
+    }
+
+    private func loadObjectIfPresent(at url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return object
     }
 

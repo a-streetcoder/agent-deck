@@ -1774,65 +1774,110 @@ private struct ExtensionsScreen: View {
             if extensions.isEmpty {
                 ContentUnavailableView("No Extensions Found", systemImage: "puzzlepiece.extension", description: Text("Pi Manager did not find auto-discovered, settings, or package extensions for the current scope."))
             } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    extensionSummary(extensions)
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(extensions.enumerated()), id: \.element.id) { index, record in
-                            extensionRow(record)
-                            if index < extensions.count - 1 { Divider() }
-                        }
+                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                    let packageExtensions = extensions.filter { $0.origin == .package }
+                    let localExtensions = extensions.filter { $0.origin != .package }
+
+                    if !localExtensions.isEmpty {
+                        extensionGroup(title: "Custom Local Extensions", subtitle: "Files loaded from global or project extension folders/settings.", records: localExtensions)
                     }
-                    .padding(.horizontal, AppTheme.cardPadding)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                            .fill(AppTheme.cardFill)
-                            .stroke(AppTheme.cardStroke, lineWidth: 1)
-                    )
+
+                    if !packageExtensions.isEmpty {
+                        extensionGroup(title: "Package Extensions", subtitle: "Extensions provided by installed Pi packages.", records: packageExtensions)
+                    }
                 }
             }
         }
     }
 
-    private func extensionSummary(_ extensions: [PiExtensionRecord]) -> some View {
-        let enabled = extensions.filter(\.enabled).count
-        return HStack(spacing: 10) {
-            Label("\(enabled) enabled", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-            Label("\(extensions.count - enabled) disabled", systemImage: "minus.circle.fill")
-                .foregroundStyle(AppTheme.mutedText)
-            Spacer()
+    private func extensionGroup(title: String, subtitle: String, records: [PiExtensionRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.title3.weight(.bold))
+                        .fontWidth(.expanded)
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Text("\(records.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(.horizontal, 2)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(records.enumerated()), id: \.element.id) { index, record in
+                    extensionRow(record)
+                    if index < records.count - 1 { Divider() }
+                }
+            }
+            .padding(.horizontal, AppTheme.cardPadding)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                    .fill(AppTheme.cardFill)
+                    .stroke(AppTheme.cardStroke, lineWidth: 1)
+            )
         }
-        .font(.footnote)
     }
 
     private func extensionRow(_ record: PiExtensionRecord) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "puzzlepiece.extension")
-                .foregroundStyle(record.enabled ? .orange : AppTheme.mutedText)
-                .frame(width: 20)
-
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "puzzlepiece.extension")
+                        .foregroundStyle(record.enabled ? .orange : AppTheme.mutedText)
+                        .frame(width: 22)
+
                     Text(record.displayName)
                         .font(.headline)
                         .fontWidth(.expanded)
-                    Text(record.enabled ? "Enabled" : "Disabled")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .foregroundStyle(record.enabled ? .green : AppTheme.mutedText)
-                        .background((record.enabled ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
                 }
-                Text(record.path)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-                    .textSelection(.enabled)
-                Text("\(record.scope.rawValue) · \(record.origin.rawValue) · writes to \(record.settingsPath)")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .textSelection(.enabled)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    if let description = record.packageDescription, !description.isEmpty {
+                        Text(description)
+                            .font(.footnote)
+                            .foregroundStyle(.primary.opacity(0.82))
+                    }
+
+                    Text(record.path)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+
+                    if let repositoryURL = record.repositoryURL,
+                       let linkURL = normalizedRepositoryURL(repositoryURL) {
+                        Button {
+                            NSWorkspace.shared.open(linkURL)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image("github")
+                                    .resizable()
+                                    .renderingMode(.template)
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 12, height: 12)
+                                Text(repositoryDisplayText(for: linkURL))
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.caption2)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                        }
+                        .buttonStyle(.plain)
+                        .help(linkURL.absoluteString)
+                    }
+
+                    Text(extensionDetails(for: record))
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+                }
+                .padding(.leading, 32)
             }
 
             Spacer()
@@ -1845,6 +1890,33 @@ private struct ExtensionsScreen: View {
             .help(record.enabled ? "Disable this extension in settings" : "Enable this extension in settings")
         }
         .padding(.vertical, 10)
+    }
+
+    private func extensionDetails(for record: PiExtensionRecord) -> String {
+        var parts = [record.scope.rawValue, record.origin.rawValue]
+        if let packageName = record.packageName, !packageName.isEmpty, record.origin == .package {
+            parts.append(packageName)
+        }
+        parts.append("writes to \(record.settingsPath)")
+        return parts.joined(separator: " · ")
+    }
+
+    private func normalizedRepositoryURL(_ value: String) -> URL? {
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("git+") { text.removeFirst(4) }
+        if text.hasSuffix(".git") { text.removeLast(4) }
+        if text.hasPrefix("git@github.com:") {
+            text = "https://github.com/" + text.dropFirst("git@github.com:".count)
+        }
+        return URL(string: text)
+    }
+
+    private func repositoryDisplayText(for url: URL) -> String {
+        if url.host?.localizedCaseInsensitiveContains("github.com") == true {
+            let parts = url.path.split(separator: "/").map(String.init)
+            if parts.count >= 2 { return parts.prefix(2).joined(separator: "/") }
+        }
+        return url.absoluteString
     }
 }
 
@@ -4281,6 +4353,7 @@ private struct SkillsScreen: View {
     @Binding var isRecapPresented: Bool
     @State private var selectedSkillName: String?
     @State private var isImportSheetPresented = false
+    @State private var shouldPromptForImportSource = false
     @State private var importSourceURL: URL?
     @State private var importCandidates: [ExternalSkillCandidate] = []
     @State private var selectedImportCandidateIDs: Set<String> = []
@@ -4409,9 +4482,7 @@ private struct SkillsScreen: View {
         .onAppear { ensureSelection() }
         .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in ensureSelection() }
         .onReceive(NotificationCenter.default.publisher(for: .piManagerImportSkillsRequested)) { _ in
-            DispatchQueue.main.async {
-                beginSkillImport()
-            }
+            beginSkillImport()
         }
         .sheet(isPresented: $isImportSheetPresented) {
             importSkillsSheet
@@ -4762,6 +4833,13 @@ private struct SkillsScreen: View {
             .padding(AppTheme.pagePadding)
             .frame(minWidth: 760, minHeight: 680, alignment: .topLeading)
             .navigationTitle("Import External Skills")
+            .task(id: shouldPromptForImportSource) {
+                guard shouldPromptForImportSource else { return }
+                shouldPromptForImportSource = false
+                DispatchQueue.main.async {
+                    chooseDifferentImportFolder()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -4779,15 +4857,17 @@ private struct SkillsScreen: View {
     }
 
     private func beginSkillImport() {
-        viewModel.chooseExternalSkillsDirectory { url in
-            guard let url else { return }
-            DispatchQueue.main.async {
-                loadImportCandidates(from: url)
-            }
-        }
+        importErrorMessage = nil
+        importSummaryMessage = nil
+        importCandidates = []
+        selectedImportCandidateIDs.removeAll()
+        importSourceURL = nil
+        shouldPromptForImportSource = true
+        isImportSheetPresented = true
     }
 
     private func chooseDifferentImportFolder() {
+        print("[SkillImport] chooseDifferentImportFolder currentSource=\(importSourceURL?.path ?? "nil")")
         viewModel.chooseExternalSkillsDirectory(startingAt: importSourceURL) { url in
             guard let url else { return }
             DispatchQueue.main.async {

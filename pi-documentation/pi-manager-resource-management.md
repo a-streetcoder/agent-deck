@@ -123,6 +123,35 @@ Also important: the current app scanner does **not** actively discover legacy ch
 Pi Manager's reusable-skill model is directory-based.
 When it activates a library skill globally or for a project, it creates a symlink for the **skill directory**, not just the markdown file.
 
+### Agent-assigned skills are references, not bundled files
+
+An agent can explicitly list skills in its frontmatter:
+
+```yaml
+skills: axiom-ai
+```
+
+That means: "when this agent runs, ask `pi-subagents` to inject the skill named `axiom-ai`."
+
+It does **not** mean Pi Manager copies, bundles, or carries the skill directory together with the agent.
+The agent stores only the skill name.
+
+For the skill to actually be injected at runtime, the skill must be visible in the runtime scope where the agent is launched:
+
+- enabled globally in `~/.pi/agent/skills/<skill>`
+- assigned to that same project in `PROJECT/.pi/skills/<skill>`
+- provided by an installed package/settings source that Pi discovers
+
+A skill that exists only in Pi Manager's library folder is **not active**:
+
+```text
+~/.pi/agent/skill-library/<skill>
+```
+
+Pi does not load that folder directly. Pi Manager must link the library skill into a global or project active skill location first.
+
+So if an `ios-engineer` agent has `skills: axiom-ai` and you assign that agent to a project, the skill does **not** automatically follow it. You must also make `axiom-ai` visible to that project, or enable it globally.
+
 ---
 
 ## Prompt templates

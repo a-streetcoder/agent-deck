@@ -177,6 +177,49 @@ That distinction matters because some third-party packages may also scan `.agent
 
 ---
 
+## Explicit skills on subagents
+
+`pi-subagents` agents can declare explicit skills in agent frontmatter:
+
+```yaml
+skills: axiom-ai
+```
+
+or receive skills from a subagent/chain task override.
+
+This is a **name reference**, not a file dependency. At execution time, `pi-subagents` resolves the name against Pi's discoverable skills for the run's current working directory, with fallback to the parent runtime cwd.
+
+Therefore:
+
+| Case | Result |
+|---|---|
+| Skill is enabled globally | works everywhere |
+| Skill is assigned to the same project | works in that project |
+| Skill is assigned only to a different project | missing outside that project |
+| Skill exists only in Pi Manager's `skill-library` | missing until linked globally or into the project |
+| Agent is assigned to a project | the agent moves/links, but its referenced skills do not automatically move with it |
+
+Important distinction:
+
+- `skills: axiom-ai` tells the child run to inject the full `axiom-ai` skill content, if resolvable.
+- `inheritSkills: true` only controls whether the child keeps Pi's ambient discovered skills catalog in its prompt.
+- Neither setting makes an inactive library skill visible.
+
+For Pi Manager specifically, reusable library skills live in:
+
+```text
+~/.pi/agent/skill-library/<skill>
+```
+
+That folder is storage only. A library skill becomes runtime-visible only when Pi Manager symlinks it into:
+
+```text
+~/.pi/agent/skills/<skill>
+PROJECT/.pi/skills/<skill>
+```
+
+---
+
 ## Collision note relevant to `pi-subagents`
 
 Pi core skill discovery looks in:

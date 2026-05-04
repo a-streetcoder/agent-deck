@@ -1,43 +1,81 @@
 ---
-head: 02bfbbb8ddee65563d25132768e55d1e64bdae00
+head: 584345607c26d3a527e4e190a6222b7aaa6c5b29
 dirty: true
-generatedAt: 2026-05-04T20:08:07Z
-taskScope: pi-web-access package presence and Pi RPC tool log display in Pi Agent chat transcript UI
-changeSummarySincePrevious: previous cache was unrelated/stale; refreshed targeted context; working tree has unrelated source/doc modifications pre-existing
+generatedAt: 2026-05-04T21:28:37Z
+taskScope: pi-manager ask-user extension UI rendering and RPC response handling
+changeSummarySincePrevious: previous cache was unrelated/stale; refreshed targeted context; working tree dirty in AppViewModel/ContentView/ExtensionManagement but relevant ask-user files inspected are not listed dirty
 reusedCache: false
 ---
 
 # Code Context
 
 ## Scope
-Understand how `pi-web-access` is represented in Pi Manager and how Pi RPC tool events (including web-access tools) flow into the Agent chat transcript UI.
+Investigate why Pi Manager renders ask-user options but tapping a real option or custom response does not behave like Pi CLI/TUI/RPC expects.
 
 ## Files Retrieved
-1. `pi-manager/ContentView.swift` (lines 5179-5190) - Doctor package metadata for `pi-web-access`.
-2. `pi-manager/PiRPCClient.swift` (lines 16-38, 40-90) - launches `pi --mode rpc`, decodes stdout JSONL as `PiAgentRPCEvent`, sends RPC commands.
-3. `pi-manager/PiAgentRunnerService.swift` (lines 179-214, 348-390, 538-654) - starts RPC session and maps events into persisted transcript entries.
-4. `pi-manager/PiAgentSessionModels.swift` (lines 269-352) - transcript entry, roles, RPC event shape, generic `JSONValue` payload storage.
-5. `pi-manager/PiAgentViews.swift` (lines 1-190, 444-505, 2799-2945, 3060-3145) - transcript filtering/threading and compact tool activity display.
-6. `pi-manager/PiAgentProcess.swift` (lines 28-75, 91-121, 169-181) - child process stdio JSONL plumbing and PATH/env repair.
+1. `pi-manager/PiAgentRunnerService.swift` (lines 92-104, 704-731) - sends extension UI responses and parses incoming UI requests.
+2. `pi-manager/PiRPCClient.swift` (lines 56-64) - RPC command shape for `extension_ui_response`.
+3. `pi-manager/PiAgentSessionModels.swift` (lines 283-299) - `PiAgentUIRequest` model.
+4. `pi-manager/PiAgentViews.swift` (lines 394-400, 1320-1407) - card rendering and button actions.
+5. `~/Library/Application Support/Pi Manager/agent-sessions.json` session `C10E3294-D29C-43C1-89A9-2521DE6D6BE4` entries 4-5, 17-18 - app transcript evidence.
+6. `~/.pi/agent/sessions/--Users-andrea-Documents-GitHub--/2026-05-04T21-20-37-547Z_019df4dd-4eaa-75b9-a2d1-711764cfc631.jsonl` lines 7-15 - real session evidence.
+7. `~/.pi/agent/extensions/ask-user/index.ts` (lines 1250-1313) - ask-user RPC/headless fallback behavior.
+8. `node_modules/@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-mode.js` (source map/source around RPC UI context) - expected RPC request/response protocol.
 
 ## Key Code
-- `pi-web-access` is not directly integrated with custom UI. It is listed as an essential installable Doctor package only: name `pi-web-access`, install `pi install npm:pi-web-access`, description includes web search/fetch/GitHub/PDF/video (`ContentView.swift:5179-5190`).
-- Runtime access is implicit through Pi extensions/tools loaded by the `pi` CLI. Pi Manager starts the local CLI as `pi --mode rpc`, optional `--session`, `--provider`, `--model` (`PiRPCClient.swift:16-29`).
-- stdout JSONL is decoded to `PiAgentRPCEvent`; undecodable lines become raw output (`PiRPCClient.swift:30-33`, `PiAgentRunnerService.swift:348-351`).
-- Tool events are handled uniformly for any tool name: `tool_execution_start/update/end` -> one upserted transcript entry keyed by `toolCallId`, title `Tool: <toolName>`, text from args/partialResult/result, raw JSON preserved (`PiAgentRunnerService.swift:376-377`, `635-654`).
-- Web-access tool names such as `web_search`, `fetch_content`, `get_search_content`, `code_search` get friendly labels/icons in the transcript activity summary (`PiAgentViews.swift:3115-3144`).
+- App receives `extension_ui_request` and stores a `PiAgentUIRequest` only if method is `select|confirm|input|editor`; options are parsed only as `[String]`:
+  ```swift
+  if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
+      let options: [String]
+      if case let .array(values)? = event.options { options = values.compactMap(\.stringValue) } else { options = [] }
+      store.setUIRequest(.init(id: requestID, sessionID: sessionID, method: requestMethod, title: title,
+          message: event.message?.compactDescription, options: options, placeholder: event.placeholder, prefill: event.prefill))
+      store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: title, rawJSON: rawLine))
+  }
+  ```
+  `PiAgentRunnerService.swift:704-731`
+- App sends select/input/editor responses as `{type:"extension_ui_response", id, value}` and immediately clears UI:
+  ```swift
+  func respondToExtensionUI(...) {
+      clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: value)
+      store.clearUIRequest(sessionID: sessionID, id: requestID)
+  }
+  ```
+  `PiAgentRunnerService.swift:92-95`, `PiRPCClient.swift:62`
+- UI card for `.select` blindly treats every option as final and submits its label:
+  ```swift
+  ForEach(request.options, id: \.self) { option in
+      Button { onSubmitValue(option) } label: { Text(option) ... }
+  }
+  ```
+  `PiAgentViews.swift:1345-1364`
+- ask-user RPC fallback intentionally uses two-step custom flow:
+  ```ts
+  const selected = await ui.select(prompt, selectOptions, dialogOpts)
+  if (selected === FREEFORM_SENTINEL) {
+      const answer = await ui.input(prompt, "Type your answer...", dialogOpts)
+      return createFreeformResponse(answer)
+  }
+  return createSelectionResponse([selected])
+  ```
+  `~/.pi/agent/extensions/ask-user/index.ts:1291-1304`
+- Pi RPC protocol expects select response value to be the selected string, and will emit a *new* `extension_ui_request` for `input` if the sentinel is selected. `rpc-mode.js` parses `extension_ui_response` by `id` and resolves the pending request.
 
 ## Architecture
-Pi Agent UI -> `PiAgentRunnerService.start` -> `PiRPCClient` -> `PiAgentProcess` child process. User prompts are also immediately appended as `.user` entries before sending RPC (`PiAgentRunnerService.swift:179-214`). Incoming RPC events update session state, stream assistant/thinking text, or append/upsert transcript entries. The view observes `store.selectedTranscriptRevision`, debounces in `PiAgentTranscriptRenderCache`, filters low-value raw/status noise, groups entries into `PiAgentTranscriptThread`s, and renders each thread in the scroll view.
+`pi --mode rpc` emits `extension_ui_request` for ask-user. Pi Manager maps that into one `PiAgentUIRequest` shown above the transcript. User taps -> `AppViewModel.respondToPiAgentUIRequest` -> `PiAgentRunnerService.respondToExtensionUI` -> `PiRPCClient.send(type:"extension_ui_response", fields:["id":id,"value":value])` -> Pi RPC resolves the pending dialog. For ask-user with freeform enabled, resolving the select with `✏️ Type custom response...` should cause ask-user to call `ui.input`, generating another `extension_ui_request` that Pi Manager should render as a text field.
 
 ## Start Here
-Open `pi-manager/PiAgentRunnerService.swift` at `handleToolExecution` (lines 635-654). That is the exact point where pi-web-access RPC log events become transcript activity entries.
+Open `pi-manager/PiAgentViews.swift` at `PiAgentUIRequestCard` (`1320-1407`). The likely fix is in the select-option handling/rendering, then verify `PiAgentRunnerService.respondToExtensionUI`/`PiRPCClient.respondToExtensionUI` around response sending.
 
 ## Constraints And Risks
-- There is no pi-web-access-specific event parser; behavior depends on Pi RPC emitting standard `tool_execution_*` events with stable `toolName`, args, partialResult/result fields.
-- Normal chat hides raw RPC entries and most statuses (`PiAgentViews.swift:177-190`), so full raw JSON is preserved on entries but not generally displayed.
-- Tool details are summarized as chips; only latest/suffix detail views are shown elsewhere, so verbose web fetch/search payloads may be truncated or hidden in normal transcript UI.
-- Existing working tree was dirty before this scout; findings are based on current files, not a clean HEAD.
+- Logs show the app got the ask-user requests correctly:
+  - First request raw JSON: `method:"select"`, title `How old are you?`, options `["31","35","42","✏️ Type custom response..."]`.
+  - Second request raw JSON includes context in title and same options.
+- Logs do **not** show a resulting ask-user `toolResult` after user interaction in the GitHub-root session; transcript instead shows user steering text then stop. So the selection/custom response did not complete the tool from the app path.
+- Likely product/UX bug: the app renders the sentinel `✏️ Type custom response...` as a normal final option. It should behave like CLI/TUI: tapping it should transition to/respond through the subsequent `input` request, not be treated as the final user answer. If Pi emits the input request after the sentinel, the app must not obscure/lose it; consider not clearing old UI until next request/response is observed or adding a local “waiting for custom input…” state.
+- Possible protocol bug to test: `respondToExtensionUI` uses `clientsBySessionID[sessionID]?` optional chaining and clears the UI even if no live client exists or send fails. If the process already ended/restarted or client is missing, the user sees the card disappear but no response reaches Pi. Safer behavior: only clear after a known live client/send, or append/status on missing client.
+- Options with descriptions are lost in app UI because `event.options` from RPC is only strings; the detailed option descriptions are present in `tool_execution_update.partialResult.details.options`, not in `extension_ui_request`. Rendering descriptions like TUI would need correlating with ask_user tool details or changing upstream RPC to include object options.
+- Working tree is dirty (`AppViewModel.swift`, `ContentView.swift`, `ExtensionManagement.swift`); do not assume clean baseline.
 
 ## Pi-intercom handoff
-No safe orchestrator target was provided for a routine handoff; findings written to `/Users/andrea/Documents/GitHub/pi-manager/context.md`.
+No safe orchestrator target required; findings written to this file.

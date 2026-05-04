@@ -195,10 +195,10 @@ final class AppViewModel: ObservableObject {
         panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to import into the Pi Manager library."
         panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
-        let handler: (NSApplication.ModalResponse) -> Void = { [weak panel, weak self] response in
+        let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             DispatchQueue.main.async {
                 guard response == .OK,
-                      let selectedURL = panel?.url?.standardizedFileURL else {
+                      let selectedURL = panel.url?.standardizedFileURL else {
                     completion(nil)
                     return
                 }
@@ -241,7 +241,7 @@ final class AppViewModel: ObservableObject {
             return []
         }
 
-        return entries.compactMap { entry in
+        let results: [ExternalSkillCandidate] = entries.compactMap { entry in
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: entry.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
             return externalSkillCandidate(at: entry)
@@ -251,6 +251,7 @@ final class AppViewModel: ObservableObject {
             if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
             return lhs.sourceRootPath < rhs.sourceRootPath
         }
+        return results
     }
 
     func importExternalSkills(_ candidates: [ExternalSkillCandidate], mode: SkillLibraryImportMode, replaceExisting: Bool) throws -> SkillImportResult {
@@ -1311,6 +1312,10 @@ final class AppViewModel: ObservableObject {
 
     func respondToPiAgentUIRequest(_ request: PiAgentUIRequest, value: String) {
         piAgentRunner.respondToExtensionUI(sessionID: request.sessionID, requestID: request.id, value: value)
+    }
+
+    func respondToPiAgentFreeformUIRequest(_ request: PiAgentUIRequest, sentinel: String, value: String) {
+        piAgentRunner.respondToFreeformExtensionUI(sessionID: request.sessionID, requestID: request.id, sentinel: sentinel, value: value)
     }
 
     func confirmPiAgentUIRequest(_ request: PiAgentUIRequest, confirmed: Bool) {
