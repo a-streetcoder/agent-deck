@@ -925,6 +925,8 @@ private struct PiAgentStartupResourcesCard: View {
 }
 
 private struct PiAgentFileSuggestion: Identifiable, Hashable {
+    private static let maxScanResults = 80
+
     let id: String
     let relativePath: String
     let isDirectory: Bool
@@ -950,7 +952,7 @@ private struct PiAgentFileSuggestion: Identifiable, Hashable {
             guard query.isEmpty || relative.lowercased().contains(query) else { continue }
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
             results.append(.init(id: url.path, relativePath: relative, isDirectory: values?.isDirectory == true))
-            if results.count >= 10 { break }
+            if results.count >= maxScanResults { break }
         }
         return results
     }
@@ -964,7 +966,7 @@ private struct PiAgentCommandSuggestions: View {
 
     var body: some View {
         if !fileSuggestions.isEmpty {
-            suggestionPanel(title: "Files", icon: "paperclip") {
+            suggestionPanel(title: "Files", icon: "paperclip", scrollable: true) {
                 ForEach(fileSuggestions) { suggestion in
                     Button { onSelectFile(suggestion) } label: {
                         HStack(spacing: 8) {
@@ -995,18 +997,18 @@ private struct PiAgentCommandSuggestions: View {
         }
     }
 
-    private func suggestionPanel<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+    private func suggestionPanel<Content: View>(title: String, icon: String, scrollable: Bool = false, @ViewBuilder content: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: icon)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
-            VStack(alignment: .leading, spacing: 2) {
-                content()
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.subtleFill))
+            if scrollable {
+                ScrollView {
+                    suggestionRows(content: content)
+                }
+                .frame(maxHeight: 260)
+            } else {
+                suggestionRows(content: content)
             }
         }
         .padding(10)
@@ -1015,6 +1017,17 @@ private struct PiAgentCommandSuggestions: View {
                 .fill(AppTheme.cardFill)
                 .stroke(AppTheme.cardStroke, lineWidth: 1)
         )
+    }
+
+    private func suggestionRows<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            content()
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.subtleFill))
+        }
     }
 }
 

@@ -1098,16 +1098,51 @@ final class AppViewModel: ObservableObject {
 
     func openTerminalForSelectedPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession else { return }
+
+        do {
+            let commandURL = try terminalCommandFile(for: session)
+            NSWorkspace.shared.open(commandURL)
+        } catch {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = "Failed to open Pi CLI in Terminal: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func terminalCommandFile(for session: PiAgentSessionRecord) throws -> URL {
         let path = session.worktreePath ?? session.projectPath
-        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
-        let source = """
-        tell application "Terminal"
-            activate
-            do script "cd '\(escapedPath)'"
-        end tell
+        let command = terminalPiCommand(for: session)
+        let script = """
+        #!/bin/zsh
+        cd \(Self.shellEscape(path)) || exit 1
+        exec "${SHELL:-/bin/zsh}" -lic \(Self.shellEscape(command))
         """
-        var error: NSDictionary?
-        NSAppleScript(source: source)?.executeAndReturnError(&error)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pi-manager-cli-\(session.id.uuidString).command")
+        try script.write(to: fileURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
+        return fileURL
+    }
+
+    private func terminalPiCommand(for session: PiAgentSessionRecord) -> String {
+        var arguments = ["pi"]
+        if let piSessionFile = session.piSessionFile, !piSessionFile.isEmpty {
+            arguments.append(contentsOf: ["--session", piSessionFile])
+        }
+        if let provider = session.modelOverrideProvider, !provider.isEmpty {
+            arguments.append(contentsOf: ["--provider", provider])
+        }
+        if let model = session.modelOverrideID, !model.isEmpty {
+            arguments.append(contentsOf: ["--model", model])
+        }
+        return arguments.map(Self.shellEscape).joined(separator: " ")
+    }
+
+    private nonisolated static func shellEscape(_ value: String) -> String {
+        if value.allSatisfy({ $0.isLetter || $0.isNumber || "-_/.:,=".contains($0) }) {
+            return value
+        }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {

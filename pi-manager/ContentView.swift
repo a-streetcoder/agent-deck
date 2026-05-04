@@ -372,7 +372,7 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: "terminal")
                     }
-                    .help("Open this session's project in Terminal")
+                    .help("Open Pi CLI for this session in Terminal")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
 
