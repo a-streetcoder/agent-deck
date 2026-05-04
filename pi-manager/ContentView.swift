@@ -6355,42 +6355,79 @@ private struct AgentEditorSheet: View {
                         Section("Behavior") {
                             Text(modelSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
-                            TextField("Model", text: binding(for: \ .model))
-                                .help(Text(verbatim: "Set the primary model used by this subagent. Values come from `pi --list-models`, and the saved frontmatter should usually use `provider/model`."))
-                            Menu("Choose Model") {
-                                Button("Use Pi Default Model") {
-                                    draft.config.model = nil
-                                    clampThinkingForSelectedModel()
-                                }
-                                Divider()
-                                modelPickerMenu { model in
-                                    draft.config.model = model.identifier
-                                    clampThinkingForSelectedModel()
-                                }
+
+                            LabeledContent {
+                                TextField("", text: binding(for: \ .model))
+                                    .labelsHidden()
+                            } label: {
+                                editorFieldLabel("Model", help: "Default model for this agent. Pi Manager reads these from `pi --list-models`, and saved configs usually use `provider/model`.")
                             }
-                            TextField("Fallback Models", text: arrayBinding(for: \ .fallbackModels))
-                                .help("Optional fallback models, saved as a list in frontmatter or override settings.")
-                            Menu("Add Fallback Model") {
-                                modelPickerMenu { model in
-                                    addFallbackModel(model.identifier)
+
+                            LabeledContent {
+                                Menu("Choose Model") {
+                                    Button("Use Pi Default Model") {
+                                        draft.config.model = nil
+                                        clampThinkingForSelectedModel()
+                                    }
+                                    Divider()
+                                    modelPickerMenu { model in
+                                        draft.config.model = model.identifier
+                                        clampThinkingForSelectedModel()
+                                    }
                                 }
+                            } label: {
+                                editorFieldLabel("Choose Model", help: "Pick from models Pi currently knows about. Choosing one also constrains the thinking levels shown below.")
                             }
+
+                            LabeledContent {
+                                TextField("", text: arrayBinding(for: \ .fallbackModels))
+                                    .labelsHidden()
+                            } label: {
+                                editorFieldLabel("Fallback Models", help: "Ordered backup models Pi can try if the primary model is unavailable or a pattern resolves differently.")
+                            }
+
+                            LabeledContent {
+                                Menu("Add Fallback Model") {
+                                    modelPickerMenu { model in
+                                        addFallbackModel(model.identifier)
+                                    }
+                                }
+                            } label: {
+                                editorFieldLabel("Add Fallback Model", help: "Adds one model to the fallback list without editing the comma-separated field manually.")
+                            }
+
                             selectedListView(title: "Selected Fallback Models", values: draft.config.fallbackModels, remove: removeFallbackModel)
-                            Picker("Thinking", selection: thinkingSelectionBinding) {
-                                ForEach(availableThinkingLevelsForDraft, id: \.self) { level in
-                                    Text(level).tag(level)
+
+                            LabeledContent {
+                                Picker("", selection: thinkingSelectionBinding) {
+                                    ForEach(availableThinkingLevelsForDraft, id: \.self) { level in
+                                        Text(level).tag(level)
+                                    }
                                 }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                            } label: {
+                                editorFieldLabel("Thinking", help: "Reasoning effort for the selected model. Pi only shows levels that the current model supports.")
                             }
-                            .pickerStyle(.menu)
-                            .help("Thinking options are derived from Pi’s installed model metadata for the selected model. If no model is selected, Pi’s generic thinking levels are shown.")
-                            TextField("Prompt Mode", text: binding(for: \ .systemPromptMode))
-                                .help(Text(verbatim: "`replace` makes a focused specialist. `append` keeps more of Pi’s normal behavior and adds your instructions on top."))
-                            Toggle("Inherit Project Context", isOn: defaultedOptionalBoolBinding(for: \ .inheritProjectContext) { draft.config.name == "delegate" })
-                                .help("When enabled, the child keeps Pi’s project-context prompt section, including instructions loaded from files like AGENTS.md or CLAUDE.md. This is prompt context, not the full parent session history.")
-                            Toggle("Inherit Skills", isOn: defaultedOptionalBoolBinding(for: \ .inheritSkills, default: false))
-                                .help("When enabled, the child keeps Pi’s discovered skills section in its prompt. Global skills are visible everywhere; project skills are only visible inside their project.")
-                            Toggle("Disabled", isOn: optionalBoolBinding(for: \ .disabled))
-                                .help("Disabled agents are hidden by discovery logic, matching pi-subagents behavior.")
+
+                            LabeledContent {
+                                TextField("", text: binding(for: \ .systemPromptMode))
+                                    .labelsHidden()
+                            } label: {
+                                editorFieldLabel("Prompt Mode", help: "`replace` makes this agent’s prompt the main system prompt. `append` keeps more of Pi’s base behavior and adds this agent’s instructions on top.")
+                            }
+
+                            Toggle(isOn: defaultedOptionalBoolBinding(for: \ .inheritProjectContext) { draft.config.name == "delegate" }) {
+                                editorFieldLabel("Inherit Project Context", help: "When enabled, the agent keeps project instruction files such as `AGENTS.md` or `CLAUDE.md`. This is prompt context, not the full parent session history.")
+                            }
+
+                            Toggle(isOn: defaultedOptionalBoolBinding(for: \ .inheritSkills, default: false)) {
+                                editorFieldLabel("Inherit Skills", help: "When enabled, the agent keeps Pi’s discovered skills catalog in its prompt. This is separate from explicit skills listed on the agent itself.")
+                            }
+
+                            Toggle(isOn: optionalBoolBinding(for: \ .disabled)) {
+                                editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal subagent discovery and launch flows. In pi-subagents, this is the standard way to keep an agent installed but unavailable.")
+                            }
                         }
 
                         Section("Tools & Skills") {
@@ -6407,10 +6444,14 @@ private struct AgentEditorSheet: View {
                             TextField("Skills", text: arrayBinding(for: \ .skills))
                             Text(skillSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
-                            Menu("Add Skill") {
-                                ForEach(availableSkills, id: \.self) { skill in
-                                    Button(skill) { addSkill(skill) }
+                            LabeledContent {
+                                Menu("Add Skill") {
+                                    ForEach(availableSkills, id: \.self) { skill in
+                                        Button(skill) { addSkill(skill) }
+                                    }
                                 }
+                            } label: {
+                                editorFieldLabel("Add Skill", help: "Choose from skills visible in this agent’s current scope. Pi Manager now includes reusable library skills here, not just already-active global skills.")
                             }
                             selectedListView(title: "Selected Skills", values: draft.config.skills, remove: removeSkill)
                         }
@@ -6476,6 +6517,17 @@ private struct AgentEditorSheet: View {
         }
     }
 
+    private func editorFieldLabel(_ title: String, help: String? = nil) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            if let help {
+                Image(systemName: "questionmark.circle")
+                    .foregroundStyle(AppTheme.mutedText)
+                    .help(help)
+            }
+        }
+    }
+
     private var modelSelectionSummary: String {
         let freshness = modelsLastUpdatedAt.map { date in
             let formatter = RelativeDateTimeFormatter()
@@ -6497,9 +6549,9 @@ private struct AgentEditorSheet: View {
     private var skillSelectionSummary: String {
         switch draft.target {
         case .builtinOverride(scope: .global), .custom(scope: .global), .custom(scope: .library):
-            return "Library/global agent: skills come from the global catalog only."
+            return "Library/global agent: skills come from globally visible skills plus reusable library skills."
         case .builtinOverride(scope: .project), .custom(scope: .project):
-            return "Project agent: skills come from the global catalog plus project-local skills in the selected project."
+            return "Project agent: skills come from globally visible skills, reusable library skills, and project-local skills in the selected project."
         }
     }
 

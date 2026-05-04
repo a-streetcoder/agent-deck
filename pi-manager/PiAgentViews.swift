@@ -400,8 +400,6 @@ struct PiAgentScreen: View {
                         onConfirm: { viewModel.confirmPiAgentUIRequest(request, confirmed: $0) },
                         onCancel: { viewModel.cancelPiAgentUIRequest(request) }
                     )
-                } else if store.selectedSession?.status.isActive == true {
-                    PiAgentInlineWorkingIndicator()
                 }
 
                 composer
@@ -484,8 +482,8 @@ struct PiAgentScreen: View {
                                 )
                                     .id(thread.id)
                             }
-                            if isSelectedSessionProcessing {
-                                PiAgentProcessingIndicatorCard()
+                            if let processingMessage = selectedSessionProcessingMessage {
+                                PiAgentProcessingIndicatorCard(message: processingMessage)
                                     .id("pi-agent-processing")
                             }
                         }
@@ -501,18 +499,43 @@ struct PiAgentScreen: View {
         }
     }
 
-    private var isSelectedSessionProcessing: Bool {
-        guard store.selectedSession?.status.isActive == true, store.selectedUIRequest == nil else { return false }
-        let recentEntries = store.selectedTranscript.suffix(4)
+    private var selectedSessionProcessingMessage: String? {
+        guard let session = store.selectedSession,
+              session.status.isActive,
+              store.selectedUIRequest == nil else { return nil }
+
+        if session.status == .starting { return "Starting Pi" }
+        if session.isCompacting { return "Compacting context" }
+
+        let recentEntries = store.selectedTranscript.suffix(6)
         if recentEntries.contains(where: { $0.role == .assistant && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-            return false
+            return nil
         }
-        if let lastEntry = store.selectedTranscript.last,
-           lastEntry.role == .assistant,
-           !lastEntry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return false
+        if let lastEntry = store.selectedTranscript.last {
+            if lastEntry.role == .assistant && !lastEntry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+            if lastEntry.role == .error || lastEntry.role == .stderr {
+                return nil
+            }
+            if lastEntry.role == .tool {
+                return lastEntry.text.localizedCaseInsensitiveContains("waiting for user input") ? nil : "Running tool"
+            }
+            if lastEntry.role == .status {
+                if lastEntry.title == "Input Sent" { return "Processing your response" }
+                if lastEntry.title == "Retry" { return "Retrying request" }
+                if lastEntry.title == "Compaction" { return "Compacting context" }
+            }
+            if lastEntry.role == .user {
+                switch lastEntry.title {
+                case "Steering": return "Applying your steering"
+                case "Queued follow-up": return "Queued follow-up"
+                default: return "Thinking about your message"
+                }
+            }
+            if lastEntry.role == .thinking { return "Reasoning" }
         }
-        return true
+        return "Pi is thinking"
     }
 
     private func scheduleTranscriptCacheUpdate() {
@@ -2867,43 +2890,22 @@ private struct PiAgentProjectIcon: View {
     }
 }
 
-private struct PiAgentInlineWorkingIndicator: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles")
-                .foregroundStyle(Color.purple)
-            Text("Pi is thinking")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.primary)
-            PiAgentTypingIndicator()
-            Spacer()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
-        )
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-    }
-}
-
 private struct PiAgentProcessingIndicatorCard: View {
+    let message: String
+
     var body: some View {
         AppRowCard {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: "sparkles")
                     .foregroundStyle(Color.purple)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Pi is working")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    PiAgentTypingIndicator()
-                }
+                Text(message)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+                PiAgentTypingIndicator()
                 Spacer()
             }
         }
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 }
 
@@ -3893,7 +3895,12 @@ private struct PiAgentTranscriptCard: View {
         } else if entry.role == .thinking {
             thinkingContent
         } else if entry.role == .assistant && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            PiAgentTypingIndicator()
+            HStack(spacing: 10) {
+                Text("Pi is thinking")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+                PiAgentTypingIndicator()
+            }
         } else if entry.role == .assistant || entry.role == .user {
             MarkdownTextView(source: entry.text)
                 .frame(maxWidth: .infinity, alignment: .leading)

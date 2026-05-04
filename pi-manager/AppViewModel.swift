@@ -1870,7 +1870,7 @@ final class AppViewModel: ObservableObject {
 
     func availableSkillNames(for target: AgentEditingTarget) -> [String] {
         let snapshot = scopeSnapshot(for: target)
-        return Array(Set(snapshot.skills.map(\.name)))
+        return Array(Set((snapshot.skills + snapshot.librarySkills).map(\.name)))
             .filter { $0 != "pi-subagents" }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
