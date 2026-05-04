@@ -109,6 +109,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var pendingSteeringMessages: [String]
     var pendingFollowUpMessages: [String]
     var subagentsEnabled: Bool
+    var isCompacting: Bool
     var createdAt: Date
     var updatedAt: Date
 
@@ -124,7 +125,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, thinkingLevel, launchCommand, branchName, worktreePath
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, cost
-        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, createdAt, updatedAt
+        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, isCompacting, createdAt, updatedAt
     }
 
     init(
@@ -167,6 +168,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         pendingSteeringMessages: [String],
         pendingFollowUpMessages: [String],
         subagentsEnabled: Bool,
+        isCompacting: Bool = false,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -209,6 +211,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.pendingSteeringMessages = pendingSteeringMessages
         self.pendingFollowUpMessages = pendingFollowUpMessages
         self.subagentsEnabled = subagentsEnabled
+        self.isCompacting = isCompacting
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -255,6 +258,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
             pendingFollowUpMessages: try container.decodeIfPresent([String].self, forKey: .pendingFollowUpMessages) ?? [],
             subagentsEnabled: try container.decodeIfPresent(Bool.self, forKey: .subagentsEnabled) ?? true,
+            isCompacting: try container.decodeIfPresent(Bool.self, forKey: .isCompacting) ?? false,
             createdAt: try container.decode(Date.self, forKey: .createdAt),
             updatedAt: try container.decode(Date.self, forKey: .updatedAt)
         )
@@ -342,6 +346,7 @@ nonisolated struct PiAgentRPCEvent: Decodable {
     let prefill: String?
     let steering: JSONValue?
     let followUp: JSONValue?
+    let reason: String?
     let aborted: Bool?
     let willRetry: Bool?
     let errorMessage: String?

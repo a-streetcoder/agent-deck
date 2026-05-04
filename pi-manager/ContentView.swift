@@ -348,6 +348,13 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        viewModel.togglePiAgentThinkingBlocksVisibility()
+                    } label: {
+                        Label(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Reasoning" : "Hide Reasoning", systemImage: viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "eye" : "eye.slash")
+                    }
+                    .help(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Pi reasoning blocks" : "Hide Pi reasoning blocks")
+
                     if viewModel.canShowPiAgentSubagentsToggle {
                         Button {
                             showingPiAgentSubagentsToggleAlert = true

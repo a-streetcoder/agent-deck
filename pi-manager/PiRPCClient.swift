@@ -47,6 +47,13 @@ final class PiRPCClient: @unchecked Sendable {
     func cycleModel() { send(type: "cycle_model") }
     func setThinkingLevel(_ level: String) { send(type: "set_thinking_level", fields: ["level": level]) }
     func cycleThinkingLevel() { send(type: "cycle_thinking_level") }
+    func compact(customInstructions: String? = nil) {
+        var fields: [String: Any] = [:]
+        if let customInstructions, !customInstructions.isEmpty {
+            fields["customInstructions"] = customInstructions
+        }
+        send(type: "compact", fields: fields)
+    }
     func prompt(_ message: String, images: [PiAgentImageAttachment] = [], streamingBehavior: String? = nil) {
         sendUserMessage(type: "prompt", message: message, images: images, streamingBehavior: streamingBehavior)
     }

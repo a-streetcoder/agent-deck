@@ -993,12 +993,23 @@ final class AppViewModel: ObservableObject {
 
     func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, images: [PiAgentImageAttachment] = []) {
         guard let session = piAgentSessionStore.selectedSession else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if images.isEmpty, trimmed == "/compact" || trimmed.hasPrefix("/compact ") {
+            let instructions = trimmed.hasPrefix("/compact ") ? String(trimmed.dropFirst("/compact ".count)) : nil
+            piAgentRunner.compact(session: session, customInstructions: instructions)
+            return
+        }
         if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
             piAgentRunner.resume(session: session, initialPrompt: text, images: images)
             isPiAgentInspectorPresented = selectedSidebarItem != .agent
             return
         }
         piAgentRunner.send(text, mode: mode, to: session.id, images: images)
+    }
+
+    func compactSelectedPiAgentSession(customInstructions: String? = nil) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        piAgentRunner.compact(session: session, customInstructions: customInstructions)
     }
 
     func refreshPiAgentControlsForSelectedSession() {
@@ -1274,6 +1285,10 @@ final class AppViewModel: ObservableObject {
         guard appSettings.piAgentThinkingDisplayMode != mode else { return }
         appSettings.piAgentThinkingDisplayMode = mode
         appSettingsStore.settings = appSettings
+    }
+
+    func togglePiAgentThinkingBlocksVisibility() {
+        setPiAgentThinkingDisplayMode(appSettings.piAgentThinkingDisplayMode == .hidden ? .full : .hidden)
     }
 
     var isSubagentsToggleExtensionInstalled: Bool {

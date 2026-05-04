@@ -20,7 +20,7 @@ struct MarkdownTextView: View {
         let parsed = RawFrontmatterParser.parse(source)
         let markdown = parsed?.content ?? source
 
-        VStack(alignment: .leading, spacing: parsed?.frontmatter == nil ? 0 : 12) {
+        VStack(alignment: .leading, spacing: parsed?.frontmatter == nil ? 8 : 12) {
             if let frontmatter = parsed?.frontmatter, !frontmatter.isEmpty {
                 Text(frontmatter)
                     .font(.system(size: 12, weight: .regular, design: .monospaced))
@@ -34,22 +34,167 @@ struct MarkdownTextView: View {
                     )
             }
 
-            Group {
-                if let attributed = try? AttributedString(
-                    markdown: markdown,
-                    options: AttributedString.MarkdownParsingOptions(
-                        interpretedSyntax: .full,
-                        failurePolicy: .returnPartiallyParsedIfPossible
-                    )
-                ) {
-                    Text(attributed)
-                } else {
-                    Text(markdown)
-                }
+            ForEach(MarkdownBlock.parse(markdown)) { block in
+                blockView(block)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: MarkdownBlock) -> some View {
+        switch block.kind {
+        case .heading(let level, let text):
+            inlineText(text)
+                .font(level <= 1 ? .title3.weight(.bold) : .headline.weight(.semibold))
+                .padding(.top, level <= 2 ? 4 : 2)
+        case .paragraph(let text):
+            inlineText(text)
+                .font(.body)
+        case .bullet(let text):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("•")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                inlineText(text)
+                    .font(.body)
+            }
+        case .numbered(let number, let text):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(number).")
+                    .font(.body.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(minWidth: 22, alignment: .trailing)
+                inlineText(text)
+                    .font(.body)
+            }
+        case .quote(let text):
+            HStack(alignment: .top, spacing: 8) {
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(AppTheme.cardStroke)
+                    .frame(width: 3)
+                inlineText(text)
+                    .font(.body)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        case .code(let text):
+            Text(text)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.subtleFill))
+        }
+    }
+
+    private func inlineText(_ text: String) -> Text {
+        if let attributed = try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .inlineOnlyPreservingWhitespace,
+                failurePolicy: .returnPartiallyParsedIfPossible
+            )
+        ) {
+            return Text(attributed)
+        }
+        return Text(text)
+    }
+}
+
+private struct MarkdownBlock: Identifiable, Hashable {
+    enum Kind: Hashable {
+        case heading(level: Int, text: String)
+        case paragraph(String)
+        case bullet(String)
+        case numbered(Int, String)
+        case quote(String)
+        case code(String)
+    }
+
+    let id: Int
+    let kind: Kind
+
+    static func parse(_ source: String) -> [MarkdownBlock] {
+        let lines = source.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var blocks: [MarkdownBlock] = []
+        var paragraph: [String] = []
+        var code: [String] = []
+        var inCode = false
+
+        func flushParagraph() {
+            let text = paragraph.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: "\n")
+            paragraph.removeAll()
+            guard !text.isEmpty else { return }
+            blocks.append(.init(id: blocks.count, kind: .paragraph(text)))
+        }
+
+        func appendSimple(_ kind: Kind) {
+            flushParagraph()
+            blocks.append(.init(id: blocks.count, kind: kind))
+        }
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                if inCode {
+                    appendSimple(.code(code.joined(separator: "\n")))
+                    code.removeAll()
+                    inCode = false
+                } else {
+                    flushParagraph()
+                    inCode = true
+                    code.removeAll()
+                }
+                continue
+            }
+            if inCode {
+                code.append(line)
+                continue
+            }
+            if trimmed.isEmpty {
+                flushParagraph()
+                continue
+            }
+            if let heading = parseHeading(trimmed) {
+                appendSimple(.heading(level: heading.level, text: heading.text))
+            } else if let bullet = parseBullet(trimmed) {
+                appendSimple(.bullet(bullet))
+            } else if let numbered = parseNumbered(trimmed) {
+                appendSimple(.numbered(numbered.number, numbered.text))
+            } else if trimmed.hasPrefix(">") {
+                appendSimple(.quote(trimmed.dropFirst().trimmingCharacters(in: .whitespaces)))
+            } else {
+                paragraph.append(line)
+            }
+        }
+        if inCode {
+            appendSimple(.code(code.joined(separator: "\n")))
+        }
+        flushParagraph()
+        return blocks.isEmpty ? [.init(id: 0, kind: .paragraph(source))] : blocks
+    }
+
+    private static func parseHeading(_ line: String) -> (level: Int, text: String)? {
+        let hashes = line.prefix { $0 == "#" }.count
+        guard hashes > 0, hashes <= 6, line.dropFirst(hashes).first == " " else { return nil }
+        return (hashes, String(line.dropFirst(hashes + 1)))
+    }
+
+    private static func parseBullet(_ line: String) -> String? {
+        guard line.count > 2 else { return nil }
+        let prefixes = ["- ", "* ", "+ "]
+        guard let prefix = prefixes.first(where: { line.hasPrefix($0) }) else { return nil }
+        return String(line.dropFirst(prefix.count))
+    }
+
+    private static func parseNumbered(_ line: String) -> (number: Int, text: String)? {
+        let pattern = #"^(\d+)[\.)]\s+(.*)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..<line.endIndex, in: line)),
+              let numberRange = Range(match.range(at: 1), in: line),
+              let textRange = Range(match.range(at: 2), in: line),
+              let number = Int(line[numberRange]) else { return nil }
+        return (number, String(line[textRange]))
     }
 }
 

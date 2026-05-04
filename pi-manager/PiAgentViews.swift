@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "code_search"]
+
 struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
@@ -261,13 +263,13 @@ struct PiAgentScreen: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 12) {
+                        LazyVStack(alignment: .leading, spacing: 12) {
                             if let session = store.selectedSession {
                                 PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                             }
-                            ForEach(visibleTranscriptEntries) { entry in
-                                PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode)
-                                    .id(entry.id)
+                            ForEach(visibleTranscriptThreads) { thread in
+                                PiAgentTranscriptThreadCard(thread: thread, thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode)
+                                    .id(thread.id)
                             }
                         }
                     }
@@ -282,21 +284,22 @@ struct PiAgentScreen: View {
     }
 
     private var transcriptVersion: String {
-        visibleTranscriptEntries
-            .map { "\($0.id.uuidString):\($0.text.count):\($0.timestamp.timeIntervalSince1970)" }
-            .joined(separator: "|")
+        let entries = visibleTranscriptEntries
+        guard let last = entries.last else { return "0" }
+        return "\(entries.count):\(last.id.uuidString):\(last.text.count)"
     }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             PiAgentCommandSuggestions(
-                text: $composerText,
                 commands: slashSuggestions,
                 fileSuggestions: fileSuggestions,
-                onSelectFile: insertFileSuggestion
+                onSelectFile: insertFileSuggestion,
+                onSelectCommand: insertSlashSuggestion
             )
 
             let isRunning = store.selectedSession?.status.isActive == true
+            let isCompacting = store.selectedSession?.isCompacting == true
             PiAgentComposerBox(
                 text: $composerText,
                 images: $composerImages,
@@ -304,8 +307,9 @@ struct PiAgentScreen: View {
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
-                placeholder: isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…",
-                canSend: store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
+                isDisabled: isCompacting,
+                placeholder: isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…"),
+                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
                 footer: store.selectedSession.map { session in
@@ -323,24 +327,62 @@ struct PiAgentScreen: View {
         }
     }
 
+    private var activeSuggestionToken: (token: String, range: Range<String.Index>)? {
+        guard !composerText.isEmpty else { return nil }
+        let nsText = composerText as NSString
+        let tokenRange = nsText.range(of: "[^\\s]+$", options: .regularExpression)
+        guard tokenRange.location != NSNotFound,
+              let range = Range(tokenRange, in: composerText) else {
+            return nil
+        }
+        let token = String(composerText[range])
+        guard !token.isEmpty else { return nil }
+        return (token: token, range: range)
+    }
+
+    private enum ComposerSuggestionTrigger {
+        case slash(query: String)
+        case file(query: String)
+    }
+
+    private var composerSuggestionTrigger: ComposerSuggestionTrigger? {
+        guard let active = activeSuggestionToken,
+              let first = active.token.first else { return nil }
+
+        switch first {
+        case "/":
+            return .slash(query: String(active.token.dropFirst()).lowercased())
+        case "@":
+            return .file(query: String(active.token.dropFirst()).lowercased())
+        default:
+            return nil
+        }
+    }
+
     private var slashSuggestions: [String] {
-        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/") else { return [] }
-        let query = String(trimmed.dropFirst()).lowercased()
-        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation))).sorted()
+        guard case let .slash(query) = composerSuggestionTrigger else { return [] }
+        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
         return all.filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(8).map { $0 }
     }
 
     private var fileSuggestions: [PiAgentFileSuggestion] {
         guard let session = store.selectedSession else { return [] }
-        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("@") else { return [] }
-        let query = String(trimmed.dropFirst()).lowercased()
+        guard case let .file(query) = composerSuggestionTrigger else { return [] }
         return PiAgentFileSuggestion.scan(rootPath: session.worktreePath ?? session.projectPath, query: query)
     }
 
     private func insertFileSuggestion(_ suggestion: PiAgentFileSuggestion) {
-        composerText = "@\(suggestion.relativePath) "
+        replaceCurrentSuggestionToken(with: "@\(suggestion.relativePath)")
+    }
+
+    private func insertSlashSuggestion(_ command: String) {
+        replaceCurrentSuggestionToken(with: command)
+    }
+
+    private func replaceCurrentSuggestionToken(with replacement: String) {
+        guard let active = activeSuggestionToken else { return }
+        composerText.replaceSubrange(active.range, with: replacement)
+        composerText += " "
     }
 
     private func addFileAttachments(_ urls: [URL]) {
@@ -370,6 +412,7 @@ struct PiAgentScreen: View {
     private func sendComposerMessage() {
         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
+        guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
@@ -416,7 +459,114 @@ struct PiAgentScreen: View {
     }
 
     private var visibleTranscriptEntries: [PiAgentTranscriptEntry] {
-        normalizeThinkingOrder(store.selectedTranscript.filter(isValuableTranscriptEntry))
+        let entries = store.selectedTranscript
+            .compactMap(normalizedTranscriptEntry)
+            .filter(isValuableTranscriptEntry)
+        return normalizeThinkingOrder(coalescedCompactionEntries(entries))
+    }
+
+    private var visibleTranscriptThreads: [PiAgentTranscriptThread] {
+        PiAgentTranscriptThread.make(from: visibleTranscriptEntries)
+    }
+
+    private enum AssistantContentInterpretation {
+        case assistant(String)
+        case thinking(String)
+        case drop
+    }
+
+    private func normalizedTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> PiAgentTranscriptEntry? {
+        var copy = entry
+        if copy.role == .assistant {
+            if let interpretation = assistantContentInterpretation(fromRawJSON: copy.rawJSON) {
+                switch interpretation {
+                case let .assistant(text):
+                    copy.text = sanitizedAssistantText(text)
+                case let .thinking(text):
+                    copy.role = .thinking
+                    copy.title = "Thinking"
+                    copy.text = sanitizedAssistantText(text)
+                case .drop:
+                    return nil
+                }
+            } else {
+                copy.text = sanitizedAssistantText(copy.text)
+            }
+            if copy.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        return copy
+    }
+
+    private func assistantContentInterpretation(fromRawJSON rawJSON: String?) -> AssistantContentInterpretation? {
+        guard let rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data),
+              event.type == "message_end",
+              let message = event.message,
+              message["role"]?.stringValue == "assistant",
+              let content = message["content"] else {
+            return nil
+        }
+
+        switch content {
+        case let .string(value):
+            return .assistant(value)
+        case let .array(blocks):
+            let textParts = blocks.compactMap { block -> String? in
+                let blockType = block["type"]?.stringValue
+                guard blockType == nil || blockType == "text" || blockType == "output_text" || blockType == "message" else { return nil }
+                return block["text"]?.stringValue
+            }
+            if !textParts.isEmpty {
+                return .assistant(textParts.joined(separator: "\n"))
+            }
+
+            let thinkingParts = blocks.compactMap { block -> String? in
+                guard block["type"]?.stringValue == "thinking" else { return nil }
+                return block["thinking"]?.stringValue
+            }
+            if !thinkingParts.isEmpty {
+                return .thinking(thinkingParts.joined(separator: "\n\n"))
+            }
+
+            let hasToolCall = blocks.contains { block in
+                let blockType = block["type"]?.stringValue
+                return blockType == "toolCall" || blockType == "tool_call" || block["name"]?.stringValue != nil
+            }
+            return hasToolCall ? .drop : nil
+        default:
+            return .drop
+        }
+    }
+
+    private func sanitizedAssistantText(_ text: String) -> String {
+        text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !piAgentLeakedToolNames.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func coalescedCompactionEntries(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
+        var output: [PiAgentTranscriptEntry] = []
+        for entry in entries {
+            guard entry.role == .status && entry.title == "Compaction" else {
+                output.append(entry)
+                continue
+            }
+            if let last = output.last,
+               last.role == .status,
+               last.title == "Compaction",
+               abs(entry.timestamp.timeIntervalSince(last.timestamp)) < 600 {
+                output[output.count - 1] = entry
+            } else {
+                output.append(entry)
+            }
+        }
+        return output
     }
 
     private func normalizeThinkingOrder(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
@@ -440,6 +590,8 @@ struct PiAgentScreen: View {
         switch entry.role {
         case .raw:
             return false
+        case .assistant:
+            return isMeaningfulAssistantEntry(entry)
         case .status:
             return entry.title == "Compaction" || entry.title == "Retry"
         case .tool:
@@ -449,6 +601,13 @@ struct PiAgentScreen: View {
         default:
             return true
         }
+    }
+
+    private func isMeaningfulAssistantEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
+        let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return true }
+        let lower = text.lowercased()
+        return !piAgentLeakedToolNames.contains(lower)
     }
 
     private var runningCount: Int {
@@ -959,10 +1118,10 @@ private struct PiAgentFileSuggestion: Identifiable, Hashable {
 }
 
 private struct PiAgentCommandSuggestions: View {
-    @Binding var text: String
     let commands: [String]
     let fileSuggestions: [PiAgentFileSuggestion]
     let onSelectFile: (PiAgentFileSuggestion) -> Void
+    let onSelectCommand: (String) -> Void
 
     var body: some View {
         if !fileSuggestions.isEmpty {
@@ -984,7 +1143,7 @@ private struct PiAgentCommandSuggestions: View {
         } else if !commands.isEmpty {
             suggestionPanel(title: "Slash commands", icon: "terminal") {
                 ForEach(commands, id: \.self) { command in
-                    Button { text = command + " " } label: {
+                    Button { onSelectCommand(command) } label: {
                         Text(command)
                             .font(.caption.monospaced())
                             .lineLimit(1)
@@ -1162,6 +1321,7 @@ private struct PiAgentComposerBox: View {
     @Binding var attachmentError: String?
     @Binding var inputMode: PiAgentInputMode
     let isRunning: Bool
+    let isDisabled: Bool
     let placeholder: String
     let canSend: Bool
     let path: String?
@@ -1211,7 +1371,8 @@ private struct PiAgentComposerBox: View {
                     onFiles: onFiles,
                     onUnsupportedDrop: { attachmentError = "Drop images or UTF-8 text files." },
                     onSend: onSend,
-                    onClear: onClear
+                    onClear: onClear,
+                    isDisabled: isDisabled
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -1240,7 +1401,7 @@ private struct PiAgentComposerBox: View {
                         .buttonStyle(.plain)
                         .help("Attach images or UTF-8 text files")
                         Spacer(minLength: 18)
-                        PiAgentSendButton(isRunning: isRunning, canSend: canSend, sendAction: onSend, stopAction: onStop)
+                        PiAgentSendButton(isRunning: isRunning, canSend: canSend && !isDisabled, sendAction: onSend, stopAction: onStop)
                             .keyboardShortcut(.return, modifiers: [])
                     }
                 }
@@ -1278,6 +1439,11 @@ private struct PiAgentComposerBox: View {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .fill(Color.accentColor.opacity(0.10))
                         .allowsHitTesting(false)
+            }
+            if isDisabled {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(AppTheme.cardFill.opacity(0.35))
+                    .allowsHitTesting(false)
             }
         }
         .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 7)
@@ -1343,6 +1509,7 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     var onUnsupportedDrop: () -> Void
     var onSend: () -> Void
     var onClear: () -> Void
+    var isDisabled: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -1357,6 +1524,7 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         textView.backgroundColor = .clear
         textView.drawsBackground = false
         textView.isRichText = false
+        textView.isEditable = !isDisabled
         textView.importsGraphics = false
         textView.allowsImageEditing = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -1381,6 +1549,7 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        textView.isEditable = !isDisabled
         textView.dropHandler = context.coordinator
         textView.keyHandler = context.coordinator
     }
@@ -1420,10 +1589,12 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         }
 
         func send() {
+            guard !parent.isDisabled else { return }
             parent.onSend()
         }
 
         func clear() {
+            guard !parent.isDisabled else { return }
             parent.onClear()
         }
     }
@@ -1853,7 +2024,24 @@ private struct PiAgentContextUsageMeter: View {
     let session: PiAgentSessionRecord
 
     var body: some View {
-        if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
+        if session.isCompacting {
+            HStack(spacing: 7) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Compacting context")
+                    .font(.caption.weight(.semibold))
+                if let tokens = session.contextTokens {
+                    Text("\(compact(tokens)) tokens")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Capsule(style: .continuous).fill(Color.orange.opacity(0.12)).stroke(Color.orange.opacity(0.25), lineWidth: 1))
+            .help("Pi is compacting this conversation. Input is disabled until compaction finishes.")
+        } else if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
             HStack(spacing: 7) {
                 Text("Context")
                     .font(.caption.weight(.semibold))
@@ -2480,9 +2668,506 @@ private struct PiAgentTypingIndicator: View {
     }
 }
 
+private struct PiAgentTranscriptThread: Identifiable, Hashable {
+    var id: UUID
+    var question: PiAgentTranscriptEntry?
+    var steeringMessages: [PiAgentTranscriptEntry]
+    var thinking: PiAgentTranscriptEntry?
+    var assistantMessages: [PiAgentTranscriptEntry]
+    var activities: [PiAgentTranscriptActivity]
+    var statuses: [PiAgentTranscriptEntry]
+    var errors: [PiAgentTranscriptEntry]
+
+    static func make(from entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptThread] {
+        var threads: [PiAgentTranscriptThread] = []
+        var builder = Builder()
+
+        func flush() {
+            guard let thread = builder.makeThread() else { return }
+            threads.append(thread)
+            builder = Builder()
+        }
+
+        for entry in entries {
+            if entry.role == .status && entry.title == "Compaction" {
+                flush()
+                builder.add(entry)
+                flush()
+            } else if entry.role == .user && entry.title != "Steering" {
+                flush()
+                builder.question = entry
+            } else {
+                builder.add(entry)
+            }
+        }
+        flush()
+        return threads
+    }
+
+    private struct Builder {
+        var question: PiAgentTranscriptEntry?
+        var steeringMessages: [PiAgentTranscriptEntry] = []
+        var thinkingParts: [PiAgentTranscriptEntry] = []
+        var assistantMessages: [PiAgentTranscriptEntry] = []
+        var toolEntries: [PiAgentTranscriptEntry] = []
+        var statuses: [PiAgentTranscriptEntry] = []
+        var errors: [PiAgentTranscriptEntry] = []
+
+        mutating func add(_ entry: PiAgentTranscriptEntry) {
+            switch entry.role {
+            case .user where entry.title == "Steering":
+                steeringMessages.append(entry)
+            case .thinking:
+                thinkingParts.append(entry)
+            case .assistant:
+                assistantMessages.append(entry)
+            case .tool:
+                toolEntries.append(entry)
+            case .status, .stderr:
+                statuses.append(entry)
+            case .error:
+                errors.append(entry)
+            case .user, .raw:
+                statuses.append(entry)
+            }
+        }
+
+        func makeThread() -> PiAgentTranscriptThread? {
+            let activities = PiAgentTranscriptActivity.make(from: toolEntries)
+            guard question != nil || !steeringMessages.isEmpty || !thinkingParts.isEmpty || !assistantMessages.isEmpty || !activities.isEmpty || !statuses.isEmpty || !errors.isEmpty else {
+                return nil
+            }
+            let first = question ?? steeringMessages.first ?? thinkingParts.first ?? assistantMessages.first ?? activities.first?.representativeEntry ?? statuses.first ?? errors.first
+            let thinking = PiAgentTranscriptEntry.mergedThinking(from: thinkingParts)
+            return PiAgentTranscriptThread(
+                id: question?.id ?? first?.id ?? UUID(),
+                question: question,
+                steeringMessages: steeringMessages,
+                thinking: thinking,
+                assistantMessages: assistantMessages,
+                activities: activities,
+                statuses: coalescedStatuses(statuses),
+                errors: coalescedErrors(errors)
+            )
+        }
+
+        private func coalescedStatuses(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
+            var output: [PiAgentTranscriptEntry] = []
+            var latestCompaction: PiAgentTranscriptEntry?
+            for entry in entries {
+                if entry.title == "Compaction" {
+                    latestCompaction = entry
+                } else {
+                    output.append(entry)
+                }
+            }
+            if let latestCompaction {
+                output.append(normalizedCompaction(latestCompaction))
+            }
+            return output.sorted { $0.timestamp < $1.timestamp }
+        }
+
+        private func normalizedCompaction(_ entry: PiAgentTranscriptEntry) -> PiAgentTranscriptEntry {
+            var copy = entry
+            let text = entry.text
+            if text.localizedCaseInsensitiveContains("nothing to compact") {
+                copy.text = "Nothing to compact."
+            } else if text.localizedCaseInsensitiveContains("compaction finished") || text.localizedCaseInsensitiveContains("compaction complete") {
+                copy.text = text.localizedCaseInsensitiveContains("retrying turn") ? "Context compacted · retrying turn" : "Context compacted."
+            } else if text.localizedCaseInsensitiveContains("is compacting") || text.localizedCaseInsensitiveContains("compacting conversation context") {
+                copy.text = "Compacting context…"
+            }
+            return copy
+        }
+
+        private func coalescedErrors(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
+            var output: [PiAgentTranscriptEntry] = []
+            var latestByTool: [String: PiAgentTranscriptEntry] = [:]
+            var toolOrder: [String] = []
+            for entry in entries {
+                let key = PiAgentTranscriptActivity.toolName(for: entry)
+                if entry.title.hasPrefix("Tool: ") {
+                    if latestByTool[key] == nil { toolOrder.append(key) }
+                    latestByTool[key] = normalizedToolError(entry)
+                } else {
+                    output.append(entry)
+                }
+            }
+            output.append(contentsOf: toolOrder.compactMap { latestByTool[$0] })
+            return output.sorted { $0.timestamp < $1.timestamp }
+        }
+
+        private func normalizedToolError(_ entry: PiAgentTranscriptEntry) -> PiAgentTranscriptEntry {
+            var copy = entry
+            copy.text = entry.text
+                .replacingOccurrences(of: "\n\nCommand exited with code", with: " · exit")
+                .replacingOccurrences(of: "Validation failed for tool", with: "Validation failed")
+            return copy
+        }
+    }
+}
+
+private struct PiAgentTranscriptActivity: Identifiable, Hashable {
+    var id: UUID
+    var name: String
+    var entries: [PiAgentTranscriptEntry]
+    var isError: Bool
+    var subagentSummary: PiAgentSubagentSummary?
+
+    var representativeEntry: PiAgentTranscriptEntry? { entries.first }
+    var count: Int { entries.count }
+
+    static func make(from entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptActivity] {
+        var orderedNames: [String] = []
+        var grouped: [String: [PiAgentTranscriptEntry]] = [:]
+        for entry in entries {
+            let name = toolName(for: entry)
+            if grouped[name] == nil { orderedNames.append(name) }
+            grouped[name, default: []].append(entry)
+        }
+        return orderedNames.compactMap { name in
+            guard let entries = grouped[name], !entries.isEmpty else { return nil }
+            let subagentSummary = entries.lazy.compactMap(PiAgentSubagentSummary.init(entry:)).first { $0.total > 0 }
+            return PiAgentTranscriptActivity(
+                id: entries.first?.id ?? UUID(),
+                name: name,
+                entries: entries,
+                isError: entries.contains { $0.role == .error },
+                subagentSummary: subagentSummary
+            )
+        }
+    }
+
+    static func toolName(for entry: PiAgentTranscriptEntry) -> String {
+        if entry.title.hasPrefix("Tool: ") {
+            return entry.title.replacingOccurrences(of: "Tool: ", with: "")
+        }
+        return entry.title
+    }
+}
+
+private extension PiAgentTranscriptEntry {
+    static func mergedThinking(from entries: [PiAgentTranscriptEntry]) -> PiAgentTranscriptEntry? {
+        guard let first = entries.first else { return nil }
+        let text = entries.map(\.text).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+        return PiAgentTranscriptEntry(
+            id: first.id,
+            sessionID: first.sessionID,
+            role: .thinking,
+            title: first.title,
+            text: text,
+            rawJSON: first.rawJSON,
+            timestamp: first.timestamp
+        )
+    }
+}
+
+private struct PiAgentTranscriptThreadCard: View {
+    let thread: PiAgentTranscriptThread
+    let thinkingDisplayMode: PiAgentThinkingDisplayMode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let question = thread.question {
+                PiAgentTranscriptCard(entry: question, thinkingDisplayMode: thinkingDisplayMode, style: .question)
+                    .id(question.id)
+            }
+
+            if hasChildren {
+                HStack(alignment: .top, spacing: 12) {
+                    if thread.question != nil {
+                        RoundedRectangle(cornerRadius: 1, style: .continuous)
+                            .fill(AppTheme.cardStroke)
+                            .frame(width: 2)
+                            .padding(.leading, 16)
+                    }
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(thread.steeringMessages) { entry in
+                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
+                                .id(entry.id)
+                        }
+                        if let thinking = thread.thinking, thinkingDisplayMode != .hidden {
+                            PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
+                                .id(thinking.id)
+                        }
+                        ForEach(thread.assistantMessages) { entry in
+                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
+                                .id(entry.id)
+                        }
+                        if !thread.activities.isEmpty {
+                            PiAgentActivitySummaryView(activities: thread.activities)
+                        }
+                        ForEach(thread.statuses) { entry in
+                            PiAgentStatusTranscriptRow(entry: entry)
+                                .id(entry.id)
+                        }
+                        ForEach(thread.errors) { entry in
+                            PiAgentStatusTranscriptRow(entry: entry)
+                                .id(entry.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var childStyle: PiAgentTranscriptCardStyle {
+        thread.question == nil ? .standalone : .threadChild
+    }
+
+    private var hasChildren: Bool {
+        !thread.steeringMessages.isEmpty || (thinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || !thread.activities.isEmpty || !thread.statuses.isEmpty || !thread.errors.isEmpty
+    }
+}
+
+private struct PiAgentActivitySummaryView: View {
+    let activities: [PiAgentTranscriptActivity]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: hasErrors ? "exclamationmark.triangle" : "wrench.and.screwdriver")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(hasErrors ? .red : AppTheme.mutedText)
+            Text("Tools")
+                .font(.caption.weight(.semibold))
+            Text(callCountText)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(activities) { activity in
+                        activityChip(activity)
+                    }
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+
+    private var hasErrors: Bool {
+        activities.contains(where: \.isError)
+    }
+
+    private var callCountText: String {
+        let count = activities.reduce(0) { $0 + $1.count }
+        return count == 1 ? "1 call" : "\(count) calls"
+    }
+
+    private func activityChip(_ activity: PiAgentTranscriptActivity) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon(for: activity.name))
+                .font(.caption2.weight(.semibold))
+            Text(displayName(for: activity.name, count: activity.count))
+                .font(.caption)
+            Text("\(activity.count)")
+                .font(.caption2.weight(.bold))
+                .monospacedDigit()
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule(style: .continuous).fill(AppTheme.cardStroke.opacity(0.55)))
+        }
+        .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule(style: .continuous).fill((activity.isError ? Color.red : AppTheme.cardStroke).opacity(0.12)))
+    }
+
+    private func displayName(for name: String, count: Int) -> String {
+        switch name.lowercased() {
+        case "bash": return "Shell"
+        case "read": return "File read"
+        case "edit": return "Edit"
+        case "write": return "Write"
+        case "subagent": return count == 1 ? "Subagent" : "Subagents"
+        case "web_search": return "Web search"
+        case "fetch_content", "get_search_content": return "Web content"
+        case "code_search": return "Code search"
+        case "intercom": return "Intercom"
+        default:
+            return name
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }
+
+    private func icon(for name: String) -> String {
+        switch name.lowercased() {
+        case "bash": return "terminal"
+        case "read": return "doc.text.magnifyingglass"
+        case "edit", "write": return "pencil.and.outline"
+        case "subagent": return "person.2.wave.2"
+        case "web_search", "fetch_content", "get_search_content": return "globe"
+        case "code_search": return "curlybraces.square"
+        case "intercom": return "bubble.left.and.bubble.right"
+        default: return "wrench.and.screwdriver"
+        }
+    }
+}
+
+private struct PiAgentActivityDetailView: View {
+    let activity: PiAgentTranscriptActivity
+
+    var body: some View {
+        if let summary = activity.subagentSummary {
+            PiAgentSubagentTranscriptView(summary: summary)
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)))
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
+                    Text(activity.name)
+                        .font(.caption.weight(.semibold))
+                    if activity.count > 1 {
+                        Text("×\(activity.count)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    Spacer()
+                }
+                ForEach(activity.entries.suffix(3)) { entry in
+                    PiAgentToolTranscriptView(entry: entry, startsExpanded: false)
+                }
+                if activity.entries.count > 3 {
+                    Text("\(activity.entries.count - 3) older updates hidden")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+        }
+    }
+
+    private var icon: String {
+        switch activity.name.lowercased() {
+        case "bash": return "terminal"
+        case "read": return "doc.text.magnifyingglass"
+        case "edit", "write": return "pencil.and.outline"
+        case "subagent": return "person.2.wave.2"
+        default: return "wrench.and.screwdriver"
+        }
+    }
+}
+
+private struct PiAgentStatusTranscriptRow: View {
+    let entry: PiAgentTranscriptEntry
+
+    var body: some View {
+        if entry.title == "Compaction" {
+            compactionDivider
+        } else {
+            compactStatusRow
+        }
+    }
+
+    private var compactionDivider: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(AppTheme.cardStroke.opacity(0.9))
+                .frame(height: 1)
+            HStack(spacing: 7) {
+                if isCompacting {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Text(detail)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill.opacity(0.75)).stroke(AppTheme.cardStroke, lineWidth: 1))
+            Rectangle()
+                .fill(AppTheme.cardStroke.opacity(0.9))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var compactStatusRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+            Text(title)
+                .font(.caption.weight(.semibold))
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(color.opacity(0.08)).stroke(color.opacity(0.16), lineWidth: 1))
+    }
+
+    private var title: String {
+        if entry.title == "Compaction" { return "Context" }
+        if entry.title.hasPrefix("Tool: ") { return "Tool failed" }
+        return entry.title
+    }
+
+    private var detail: String {
+        let normalized = entry.text
+            .replacingOccurrences(of: "Context compacted.", with: "compacted")
+            .replacingOccurrences(of: "Context compacted", with: "compacted")
+            .replacingOccurrences(of: "Compacting conversation context (context)…", with: "compacting…")
+            .replacingOccurrences(of: "Compacting context…", with: "compacting…")
+            .replacingOccurrences(of: "\n", with: " ")
+        if entry.title.hasPrefix("Tool: ") {
+            let toolName = entry.title.replacingOccurrences(of: "Tool: ", with: "")
+            return "\(toolName): \(normalized)"
+        }
+        return normalized
+    }
+
+    private var isCompacting: Bool {
+        detail.localizedCaseInsensitiveContains("compacting") && !detail.localizedCaseInsensitiveContains("compacted")
+    }
+
+    private var icon: String {
+        if entry.title == "Compaction" { return "arrow.triangle.2.circlepath" }
+        if entry.role == .error { return "exclamationmark.triangle" }
+        return "info.circle"
+    }
+
+    private var color: Color {
+        if entry.title == "Compaction" { return .secondary }
+        if entry.role == .error { return .red }
+        return .secondary
+    }
+}
+
+private enum PiAgentTranscriptCardStyle {
+    case standalone
+    case question
+    case threadChild
+}
+
 private struct PiAgentTranscriptCard: View {
     let entry: PiAgentTranscriptEntry
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
+    var style: PiAgentTranscriptCardStyle = .standalone
     @State private var isThinkingExpanded = true
 
     var body: some View {
@@ -2503,8 +3188,8 @@ private struct PiAgentTranscriptCard: View {
 
             content
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, style == .threadChild ? 12 : 14)
+        .padding(.vertical, style == .threadChild ? 9 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -2520,10 +3205,15 @@ private struct PiAgentTranscriptCard: View {
     private var content: some View {
         if let subagentSummary = PiAgentSubagentSummary(entry: entry) {
             PiAgentSubagentTranscriptView(summary: subagentSummary)
+        } else if entry.role == .tool {
+            PiAgentToolTranscriptView(entry: entry)
         } else if entry.role == .thinking {
             thinkingContent
         } else if entry.role == .assistant && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             PiAgentTypingIndicator()
+        } else if entry.role == .assistant || entry.role == .user {
+            MarkdownTextView(source: entry.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(entry.text)
                 .font(entry.role == .tool || entry.role == .stderr || entry.role == .raw ? .system(.body, design: .monospaced) : .body)
@@ -2579,8 +3269,19 @@ private struct PiAgentTranscriptCard: View {
         switch entry.role {
         case .user: return "You"
         case .assistant: return "Pi"
+        case .tool: return toolHeaderTitle
         default: return entry.title
         }
+    }
+
+    private var toolHeaderTitle: String {
+        if entry.title.localizedCaseInsensitiveContains("subagent") || entry.text.localizedCaseInsensitiveContains("subagent") {
+            return "Subagents"
+        }
+        if entry.title.hasPrefix("Tool: ") {
+            return "Tool · " + entry.title.replacingOccurrences(of: "Tool: ", with: "")
+        }
+        return entry.title
     }
 
     private var headerColor: Color {
@@ -2589,10 +3290,10 @@ private struct PiAgentTranscriptCard: View {
 
     private var backgroundColor: Color {
         switch entry.role {
-        case .user: return Color.accentColor.opacity(0.08)
+        case .user: return style == .question ? Color.accentColor.opacity(0.10) : Color.accentColor.opacity(0.08)
         case .assistant: return Color.purple.opacity(0.06)
         case .thinking: return Color.indigo.opacity(0.07)
-        case .tool: return Color.orange.opacity(0.08)
+        case .tool: return style == .threadChild ? Color.orange.opacity(0.05) : Color.orange.opacity(0.08)
         case .status: return AppTheme.subtleFill.opacity(0.7)
         case .error: return Color.red.opacity(0.08)
         case .stderr: return Color.pink.opacity(0.08)
@@ -2608,7 +3309,8 @@ private struct PiAgentTranscriptCard: View {
         case .tool: return Color.orange.opacity(0.2)
         case .error: return Color.red.opacity(0.22)
         case .stderr: return Color.pink.opacity(0.2)
-        case .status, .raw: return AppTheme.cardStroke
+        case .status: return AppTheme.cardStroke
+        case .raw: return AppTheme.cardStroke
         }
     }
 
@@ -2617,7 +3319,7 @@ private struct PiAgentTranscriptCard: View {
         case .user: return entry.title == "Steering" ? "arrowshape.turn.up.forward.circle" : "person.crop.circle"
         case .assistant: return "sparkles"
         case .thinking: return "brain.head.profile"
-        case .tool: return "hammer"
+        case .tool: return entry.title.localizedCaseInsensitiveContains("subagent") ? "person.2.wave.2" : "hammer"
         case .status: return "info.circle"
         case .error: return "exclamationmark.triangle"
         case .stderr: return "terminal"
@@ -2636,6 +3338,84 @@ private struct PiAgentTranscriptCard: View {
         case .stderr: return .pink
         case .raw: return .secondary
         }
+    }
+}
+
+private struct PiAgentToolTranscriptView: View {
+    let entry: PiAgentTranscriptEntry
+    @State private var isExpanded: Bool
+
+    init(entry: PiAgentTranscriptEntry, startsExpanded: Bool = false) {
+        self.entry = entry
+        _isExpanded = State(initialValue: startsExpanded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label(toolName, systemImage: icon)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(color)
+                Text(phaseLabel)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule(style: .continuous).fill(color.opacity(0.12)))
+                    .foregroundStyle(color)
+                Spacer(minLength: 0)
+                if isLong {
+                    Button(isExpanded ? "Show less" : "Show details") {
+                        withAnimation(.snappy(duration: 0.18)) { isExpanded.toggle() }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Text(displayText)
+                .font(.caption.monospaced())
+                .foregroundStyle(.primary.opacity(0.82))
+                .lineLimit(isExpanded ? nil : 6)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.7)))
+        }
+    }
+
+    private var toolName: String {
+        entry.title.replacingOccurrences(of: "Tool: ", with: "")
+    }
+
+    private var phaseLabel: String {
+        let lower = entry.text.lowercased()
+        if lower.contains("starting") || lower.contains("preparing") { return "starting" }
+        if lower.contains("running") || lower.contains("0/1 done") { return "running" }
+        if entry.role == .error { return "failed" }
+        return "result"
+    }
+
+    private var displayText: String {
+        let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "No details emitted yet." : trimmed
+    }
+
+    private var isLong: Bool {
+        displayText.count > 600 || displayText.split(separator: "\n").count > 8
+    }
+
+    private var icon: String {
+        switch toolName.lowercased() {
+        case "bash": return "terminal"
+        case "read": return "doc.text.magnifyingglass"
+        case "edit", "write": return "pencil.and.outline"
+        case "subagent": return "person.2.wave.2"
+        default: return "wrench.and.screwdriver"
+        }
+    }
+
+    private var color: Color {
+        entry.role == .error ? .red : .orange
     }
 }
 
@@ -2699,6 +3479,7 @@ struct PiAgentInspectorPanel: View {
                 .frame(maxHeight: .infinity)
 
                 let isRunning = viewModel.isPiAgentSessionRunning(session.id)
+                let isCompacting = session.isCompacting
                 PiAgentComposerBox(
                     text: $composerText,
                     images: $composerImages,
@@ -2706,8 +3487,9 @@ struct PiAgentInspectorPanel: View {
                     attachmentError: $composerAttachmentError,
                     inputMode: $inputMode,
                     isRunning: isRunning,
-                    placeholder: isRunning ? "Steer the current turn…" : "Message Pi…",
-                    canSend: !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty,
+                    isDisabled: isCompacting,
+                    placeholder: isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Message Pi…"),
+                    canSend: !isCompacting && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                     path: session.worktreePath ?? session.projectPath,
                     onFiles: { urls in
                         let attachments = urls.compactMap { PiAgentFileAttachment(url: $0) }
@@ -2724,6 +3506,7 @@ struct PiAgentInspectorPanel: View {
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
+                        guard !isCompacting else { return }
                         let filePayload = composerFiles.compactMap { file -> String? in
                             guard let content = try? String(contentsOf: file.url, encoding: .utf8) else { return nil }
                             return "<file name=\"\(file.url.path)\">\n\(content)\n</file>"
@@ -2866,7 +3649,7 @@ private struct PiAgentSubagentTranscriptView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Label("subagent", systemImage: "person.2.wave.2")
+                Label("Subagent run", systemImage: "person.2.wave.2")
                     .font(.headline)
                     .foregroundStyle(.cyan)
                 Text(title)
@@ -2923,8 +3706,8 @@ private struct PiAgentSubagentTranscriptView: View {
     }
 
     private var title: String {
-        let count = summary.total > 0 ? " (\(summary.total))" : ""
-        return "\(summary.mode)\(count)"
+        let count = summary.total == 1 ? "1 agent" : "\(summary.total) agents"
+        return "\(summary.mode) · \(count)"
     }
 
     private func metric(_ text: String, color: Color) -> some View {

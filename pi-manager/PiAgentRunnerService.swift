@@ -9,6 +9,8 @@ final class PiAgentRunnerService {
     private var thinkingEntryIDsBySessionID: [UUID: UUID] = [:]
     private var thinkingTextBySessionID: [UUID: String] = [:]
     private var toolEntryIDsByCallID: [String: UUID] = [:]
+    private var compactionEntryIDsBySessionID: [UUID: UUID] = [:]
+    private var pendingCompactionInstructionsBySessionID: [UUID: String] = [:]
     var onTurnFinished: ((UUID) -> Void)?
 
     init(store: PiAgentSessionStore) {
@@ -46,7 +48,10 @@ final class PiAgentRunnerService {
 
     func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, images: [PiAgentImageAttachment] = []) {
         let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
-        let canResumePiSession = session.piSessionFile != nil && initialPrompt == nil && images.isEmpty
+        // If Pi has already created a session file, always resume it before sending a new prompt.
+        // Otherwise an idle follow-up (or a model change followed by Send) starts a fresh Pi session
+        // and the chat appears to lose context.
+        let canResumePiSession = session.piSessionFile != nil
         start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialImages: images, resumeExisting: canResumePiSession)
     }
 
@@ -121,6 +126,21 @@ final class PiAgentRunnerService {
         client.setThinkingLevel(level)
     }
 
+    func compact(session: PiAgentSessionRecord, customInstructions: String? = nil) {
+        let messageCount = store.transcriptsBySessionID[session.id]?.filter { $0.role == .user || $0.role == .assistant }.count ?? 0
+        guard messageCount >= 2 else {
+            store.append(.init(sessionID: session.id, role: .status, title: "Compaction", text: "Nothing to compact."))
+            return
+        }
+        let instructions = customInstructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let client = clientsBySessionID[session.id] {
+            client.compact(customInstructions: instructions.isEmpty ? nil : instructions)
+        } else {
+            pendingCompactionInstructionsBySessionID[session.id] = instructions
+            resume(session: session)
+        }
+    }
+
     func cycleThinkingLevel(sessionID: UUID) {
         guard let client = clientsBySessionID[sessionID] else { return }
         client.cycleThinkingLevel()
@@ -171,6 +191,8 @@ final class PiAgentRunnerService {
             if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
                 let message = userMessage(trimmedInitialPrompt, images: initialImages)
                 client.prompt(message, images: initialImages)
+            } else if let instructions = pendingCompactionInstructionsBySessionID.removeValue(forKey: session.id) {
+                client.compact(customInstructions: instructions.isEmpty ? nil : instructions)
             } else {
                 client.getMessages()
             }
@@ -228,11 +250,32 @@ final class PiAgentRunnerService {
     private func handle(stderr: String, sessionID: UUID) {
         let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isIgnorableStderr(trimmed) else { return }
-        store.append(.init(sessionID: sessionID, role: .stderr, title: "stderr", text: trimmed))
+        if isConnectionError(trimmed) {
+            let message = normalizedConnectionError(trimmed)
+            store.append(.init(sessionID: sessionID, role: .error, title: "Connection Error", text: message))
+        } else {
+            store.append(.init(sessionID: sessionID, role: .stderr, title: "stderr", text: trimmed))
+        }
     }
 
     private func isIgnorableStderr(_ text: String) -> Bool {
         text.contains(";notify;Pi;") || text.localizedCaseInsensitiveContains("ready for input")
+    }
+
+    private func isConnectionError(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("websocket")
+            || lower.contains("socket hang up")
+            || lower.contains("econnreset")
+            || lower.contains("connection reset")
+            || lower.contains("connection closed")
+            || lower.contains("network error")
+    }
+
+    private func normalizedConnectionError(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "WebSocket error:", with: "WebSocket error ·")
+            .replacingOccurrences(of: "\n", with: " ")
     }
 
     private func handle(rawLine: String, event: PiAgentRPCEvent?, sessionID: UUID) {
@@ -321,6 +364,18 @@ final class PiAgentRunnerService {
             return
         }
 
+        if event.command == "compact" {
+            store.updateSession(sessionID) {
+                $0.isCompacting = false
+                $0.contextTokens = nil
+                $0.contextWindow = nil
+                $0.contextPercent = nil
+            }
+            clientsBySessionID[sessionID]?.getState()
+            clientsBySessionID[sessionID]?.getSessionStats()
+            return
+        }
+
         if event.command == "get_session_stats", let data = event.data {
             store.updateSession(sessionID) { record in
                 record.lastSummary = data.compactDescription
@@ -336,6 +391,10 @@ final class PiAgentRunnerService {
                     record.contextTokens = contextUsage["tokens"]?.numberValue.map(Int.init)
                     record.contextWindow = contextUsage["contextWindow"]?.numberValue.map(Int.init)
                     record.contextPercent = contextUsage["percent"]?.numberValue
+                } else {
+                    record.contextTokens = nil
+                    record.contextWindow = nil
+                    record.contextPercent = nil
                 }
             }
         }
@@ -455,13 +514,20 @@ final class PiAgentRunnerService {
         let text = extractText(from: message)
         let role = message["role"]?.stringValue ?? "assistant"
         if role == "assistant" {
-            let entryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
+            let assistantEntryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
+            let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID] ?? UUID()
             assistantEntryIDsBySessionID[sessionID] = nil
             assistantTextBySessionID[sessionID] = nil
             thinkingEntryIDsBySessionID[sessionID] = nil
             thinkingTextBySessionID[sessionID] = nil
-            if !text.isEmpty {
-                store.upsert(.init(id: entryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: text, rawJSON: rawLine))
+            let visibleText = extractAssistantText(from: message)
+            if !visibleText.isEmpty {
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: visibleText, rawJSON: rawLine))
+            } else {
+                let thinkingText = extractAssistantThinking(from: message)
+                if !thinkingText.isEmpty {
+                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: rawLine), before: assistantEntryIDsBySessionID[sessionID])
+                }
             }
         } else if role == "user" {
             // Pi echoes user messages back over RPC. The app already records the submitted prompt.
@@ -494,20 +560,38 @@ final class PiAgentRunnerService {
     }
 
     private func handleCompaction(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
-        let reason = event.data?["reason"]?.stringValue ?? event.result?["reason"]?.stringValue ?? "context"
+        let reason = event.reason ?? event.data?["reason"]?.stringValue ?? event.result?["reason"]?.stringValue ?? "context"
+        let entryID = compactionEntryIDsBySessionID[sessionID] ?? UUID()
+        compactionEntryIDsBySessionID[sessionID] = entryID
+
         let text: String
         if event.type == "compaction_start" {
-            text = "Pi is compacting conversation context (\(reason))."
-        } else if let result = event.result {
-            let tokens = result["tokensBefore"]?.numberValue.map { " · before: \(Int($0)) tokens" } ?? ""
-            let retry = event.willRetry == true ? " · will retry" : ""
-            text = "Compaction finished\(tokens)\(retry)."
+            store.updateSession(sessionID) { $0.isCompacting = true }
+            text = "Compacting conversation context (\(reason))…"
+        } else if event.result != nil {
+            store.updateSession(sessionID) {
+                $0.isCompacting = false
+                $0.contextTokens = nil
+                $0.contextWindow = nil
+                $0.contextPercent = nil
+            }
+            compactionEntryIDsBySessionID[sessionID] = nil
+            let retry = event.willRetry == true ? " · retrying turn" : ""
+            text = "Compaction complete\(retry)."
         } else if event.aborted == true {
+            store.updateSession(sessionID) { $0.isCompacting = false }
+            compactionEntryIDsBySessionID[sessionID] = nil
             text = "Compaction was aborted."
         } else {
-            text = event.errorMessage ?? "Compaction finished."
+            store.updateSession(sessionID) { $0.isCompacting = false }
+            compactionEntryIDsBySessionID[sessionID] = nil
+            text = event.errorMessage ?? "Compaction complete."
         }
-        store.append(.init(sessionID: sessionID, role: .status, title: "Compaction", text: text, rawJSON: rawLine))
+        store.upsert(.init(id: entryID, sessionID: sessionID, role: .status, title: "Compaction", text: text, rawJSON: rawLine))
+        if event.type == "compaction_end" {
+            clientsBySessionID[sessionID]?.getState()
+            clientsBySessionID[sessionID]?.getSessionStats()
+        }
     }
 
     private func handleRetry(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
@@ -602,6 +686,35 @@ final class PiAgentRunnerService {
         return ""
     }
 
+    private func extractAssistantText(from message: JSONValue) -> String {
+        if let content = message["content"] {
+            switch content {
+            case let .string(value): return value
+            case let .array(blocks):
+                return blocks.compactMap { block in
+                    let blockType = block["type"]?.stringValue
+                    if blockType == nil || blockType == "text" || blockType == "output_text" || blockType == "message" {
+                        return block["text"]?.stringValue
+                    }
+                    return nil
+                }.joined(separator: "\n")
+            default:
+                // Non-text assistant content is usually tool metadata. Do not turn it into a Pi answer.
+                return ""
+            }
+        }
+        return message["output"]?.stringValue ?? ""
+    }
+
+    private func extractAssistantThinking(from message: JSONValue) -> String {
+        guard let content = message["content"] else { return "" }
+        guard case let .array(blocks) = content else { return "" }
+        return blocks.compactMap { block in
+            guard block["type"]?.stringValue == "thinking" else { return nil }
+            return block["thinking"]?.stringValue
+        }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+    }
+
     private func handleTermination(exitCode: Int32, sessionID: UUID) {
         clientsBySessionID[sessionID] = nil
         let status: PiAgentRunStatus = exitCode == 0 ? .completed : .stopped
@@ -614,6 +727,9 @@ final class PiAgentRunnerService {
         store.updateSession(sessionID) { record in
             record.status = status
             record.lastError = error
+            if !status.isActive {
+                record.isCompacting = false
+            }
         }
     }
 }

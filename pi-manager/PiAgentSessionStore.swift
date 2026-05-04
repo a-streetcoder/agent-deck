@@ -12,6 +12,7 @@ final class PiAgentSessionStore: ObservableObject {
 
     private let maxTranscriptEntriesPerSession = 500
     private let fileURL: URL
+    private var pendingSaveTask: Task<Void, Never>?
 
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -150,7 +151,7 @@ final class PiAgentSessionStore: ObservableObject {
             entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
         }
         transcriptsBySessionID[entry.sessionID] = entries
-        updateSession(entry.sessionID, bumpUpdatedAt: true) { _ in }
+        touchSession(entry.sessionID, bumpUpdatedAt: true)
     }
 
     func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil) {
@@ -170,7 +171,11 @@ final class PiAgentSessionStore: ObservableObject {
             entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
         }
         transcriptsBySessionID[entry.sessionID] = entries
-        updateSession(entry.sessionID, bumpUpdatedAt: isNewEntry) { _ in }
+        if isNewEntry {
+            touchSession(entry.sessionID, bumpUpdatedAt: true)
+        } else {
+            save()
+        }
     }
 
     func updateEntry(_ entryID: UUID, in sessionID: UUID, mutate: (inout PiAgentTranscriptEntry) -> Void) {
@@ -178,7 +183,7 @@ final class PiAgentSessionStore: ObservableObject {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         mutate(&entries[index])
         transcriptsBySessionID[sessionID] = entries
-        updateSession(sessionID, bumpUpdatedAt: false) { _ in }
+        save()
     }
 
     func deleteSession(_ sessionID: UUID) {
@@ -206,6 +211,7 @@ final class PiAgentSessionStore: ObservableObject {
                     session.status = .stopped
                     session.lastError = session.lastError ?? "Stopped because Pi Manager was restarted."
                 }
+                session.isCompacting = false
                 return session
             }
             sortSessions()
@@ -226,7 +232,30 @@ final class PiAgentSessionStore: ObservableObject {
         }
     }
 
+    private func touchSession(_ id: UUID, bumpUpdatedAt: Bool) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else {
+            save()
+            return
+        }
+        if bumpUpdatedAt {
+            sessions[index].updatedAt = Date()
+            sortSessions()
+        }
+        save()
+    }
+
     private func save() {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.saveNow()
+            }
+        }
+    }
+
+    private func saveNow() {
         do {
             let persisted = PersistedState(
                 sessions: sessions,
