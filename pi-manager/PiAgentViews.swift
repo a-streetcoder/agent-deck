@@ -230,6 +230,7 @@ struct PiAgentScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             syncVisibleSessionSelection()
+            viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
             loadComposerDraft(for: store.selectedSession?.id)
             scheduleTranscriptCacheUpdate()
@@ -246,7 +247,10 @@ struct PiAgentScreen: View {
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
         .onChange(of: visibleSessionIDs) { _, _ in syncVisibleSessionSelection() }
-        .onChange(of: viewModel.selectedProjectPath) { _, _ in syncVisibleSessionSelection() }
+        .onChange(of: viewModel.selectedProjectPath) { _, _ in
+            syncVisibleSessionSelection()
+            viewModel.acknowledgeVisibleSelectedPiAgentSession()
+        }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
     }
 
@@ -494,6 +498,10 @@ struct PiAgentScreen: View {
                     .onChange(of: transcriptCache.streamingRevision) { _, _ in
                         throttleStreamingScroll(proxy: proxy)
                     }
+                    .onChange(of: selectedSessionProcessingMessage) { _, message in
+                        guard message != nil else { return }
+                        scrollToProcessingIndicator(proxy: proxy)
+                    }
                 }
             }
         }
@@ -507,10 +515,6 @@ struct PiAgentScreen: View {
         if session.status == .starting { return "Starting Pi" }
         if session.isCompacting { return "Compacting context" }
 
-        let recentEntries = store.selectedTranscript.suffix(6)
-        if recentEntries.contains(where: { $0.role == .assistant && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-            return nil
-        }
         if let lastEntry = store.selectedTranscript.last {
             if lastEntry.role == .assistant && !lastEntry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return nil
@@ -547,10 +551,21 @@ struct PiAgentScreen: View {
     }
 
     private func scrollToLatestThread(proxy: ScrollViewProxy) {
+        if selectedSessionProcessingMessage != nil {
+            scrollToProcessingIndicator(proxy: proxy)
+            return
+        }
         guard let id = transcriptCache.lastThreadID else { return }
         lastStreamingScrollAt = Date()
         withTransaction(Transaction(animation: nil)) {
             proxy.scrollTo(id, anchor: .bottom)
+        }
+    }
+
+    private func scrollToProcessingIndicator(proxy: ScrollViewProxy) {
+        lastStreamingScrollAt = Date()
+        withTransaction(Transaction(animation: nil)) {
+            proxy.scrollTo("pi-agent-processing", anchor: .bottom)
         }
     }
 
@@ -4459,7 +4474,7 @@ struct PiAgentInspectorPanel: View {
                     }
                     Spacer()
                     Button("Open Full") {
-                        viewModel.selectedSidebarItem = .agent
+                        viewModel.openPiAgentScreen()
                     }
                     Button("Stop") {
                         viewModel.stopSelectedPiAgentSession()
@@ -4541,7 +4556,7 @@ struct PiAgentInspectorPanel: View {
                 Text("Start a project session from the sidebar project card, the Agent screen, or a GitHub issue.")
                     .foregroundStyle(AppTheme.mutedText)
                 Button("Open Agent Screen") {
-                    viewModel.selectedSidebarItem = .agent
+                    viewModel.openPiAgentScreen()
                 }
             }
         }

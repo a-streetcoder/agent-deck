@@ -5,6 +5,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 
+extension Notification.Name {
+    static let piAgentNotificationResponse = Notification.Name("piAgentNotificationResponse")
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published var snapshot: ScanSnapshot = .empty
@@ -79,7 +83,11 @@ final class AppViewModel: ObservableObject {
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
-    private let piAgentNotificationDelay: TimeInterval = 60
+    private var appNotificationObservers: [NSObjectProtocol] = []
+
+    private var piAgentNotificationDelay: TimeInterval {
+        TimeInterval(piAgentNotificationDelayMinutes * 60)
+    }
 
     init() {
         let piAgentSessionStore = PiAgentSessionStore()
@@ -93,6 +101,7 @@ final class AppViewModel: ObservableObject {
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
+        registerAppNotificationObservers()
         startAutoRefresh()
 
         Task {
@@ -997,7 +1006,7 @@ final class AppViewModel: ObservableObject {
         if piAgentSessionStore.selectedSession?.projectPath != project.path {
             let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
             if let existing {
-                piAgentSessionStore.select(existing.id)
+                selectPiAgentSession(existing.id)
             } else {
                 _ = piAgentSessionStore.createSession(
                     kind: .project,
@@ -1006,6 +1015,8 @@ final class AppViewModel: ObservableObject {
                     repository: project.gitHubRemote?.nameWithOwner
                 )
             }
+        } else {
+            acknowledgeVisibleSelectedPiAgentSession()
         }
     }
 
@@ -1056,10 +1067,21 @@ final class AppViewModel: ObservableObject {
         return pending
     }
 
+    func openPiAgentScreen() {
+        selectedSidebarItem = .agent
+        acknowledgeVisibleSelectedPiAgentSession()
+    }
+
     func selectPiAgentSession(_ id: UUID) {
         piAgentSessionStore.select(id)
-        acknowledgePiAgentSession(id)
         selectedSidebarItem = .agent
+        acknowledgePiAgentSession(id)
+    }
+
+    func acknowledgeVisibleSelectedPiAgentSession() {
+        guard let sessionID = piAgentSessionStore.selectedSession?.id,
+              isPiAgentSessionActuallyVisible(sessionID) else { return }
+        acknowledgePiAgentSession(sessionID)
     }
 
     var piAgentNeedsAttentionCount: Int {
@@ -1070,12 +1092,19 @@ final class AppViewModel: ObservableObject {
         pendingPiAgentNotificationTasks[id]?.cancel()
         pendingPiAgentNotificationTasks[id] = nil
         piAgentSessionStore.updateSession(id) { $0.needsAttention = false }
+        let identifier = piAgentNotificationIdentifier(for: id)
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
     }
 
     private func handlePiAgentTurnFinished(_ sessionID: UUID) {
-        guard piAgentSessionStore.sessions.contains(where: { $0.id == sessionID }) else { return }
-        guard !isPiAgentSessionActuallyVisible(sessionID) else { return }
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
+        if isPiAgentSessionActuallyVisible(sessionID) {
+            acknowledgePiAgentSession(sessionID)
+            return
+        }
 
+        guard !session.needsAttention else { return }
         piAgentSessionStore.updateSession(sessionID) { record in
             record.needsAttention = true
         }
@@ -1104,22 +1133,44 @@ final class AppViewModel: ObservableObject {
     private func sendPiAgentCompletionNotificationIfNeeded(for sessionID: UUID) {
         pendingPiAgentNotificationTasks[sessionID] = nil
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
-        guard session.needsAttention, !isPiAgentSessionActuallyVisible(sessionID) else { return }
-        piAgentSessionStore.updateSession(sessionID) { record in
-            record.lastNotificationAt = Date()
-        }
+        guard session.needsAttention, !isPiAgentSessionActuallyVisible(sessionID), shouldSendPiAgentSystemNotification else { return }
         sendPiAgentCompletionNotification(for: session)
     }
 
+    private var shouldSendPiAgentSystemNotification: Bool {
+        !NSApp.isActive || !(NSApp.keyWindow?.isVisible ?? NSApp.mainWindow?.isVisible ?? false)
+    }
+
+    private func piAgentNotificationIdentifier(for sessionID: UUID) -> String {
+        "pi-agent-\(sessionID.uuidString)"
+    }
+
     private func sendPiAgentCompletionNotification(for session: PiAgentSessionRecord) {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge]) { granted, _ in
-            guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = "Pi Agent needs review"
-            content.body = session.displayTitle
-            content.userInfo = ["sessionID": session.id.uuidString]
-            let request = UNNotificationRequest(identifier: "pi-agent-\(session.id.uuidString)-\(Date().timeIntervalSince1970)", content: content, trigger: nil)
-            UNUserNotificationCenter.current().add(request)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
+                guard granted else { return }
+
+                let content = UNMutableNotificationContent()
+                content.title = "Pi Agent needs review"
+                content.body = session.displayTitle
+                content.userInfo = ["sessionID": session.id.uuidString]
+
+                let request = UNNotificationRequest(
+                    identifier: "pi-agent-\(session.id.uuidString)",
+                    content: content,
+                    trigger: nil
+                )
+
+                try await UNUserNotificationCenter.current().add(request)
+                self.piAgentSessionStore.updateSession(session.id) { record in
+                    record.lastNotificationAt = Date()
+                }
+            } catch {
+                return
+            }
         }
     }
 
@@ -1136,6 +1187,7 @@ final class AppViewModel: ObservableObject {
     func openSelectedPiAgentSessionInTerminal() {
         guard let session = piAgentSessionStore.selectedSession,
               let sessionFile = session.piSessionFile else { return }
+        acknowledgePiAgentSession(session.id)
         guard FileManager.default.fileExists(atPath: sessionFile) else {
             piAgentSessionStore.updateSession(session.id) { record in
                 record.lastError = "Pi session file no longer exists."
@@ -1220,6 +1272,7 @@ final class AppViewModel: ObservableObject {
         guard let session = piAgentSessionStore.selectedSession else { return }
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = true
+        acknowledgePiAgentSession(session.id)
         piAgentRunner.resume(session: session)
     }
 
@@ -1487,6 +1540,17 @@ final class AppViewModel: ObservableObject {
         max(appSettings.gitHubBoardCacheLifetimeMinutes, 1)
     }
 
+    var piAgentNotificationDelayMinutes: Int {
+        max(appSettings.piAgentNotificationDelayMinutes, 1)
+    }
+
+    func setPiAgentNotificationDelayMinutes(_ minutes: Int) {
+        let normalizedMinutes = max(minutes, 1)
+        guard appSettings.piAgentNotificationDelayMinutes != normalizedMinutes else { return }
+        appSettings.piAgentNotificationDelayMinutes = normalizedMinutes
+        appSettingsStore.settings = appSettings
+    }
+
     func setGitHubBoardCacheLifetimeMinutes(_ minutes: Int) {
         let normalizedMinutes = max(minutes, 1)
         guard appSettings.gitHubBoardCacheLifetimeMinutes != normalizedMinutes else { return }
@@ -1632,6 +1696,28 @@ final class AppViewModel: ObservableObject {
         guard appSettings.piAgentTranscriptVisibility[keyPath: keyPath] != value else { return }
         appSettings.piAgentTranscriptVisibility[keyPath: keyPath] = value
         appSettingsStore.settings = appSettings
+    }
+
+    private func registerAppNotificationObservers() {
+        let center = NotificationCenter.default
+        appNotificationObservers.append(
+            center.addObserver(forName: .piAgentNotificationResponse, object: nil, queue: .main) { [weak self] notification in
+                guard let rawSessionID = notification.userInfo?["sessionID"] as? String,
+                      let sessionID = UUID(uuidString: rawSessionID) else { return }
+                Task { @MainActor [weak self] in
+                    self?.selectPiAgentSession(sessionID)
+                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.windows.first?.makeKeyAndOrderFront(nil)
+                }
+            }
+        )
+        appNotificationObservers.append(
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.acknowledgeVisibleSelectedPiAgentSession()
+                }
+            }
+        )
     }
 
     var visibleExtensions: [PiExtensionRecord] {
@@ -1992,7 +2078,7 @@ final class AppViewModel: ObservableObject {
             inheritSkills: false,
             defaultContext: nil,
             disabled: nil,
-            tools: nil,
+            tools: ["read", "grep", "find", "ls", "bash"],
             mcpDirectTools: nil,
             extensions: nil,
             skills: [],
@@ -3003,6 +3089,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
 
 struct AppSettings: Codable, Hashable {
     var gitHubBoardCacheLifetimeMinutes: Int = 15
+    var piAgentNotificationDelayMinutes: Int = 3
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
     var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
@@ -3011,6 +3098,7 @@ struct AppSettings: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case gitHubBoardCacheLifetimeMinutes
+        case piAgentNotificationDelayMinutes
         case piAgentThinkingDisplayMode
         case piAgentTranscriptVisibility
         case piAgentTerminalApplicationPath
@@ -3023,6 +3111,7 @@ struct AppSettings: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         gitHubBoardCacheLifetimeMinutes = try container.decodeIfPresent(Int.self, forKey: .gitHubBoardCacheLifetimeMinutes) ?? 15
+        piAgentNotificationDelayMinutes = try container.decodeIfPresent(Int.self, forKey: .piAgentNotificationDelayMinutes) ?? 3
         piAgentThinkingDisplayMode = try container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode) ?? .full
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)

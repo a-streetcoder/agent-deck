@@ -7,13 +7,31 @@
 
 import AppKit
 import SwiftUI
+import UserNotifications
 
-final class PiManagerAppDelegate: NSObject, NSApplicationDelegate {
+final class PiManagerAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+        
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
         }
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if let sessionID = response.notification.request.content.userInfo["sessionID"] as? String {
+            NotificationCenter.default.post(
+                name: .piAgentNotificationResponse,
+                object: nil,
+                userInfo: ["sessionID": sessionID]
+            )
+        }
+        completionHandler()
     }
 }
 

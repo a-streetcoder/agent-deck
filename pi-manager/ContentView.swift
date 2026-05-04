@@ -72,7 +72,7 @@ struct ContentView: View {
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
                     needsAttentionCount: viewModel.piAgentNeedsAttentionCount,
-                    action: { viewModel.selectedSidebarItem = .agent }
+                    action: { viewModel.openPiAgentScreen() }
                 )
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -117,6 +117,11 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 760)
         .navigationTitle(toolbarTitle)
+        .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
+            if newValue == .agent {
+                viewModel.acknowledgeVisibleSelectedPiAgentSession()
+            }
+        }
         .alert("Enable all projects?", isPresented: $showingEnableAllProjectsAlert) {
             Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
             Button("Cancel", role: .cancel) {}
@@ -1664,6 +1669,19 @@ private struct SettingsScreen: View {
                     Divider()
 
                     VStack(alignment: .leading, spacing: 8) {
+                        AppStepper("Notification delay",
+                                   value: piAgentNotificationDelayBinding,
+                                   in: 1...60,
+                                   unit: "minutes")
+
+                        Text("Pi Manager marks sessions as needing attention immediately, then waits this long before sending a macOS notification if the session is still unread and the app is not active.")
+                            .font(.footnote)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
                         Picker("Terminal app", selection: piAgentTerminalApplicationSelectionBinding) {
                             ForEach(viewModel.piAgentTerminalApplicationOptions) { option in
                                 Text(option.name).tag(option.id)
@@ -1737,6 +1755,13 @@ private struct SettingsScreen: View {
         Binding(
             get: { viewModel.appSettings.piAgentThinkingDisplayMode },
             set: { viewModel.setPiAgentThinkingDisplayMode($0) }
+        )
+    }
+
+    private var piAgentNotificationDelayBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.piAgentNotificationDelayMinutes },
+            set: { viewModel.setPiAgentNotificationDelayMinutes($0) }
         )
     }
 
@@ -6433,26 +6458,55 @@ private struct AgentEditorSheet: View {
                         Section("Tools & Skills") {
                             Text(toolSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
-                            TextField("Tools", text: toolsBinding())
-                            Menu("Add Tool") {
-                                ForEach(availableTools, id: \.self) { tool in
-                                    Button(tool) { addTool(tool) }
+
+                            LabeledContent {
+                                HStack(spacing: 10) {
+                                    Menu("Choose Tool") {
+                                        ForEach(availableTools, id: \.self) { tool in
+                                            Button(tool) { addTool(tool) }
+                                        }
+                                    }
+
+                                    Menu("Apply Preset") {
+                                        Button("Core") { applyToolPreset(["read", "grep", "find", "ls", "bash"]) }
+                                        Button("Coding") { applyToolPreset(["read", "grep", "find", "ls", "bash", "edit", "write"]) }
+                                        Button("Research") { applyToolPreset(["read", "web_search", "fetch_content", "get_search_content", "code_search"]) }
+                                        Button("Clear Tools") { draft.config.tools = [] }
+                                    }
                                 }
+                            } label: {
+                                editorFieldLabel("Tools", help: "Explicit tools become the agent’s allowlist. New custom agents start with a core preset: read, grep, find, ls, bash.")
                             }
+
+                            LabeledContent {
+                                TextField("Comma-separated tools", text: toolsBinding())
+                                    .labelsHidden()
+                            } label: {
+                                editorFieldLabel("Tool List", help: "You can edit tool names directly here. Pi Manager stores them as a comma-separated list in frontmatter.")
+                            }
+
                             selectedListView(title: "Selected Tools", values: selectedToolValues, remove: removeTool)
 
-                            TextField("Skills", text: arrayBinding(for: \ .skills))
                             Text(skillSelectionSummary)
                                 .foregroundStyle(AppTheme.mutedText)
+
                             LabeledContent {
-                                Menu("Add Skill") {
+                                Menu("Choose Skill") {
                                     ForEach(availableSkills, id: \.self) { skill in
                                         Button(skill) { addSkill(skill) }
                                     }
                                 }
                             } label: {
-                                editorFieldLabel("Add Skill", help: "Choose from skills visible in this agent’s current scope. Pi Manager now includes reusable library skills here, not just already-active global skills.")
+                                editorFieldLabel("Skills", help: "Choose from skills visible in this agent’s current scope. This includes reusable library skills as well as globally visible and project-visible skills.")
                             }
+
+                            LabeledContent {
+                                TextField("Comma-separated skills", text: arrayBinding(for: \ .skills))
+                                    .labelsHidden()
+                            } label: {
+                                editorFieldLabel("Skill List", help: "Explicit skills are attached by name to this agent. You can add them from the picker above or edit the list directly here.")
+                            }
+
                             selectedListView(title: "Selected Skills", values: draft.config.skills, remove: removeSkill)
                         }
 
@@ -6526,6 +6580,11 @@ private struct AgentEditorSheet: View {
                     .help(help)
             }
         }
+    }
+
+    private func applyToolPreset(_ tools: [String]) {
+        let allowed = Set(availableTools)
+        draft.config.tools = tools.filter { allowed.contains($0) }
     }
 
     private var modelSelectionSummary: String {
