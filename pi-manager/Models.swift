@@ -218,6 +218,41 @@ struct SkillRecord: Identifiable, Hashable {
     let body: String
 }
 
+enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable {
+    case symlink
+    case copy
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .symlink: return "Symlink"
+        case .copy: return "Copy"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .symlink: return "Keep the source repo as the single source of truth and link it into the library."
+        case .copy: return "Make an editable snapshot in the library that no longer tracks source updates."
+        }
+    }
+}
+
+struct ExternalSkillCandidate: Identifiable, Hashable {
+    let name: String
+    let description: String?
+    let sourceRootPath: String
+    let skillFilePath: String
+
+    var id: String { sourceRootPath }
+}
+
+struct SkillImportResult: Hashable {
+    let importedNames: [String]
+    let skippedNames: [String]
+}
+
 enum PromptTemplateDiscoveryKind: String, Hashable {
     case standardDirectory = "Standard Directory"
     case settings = "Settings"

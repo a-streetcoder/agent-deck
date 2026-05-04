@@ -324,6 +324,12 @@ Store it in:
 
 Then activate it globally or by project.
 
+For external skill sources such as Axiom, Pi Manager can import selected top-level skill folders into `skill-library` either by:
+- **symlink** — recommended when you want the upstream repo to stay the source of truth
+- **copy** — useful when you want a frozen local snapshot you can edit independently
+
+The library remains the Pi Manager abstraction either way; global and project visibility are still managed from the library layer.
+
 ### Use global active files for simple always-on behavior
 
 Good candidates:

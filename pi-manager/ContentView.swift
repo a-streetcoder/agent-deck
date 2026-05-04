@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
     @State private var isSkillsRecapPresented = false
+    @State private var skillsImportCommand = 0
     @State private var isSubagentsInfoPresented = false
     @State private var isSubagentsRecapPresented = false
     @State private var showingEnableAllProjectsAlert = false
@@ -341,7 +342,7 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .skills {
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItem(placement: .primaryAction) {
                     Button {
                         isSkillsInfoPresented.toggle()
                     } label: {
@@ -351,7 +352,20 @@ struct ContentView: View {
                     .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
                         SkillsInfoPopover()
                     }
+                }
 
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        skillsImportCommand += 1
+                    } label: {
+                        Label("Import Skills", systemImage: "plus")
+                    }
+                    .help("Import skill folders from an external source into the Pi Manager library")
+                }
+
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         isSkillsRecapPresented.toggle()
                     } label: {
@@ -562,7 +576,11 @@ struct ContentView: View {
                 isRecapPresented: $isSubagentsRecapPresented
             )
         case .skills:
-            SkillsScreen(viewModel: viewModel, isRecapPresented: $isSkillsRecapPresented)
+            SkillsScreen(
+                viewModel: viewModel,
+                isRecapPresented: $isSkillsRecapPresented,
+                importCommand: $skillsImportCommand
+            )
         case .commandsAndPrompts:
             CommandsAndPromptsScreen(viewModel: viewModel)
         case .github:
@@ -1492,6 +1510,40 @@ private struct SettingsScreen: View {
                 }
             }
 
+            AppCard(title: "Skill Imports") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Optionally choose a default folder Pi Manager should open first when importing skills. If unset, Pi Manager falls back to the last used folder, then Documents.")
+                        .foregroundStyle(AppTheme.mutedText)
+
+                    TextField("Default skills import folder", text: defaultSkillsImportRootPathBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button("Choose Folder") {
+                            viewModel.chooseDefaultSkillsImportDirectory()
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("Clear") {
+                            viewModel.resetDefaultSkillsImportRootPath()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Spacer()
+
+                        Button("Reveal in Finder") {
+                            if let path = viewModel.appSettings.defaultSkillsImportRootPath, !path.isEmpty {
+                                revealInFinder(path)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled((viewModel.appSettings.defaultSkillsImportRootPath ?? "").isEmpty)
+                    }
+                }
+            }
+
             AppCard(title: "GitHub") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Tune how long GitHub issue data stays fresh before Pi Manager reloads it.")
@@ -1576,6 +1628,13 @@ private struct SettingsScreen: View {
         Binding(
             get: { viewModel.appSettings.projectsRootPath },
             set: { viewModel.setProjectsRootPath($0) }
+        )
+    }
+
+    private var defaultSkillsImportRootPathBinding: Binding<String> {
+        Binding(
+            get: { viewModel.appSettings.defaultSkillsImportRootPath ?? "" },
+            set: { viewModel.setDefaultSkillsImportRootPath($0) }
         )
     }
 
@@ -2457,8 +2516,6 @@ private struct AgentDetailView: View {
 
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            agentVisibilityManagementCards
-
             AppCard(title: "Configuration", trailing: {
                 if isEditing {
                     HStack(spacing: 10) {
@@ -2626,6 +2683,7 @@ private struct AgentDetailView: View {
                 }
             }
 
+            agentVisibilityManagementCards
         }
     }
 
@@ -4041,7 +4099,16 @@ private struct SkillsProjectRecapPanel: View {
 private struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isRecapPresented: Bool
+    @Binding var importCommand: Int
     @State private var selectedSkillName: String?
+    @State private var isImportSheetPresented = false
+    @State private var importSourceURL: URL?
+    @State private var importCandidates: [ExternalSkillCandidate] = []
+    @State private var selectedImportCandidateIDs: Set<String> = []
+    @State private var importMode: SkillLibraryImportMode = .symlink
+    @State private var replaceExistingImports = false
+    @State private var importErrorMessage: String?
+    @State private var importSummaryMessage: String?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -4092,15 +4159,6 @@ private struct SkillsScreen: View {
 
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     if let skill = selectedSkill {
-                        AppCard(title: "Manage \(skill.name)") {
-                            AppKeyValueList(rows: [
-                                ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
-                                ("Active Globally", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
-                                ("Assigned Projects", assignedProjectSummary(skill)),
-                                ("Path", skill.filePath)
-                            ])
-                        }
-
                         if skill.source.kind == .package {
                             AppCard(title: "Package Skill") {
                                 Text("This skill is provided by an installed package and is active through Pi/package discovery. Project assignment is disabled to avoid copying or modifying package-managed content.")
@@ -4137,6 +4195,15 @@ private struct SkillsScreen: View {
                         AppCard(title: "Definition") {
                             MarkdownDocumentView(source: skill.body, minimumHeight: 220)
                         }
+
+                        AppCard(title: "Manage \(skill.name)") {
+                            AppKeyValueList(rows: [
+                                ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
+                                ("Active Globally", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
+                                ("Assigned Projects", assignedProjectSummary(skill)),
+                                ("Path", skill.filePath)
+                            ])
+                        }
                     } else {
                         AppCard {
                             ContentUnavailableView("No Skill Selected", systemImage: "wand.and.stars")
@@ -4162,6 +4229,26 @@ private struct SkillsScreen: View {
         }
         .onAppear { ensureSelection() }
         .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in ensureSelection() }
+        .onChange(of: importCommand) { _, newValue in
+            guard newValue > 0 else { return }
+            DispatchQueue.main.async {
+                beginSkillImport()
+            }
+        }
+        .sheet(isPresented: $isImportSheetPresented) {
+            importSkillsSheet
+        }
+        .alert("Skill Import", isPresented: Binding(
+            get: { importErrorMessage != nil || importSummaryMessage != nil },
+            set: { if !$0 { importErrorMessage = nil; importSummaryMessage = nil } }
+        )) {
+            Button("OK") {
+                importErrorMessage = nil
+                importSummaryMessage = nil
+            }
+        } message: {
+            Text(importErrorMessage ?? importSummaryMessage ?? "")
+        }
     }
 
     private var selectedProject: DiscoveredProject? {
@@ -4357,6 +4444,189 @@ private struct SkillsScreen: View {
     private func assignedProjectSummary(_ skill: SkillRecord) -> String {
         let projects = viewModel.assignedProjects(for: skill).map(\.name)
         return projects.isEmpty ? "—" : projects.joined(separator: ", ")
+    }
+
+    private var existingLibrarySkillNames: Set<String> {
+        Set(viewModel.snapshot.librarySkills.map(\.name))
+    }
+
+    private func candidateAlreadyImported(_ candidate: ExternalSkillCandidate) -> Bool {
+        existingLibrarySkillNames.contains(candidate.name)
+    }
+
+    @ViewBuilder
+    private var importSkillsSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                AppCard(title: "Source") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(importSourceURL?.path ?? "No source selected")
+                            .textSelection(.enabled)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                        Button("Choose Different Folder") {
+                            DispatchQueue.main.async {
+                                chooseDifferentImportFolder()
+                            }
+                        }
+                    }
+                }
+
+                AppCard(title: "Import Mode") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker("Import Mode", selection: $importMode) {
+                            ForEach(SkillLibraryImportMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(importMode.description)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Toggle("Replace existing library skills with the same name", isOn: $replaceExistingImports)
+                    }
+                }
+
+                AppCard(title: "Skills") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Select one or more skill roots to import into the Pi Manager library.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                            Spacer()
+                            Button("Select All") {
+                                selectedImportCandidateIDs = Set(importCandidates.map(\.id))
+                            }
+                            .buttonStyle(.plain)
+                            Button("Clear") {
+                                selectedImportCandidateIDs.removeAll()
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(importCandidates) { candidate in
+                                    let alreadyImported = candidateAlreadyImported(candidate)
+                                    Toggle(isOn: Binding(
+                                        get: { selectedImportCandidateIDs.contains(candidate.id) },
+                                        set: { isSelected in
+                                            guard !alreadyImported || replaceExistingImports else { return }
+                                            if isSelected { selectedImportCandidateIDs.insert(candidate.id) }
+                                            else { selectedImportCandidateIDs.remove(candidate.id) }
+                                        }
+                                    )) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack(spacing: 8) {
+                                                Text(candidate.name)
+                                                    .font(.body.weight(.semibold))
+                                                if alreadyImported {
+                                                    AppLabelTag(text: replaceExistingImports ? "Will Replace" : "Already Imported ✓", color: .purple)
+                                                }
+                                            }
+                                            if let description = candidate.description {
+                                                Text(description)
+                                                    .font(.caption)
+                                                    .foregroundStyle(AppTheme.mutedText)
+                                                    .lineLimit(2)
+                                            }
+                                            Text(candidate.sourceRootPath)
+                                                .font(.caption.monospaced())
+                                                .foregroundStyle(AppTheme.mutedText)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                        .padding(.vertical, 8)
+                                    }
+                                    .toggleStyle(.checkbox)
+                                    .disabled(alreadyImported && !replaceExistingImports)
+                                    if candidate.id != importCandidates.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                        }
+                        .frame(minHeight: 280)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(AppTheme.pagePadding)
+            .frame(minWidth: 760, minHeight: 680, alignment: .topLeading)
+            .navigationTitle("Import External Skills")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isImportSheetPresented = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") {
+                        importSelectedSkills()
+                    }
+                    .disabled(selectedImportCandidateIDs.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func beginSkillImport() {
+        importSourceURL = nil
+        importCandidates = []
+        selectedImportCandidateIDs.removeAll()
+        viewModel.chooseExternalSkillsDirectory { url in
+            guard let url else { return }
+            loadImportCandidates(from: url)
+        }
+    }
+
+    private func chooseDifferentImportFolder() {
+        viewModel.chooseExternalSkillsDirectory(startingAt: importSourceURL) { url in
+            guard let url else { return }
+            loadImportCandidates(from: url)
+        }
+    }
+
+    private func loadImportCandidates(from url: URL) {
+        importSourceURL = url
+        var candidates = viewModel.discoverImportableSkills(in: url)
+        if candidates.isEmpty, let directCandidate = viewModel.externalSkillCandidate(at: url) {
+            candidates = [directCandidate]
+        }
+        guard !candidates.isEmpty else {
+            importCandidates = []
+            selectedImportCandidateIDs.removeAll()
+            importErrorMessage = "No importable skill folders were found. Choose either a skill root containing SKILL.md or a folder whose direct child folders contain SKILL.md files."
+            return
+        }
+        importCandidates = candidates
+        selectedImportCandidateIDs = Set(candidates.filter { !existingLibrarySkillNames.contains($0.name) }.map(\.id))
+        importMode = .symlink
+        replaceExistingImports = false
+        isImportSheetPresented = true
+    }
+
+    private func importSelectedSkills() {
+        let selectedCandidates = importCandidates.filter { selectedImportCandidateIDs.contains($0.id) }
+        guard !selectedCandidates.isEmpty else { return }
+        do {
+            let result = try viewModel.importExternalSkills(selectedCandidates, mode: importMode, replaceExisting: replaceExistingImports)
+            isImportSheetPresented = false
+            var summaryParts: [String] = []
+            if !result.importedNames.isEmpty {
+                summaryParts.append("Imported \(result.importedNames.count) skill\(result.importedNames.count == 1 ? "" : "s"): \(result.importedNames.joined(separator: ", ")).")
+            }
+            if !result.skippedNames.isEmpty {
+                summaryParts.append("Skipped \(result.skippedNames.count) existing skill\(result.skippedNames.count == 1 ? "" : "s"): \(result.skippedNames.joined(separator: ", ")).")
+            }
+            importSummaryMessage = summaryParts.joined(separator: "\n\n")
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
     }
 }
 

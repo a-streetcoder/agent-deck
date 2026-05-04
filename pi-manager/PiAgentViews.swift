@@ -2942,6 +2942,7 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
     var name: String
     var entries: [PiAgentTranscriptEntry]
     var isError: Bool
+    var compactDetail: String?
     var subagentSummary: PiAgentSubagentSummary?
 
     var representativeEntry: PiAgentTranscriptEntry? { entries.first }
@@ -2964,6 +2965,7 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 name: name,
                 entries: entries,
                 isError: entries.contains { $0.role == .error },
+                compactDetail: compactDetail(for: name, entries: entries),
                 subagentSummary: subagentSummary
             )
         }
@@ -2974,6 +2976,138 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
             return entry.title.replacingOccurrences(of: "Tool: ", with: "")
         }
         return entry.title
+    }
+
+    nonisolated private static func compactDetail(for name: String, entries: [PiAgentTranscriptEntry]) -> String? {
+        switch name.lowercased() {
+        case "web_search":
+            return webSearchDetail(from: entries)
+        case "fetch_content":
+            return fetchContentDetail(from: entries)
+        case "get_search_content":
+            return retrievedContentDetail(from: entries)
+        default:
+            return nil
+        }
+    }
+
+    nonisolated private static func webSearchDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+        let details = entries.lazy.compactMap(toolDetails).last
+        let args = entries.lazy.compactMap(toolArgs).last
+        let queries = stringArray(details?["queries"]) ?? stringArray(args?["queries"]) ?? args?["query"]?.stringValue.map { [$0] } ?? []
+        let resultCount = intValue(details?["totalResults"])
+        let sourceURLs = stringArray(details?["fetchUrls"]) ?? Array(curatedSourceURLs(from: details).prefix(3))
+        let domains = domains(from: sourceURLs)
+
+        var parts: [String] = []
+        if queries.count == 1, let query = queries.first {
+            parts.append("“\(query.truncatedMiddle(max: 56))”")
+        } else if queries.count > 1 {
+            parts.append("\(queries.count) queries")
+        }
+        if let resultCount {
+            parts.append(resultCount == 1 ? "1 result" : "\(resultCount) results")
+        }
+        if !domains.isEmpty {
+            parts.append(domains.prefix(3).joined(separator: ", "))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    nonisolated private static func fetchContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+        let details = entries.lazy.compactMap(toolDetails).last
+        let args = entries.lazy.compactMap(toolArgs).last
+        let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
+        let title = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let successful = intValue(details?["successful"])
+        let urlCount = intValue(details?["urlCount"]) ?? urls.count
+        let domains = domains(from: urls)
+
+        var parts: [String] = []
+        if let title, !title.isEmpty, urlCount <= 1 {
+            parts.append(title.truncatedMiddle(max: 44))
+        } else if urlCount > 0 {
+            parts.append(urlCount == 1 ? "1 page" : "\(urlCount) pages")
+        }
+        if let successful, urlCount > 1, successful != urlCount {
+            parts.append("\(successful)/\(urlCount) fetched")
+        }
+        if !domains.isEmpty {
+            parts.append(domains.prefix(3).joined(separator: ", "))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    nonisolated private static func retrievedContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+        let details = entries.lazy.compactMap(toolDetails).last
+        let title = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = details?["url"]?.stringValue
+        let query = details?["query"]?.stringValue
+        let resultCount = intValue(details?["resultCount"])
+
+        var parts: [String] = []
+        if let title, !title.isEmpty {
+            parts.append(title.truncatedMiddle(max: 44))
+        } else if let url, let domain = domain(from: url) {
+            parts.append(domain)
+        } else if let query, !query.isEmpty {
+            parts.append("“\(query.truncatedMiddle(max: 44))”")
+        }
+        if let resultCount {
+            parts.append(resultCount == 1 ? "1 source" : "\(resultCount) sources")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    nonisolated private static func toolDetails(from entry: PiAgentTranscriptEntry) -> JSONValue? {
+        toolEvent(from: entry)?.result?["details"]
+    }
+
+    nonisolated private static func toolArgs(from entry: PiAgentTranscriptEntry) -> JSONValue? {
+        toolEvent(from: entry)?.args
+    }
+
+    nonisolated private static func toolEvent(from entry: PiAgentTranscriptEntry) -> PiAgentRPCEvent? {
+        guard let rawJSON = entry.rawJSON,
+              let data = rawJSON.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
+    }
+
+    nonisolated private static func stringArray(_ value: JSONValue?) -> [String]? {
+        guard case let .array(items)? = value else { return nil }
+        let strings = items.compactMap(\.stringValue).filter { !$0.isEmpty }
+        return strings.isEmpty ? nil : strings
+    }
+
+    nonisolated private static func intValue(_ value: JSONValue?) -> Int? {
+        value?.numberValue.map(Int.init)
+    }
+
+    nonisolated private static func curatedSourceURLs(from details: JSONValue?) -> [String] {
+        guard case let .array(queries)? = details?["curatedQueries"] else { return [] }
+        return queries.flatMap { query -> [String] in
+            guard case let .array(sources)? = query["sources"] else { return [] }
+            return sources.compactMap { $0["url"]?.stringValue }
+        }
+    }
+
+    nonisolated private static func domains(from urls: [String]) -> [String] {
+        var seen = Set<String>()
+        return urls.compactMap(domain).filter { seen.insert($0).inserted }
+    }
+
+    nonisolated private static func domain(from url: String) -> String? {
+        guard let host = URL(string: url)?.host(percentEncoded: false) else { return nil }
+        return host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+    }
+}
+
+private extension String {
+    nonisolated func truncatedMiddle(max: Int) -> String {
+        guard count > max, max > 1 else { return self }
+        let headCount = max / 2
+        let tailCount = max - headCount - 1
+        return String(prefix(headCount)) + "…" + String(suffix(tailCount))
     }
 }
 
@@ -3094,11 +3228,21 @@ private struct PiAgentActivitySummaryView: View {
     }
 
     private func activityChip(_ activity: PiAgentTranscriptActivity) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Image(systemName: icon(for: activity.name))
                 .font(.caption2.weight(.semibold))
-            Text(displayName(for: activity.name, count: activity.count))
-                .font(.caption)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName(for: activity.name, count: activity.count))
+                    .font(.caption)
+                if let detail = activity.compactDetail {
+                    Text(detail)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(activity.isError ? .red.opacity(0.82) : AppTheme.mutedText.opacity(0.82))
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
             Text("\(activity.count)")
                 .font(.caption2.weight(.bold))
                 .monospacedDigit()
@@ -3107,9 +3251,10 @@ private struct PiAgentActivitySummaryView: View {
                 .background(Capsule(style: .continuous).fill(AppTheme.cardStroke.opacity(0.55)))
         }
         .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .padding(.vertical, activity.compactDetail == nil ? 3 : 5)
         .background(Capsule(style: .continuous).fill((activity.isError ? Color.red : AppTheme.cardStroke).opacity(0.12)))
+        .frame(maxWidth: 300, alignment: .leading)
     }
 
     private func displayName(for name: String, count: Int) -> String {

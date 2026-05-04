@@ -73,6 +73,7 @@ final class AppViewModel: ObservableObject {
     private var githubRepositoryChangesRequestID = 0
     private var githubIssueDetailRequestID = 0
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
+    private let lastExternalSkillsDirectoryDefaultsKey = "lastExternalSkillsDirectoryPath"
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
@@ -153,6 +154,134 @@ final class AppViewModel: ObservableObject {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         addProject(url)
+    }
+
+    var suggestedExternalSkillsDirectoryURL: URL {
+        let fileManager = FileManager.default
+
+        func validDirectoryURL(for path: String?) -> URL? {
+            guard let rawPath = path?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else { return nil }
+            let url = URL(fileURLWithPath: rawPath, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+            return url
+        }
+
+        if let configuredURL = validDirectoryURL(for: appSettings.defaultSkillsImportRootPath) {
+            return configuredURL
+        }
+
+        if let lastURL = validDirectoryURL(for: UserDefaults.standard.string(forKey: lastExternalSkillsDirectoryDefaultsKey)) {
+            return lastURL
+        }
+
+        if let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            return documentsURL
+        }
+
+        return fileManager.homeDirectoryForCurrentUser
+    }
+
+    func chooseExternalSkillsDirectory(startingAt url: URL? = nil, completion: @escaping (URL?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Skills Folder"
+        panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to import into the Pi Manager library."
+        panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
+
+        let handler: (NSApplication.ModalResponse) -> Void = { [weak panel, weak self] response in
+            guard response == .OK,
+                  let selectedURL = panel?.url?.standardizedFileURL else {
+                completion(nil)
+                return
+            }
+            self?.persistLastExternalSkillsDirectoryPath(selectedURL.path)
+            completion(selectedURL)
+        }
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: handler)
+        } else {
+            panel.begin(completionHandler: handler)
+        }
+    }
+
+    func externalSkillCandidate(at skillRoot: URL) -> ExternalSkillCandidate? {
+        let skillFile = skillRoot.appendingPathComponent("SKILL.md")
+        guard let body = try? String(contentsOf: skillFile, encoding: .utf8) else { return nil }
+        let frontmatter = parseSimpleFrontmatter(body)
+        let parsedName = frontmatter["name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedDescription = frontmatter["description"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = (parsedName?.isEmpty == false ? parsedName! : skillRoot.lastPathComponent)
+        let description = parsedDescription?.isEmpty == false ? parsedDescription : nil
+        return ExternalSkillCandidate(
+            name: name,
+            description: description,
+            sourceRootPath: skillRoot.standardizedFileURL.path,
+            skillFilePath: skillFile.standardizedFileURL.path
+        )
+    }
+
+    func discoverImportableSkills(in root: URL) -> [ExternalSkillCandidate] {
+        let fileManager = FileManager.default
+
+        if let directMatch = externalSkillCandidate(at: root) {
+            return [directMatch]
+        }
+
+        guard let entries = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else {
+            return []
+        }
+
+        return entries.compactMap { entry in
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: entry.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+            return externalSkillCandidate(at: entry)
+        }
+        .sorted { lhs, rhs in
+            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return lhs.sourceRootPath < rhs.sourceRootPath
+        }
+    }
+
+    func importExternalSkills(_ candidates: [ExternalSkillCandidate], mode: SkillLibraryImportMode, replaceExisting: Bool) throws -> SkillImportResult {
+        let fileManager = FileManager.default
+        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
+        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+
+        var importedNames: [String] = []
+        var skippedNames: [String] = []
+
+        for candidate in candidates {
+            let sourceURL = URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL
+            let destinationURL = libraryRoot.appendingPathComponent(candidate.name, isDirectory: true)
+
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                if replaceExisting {
+                    try fileManager.removeItem(at: destinationURL)
+                } else {
+                    skippedNames.append(candidate.name)
+                    continue
+                }
+            }
+
+            switch mode {
+            case .symlink:
+                try fileManager.createSymbolicLink(at: destinationURL, withDestinationURL: sourceURL)
+            case .copy:
+                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            }
+            importedNames.append(candidate.name)
+        }
+
+        refresh(includeModels: false)
+        if let firstImported = importedNames.first {
+            selectedSkillID = allVisibleSkillRecords.first { $0.name == firstImported }?.id ?? selectedSkillID
+        }
+        return SkillImportResult(importedNames: importedNames, skippedNames: skippedNames)
     }
 
     func addProject(_ url: URL, selectingAfterAdd: Bool = false) {
@@ -280,6 +409,14 @@ final class AppViewModel: ObservableObject {
             UserDefaults.standard.set(path, forKey: lastSelectedProjectDefaultsKey)
         } else {
             UserDefaults.standard.removeObject(forKey: lastSelectedProjectDefaultsKey)
+        }
+    }
+
+    private func persistLastExternalSkillsDirectoryPath(_ path: String?) {
+        if let path {
+            UserDefaults.standard.set(path, forKey: lastExternalSkillsDirectoryDefaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: lastExternalSkillsDirectoryDefaultsKey)
         }
     }
 
@@ -1053,10 +1190,11 @@ final class AppViewModel: ObservableObject {
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: configuration) { [weak self] _, error in
+        let sessionStore = piAgentSessionStore
+        NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: configuration) { _, error in
             guard let error else { return }
             Task { @MainActor in
-                self?.piAgentSessionStore.updateSession(sessionID) { record in
+                sessionStore.updateSession(sessionID) { record in
                     record.lastError = error.localizedDescription
                 }
             }
@@ -1372,6 +1510,33 @@ final class AppViewModel: ObservableObject {
 
     func resetProjectsRootPathToDefault() {
         setProjectsRootPath(ProjectDiscovery.defaultRootDirectoryURL().path)
+    }
+
+    func chooseDefaultSkillsImportDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Folder"
+        panel.message = "Choose the default folder Pi Manager should open when importing skills."
+        panel.directoryURL = suggestedExternalSkillsDirectoryURL
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setDefaultSkillsImportRootPath(url.path)
+    }
+
+    func setDefaultSkillsImportRootPath(_ path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPath = trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed).standardizedFileURL.path
+        guard appSettings.defaultSkillsImportRootPath != normalizedPath else { return }
+        appSettings.defaultSkillsImportRootPath = normalizedPath
+        appSettingsStore.settings = appSettings
+    }
+
+    func resetDefaultSkillsImportRootPath() {
+        guard appSettings.defaultSkillsImportRootPath != nil else { return }
+        appSettings.defaultSkillsImportRootPath = nil
+        appSettingsStore.settings = appSettings
     }
 
     var piAgentTerminalApplicationDisplayName: String {
@@ -2305,6 +2470,25 @@ final class AppViewModel: ObservableObject {
         return fileURL
     }
 
+    private func parseSimpleFrontmatter(_ text: String) -> [String: String] {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        guard normalized.hasPrefix("---\n") else { return [:] }
+        let remainder = String(normalized.dropFirst(4))
+        guard let closingRange = remainder.range(of: "\n---\n") else { return [:] }
+        let frontmatterText = remainder[..<closingRange.lowerBound]
+        var values: [String: String] = [:]
+        for rawLine in frontmatterText.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#"), let separator = line.firstIndex(of: ":") else { continue }
+            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty {
+                values[String(key)] = String(value)
+            }
+        }
+        return values
+    }
+
     func convertChain(_ chain: ChainRecord, to scope: AgentEditingTarget.CustomAgentScope) throws {
         try chainPersistence.convert(chain, to: scope, projectRoot: selectedProjectPath)
         refresh(includeModels: false)
@@ -2761,6 +2945,7 @@ struct AppSettings: Codable, Hashable {
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
+    var defaultSkillsImportRootPath: String?
 }
 
 struct TerminalApplicationOption: Identifiable, Hashable {
