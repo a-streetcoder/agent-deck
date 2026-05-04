@@ -3277,8 +3277,7 @@ private struct AgentDetailView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
-                            readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills))
-                            readOnlyFieldRow("Explicit Skill Count", value: "\(agent.resolved.skills.count)", isLast: true)
+                            readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills), isLast: true)
                         }
 
                         if agent.resolved.skills.contains("pi-subagents") {
@@ -3913,8 +3912,6 @@ private struct AgentDetailView: View {
             return "Choose from skills visible in this agent’s current scope."
         case "Skill Catalog":
             return "Only skills discoverable in this scope are offered here."
-        case "Explicit Skill Count":
-            return "Number of skills explicitly attached to this agent."
         default:
             return nil
         }

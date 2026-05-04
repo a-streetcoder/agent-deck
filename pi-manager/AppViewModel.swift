@@ -10,7 +10,7 @@ extension Notification.Name {
 }
 
 @MainActor
-final class AppViewModel: ObservableObject {
+final class AppViewModel: NSObject, ObservableObject {
     @Published var snapshot: ScanSnapshot = .empty
     @Published var selectedSidebarItem: SidebarItem = .agent
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
@@ -55,7 +55,7 @@ final class AppViewModel: ObservableObject {
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentPendingComposerText: String?
-    let piAgentSessionStore: PiAgentSessionStore
+    let piAgentSessionStore = PiAgentSessionStore()
 
     private let scanner = PiScanner()
     private let projectDiscovery = ProjectDiscovery()
@@ -68,7 +68,7 @@ final class AppViewModel: ObservableObject {
     private let appSettingsStore = AppSettingsStore.shared
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
-    private let piAgentRunner: PiAgentRunnerService
+    private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     private var globalSnapshot: ScanSnapshot = .empty
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
@@ -83,16 +83,14 @@ final class AppViewModel: ObservableObject {
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
-    private var appNotificationObservers: [NSObjectProtocol] = []
 
     private var piAgentNotificationDelay: TimeInterval {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
     }
 
-    init() {
-        let piAgentSessionStore = PiAgentSessionStore()
-        self.piAgentSessionStore = piAgentSessionStore
-        self.piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
+    override init() {
+        super.init()
+
         appSettings = appSettingsStore.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
@@ -110,6 +108,10 @@ final class AppViewModel: ObservableObject {
                 await connectGitHubUsingCLIIfNeeded()
             }
         }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func refresh(includeModels: Bool = false) {
@@ -1700,24 +1702,25 @@ final class AppViewModel: ObservableObject {
 
     private func registerAppNotificationObservers() {
         let center = NotificationCenter.default
-        appNotificationObservers.append(
-            center.addObserver(forName: .piAgentNotificationResponse, object: nil, queue: .main) { [weak self] notification in
-                guard let rawSessionID = notification.userInfo?["sessionID"] as? String,
-                      let sessionID = UUID(uuidString: rawSessionID) else { return }
-                Task { @MainActor [weak self] in
-                    self?.selectPiAgentSession(sessionID)
-                    NSApp.activate(ignoringOtherApps: true)
-                    NSApp.windows.first?.makeKeyAndOrderFront(nil)
-                }
-            }
-        )
-        appNotificationObservers.append(
-            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.acknowledgeVisibleSelectedPiAgentSession()
-                }
-            }
-        )
+        center.addObserver(self, selector: #selector(handlePiAgentNotificationResponse(_:)), name: .piAgentNotificationResponse, object: nil)
+        center.addObserver(self, selector: #selector(handleAppDidBecomeActiveNotification(_:)), name: NSApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func handlePiAgentNotificationResponse(_ notification: Notification) {
+        guard let rawSessionID = notification.userInfo?["sessionID"] as? String,
+              let sessionID = UUID(uuidString: rawSessionID) else { return }
+
+        Task { @MainActor [weak self] in
+            self?.selectPiAgentSession(sessionID)
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    @objc private func handleAppDidBecomeActiveNotification(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.acknowledgeVisibleSelectedPiAgentSession()
+        }
     }
 
     var visibleExtensions: [PiExtensionRecord] {
@@ -2224,7 +2227,10 @@ final class AppViewModel: ObservableObject {
         guard let managedRecord else { return [] }
 
         return assignedProjects(for: managedRecord).compactMap { project in
-            let visibleSkillNames = Set(allProjectSnapshots[project.path]?.skills.map(\.name) ?? [])
+            guard let projectSnapshot = allProjectSnapshots[project.path] else {
+                return AgentSkillVisibilityIssue(project: project, missingSkills: explicitSkills)
+            }
+            let visibleSkillNames = Set((projectSnapshot.skills + projectSnapshot.librarySkills).map(\.name))
             let missingSkills = explicitSkills.filter { !visibleSkillNames.contains($0) }
             guard !missingSkills.isEmpty else { return nil }
             return AgentSkillVisibilityIssue(project: project, missingSkills: missingSkills)
