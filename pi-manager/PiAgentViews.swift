@@ -2931,21 +2931,26 @@ private struct PiAgentProcessingIndicatorCard: View {
 }
 
 private struct PiAgentTypingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase = 0
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { index in
+                let isActive = phase == index
                 Circle()
-                    .fill(Color.secondary.opacity(phase == index ? 0.85 : 0.35))
+                    .fill(Color.secondary.opacity(isActive ? 0.78 : 0.22))
                     .frame(width: 6, height: 6)
-                    .scaleEffect(phase == index ? 1.15 : 0.9)
+                    .scaleEffect(reduceMotion ? 1 : (isActive ? 1.18 : 0.86))
+                    .offset(y: reduceMotion ? 0 : (isActive ? -2 : 0))
             }
         }
-        .padding(.vertical, 4)
-        .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 0.28, repeats: true) { _ in
-                withAnimation(.easeInOut(duration: 0.22)) {
+        .padding(.vertical, 5)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(620))
+                guard !Task.isCancelled else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.42)) {
                     phase = (phase + 1) % 3
                 }
             }
