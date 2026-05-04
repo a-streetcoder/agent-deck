@@ -1097,14 +1097,18 @@ final class AppViewModel: ObservableObject {
         piAgentSessionStore.deleteSession(sessionID)
     }
 
-    func openRepoChangesForSelectedPiAgentSession() {
+    func prepareRepoChangesForSelectedPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession else { return }
         if selectedProjectPath != session.projectPath {
             setSelectedProject(URL(fileURLWithPath: session.projectPath))
         }
+        refreshRepositoryChanges(preservingDiffSelection: true)
+    }
+
+    func openRepoChangesForSelectedPiAgentSession() {
+        prepareRepoChangesForSelectedPiAgentSession()
         githubSelectedSection = .repoChanges
         selectedSidebarItem = .github
-        refreshRepositoryChanges(preservingDiffSelection: true)
     }
 
     func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {

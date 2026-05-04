@@ -11,6 +11,7 @@ final class PiAgentRunnerService {
     private var toolEntryIDsByCallID: [String: UUID] = [:]
     private var compactionEntryIDsBySessionID: [UUID: UUID] = [:]
     private var pendingCompactionInstructionsBySessionID: [UUID: String] = [:]
+    private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     var onTurnFinished: ((UUID) -> Void)?
 
     init(store: PiAgentSessionStore) {
@@ -93,6 +94,8 @@ final class PiAgentRunnerService {
     }
 
     func stop(sessionID: UUID) {
+        streamFlushTasksBySessionID[sessionID]?.cancel()
+        streamFlushTasksBySessionID[sessionID] = nil
         guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
         client.stop()
         store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. Pi Agent received abort and the process is terminating."))
@@ -479,26 +482,12 @@ final class PiAgentRunnerService {
                 let entryID = thinkingEntryIDsBySessionID[sessionID] ?? UUID()
                 thinkingEntryIDsBySessionID[sessionID] = entryID
                 thinkingTextBySessionID[sessionID, default: ""] += delta
-                store.upsert(.init(
-                    id: entryID,
-                    sessionID: sessionID,
-                    role: .thinking,
-                    title: "Thinking",
-                    text: thinkingTextBySessionID[sessionID] ?? "",
-                    rawJSON: nil
-                ), before: assistantEntryIDsBySessionID[sessionID])
+                scheduleStreamingFlush(sessionID: sessionID)
             } else {
                 let entryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
                 assistantEntryIDsBySessionID[sessionID] = entryID
                 assistantTextBySessionID[sessionID, default: ""] += delta
-                store.upsert(.init(
-                    id: entryID,
-                    sessionID: sessionID,
-                    role: .assistant,
-                    title: "Assistant",
-                    text: assistantTextBySessionID[sessionID] ?? "",
-                    rawJSON: nil
-                ))
+                scheduleStreamingFlush(sessionID: sessionID)
             }
         case "toolcall_start":
             break
@@ -509,13 +498,55 @@ final class PiAgentRunnerService {
         }
     }
 
+    private func scheduleStreamingFlush(sessionID: UUID) {
+        guard streamFlushTasksBySessionID[sessionID] == nil else { return }
+        streamFlushTasksBySessionID[sessionID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 33_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.streamFlushTasksBySessionID[sessionID] = nil
+                self?.flushStreamingEntries(sessionID: sessionID)
+            }
+        }
+    }
+
+    private func flushStreamingEntries(sessionID: UUID) {
+        if let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID],
+           let thinkingText = thinkingTextBySessionID[sessionID],
+           !thinkingText.isEmpty {
+            store.upsert(.init(
+                id: thinkingEntryID,
+                sessionID: sessionID,
+                role: .thinking,
+                title: "Thinking",
+                text: thinkingText,
+                rawJSON: nil
+            ), before: assistantEntryIDsBySessionID[sessionID])
+        }
+
+        if let assistantEntryID = assistantEntryIDsBySessionID[sessionID],
+           let assistantText = assistantTextBySessionID[sessionID] {
+            store.upsert(.init(
+                id: assistantEntryID,
+                sessionID: sessionID,
+                role: .assistant,
+                title: "Assistant",
+                text: assistantText,
+                rawJSON: nil
+            ))
+        }
+    }
+
     private func handleMessageEnd(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
         guard let message = event.message else { return }
         let text = extractText(from: message)
         let role = message["role"]?.stringValue ?? "assistant"
         if role == "assistant" {
+            streamFlushTasksBySessionID[sessionID]?.cancel()
+            streamFlushTasksBySessionID[sessionID] = nil
             let assistantEntryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
             let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID] ?? UUID()
+            let thinkingBeforeID = assistantEntryIDsBySessionID[sessionID]
             assistantEntryIDsBySessionID[sessionID] = nil
             assistantTextBySessionID[sessionID] = nil
             thinkingEntryIDsBySessionID[sessionID] = nil
@@ -526,7 +557,7 @@ final class PiAgentRunnerService {
             } else {
                 let thinkingText = extractAssistantThinking(from: message)
                 if !thinkingText.isEmpty {
-                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: rawLine), before: assistantEntryIDsBySessionID[sessionID])
+                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: rawLine), before: thinkingBeforeID)
                 }
             }
         } else if role == "user" {
@@ -716,6 +747,8 @@ final class PiAgentRunnerService {
     }
 
     private func handleTermination(exitCode: Int32, sessionID: UUID) {
+        streamFlushTasksBySessionID[sessionID]?.cancel()
+        streamFlushTasksBySessionID[sessionID] = nil
         clientsBySessionID[sessionID] = nil
         let status: PiAgentRunStatus = exitCode == 0 ? .completed : .stopped
         mark(sessionID, status: status, error: nil)

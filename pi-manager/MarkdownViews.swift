@@ -17,11 +17,10 @@ struct MarkdownTextView: View {
     let source: String
 
     var body: some View {
-        let parsed = RawFrontmatterParser.parse(source)
-        let markdown = parsed?.content ?? source
+        let document = MarkdownRenderCache.document(for: source)
 
-        VStack(alignment: .leading, spacing: parsed?.frontmatter == nil ? 8 : 12) {
-            if let frontmatter = parsed?.frontmatter, !frontmatter.isEmpty {
+        VStack(alignment: .leading, spacing: document.frontmatter == nil ? 8 : 12) {
+            if let frontmatter = document.frontmatter, !frontmatter.isEmpty {
                 Text(frontmatter)
                     .font(.system(size: 12, weight: .regular, design: .monospaced))
                     .foregroundStyle(AppTheme.mutedText)
@@ -34,7 +33,7 @@ struct MarkdownTextView: View {
                     )
             }
 
-            ForEach(MarkdownBlock.parse(markdown)) { block in
+            ForEach(document.blocks) { block in
                 blockView(block)
             }
         }
@@ -98,6 +97,42 @@ struct MarkdownTextView: View {
             return Text(attributed)
         }
         return Text(text)
+    }
+}
+
+private struct CachedMarkdownDocument {
+    let frontmatter: String?
+    let blocks: [MarkdownBlock]
+}
+
+private enum MarkdownRenderCache {
+    private static var cache: [String: CachedMarkdownDocument] = [:]
+    private static var order: [String] = []
+    private static let limit = 256
+
+    static func document(for source: String) -> CachedMarkdownDocument {
+        let key = cacheKey(for: source)
+        if let cached = cache[key] { return cached }
+
+        let parsed = RawFrontmatterParser.parse(source)
+        let markdown = parsed?.content ?? source
+        let document = CachedMarkdownDocument(frontmatter: parsed?.frontmatter, blocks: MarkdownBlock.parse(markdown))
+        cache[key] = document
+        order.append(key)
+        if order.count > limit {
+            let overflow = order.count - limit
+            for oldKey in order.prefix(overflow) {
+                cache[oldKey] = nil
+            }
+            order.removeFirst(overflow)
+        }
+        return document
+    }
+
+    private static func cacheKey(for source: String) -> String {
+        var hasher = Hasher()
+        hasher.combine(source)
+        return "\(source.count):\(hasher.finalize())"
     }
 }
 

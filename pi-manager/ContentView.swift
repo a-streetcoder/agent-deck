@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var showingEnableAllProjectsAlert = false
     @State private var showingDisableAllProjectsAlert = false
     @State private var showingPiAgentSubagentsToggleAlert = false
+    @State private var showingPiAgentDeleteAlert = false
+    @State private var isPiAgentRepoChangesPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
 
     var body: some View {
@@ -99,7 +101,11 @@ struct ContentView: View {
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent {
+                if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
+                    Divider()
+                    PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
+                        .frame(width: 380)
+                } else if viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent {
                     Divider()
                     PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
                         .frame(width: 380)
@@ -129,6 +135,16 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(viewModel.areSubagentsEnabledForNewSessions ? "New Pi Agent sessions will have no subagents." : "New Pi Agent sessions will include subagents again.")
+        }
+        .alert("Delete Pi Agent session?", isPresented: $showingPiAgentDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let session = viewModel.piAgentSessionStore.selectedSession {
+                    viewModel.deletePiAgentSession(session.id)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the selected Pi Agent session and its local transcript from Pi Manager.")
         }
         .toolbar {
             if viewModel.selectedSidebarItem == .projects {
@@ -348,12 +364,13 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        viewModel.togglePiAgentThinkingBlocksVisibility()
+                    Button(role: .destructive) {
+                        showingPiAgentDeleteAlert = true
                     } label: {
-                        Label(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Reasoning" : "Hide Reasoning", systemImage: viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "eye" : "eye.slash")
+                        Label("Delete", systemImage: "trash")
                     }
-                    .help(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Pi reasoning blocks" : "Hide Pi reasoning blocks")
+                    .help("Delete session")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
                     if viewModel.canShowPiAgentSubagentsToggle {
                         Button {
@@ -365,25 +382,21 @@ struct ContentView: View {
                     }
 
                     Button {
-                        viewModel.openRepoChangesForSelectedPiAgentSession()
+                        viewModel.togglePiAgentThinkingBlocksVisibility()
+                    } label: {
+                        Label(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Reasoning" : "Hide Reasoning", systemImage: viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "eye" : "eye.slash")
+                    }
+                    .help(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Pi reasoning blocks" : "Hide Pi reasoning blocks")
+
+                    Button {
+                        isPiAgentRepoChangesPresented.toggle()
+                        if isPiAgentRepoChangesPresented {
+                            viewModel.prepareRepoChangesForSelectedPiAgentSession()
+                        }
                     } label: {
                         Image(systemName: "arrow.triangle.branch")
                     }
-                    .help("Repo changes")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button(role: .destructive) {
-                        if let session = viewModel.piAgentSessionStore.selectedSession {
-                            viewModel.deletePiAgentSession(session.id)
-                        }
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .help("Delete session")
+                    .help("Open repo changes sidebar")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
             }

@@ -5,6 +5,7 @@ import Foundation
 final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var sessions: [PiAgentSessionRecord] = []
     @Published private(set) var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]] = [:]
+    @Published private(set) var transcriptRevisionsBySessionID: [UUID: Int] = [:]
     @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
@@ -31,6 +32,11 @@ final class PiAgentSessionStore: ObservableObject {
     var selectedTranscript: [PiAgentTranscriptEntry] {
         guard let session = selectedSession else { return [] }
         return transcriptsBySessionID[session.id] ?? []
+    }
+
+    var selectedTranscriptRevision: Int {
+        guard let session = selectedSession else { return 0 }
+        return transcriptRevisionsBySessionID[session.id] ?? 0
     }
 
     var selectedUIRequest: PiAgentUIRequest? {
@@ -87,6 +93,7 @@ final class PiAgentSessionStore: ObservableObject {
         sessions.insert(record, at: 0)
         sortSessions()
         transcriptsBySessionID[record.id] = []
+        transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
         selectedSessionID = record.id
         save()
@@ -151,6 +158,7 @@ final class PiAgentSessionStore: ObservableObject {
             entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
         }
         transcriptsBySessionID[entry.sessionID] = entries
+        bumpTranscriptRevision(entry.sessionID)
         touchSession(entry.sessionID, bumpUpdatedAt: true)
     }
 
@@ -171,6 +179,7 @@ final class PiAgentSessionStore: ObservableObject {
             entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
         }
         transcriptsBySessionID[entry.sessionID] = entries
+        bumpTranscriptRevision(entry.sessionID)
         if isNewEntry {
             touchSession(entry.sessionID, bumpUpdatedAt: true)
         } else {
@@ -183,12 +192,14 @@ final class PiAgentSessionStore: ObservableObject {
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         mutate(&entries[index])
         transcriptsBySessionID[sessionID] = entries
+        bumpTranscriptRevision(sessionID)
         save()
     }
 
     func deleteSession(_ sessionID: UUID) {
         sessions.removeAll { $0.id == sessionID }
         transcriptsBySessionID[sessionID] = nil
+        transcriptRevisionsBySessionID[sessionID] = nil
         if selectedSessionID == sessionID {
             selectedSessionID = sessions.first?.id
         }
@@ -197,6 +208,7 @@ final class PiAgentSessionStore: ObservableObject {
 
     func clearTranscript(for sessionID: UUID) {
         transcriptsBySessionID[sessionID] = []
+        bumpTranscriptRevision(sessionID)
         save()
     }
 
@@ -216,6 +228,7 @@ final class PiAgentSessionStore: ObservableObject {
             }
             sortSessions()
             transcriptsBySessionID = Dictionary(uniqueKeysWithValues: persisted.transcripts.map { ($0.sessionID, $0.entries) })
+            transcriptRevisionsBySessionID = Dictionary(uniqueKeysWithValues: transcriptsBySessionID.map { ($0.key, 0) })
             selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
@@ -223,6 +236,10 @@ final class PiAgentSessionStore: ObservableObject {
             transcriptsBySessionID = [:]
             selectedSessionID = nil
         }
+    }
+
+    private func bumpTranscriptRevision(_ sessionID: UUID) {
+        transcriptRevisionsBySessionID[sessionID, default: 0] += 1
     }
 
     private func sortSessions() {

@@ -1,8 +1,202 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
 private let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "code_search"]
+
+@MainActor
+private final class PiAgentTranscriptRenderCache: ObservableObject {
+    @Published private(set) var entries: [PiAgentTranscriptEntry] = []
+    @Published private(set) var threads: [PiAgentTranscriptThread] = []
+    @Published private(set) var renderRevision = 0
+    @Published private(set) var streamingRevision = 0
+    @Published private(set) var lastThreadID: UUID?
+
+    private var updateTask: Task<Void, Never>?
+    private var lastSessionID: UUID?
+    private var lastRevision = -1
+    private var lastThreadSignature: [UUID] = []
+
+    func scheduleUpdate(sessionID: UUID?, revision: Int, rawEntries: [PiAgentTranscriptEntry]) {
+        guard let sessionID else {
+            updateTask?.cancel()
+            entries = []
+            threads = []
+            lastThreadID = nil
+            lastSessionID = nil
+            lastRevision = -1
+            lastThreadSignature = []
+            renderRevision += 1
+            return
+        }
+        guard sessionID != lastSessionID || revision != lastRevision else { return }
+        lastSessionID = sessionID
+        lastRevision = revision
+        updateTask?.cancel()
+        updateTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 33_000_000)
+            guard !Task.isCancelled else { return }
+            self?.publish(rawEntries)
+        }
+    }
+
+    private func publish(_ rawEntries: [PiAgentTranscriptEntry]) {
+        let normalized = normalizeThinkingOrder(
+            coalescedCompactionEntries(
+                rawEntries.compactMap(normalizedTranscriptEntry).filter(isValuableTranscriptEntry)
+            )
+        )
+        let nextThreads = PiAgentTranscriptThread.make(from: normalized)
+        let signature = nextThreads.map(\.id)
+        let structurallyChanged = signature != lastThreadSignature
+        entries = normalized
+        threads = nextThreads
+        lastThreadID = nextThreads.last?.id
+        lastThreadSignature = signature
+        if structurallyChanged {
+            renderRevision += 1
+        } else {
+            streamingRevision += 1
+        }
+    }
+
+    private enum AssistantContentInterpretation {
+        case assistant(String)
+        case thinking(String)
+        case drop
+    }
+
+    private func normalizedTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> PiAgentTranscriptEntry? {
+        var copy = entry
+        if copy.role == .assistant {
+            if let interpretation = assistantContentInterpretation(fromRawJSON: copy.rawJSON) {
+                switch interpretation {
+                case let .assistant(text):
+                    copy.text = sanitizedAssistantText(text)
+                case let .thinking(text):
+                    copy.role = .thinking
+                    copy.title = "Thinking"
+                    copy.text = sanitizedAssistantText(text)
+                case .drop:
+                    return nil
+                }
+            } else {
+                copy.text = sanitizedAssistantText(copy.text)
+            }
+            if copy.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        return copy
+    }
+
+    private func assistantContentInterpretation(fromRawJSON rawJSON: String?) -> AssistantContentInterpretation? {
+        guard let rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data),
+              event.type == "message_end",
+              let message = event.message,
+              message["role"]?.stringValue == "assistant",
+              let content = message["content"] else {
+            return nil
+        }
+
+        switch content {
+        case let .string(value):
+            return .assistant(value)
+        case let .array(blocks):
+            let textParts = blocks.compactMap { block -> String? in
+                let blockType = block["type"]?.stringValue
+                guard blockType == nil || blockType == "text" || blockType == "output_text" || blockType == "message" else { return nil }
+                return block["text"]?.stringValue
+            }
+            if !textParts.isEmpty { return .assistant(textParts.joined(separator: "\n")) }
+
+            let thinkingParts = blocks.compactMap { block -> String? in
+                guard block["type"]?.stringValue == "thinking" else { return nil }
+                return block["thinking"]?.stringValue
+            }
+            if !thinkingParts.isEmpty { return .thinking(thinkingParts.joined(separator: "\n\n")) }
+
+            let hasToolCall = blocks.contains { block in
+                let blockType = block["type"]?.stringValue
+                return blockType == "toolCall" || blockType == "tool_call" || block["name"]?.stringValue != nil
+            }
+            return hasToolCall ? .drop : nil
+        default:
+            return .drop
+        }
+    }
+
+    private func sanitizedAssistantText(_ text: String) -> String {
+        text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !piAgentLeakedToolNames.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func coalescedCompactionEntries(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
+        var output: [PiAgentTranscriptEntry] = []
+        for entry in entries {
+            guard entry.role == .status && entry.title == "Compaction" else {
+                output.append(entry)
+                continue
+            }
+            if let last = output.last,
+               last.role == .status,
+               last.title == "Compaction",
+               abs(entry.timestamp.timeIntervalSince(last.timestamp)) < 600 {
+                output[output.count - 1] = entry
+            } else {
+                output.append(entry)
+            }
+        }
+        return output
+    }
+
+    private func normalizeThinkingOrder(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
+        var normalized: [PiAgentTranscriptEntry] = []
+        for entry in entries {
+            if entry.role == .thinking,
+               let previous = normalized.last,
+               previous.role == .assistant,
+               abs(entry.timestamp.timeIntervalSince(previous.timestamp)) < 180 {
+                normalized.removeLast()
+                normalized.append(entry)
+                normalized.append(previous)
+            } else {
+                normalized.append(entry)
+            }
+        }
+        return normalized
+    }
+
+    private func isValuableTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
+        switch entry.role {
+        case .raw:
+            return false
+        case .assistant:
+            return isMeaningfulAssistantEntry(entry)
+        case .status:
+            return entry.title == "Compaction" || entry.title == "Retry"
+        case .tool:
+            return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
+        case .stderr:
+            return !entry.text.localizedCaseInsensitiveContains("ready for input") && !entry.text.contains(";notify;Pi;")
+        default:
+            return true
+        }
+    }
+
+    private func isMeaningfulAssistantEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
+        let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return true }
+        return !piAgentLeakedToolNames.contains(text.lowercased())
+    }
+}
 
 struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
@@ -15,6 +209,8 @@ struct PiAgentScreen: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
+    @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
+    @State private var lastStreamingScrollAt: Date = .distantPast
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -33,15 +229,18 @@ struct PiAgentScreen: View {
             syncVisibleSessionSelection()
             syncSelectedSessionTitleDraft()
             applyPendingComposerText()
+            scheduleTranscriptCacheUpdate()
         }
         .onChange(of: store.selectedSession?.id) { _, _ in
             renamingSessionID = nil
             syncSelectedSessionTitleDraft()
             applyPendingComposerText()
+            scheduleTranscriptCacheUpdate()
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
         .onChange(of: visibleSessionIDs) { _, _ in syncVisibleSessionSelection() }
         .onChange(of: viewModel.selectedProjectPath) { _, _ in syncVisibleSessionSelection() }
+        .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
     }
 
     private var sessionScopePath: String? {
@@ -267,26 +466,42 @@ struct PiAgentScreen: View {
                             if let session = store.selectedSession {
                                 PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                             }
-                            ForEach(visibleTranscriptThreads) { thread in
+                            ForEach(transcriptCache.threads) { thread in
                                 PiAgentTranscriptThreadCard(thread: thread, thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode)
                                     .id(thread.id)
                             }
                         }
                     }
-                    .onChange(of: transcriptVersion) { _, _ in
-                        if let last = visibleTranscriptEntries.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                    .onChange(of: transcriptCache.renderRevision) { _, _ in
+                        scrollToLatestThread(proxy: proxy)
+                    }
+                    .onChange(of: transcriptCache.streamingRevision) { _, _ in
+                        throttleStreamingScroll(proxy: proxy)
                     }
                 }
             }
         }
     }
 
-    private var transcriptVersion: String {
-        let entries = visibleTranscriptEntries
-        guard let last = entries.last else { return "0" }
-        return "\(entries.count):\(last.id.uuidString):\(last.text.count)"
+    private func scheduleTranscriptCacheUpdate() {
+        transcriptCache.scheduleUpdate(
+            sessionID: store.selectedSession?.id,
+            revision: store.selectedTranscriptRevision,
+            rawEntries: store.selectedTranscript
+        )
+    }
+
+    private func scrollToLatestThread(proxy: ScrollViewProxy) {
+        guard let id = transcriptCache.lastThreadID else { return }
+        lastStreamingScrollAt = Date()
+        withTransaction(Transaction(animation: nil)) {
+            proxy.scrollTo(id, anchor: .bottom)
+        }
+    }
+
+    private func throttleStreamingScroll(proxy: ScrollViewProxy) {
+        guard Date().timeIntervalSince(lastStreamingScrollAt) > 0.14 else { return }
+        scrollToLatestThread(proxy: proxy)
     }
 
     private var composer: some View {
@@ -456,158 +671,6 @@ struct PiAgentScreen: View {
         }
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         return "<file name=\"\(url.path)\">\n\(content)\n</file>"
-    }
-
-    private var visibleTranscriptEntries: [PiAgentTranscriptEntry] {
-        let entries = store.selectedTranscript
-            .compactMap(normalizedTranscriptEntry)
-            .filter(isValuableTranscriptEntry)
-        return normalizeThinkingOrder(coalescedCompactionEntries(entries))
-    }
-
-    private var visibleTranscriptThreads: [PiAgentTranscriptThread] {
-        PiAgentTranscriptThread.make(from: visibleTranscriptEntries)
-    }
-
-    private enum AssistantContentInterpretation {
-        case assistant(String)
-        case thinking(String)
-        case drop
-    }
-
-    private func normalizedTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> PiAgentTranscriptEntry? {
-        var copy = entry
-        if copy.role == .assistant {
-            if let interpretation = assistantContentInterpretation(fromRawJSON: copy.rawJSON) {
-                switch interpretation {
-                case let .assistant(text):
-                    copy.text = sanitizedAssistantText(text)
-                case let .thinking(text):
-                    copy.role = .thinking
-                    copy.title = "Thinking"
-                    copy.text = sanitizedAssistantText(text)
-                case .drop:
-                    return nil
-                }
-            } else {
-                copy.text = sanitizedAssistantText(copy.text)
-            }
-            if copy.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return nil
-            }
-        }
-        return copy
-    }
-
-    private func assistantContentInterpretation(fromRawJSON rawJSON: String?) -> AssistantContentInterpretation? {
-        guard let rawJSON,
-              let data = rawJSON.data(using: .utf8),
-              let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data),
-              event.type == "message_end",
-              let message = event.message,
-              message["role"]?.stringValue == "assistant",
-              let content = message["content"] else {
-            return nil
-        }
-
-        switch content {
-        case let .string(value):
-            return .assistant(value)
-        case let .array(blocks):
-            let textParts = blocks.compactMap { block -> String? in
-                let blockType = block["type"]?.stringValue
-                guard blockType == nil || blockType == "text" || blockType == "output_text" || blockType == "message" else { return nil }
-                return block["text"]?.stringValue
-            }
-            if !textParts.isEmpty {
-                return .assistant(textParts.joined(separator: "\n"))
-            }
-
-            let thinkingParts = blocks.compactMap { block -> String? in
-                guard block["type"]?.stringValue == "thinking" else { return nil }
-                return block["thinking"]?.stringValue
-            }
-            if !thinkingParts.isEmpty {
-                return .thinking(thinkingParts.joined(separator: "\n\n"))
-            }
-
-            let hasToolCall = blocks.contains { block in
-                let blockType = block["type"]?.stringValue
-                return blockType == "toolCall" || blockType == "tool_call" || block["name"]?.stringValue != nil
-            }
-            return hasToolCall ? .drop : nil
-        default:
-            return .drop
-        }
-    }
-
-    private func sanitizedAssistantText(_ text: String) -> String {
-        text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { !piAgentLeakedToolNames.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func coalescedCompactionEntries(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
-        var output: [PiAgentTranscriptEntry] = []
-        for entry in entries {
-            guard entry.role == .status && entry.title == "Compaction" else {
-                output.append(entry)
-                continue
-            }
-            if let last = output.last,
-               last.role == .status,
-               last.title == "Compaction",
-               abs(entry.timestamp.timeIntervalSince(last.timestamp)) < 600 {
-                output[output.count - 1] = entry
-            } else {
-                output.append(entry)
-            }
-        }
-        return output
-    }
-
-    private func normalizeThinkingOrder(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
-        var normalized: [PiAgentTranscriptEntry] = []
-        for entry in entries {
-            if entry.role == .thinking,
-               let previous = normalized.last,
-               previous.role == .assistant,
-               abs(entry.timestamp.timeIntervalSince(previous.timestamp)) < 180 {
-                normalized.removeLast()
-                normalized.append(entry)
-                normalized.append(previous)
-            } else {
-                normalized.append(entry)
-            }
-        }
-        return normalized
-    }
-
-    private func isValuableTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
-        switch entry.role {
-        case .raw:
-            return false
-        case .assistant:
-            return isMeaningfulAssistantEntry(entry)
-        case .status:
-            return entry.title == "Compaction" || entry.title == "Retry"
-        case .tool:
-            return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
-        case .stderr:
-            return !entry.text.localizedCaseInsensitiveContains("ready for input") && !entry.text.contains(";notify;Pi;")
-        default:
-            return true
-        }
-    }
-
-    private func isMeaningfulAssistantEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
-        let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return true }
-        let lower = text.lowercased()
-        return !piAgentLeakedToolNames.contains(lower)
     }
 
     private var runningCount: Int {
@@ -1994,7 +2057,7 @@ private struct PiAgentComposerFooterBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            PiAgentContextUsageMeter(session: session)
+            PiAgentContextUsageMeter(session: session, onCompact: { viewModel.compactSelectedPiAgentSession() })
             PiAgentModelPicker(
                 session: session,
                 fallbackModels: viewModel.availableModels,
@@ -2022,6 +2085,8 @@ private struct PiAgentComposerFooterBar: View {
 
 private struct PiAgentContextUsageMeter: View {
     let session: PiAgentSessionRecord
+    let onCompact: () -> Void
+    @State private var isConfirmingCompaction = false
 
     var body: some View {
         if session.isCompacting {
@@ -2039,30 +2104,58 @@ private struct PiAgentContextUsageMeter: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(Color.orange.opacity(0.12)).stroke(Color.orange.opacity(0.25), lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .fixedSize(horizontal: true, vertical: false)
             .help("Pi is compacting this conversation. Input is disabled until compaction finishes.")
         } else if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
-            HStack(spacing: 7) {
-                Text("Context")
-                    .font(.caption.weight(.semibold))
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous)
-                        .fill(AppTheme.cardFill.opacity(0.75))
-                    Capsule(style: .continuous)
-                        .fill(percent > 85 ? Color.orange : Color.accentColor)
-                        .frame(width: 104 * min(max(percent, 0), 100) / 100)
+            HStack(spacing: 6) {
+                HStack(spacing: 7) {
+                    Text("Context")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                    ZStack(alignment: .leading) {
+                        Capsule(style: .continuous)
+                            .fill(AppTheme.cardFill.opacity(0.75))
+                        Capsule(style: .continuous)
+                            .fill(percent > 85 ? Color.orange : Color.accentColor)
+                            .frame(width: 92 * min(max(percent, 0), 100) / 100)
+                    }
+                    .frame(width: 92, height: 10)
+                    Text("\(Int(percent))%")
+                        .font(.caption.monospacedDigit().weight(.bold))
+                        .lineLimit(1)
+                    Text("\(compact(tokens))/\(compact(window))")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
                 }
-                .frame(width: 104, height: 10)
-                Text("\(Int(percent))%")
-                    .font(.caption.monospacedDigit().weight(.bold))
-                Text("\(compact(tokens))/\(compact(window))")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                .fixedSize(horizontal: true, vertical: false)
+
+                Button {
+                    isConfirmingCompaction = true
+                } label: {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Compact context")
             }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
+            .alert("Compact context?", isPresented: $isConfirmingCompaction) {
+                Button("Cancel", role: .cancel) {}
+                Button("Compact") { onCompact() }
+            } message: {
+                Text("Pi will summarize older conversation history to free context. This keeps the session usable for longer prompts.")
+            }
         }
     }
 
@@ -2678,6 +2771,7 @@ private struct PiAgentTranscriptThread: Identifiable, Hashable {
     var statuses: [PiAgentTranscriptEntry]
     var errors: [PiAgentTranscriptEntry]
 
+    @MainActor
     static func make(from entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptThread] {
         var threads: [PiAgentTranscriptThread] = []
         var builder = Builder()
@@ -2732,6 +2826,7 @@ private struct PiAgentTranscriptThread: Identifiable, Hashable {
             }
         }
 
+        @MainActor
         func makeThread() -> PiAgentTranscriptThread? {
             let activities = PiAgentTranscriptActivity.make(from: toolEntries)
             guard question != nil || !steeringMessages.isEmpty || !thinkingParts.isEmpty || !assistantMessages.isEmpty || !activities.isEmpty || !statuses.isEmpty || !errors.isEmpty else {
@@ -2817,6 +2912,7 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
     var representativeEntry: PiAgentTranscriptEntry? { entries.first }
     var count: Int { entries.count }
 
+    @MainActor
     static func make(from entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptActivity] {
         var orderedNames: [String] = []
         var grouped: [String: [PiAgentTranscriptEntry]] = [:]
@@ -2849,7 +2945,12 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
 private extension PiAgentTranscriptEntry {
     static func mergedThinking(from entries: [PiAgentTranscriptEntry]) -> PiAgentTranscriptEntry? {
         guard let first = entries.first else { return nil }
-        let text = entries.map(\.text).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+        var seen = Set<String>()
+        let text = entries.compactMap { entry -> String? in
+            let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
+            return trimmed
+        }.joined(separator: "\n\n")
         return PiAgentTranscriptEntry(
             id: first.id,
             sessionID: first.sessionID,
@@ -3416,6 +3517,267 @@ private struct PiAgentToolTranscriptView: View {
 
     private var color: Color {
         entry.role == .error ? .red : .orange
+    }
+}
+
+struct PiAgentRepoChangesPanel: View {
+    @ObservedObject var viewModel: AppViewModel
+    @Binding var isPresented: Bool
+    @State private var filterText = ""
+
+    private var snapshot: RepositoryChangesSnapshot? { viewModel.githubRepositoryChanges }
+
+    private var items: [PiAgentGitChangeListItem] {
+        guard let snapshot else { return [] }
+        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PiAgentGitChangeListItem.items(from: snapshot).filter { item in
+            query.isEmpty || item.path.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        AppSidebarPane(title: "Repo Changes", subtitle: snapshot.map { "\($0.totalChangeCount) changes" }) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                Divider()
+
+                panelContent
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .task { viewModel.prepareRepoChangesForSelectedPiAgentSession() }
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
+        if let error = viewModel.githubLastError {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                repositoryState
+            }
+        } else {
+            repositoryState
+        }
+    }
+
+    @ViewBuilder
+    private var repositoryState: some View {
+        if viewModel.githubIsLoadingRepositoryChanges {
+            ProgressView("Loading repository changes…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let snapshot {
+            if snapshot.totalChangeCount == 0 {
+                ContentUnavailableView("No local changes", systemImage: "checkmark.circle", description: Text("The selected Pi Agent repository is clean."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                changesContent(snapshot)
+            }
+        } else {
+            ContentUnavailableView("No repository data", systemImage: "arrow.triangle.branch", description: Text("Refresh to inspect changes for this Pi Agent session."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Repo Changes")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Text(viewModel.piAgentSessionStore.selectedSession?.projectName ?? viewModel.selectedDiscoveredProject?.name ?? "Pi Agent repository")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.plain)
+            .help("Refresh changes")
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .help("Close repo changes")
+        }
+    }
+
+    private func changesContent(_ snapshot: RepositoryChangesSnapshot) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                branchSummary(snapshot)
+
+                HStack(spacing: 8) {
+                    Button("Include All") { viewModel.stageAllChanges() }
+                        .disabled(!snapshot.canStageAll)
+                    Button("Exclude All") { viewModel.unstageAllChanges() }
+                        .disabled(!snapshot.canUnstageAll)
+                    Spacer()
+                    Text("\(snapshot.staged.count)/\(snapshot.totalChangeCount) included")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+
+                TextField("Filter files", text: $filterText)
+                    .textFieldStyle(.roundedBorder)
+
+                LazyVStack(alignment: .leading, spacing: 5) {
+                    ForEach(items) { item in
+                        PiAgentGitChangeRow(
+                            item: item,
+                            onToggleIncluded: { toggleIncluded(item) }
+                        )
+                    }
+                }
+
+                Divider()
+                    .padding(.top, 8)
+
+                commitBox(snapshot)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
+        HStack(spacing: 7) {
+            AppLabelTag(text: snapshot.branchName, color: .blue)
+            if let upstream = snapshot.upstreamBranch {
+                AppLabelTag(text: upstream, color: .gray)
+            }
+            if snapshot.aheadCount > 0 {
+                AppLabelTag(text: "↑ \(snapshot.aheadCount)", color: .green)
+            }
+            if snapshot.behindCount > 0 {
+                AppLabelTag(text: "↓ \(snapshot.behindCount)", color: .orange)
+            }
+            Spacer()
+        }
+    }
+
+    private func commitBox(_ snapshot: RepositoryChangesSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Commit & Push")
+                .font(.headline)
+            Text("Stage files by checking them above, then commit and push from here.")
+                .font(.footnote)
+                .foregroundStyle(AppTheme.mutedText)
+
+            TextEditor(text: $viewModel.githubCommitMessage)
+                .font(.body)
+                .frame(minHeight: 76, maxHeight: 96)
+                .padding(6)
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.cardFill))
+
+            HStack {
+                Button("Commit \(snapshot.staged.count)") { viewModel.commitChanges() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.githubIsCommitting || !snapshot.canCommit || viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Push") { viewModel.pushCurrentBranch() }
+                    .disabled(viewModel.githubIsPushing || !snapshot.canPush)
+                Spacer()
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.subtleFill.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+
+    private func toggleIncluded(_ item: PiAgentGitChangeListItem) {
+        if item.isIncluded {
+            viewModel.unstage(item.path)
+        } else {
+            viewModel.stage(item.path)
+        }
+    }
+}
+
+private struct PiAgentGitChangeListItem: Identifiable, Hashable {
+    let path: String
+    let staged: RepositoryFileChange?
+    let unstaged: RepositoryFileChange?
+    let untracked: RepositoryFileChange?
+    let conflicted: RepositoryFileChange?
+
+    var id: String { path }
+    var isIncluded: Bool { staged != nil }
+    var badgeText: String {
+        if conflicted != nil { return "Conflict" }
+        if untracked != nil { return "Added" }
+        if staged != nil && unstaged != nil { return "Mixed" }
+        let change = staged ?? unstaged
+        switch change?.indexStatus == " " ? change?.worktreeStatus : change?.indexStatus {
+        case "A": return "Added"
+        case "D": return "Deleted"
+        case "R": return "Renamed"
+        case "M": return "Modified"
+        default: return change?.statusSummary.trimmingCharacters(in: .whitespaces) ?? "Changed"
+        }
+    }
+    var badgeColor: Color {
+        switch badgeText {
+        case "Added": return .green
+        case "Deleted": return .red
+        case "Renamed": return .purple
+        case "Conflict": return .orange
+        default: return .blue
+        }
+    }
+
+    static func items(from snapshot: RepositoryChangesSnapshot) -> [PiAgentGitChangeListItem] {
+        let paths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
+        return paths.sorted().map { path in
+            PiAgentGitChangeListItem(
+                path: path,
+                staged: snapshot.staged.first(where: { $0.path == path }),
+                unstaged: snapshot.unstaged.first(where: { $0.path == path }),
+                untracked: snapshot.untracked.first(where: { $0.path == path }),
+                conflicted: snapshot.conflicted.first(where: { $0.path == path })
+            )
+        }
+    }
+}
+
+private struct PiAgentGitChangeRow: View {
+    let item: PiAgentGitChangeListItem
+    let onToggleIncluded: () -> Void
+
+    var body: some View {
+        Button(action: onToggleIncluded) {
+            HStack(spacing: 9) {
+                Image(systemName: item.isIncluded ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(item.isIncluded ? Color.accentColor : AppTheme.mutedText)
+                Image(systemName: "doc.text")
+                    .foregroundStyle(AppTheme.mutedText)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.primary)
+                    Text(item.badgeText)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(item.badgeColor)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(item.isIncluded ? Color.accentColor.opacity(0.10) : Color.clear))
+        }
+        .buttonStyle(.plain)
+        .help(item.isIncluded ? "Exclude from commit" : "Include in commit")
     }
 }
 
