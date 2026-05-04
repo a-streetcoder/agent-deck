@@ -585,6 +585,7 @@ struct PiAgentScreen: View {
 
             let isRunning = store.selectedSession?.status.isActive == true
             let isCompacting = store.selectedSession?.isCompacting == true
+            let hasSelectedSession = store.selectedSession != nil
             PiAgentComposerBox(
                 text: $composerText,
                 images: $composerImages,
@@ -592,8 +593,8 @@ struct PiAgentScreen: View {
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
-                isDisabled: isCompacting,
-                placeholder: isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…"),
+                isDisabled: isCompacting || !hasSelectedSession,
+                placeholder: !hasSelectedSession ? "Select or start a Pi Agent session to send a message…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
@@ -636,6 +637,11 @@ struct PiAgentScreen: View {
 
         switch first {
         case "/":
+            // Pi only dispatches slash commands/templates when the prompt starts with `/`.
+            // Keep file mentions available anywhere, but only suggest/action slash commands
+            // when this token is the first non-whitespace content in the composer.
+            let prefix = composerText[..<active.range.lowerBound]
+            guard prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return .slash(query: String(active.token.dropFirst()).lowercased())
         case "@":
             return .file(query: String(active.token.dropFirst()).lowercased())

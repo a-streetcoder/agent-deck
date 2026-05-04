@@ -3129,6 +3129,8 @@ private struct AgentDetailView: View {
                                         }
                                     }
                                 }
+                                .lineLimit(1)
+                                .fontWidth(.condensed)
                             }
 
                             configEditorRow("Selected") {
@@ -3144,9 +3146,13 @@ private struct AgentDetailView: View {
                                             inlineDraft?.config.extensions = nil
                                         }
                                         .controlSize(.small)
+                                        .lineLimit(1)
 
                                         Text((draft.config.extensions == nil) ? "Inherits Pi’s default extension behavior." : "Using an explicit extension list.")
                                             .font(.caption)
+                                            .fontWidth(.condensed)
+                                            .lineLimit(1)
+                                            .fixedSize(horizontal: true, vertical: false)
                                             .foregroundStyle(AppTheme.mutedText)
                                     }
                                 }
@@ -3159,6 +3165,8 @@ private struct AgentDetailView: View {
                                             }
                                         }
                                     }
+                                    .lineLimit(1)
+                                    .fontWidth(.condensed)
                                 }
 
                                 configEditorRow("Selected") {
