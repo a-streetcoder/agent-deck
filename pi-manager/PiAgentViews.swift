@@ -474,7 +474,11 @@ struct PiAgentScreen: View {
                                 PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                             }
                             ForEach(transcriptCache.threads) { thread in
-                                PiAgentTranscriptThreadCard(thread: thread, thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode)
+                                PiAgentTranscriptThreadCard(
+                                    thread: thread,
+                                    thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
+                                    visibility: viewModel.appSettings.piAgentTranscriptVisibility
+                                )
                                     .id(thread.id)
                             }
                         }
@@ -2937,16 +2941,33 @@ private struct PiAgentTranscriptThread: Identifiable, Hashable {
     }
 }
 
+private struct PiAgentWebLink: Identifiable, Hashable {
+    let id = UUID()
+    var title: String
+    var url: String
+
+    var domain: String {
+        URL(string: url)?.host(percentEncoded: false)?.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression) ?? url
+    }
+}
+
 private struct PiAgentTranscriptActivity: Identifiable, Hashable {
     var id: UUID
     var name: String
     var entries: [PiAgentTranscriptEntry]
     var isError: Bool
     var compactDetail: String?
+    var webLinks: [PiAgentWebLink]
     var subagentSummary: PiAgentSubagentSummary?
 
     var representativeEntry: PiAgentTranscriptEntry? { entries.first }
-    var count: Int { entries.count }
+    nonisolated var count: Int { entries.count }
+    nonisolated var isWebActivity: Bool {
+        switch name.lowercased() {
+        case "web_search", "fetch_content", "get_search_content", "code_search": return true
+        default: return false
+        }
+    }
 
     @MainActor
     static func make(from entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptActivity] {
@@ -2966,6 +2987,7 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 entries: entries,
                 isError: entries.contains { $0.role == .error },
                 compactDetail: compactDetail(for: name, entries: entries),
+                webLinks: webLinks(for: name, entries: entries),
                 subagentSummary: subagentSummary
             )
         }
@@ -2976,6 +2998,28 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
             return entry.title.replacingOccurrences(of: "Tool: ", with: "")
         }
         return entry.title
+    }
+
+    nonisolated private static func webLinks(for name: String, entries: [PiAgentTranscriptEntry]) -> [PiAgentWebLink] {
+        switch name.lowercased() {
+        case "web_search":
+            let details = entries.lazy.compactMap(toolDetails).last
+            let curated = curatedSourceLinks(from: details)
+            if !curated.isEmpty { return Array(curated.prefix(20)) }
+            return parseSourceLinks(from: entries.last?.text ?? "")
+        case "fetch_content":
+            let details = entries.lazy.compactMap(toolDetails).last
+            let args = entries.lazy.compactMap(toolArgs).last
+            let title = details?["title"]?.stringValue
+            let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
+            return urls.prefix(20).map { PiAgentWebLink(title: title?.isEmpty == false ? title! : (domain(from: $0) ?? $0), url: $0) }
+        case "get_search_content":
+            let details = entries.lazy.compactMap(toolDetails).last
+            guard let url = details?["url"]?.stringValue else { return [] }
+            return [PiAgentWebLink(title: details?["title"]?.stringValue ?? domain(from: url) ?? url, url: url)]
+        default:
+            return []
+        }
     }
 
     nonisolated private static func compactDetail(for name: String, entries: [PiAgentTranscriptEntry]) -> String? {
@@ -2996,8 +3040,6 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         let args = entries.lazy.compactMap(toolArgs).last
         let queries = stringArray(details?["queries"]) ?? stringArray(args?["queries"]) ?? args?["query"]?.stringValue.map { [$0] } ?? []
         let resultCount = intValue(details?["totalResults"])
-        let sourceURLs = stringArray(details?["fetchUrls"]) ?? Array(curatedSourceURLs(from: details).prefix(3))
-        let domains = domains(from: sourceURLs)
 
         var parts: [String] = []
         if queries.count == 1, let query = queries.first {
@@ -3007,9 +3049,6 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         }
         if let resultCount {
             parts.append(resultCount == 1 ? "1 result" : "\(resultCount) results")
-        }
-        if !domains.isEmpty {
-            parts.append(domains.prefix(3).joined(separator: ", "))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -3084,11 +3123,36 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
     }
 
     nonisolated private static func curatedSourceURLs(from details: JSONValue?) -> [String] {
+        curatedSourceLinks(from: details).map(\.url)
+    }
+
+    nonisolated private static func curatedSourceLinks(from details: JSONValue?) -> [PiAgentWebLink] {
         guard case let .array(queries)? = details?["curatedQueries"] else { return [] }
-        return queries.flatMap { query -> [String] in
+        return queries.flatMap { query -> [PiAgentWebLink] in
             guard case let .array(sources)? = query["sources"] else { return [] }
-            return sources.compactMap { $0["url"]?.stringValue }
+            return sources.compactMap { source in
+                guard let url = source["url"]?.stringValue else { return nil }
+                return PiAgentWebLink(title: source["title"]?.stringValue ?? domain(from: url) ?? url, url: url)
+            }
         }
+    }
+
+    nonisolated private static func parseSourceLinks(from text: String) -> [PiAgentWebLink] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var output: [PiAgentWebLink] = []
+        var pendingTitle: String?
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let match = trimmed.firstMatch(of: /^\d+\.\s+(.+)$/) {
+                pendingTitle = String(match.1).trimmingCharacters(in: .whitespacesAndNewlines)
+                continue
+            }
+            guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else { continue }
+            output.append(PiAgentWebLink(title: pendingTitle ?? domain(from: trimmed) ?? trimmed, url: trimmed))
+            pendingTitle = nil
+            if output.count >= 20 { break }
+        }
+        return output
     }
 
     nonisolated private static func domains(from urls: [String]) -> [String] {
@@ -3135,6 +3199,7 @@ private extension PiAgentTranscriptEntry {
 private struct PiAgentTranscriptThreadCard: View {
     let thread: PiAgentTranscriptThread
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
+    let visibility: PiAgentTranscriptVisibilitySettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -3156,24 +3221,29 @@ private struct PiAgentTranscriptThreadCard: View {
                             PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
                                 .id(entry.id)
                         }
-                        if let thinking = thread.thinking, thinkingDisplayMode != .hidden {
-                            PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
+                        if let thinking = thread.thinking, effectiveThinkingDisplayMode != .hidden {
+                            PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: effectiveThinkingDisplayMode, style: childStyle)
                                 .id(thinking.id)
                         }
                         ForEach(thread.assistantMessages) { entry in
                             PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
                                 .id(entry.id)
                         }
-                        if !thread.activities.isEmpty {
-                            PiAgentActivitySummaryView(activities: thread.activities)
+                        if visibility.showWebActivity && !webActivities.isEmpty {
+                            PiAgentWebActivitySummaryView(activities: webActivities)
+                        }
+                        if visibility.showToolCalls && !toolActivities.isEmpty {
+                            PiAgentActivitySummaryView(activities: toolActivities)
                         }
                         ForEach(thread.statuses) { entry in
                             PiAgentStatusTranscriptRow(entry: entry)
                                 .id(entry.id)
                         }
-                        ForEach(thread.errors) { entry in
-                            PiAgentStatusTranscriptRow(entry: entry)
-                                .id(entry.id)
+                        if visibility.showErrors {
+                            ForEach(thread.errors) { entry in
+                                PiAgentStatusTranscriptRow(entry: entry)
+                                    .id(entry.id)
+                            }
                         }
                     }
                 }
@@ -3186,7 +3256,194 @@ private struct PiAgentTranscriptThreadCard: View {
     }
 
     private var hasChildren: Bool {
-        !thread.steeringMessages.isEmpty || (thinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || !thread.activities.isEmpty || !thread.statuses.isEmpty || !thread.errors.isEmpty
+        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || !thread.statuses.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
+    }
+
+    private var effectiveThinkingDisplayMode: PiAgentThinkingDisplayMode {
+        visibility.showThinking ? thinkingDisplayMode : .hidden
+    }
+
+    private var webActivities: [PiAgentTranscriptActivity] {
+        thread.activities.filter(\.isWebActivity)
+    }
+
+    private var toolActivities: [PiAgentTranscriptActivity] {
+        thread.activities.filter { !$0.isWebActivity }
+    }
+}
+
+private struct PiAgentWebActivitySummaryView: View {
+    let activities: [PiAgentTranscriptActivity]
+    @State private var expandedRows: Set<UUID> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(hasErrors ? .red : AppTheme.mutedText)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(callCountText)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(displayRows) { row in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: row.icon)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(row.isError ? .red : AppTheme.mutedText)
+                                .frame(width: 14)
+                            Text(row.title)
+                                .font(.caption.weight(.semibold))
+                            if let detail = row.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer(minLength: 0)
+                            if row.count > 1 {
+                                Text("×\(row.count)")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .monospacedDigit()
+                            }
+                        }
+
+                        if !row.links.isEmpty {
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(visibleLinks(for: row)) { link in
+                                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                        Text("•")
+                                            .foregroundStyle(AppTheme.mutedText)
+                                        Text(link.title)
+                                            .font(.caption2.weight(.semibold))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                        Text(link.domain)
+                                            .font(.caption2)
+                                            .foregroundStyle(AppTheme.mutedText)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                }
+                                if row.links.count > inlineLinkLimit {
+                                    Button {
+                                        withAnimation(.snappy(duration: 0.18)) { toggleExpanded(row.id) }
+                                    } label: {
+                                        Text(expandedRows.contains(row.id) ? "Show fewer results" : "+\(row.links.count - inlineLinkLimit) more results")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.top, 1)
+                                }
+                            }
+                            .padding(.leading, 21)
+                        }
+                    }
+                }
+                if hiddenCount > 0 {
+                    Text("\(hiddenCount) older web update\(hiddenCount == 1 ? "" : "s") hidden")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+
+    private let inlineLinkLimit = 5
+
+    private func visibleLinks(for row: Row) -> [PiAgentWebLink] {
+        expandedRows.contains(row.id) ? row.links : Array(row.links.prefix(inlineLinkLimit))
+    }
+
+    private func toggleExpanded(_ id: UUID) {
+        if expandedRows.contains(id) {
+            expandedRows.remove(id)
+        } else {
+            expandedRows.insert(id)
+        }
+    }
+
+    private var displayRows: [Row] {
+        activities.map(Row.init(activity:)).prefix(4).map { $0 }
+    }
+
+    private var hiddenCount: Int {
+        max(0, activities.count - displayRows.count)
+    }
+
+    private var title: String {
+        let names = Set(activities.map { $0.name.lowercased() })
+        if names.count == 1, let name = names.first {
+            switch name {
+            case "web_search": return "Web search"
+            case "fetch_content": return "Fetch content"
+            case "get_search_content": return "Read web content"
+            case "code_search": return "Code search"
+            default: break
+            }
+        }
+        return "Web"
+    }
+
+    private var hasErrors: Bool {
+        activities.contains(where: \.isError)
+    }
+
+    private var callCountText: String {
+        let count = activities.reduce(0) { $0 + $1.count }
+        return count == 1 ? "1 call" : "\(count) calls"
+    }
+
+    private struct Row: Identifiable {
+        let id: UUID
+        let title: String
+        let detail: String?
+        let icon: String
+        let count: Int
+        let isError: Bool
+        let links: [PiAgentWebLink]
+
+        nonisolated init(activity: PiAgentTranscriptActivity) {
+            id = activity.id
+            title = Self.title(for: activity.name)
+            detail = activity.compactDetail
+            icon = Self.icon(for: activity.name)
+            count = activity.count
+            isError = activity.isError
+            links = activity.webLinks
+        }
+
+        nonisolated private static func title(for name: String) -> String {
+            switch name.lowercased() {
+            case "web_search": return "Search"
+            case "fetch_content": return "Fetched"
+            case "get_search_content": return "Read content"
+            case "code_search": return "Code search"
+            default: return name.replacingOccurrences(of: "_", with: " ").capitalized
+            }
+        }
+
+        nonisolated private static func icon(for name: String) -> String {
+            switch name.lowercased() {
+            case "web_search": return "magnifyingglass"
+            case "fetch_content", "get_search_content": return "doc.text.magnifyingglass"
+            case "code_search": return "curlybraces.square"
+            default: return "globe"
+            }
+        }
     }
 }
 
@@ -3228,21 +3485,11 @@ private struct PiAgentActivitySummaryView: View {
     }
 
     private func activityChip(_ activity: PiAgentTranscriptActivity) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Image(systemName: icon(for: activity.name))
                 .font(.caption2.weight(.semibold))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(displayName(for: activity.name, count: activity.count))
-                    .font(.caption)
-                if let detail = activity.compactDetail {
-                    Text(detail)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(activity.isError ? .red.opacity(0.82) : AppTheme.mutedText.opacity(0.82))
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
+            Text(displayName(for: activity.name, count: activity.count))
+                .font(.caption)
             Text("\(activity.count)")
                 .font(.caption2.weight(.bold))
                 .monospacedDigit()
@@ -3251,10 +3498,9 @@ private struct PiAgentActivitySummaryView: View {
                 .background(Capsule(style: .continuous).fill(AppTheme.cardStroke.opacity(0.55)))
         }
         .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
-        .padding(.horizontal, 8)
-        .padding(.vertical, activity.compactDetail == nil ? 3 : 5)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
         .background(Capsule(style: .continuous).fill((activity.isError ? Color.red : AppTheme.cardStroke).opacity(0.12)))
-        .frame(maxWidth: 300, alignment: .leading)
     }
 
     private func displayName(for name: String, count: Int) -> String {

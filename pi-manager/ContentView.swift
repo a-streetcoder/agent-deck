@@ -14,13 +14,13 @@ struct ContentView: View {
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
     @State private var isSkillsRecapPresented = false
-    @State private var skillsImportCommand = 0
     @State private var isSubagentsInfoPresented = false
     @State private var isSubagentsRecapPresented = false
     @State private var showingEnableAllProjectsAlert = false
     @State private var showingDisableAllProjectsAlert = false
     @State private var showingPiAgentSubagentsToggleAlert = false
     @State private var showingPiAgentDeleteAlert = false
+    @State private var isPiAgentTranscriptOptionsPresented = false
     @State private var isPiAgentRepoChangesPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
 
@@ -358,7 +358,7 @@ struct ContentView: View {
 
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        skillsImportCommand += 1
+                        NotificationCenter.default.post(name: .piManagerImportSkillsRequested, object: nil)
                     } label: {
                         Label("Import Skills", systemImage: "plus")
                     }
@@ -396,11 +396,14 @@ struct ContentView: View {
                     }
 
                     Button {
-                        viewModel.togglePiAgentThinkingBlocksVisibility()
+                        isPiAgentTranscriptOptionsPresented.toggle()
                     } label: {
-                        Label(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Reasoning" : "Hide Reasoning", systemImage: viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "eye" : "eye.slash")
+                        Label("Transcript Display", systemImage: "eye")
                     }
-                    .help(viewModel.appSettings.piAgentThinkingDisplayMode == .hidden ? "Show Pi reasoning blocks" : "Hide Pi reasoning blocks")
+                    .help("Choose what appears in the agent transcript")
+                    .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                        PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+                    }
 
                     Button {
                         isPiAgentRepoChangesPresented.toggle()
@@ -578,8 +581,7 @@ struct ContentView: View {
         case .skills:
             SkillsScreen(
                 viewModel: viewModel,
-                isRecapPresented: $isSkillsRecapPresented,
-                importCommand: $skillsImportCommand
+                isRecapPresented: $isSkillsRecapPresented
             )
         case .commandsAndPrompts:
             CommandsAndPromptsScreen(viewModel: viewModel)
@@ -587,6 +589,8 @@ struct ContentView: View {
             GitHubScreen(viewModel: viewModel)
         case .agent:
             PiAgentScreen(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+        case .extensions:
+            ExtensionsScreen(viewModel: viewModel)
         case .models:
             ModelsScreen(viewModel: viewModel)
         case .settings:
@@ -623,6 +627,8 @@ struct ContentView: View {
             return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
         case .skills:
             return viewModel.selectedSkill?.name ?? "Skills"
+        case .extensions:
+            return viewModel.selectedExtension?.displayName ?? "Extensions"
         default:
             return viewModel.selectedSidebarItem.rawValue
         }
@@ -696,6 +702,88 @@ struct ContentView: View {
         }
     }
 
+}
+
+private struct PiAgentTranscriptDisplayOptionsPopover: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    private var visibility: PiAgentTranscriptVisibilitySettings {
+        viewModel.appSettings.piAgentTranscriptVisibility
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Transcript display", systemImage: "eye")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+
+            optionRow(
+                title: "Thinking",
+                subtitle: "Show Pi reasoning blocks",
+                systemImage: "brain.head.profile",
+                isOn: visibility.showThinking,
+                keyPath: \.showThinking
+            )
+            optionRow(
+                title: "Web activity",
+                subtitle: "Show searches and fetched/read links",
+                systemImage: "globe",
+                isOn: visibility.showWebActivity,
+                keyPath: \.showWebActivity
+            )
+            optionRow(
+                title: "Tool calls",
+                subtitle: "Show non-web tool call summaries",
+                systemImage: "wrench.and.screwdriver",
+                isOn: visibility.showToolCalls,
+                keyPath: \.showToolCalls
+            )
+            optionRow(
+                title: "Errors",
+                subtitle: "Show error rows in the transcript",
+                systemImage: "exclamationmark.triangle",
+                isOn: visibility.showErrors,
+                keyPath: \.showErrors
+            )
+        }
+        .padding(12)
+        .frame(width: 260)
+    }
+
+    private func optionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isOn: Bool,
+        keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>
+    ) -> some View {
+        Button {
+            viewModel.setPiAgentTranscriptVisibility(keyPath, to: !isOn)
+        } label: {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isOn ? Color.accentColor : AppTheme.mutedText)
+                    .frame(width: 17)
+                Image(systemName: systemImage)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 17)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isOn ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct PiAgentSubagentsToolbarIcon: View {
@@ -1666,6 +1754,98 @@ private struct SettingsScreen: View {
         )
     }
 
+}
+
+private struct ExtensionsScreen: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        AppPage("Extensions", subtitle: "Enable or disable Pi extensions without deleting extension files") {
+            AppCard(title: "Safety") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Pi Manager only writes explicit + / - entries to Pi settings. It does not delete extension files, package folders, or unrelated settings keys.")
+                    Text("Changes affect new Pi sessions in Pi Manager and the CLI/TUI. Existing TUI sessions can pick them up with `/reload`; existing app sessions need a new session.")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            let extensions = viewModel.visibleExtensions
+            if extensions.isEmpty {
+                ContentUnavailableView("No Extensions Found", systemImage: "puzzlepiece.extension", description: Text("Pi Manager did not find auto-discovered, settings, or package extensions for the current scope."))
+            } else {
+                VStack(alignment: .leading, spacing: 14) {
+                    extensionSummary(extensions)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(extensions.enumerated()), id: \.element.id) { index, record in
+                            extensionRow(record)
+                            if index < extensions.count - 1 { Divider() }
+                        }
+                    }
+                    .padding(.horizontal, AppTheme.cardPadding)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                            .fill(AppTheme.cardFill)
+                            .stroke(AppTheme.cardStroke, lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    private func extensionSummary(_ extensions: [PiExtensionRecord]) -> some View {
+        let enabled = extensions.filter(\.enabled).count
+        return HStack(spacing: 10) {
+            Label("\(enabled) enabled", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Label("\(extensions.count - enabled) disabled", systemImage: "minus.circle.fill")
+                .foregroundStyle(AppTheme.mutedText)
+            Spacer()
+        }
+        .font(.footnote)
+    }
+
+    private func extensionRow(_ record: PiExtensionRecord) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "puzzlepiece.extension")
+                .foregroundStyle(record.enabled ? .orange : AppTheme.mutedText)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(record.displayName)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text(record.enabled ? "Enabled" : "Disabled")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .foregroundStyle(record.enabled ? .green : AppTheme.mutedText)
+                        .background((record.enabled ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
+                }
+                Text(record.path)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .textSelection(.enabled)
+                Text("\(record.scope.rawValue) · \(record.origin.rawValue) · writes to \(record.settingsPath)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .textSelection(.enabled)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { record.enabled },
+                set: { viewModel.setExtension(record, enabled: $0) }
+            ))
+            .labelsHidden()
+            .help(record.enabled ? "Disable this extension in settings" : "Enable this extension in settings")
+        }
+        .padding(.vertical, 10)
+    }
 }
 
 private struct ModelsScreen: View {
@@ -4099,7 +4279,6 @@ private struct SkillsProjectRecapPanel: View {
 private struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isRecapPresented: Bool
-    @Binding var importCommand: Int
     @State private var selectedSkillName: String?
     @State private var isImportSheetPresented = false
     @State private var importSourceURL: URL?
@@ -4229,8 +4408,7 @@ private struct SkillsScreen: View {
         }
         .onAppear { ensureSelection() }
         .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in ensureSelection() }
-        .onChange(of: importCommand) { _, newValue in
-            guard newValue > 0 else { return }
+        .onReceive(NotificationCenter.default.publisher(for: .piManagerImportSkillsRequested)) { _ in
             DispatchQueue.main.async {
                 beginSkillImport()
             }
@@ -4454,6 +4632,14 @@ private struct SkillsScreen: View {
         existingLibrarySkillNames.contains(candidate.name)
     }
 
+    private var importableCandidateIDs: Set<String> {
+        Set(importCandidates.filter { !candidateAlreadyImported($0) || replaceExistingImports }.map(\.id))
+    }
+
+    private var allImportableCandidatesSelected: Bool {
+        !importableCandidateIDs.isEmpty && importableCandidateIDs.isSubset(of: selectedImportCandidateIDs)
+    }
+
     @ViewBuilder
     private var importSkillsSheet: some View {
         NavigationStack {
@@ -4492,19 +4678,25 @@ private struct SkillsScreen: View {
 
                 AppCard(title: "Skills") {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
+                        HStack(alignment: .center, spacing: 12) {
                             Text("Select one or more skill roots to import into the Pi Manager library.")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                             Spacer()
-                            Button("Select All") {
-                                selectedImportCandidateIDs = Set(importCandidates.map(\.id))
+                            Button(allImportableCandidatesSelected ? "Deselect All" : "Select All") {
+                                if allImportableCandidatesSelected {
+                                    selectedImportCandidateIDs.removeAll()
+                                } else {
+                                    selectedImportCandidateIDs = importableCandidateIDs
+                                }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.bordered)
+
                             Button("Clear") {
                                 selectedImportCandidateIDs.removeAll()
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.bordered)
+                            .disabled(selectedImportCandidateIDs.isEmpty)
                         }
 
                         ScrollView {
@@ -4519,27 +4711,39 @@ private struct SkillsScreen: View {
                                             else { selectedImportCandidateIDs.remove(candidate.id) }
                                         }
                                     )) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack(spacing: 8) {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            HStack(alignment: .firstTextBaseline, spacing: 8) {
                                                 Text(candidate.name)
                                                     .font(.body.weight(.semibold))
                                                 if alreadyImported {
-                                                    AppLabelTag(text: replaceExistingImports ? "Will Replace" : "Already Imported ✓", color: .purple)
+                                                    AppLabelTag(text: replaceExistingImports ? "Will Replace" : "Already Imported", color: .gray)
                                                 }
                                             }
+
                                             if let description = candidate.description {
-                                                Text(description)
-                                                    .font(.caption)
-                                                    .foregroundStyle(AppTheme.mutedText)
-                                                    .lineLimit(2)
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text("Description")
+                                                        .font(.caption2.weight(.semibold))
+                                                        .foregroundStyle(AppTheme.mutedText)
+                                                    Text(description)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.primary)
+                                                        .lineLimit(2)
+                                                }
                                             }
-                                            Text(candidate.sourceRootPath)
-                                                .font(.caption.monospaced())
-                                                .foregroundStyle(AppTheme.mutedText)
-                                                .lineLimit(1)
-                                                .truncationMode(.middle)
+
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Path")
+                                                    .font(.caption2.weight(.semibold))
+                                                    .foregroundStyle(AppTheme.mutedText)
+                                                Text(candidate.sourceRootPath)
+                                                    .font(.caption.monospaced())
+                                                    .foregroundStyle(AppTheme.mutedText)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.middle)
+                                            }
                                         }
-                                        .padding(.vertical, 8)
+                                        .padding(.vertical, 10)
                                     }
                                     .toggleStyle(.checkbox)
                                     .disabled(alreadyImported && !replaceExistingImports)
@@ -4575,39 +4779,50 @@ private struct SkillsScreen: View {
     }
 
     private func beginSkillImport() {
-        importSourceURL = nil
-        importCandidates = []
-        selectedImportCandidateIDs.removeAll()
         viewModel.chooseExternalSkillsDirectory { url in
             guard let url else { return }
-            loadImportCandidates(from: url)
+            DispatchQueue.main.async {
+                loadImportCandidates(from: url)
+            }
         }
     }
 
     private func chooseDifferentImportFolder() {
         viewModel.chooseExternalSkillsDirectory(startingAt: importSourceURL) { url in
             guard let url else { return }
-            loadImportCandidates(from: url)
+            DispatchQueue.main.async {
+                loadImportCandidates(from: url)
+            }
         }
     }
 
     private func loadImportCandidates(from url: URL) {
+        importErrorMessage = nil
+        importSummaryMessage = nil
         importSourceURL = url
+
         var candidates = viewModel.discoverImportableSkills(in: url)
         if candidates.isEmpty, let directCandidate = viewModel.externalSkillCandidate(at: url) {
             candidates = [directCandidate]
         }
+
         guard !candidates.isEmpty else {
             importCandidates = []
             selectedImportCandidateIDs.removeAll()
             importErrorMessage = "No importable skill folders were found. Choose either a skill root containing SKILL.md or a folder whose direct child folders contain SKILL.md files."
             return
         }
+
         importCandidates = candidates
         selectedImportCandidateIDs = Set(candidates.filter { !existingLibrarySkillNames.contains($0.name) }.map(\.id))
         importMode = .symlink
         replaceExistingImports = false
-        isImportSheetPresented = true
+
+        if !isImportSheetPresented {
+            DispatchQueue.main.async {
+                isImportSheetPresented = true
+            }
+        }
     }
 
     private func importSelectedSkills() {
@@ -5643,6 +5858,10 @@ private func resolutionUsageLabel(_ agent: EffectiveAgentRecord) -> String {
         scope = agent.resolutionKind.rawValue
     }
     return "\(scope) · \(agent.resolutionKind.rawValue)"
+}
+
+private extension Notification.Name {
+    static let piManagerImportSkillsRequested = Notification.Name("piManagerImportSkillsRequested")
 }
 
 private func copyToPasteboard(_ value: String) {

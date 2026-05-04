@@ -648,7 +648,7 @@ struct PiScanner {
             return SettingsSummary(path: file.path, packages: [], prompts: [], disableBuiltins: nil, agentOverrides: [])
         }
 
-        let packages = root["packages"] as? [String] ?? []
+        let packages = packageSources(from: root["packages"])
         let prompts = resolvePromptSettingEntries(root["prompts"], settingsFile: file)
         let subagents = root["subagents"] as? [String: Any]
         let disableBuiltins = subagents?["disableBuiltins"] as? Bool
@@ -666,6 +666,14 @@ struct PiScanner {
         .sorted { $0.agentName.localizedCaseInsensitiveCompare($1.agentName) == .orderedAscending }
 
         return SettingsSummary(path: file.path, packages: packages, prompts: prompts, disableBuiltins: disableBuiltins, agentOverrides: overrides)
+    }
+
+    private func packageSources(from value: Any?) -> [String] {
+        guard let packages = value as? [Any] else { return [] }
+        return packages.compactMap { package in
+            if let source = package as? String { return source }
+            return (package as? [String: Any])?["source"] as? String
+        }
     }
 
     private func scanEnv(at file: URL?, scope: ResourceScopeKind) -> [EnvKeyRecord] {

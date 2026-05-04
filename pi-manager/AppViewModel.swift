@@ -13,6 +13,7 @@ final class AppViewModel: ObservableObject {
     @Published var selectedChainID: ChainRecord.ID?
     @Published var selectedSkillID: SkillRecord.ID?
     @Published var selectedCommandItemID: String?
+    @Published var selectedExtensionID: PiExtensionRecord.ID?
     @Published var selectedAgentFilter: AgentFilter = .all
     @Published var discoveredProjects: [DiscoveredProject] = []
     @Published var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
@@ -58,6 +59,7 @@ final class AppViewModel: ObservableObject {
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
     private let subagentConfigPersistence = SubagentConfigPersistence()
+    private let extensionManagementService = PiExtensionManagementService()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsStore = AppSettingsStore.shared
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
@@ -106,6 +108,7 @@ final class AppViewModel: ObservableObject {
         let previousChainID = selectedChainID
         let previousSkillID = selectedSkillID
         let previousCommandItemID = selectedCommandItemID
+        let previousExtensionID = selectedExtensionID
 
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
         discoveredProjects = projectDiscovery.discoverProjects(
@@ -133,6 +136,7 @@ final class AppViewModel: ObservableObject {
         selectedAgentID = filteredAgents.contains(where: { $0.id == previousAgentID }) ? previousAgentID : filteredAgents.first?.id
         selectedChainID = allVisibleChainRecords.contains(where: { $0.id == previousChainID }) ? previousChainID : allVisibleChainRecords.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == previousSkillID }) ? previousSkillID : allVisibleSkillRecords.first?.id
+        selectedExtensionID = visibleExtensions.contains(where: { $0.id == previousExtensionID }) ? previousExtensionID : visibleExtensions.first?.id
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
         lastWatchFingerprint = watchFingerprint()
@@ -192,13 +196,15 @@ final class AppViewModel: ObservableObject {
         panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
         let handler: (NSApplication.ModalResponse) -> Void = { [weak panel, weak self] response in
-            guard response == .OK,
-                  let selectedURL = panel?.url?.standardizedFileURL else {
-                completion(nil)
-                return
+            DispatchQueue.main.async {
+                guard response == .OK,
+                      let selectedURL = panel?.url?.standardizedFileURL else {
+                    completion(nil)
+                    return
+                }
+                self?.persistLastExternalSkillsDirectoryPath(selectedURL.path)
+                completion(selectedURL)
             }
-            self?.persistLastExternalSkillsDirectoryPath(selectedURL.path)
-            completion(selectedURL)
         }
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -1614,7 +1620,30 @@ final class AppViewModel: ObservableObject {
     }
 
     func togglePiAgentThinkingBlocksVisibility() {
-        setPiAgentThinkingDisplayMode(appSettings.piAgentThinkingDisplayMode == .hidden ? .full : .hidden)
+        setPiAgentTranscriptVisibility(\.showThinking, to: !appSettings.piAgentTranscriptVisibility.showThinking)
+    }
+
+    func setPiAgentTranscriptVisibility(_ keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>, to value: Bool) {
+        guard appSettings.piAgentTranscriptVisibility[keyPath: keyPath] != value else { return }
+        appSettings.piAgentTranscriptVisibility[keyPath: keyPath] = value
+        appSettingsStore.settings = appSettings
+    }
+
+    var visibleExtensions: [PiExtensionRecord] {
+        extensionManagementService.scan(projectRoot: projectRootURL)
+    }
+
+    var selectedExtension: PiExtensionRecord? {
+        visibleExtensions.first(where: { $0.id == selectedExtensionID }) ?? visibleExtensions.first
+    }
+
+    func setExtension(_ extensionRecord: PiExtensionRecord, enabled: Bool) {
+        do {
+            try extensionManagementService.setEnabled(extensionRecord, enabled: enabled)
+            refresh(includeModels: false)
+        } catch {
+            NSSound.beep()
+        }
     }
 
     var isSubagentsToggleExtensionInstalled: Bool {
@@ -2940,12 +2969,41 @@ enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
+    var showThinking: Bool = true
+    var showWebActivity: Bool = true
+    var showToolCalls: Bool = true
+    var showErrors: Bool = true
+}
+
 struct AppSettings: Codable, Hashable {
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
+    var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
     var defaultSkillsImportRootPath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case gitHubBoardCacheLifetimeMinutes
+        case piAgentThinkingDisplayMode
+        case piAgentTranscriptVisibility
+        case piAgentTerminalApplicationPath
+        case projectsRootPath
+        case defaultSkillsImportRootPath
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gitHubBoardCacheLifetimeMinutes = try container.decodeIfPresent(Int.self, forKey: .gitHubBoardCacheLifetimeMinutes) ?? 15
+        piAgentThinkingDisplayMode = try container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode) ?? .full
+        piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
+        piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
+        projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
+        defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
+    }
 }
 
 struct TerminalApplicationOption: Identifiable, Hashable {
@@ -2992,6 +3050,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case skills = "Skills"
     case commandsAndPrompts = "Prompts"
     case subagents = "Subagents"
+    case extensions = "Extensions"
     case models = "Models"
     case settings = "Settings"
     case environment = "Environment"
@@ -3010,6 +3069,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .skills: return "wand.and.stars"
         case .commandsAndPrompts: return "rectangle.and.pencil.and.ellipsis"
         case .subagents: return "slider.horizontal.3"
+        case .extensions: return "puzzlepiece.extension"
         case .models: return "cpu"
         case .settings: return "gearshape"
         case .environment: return "key"
@@ -3034,7 +3094,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .piResources:
             return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:
-            return [.models, .settings, .environment, .diagnostics]
+            return [.extensions, .models, .settings, .environment, .diagnostics]
         case .reference:
             return [.piDocs]
         }
