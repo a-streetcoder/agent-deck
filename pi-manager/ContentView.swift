@@ -366,16 +366,6 @@ struct ContentView: View {
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
 
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        viewModel.openTerminalForSelectedPiAgentSession()
-                    } label: {
-                        Image(systemName: "terminal")
-                    }
-                    .help("Open Pi CLI for this session in Terminal")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-                }
-
                 ToolbarSpacer(.fixed, placement: .primaryAction)
 
                 ToolbarItem(placement: .primaryAction) {
