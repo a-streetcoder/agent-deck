@@ -3573,8 +3573,7 @@ struct PiAgentRepoChangesPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let snapshot {
             if snapshot.totalChangeCount == 0 {
-                ContentUnavailableView("No local changes", systemImage: "checkmark.circle", description: Text("The selected Pi Agent repository is clean."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                cleanRepositoryState(snapshot)
             } else {
                 changesContent(snapshot)
             }
@@ -3587,7 +3586,7 @@ struct PiAgentRepoChangesPanel: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Repo Changes")
+                Label("Repo Changes", systemImage: "arrow.triangle.branch")
                     .font(.headline)
                     .fontWidth(.expanded)
                 Text(viewModel.piAgentSessionStore.selectedSession?.projectName ?? viewModel.selectedDiscoveredProject?.name ?? "Pi Agent repository")
@@ -3611,6 +3610,28 @@ struct PiAgentRepoChangesPanel: View {
             .buttonStyle(.plain)
             .help("Close repo changes")
         }
+    }
+
+    private func cleanRepositoryState(_ snapshot: RepositoryChangesSnapshot) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: snapshot.canPush ? "arrow.up.circle" : "checkmark.circle")
+                .font(.system(size: 42, weight: .light))
+                .foregroundStyle(snapshot.canPush ? Color.accentColor : AppTheme.mutedText)
+            Text(snapshot.canPush ? "Ready to push" : "No local changes")
+                .font(.title2.weight(.bold))
+            Text(snapshot.canPush ? "Your branch is ahead of \(snapshot.upstreamBranch ?? "the upstream branch")." : "The selected Pi Agent repository is clean.")
+                .font(.callout)
+                .foregroundStyle(AppTheme.mutedText)
+                .multilineTextAlignment(.center)
+            if snapshot.canPush {
+                Button(viewModel.githubIsPushing ? "Pushing…" : "Push \(snapshot.aheadCount) commit\(snapshot.aheadCount == 1 ? "" : "s")") {
+                    viewModel.pushCurrentBranch()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.githubIsPushing)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func changesContent(_ snapshot: RepositoryChangesSnapshot) -> some View {
@@ -3652,41 +3673,59 @@ struct PiAgentRepoChangesPanel: View {
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
         HStack(spacing: 7) {
-            AppLabelTag(text: snapshot.branchName, color: .blue)
+            gitTag(snapshot.branchName, systemImage: "arrow.triangle.branch", color: .blue)
             if let upstream = snapshot.upstreamBranch {
-                AppLabelTag(text: upstream, color: .gray)
+                gitTag(upstream, systemImage: "arrow.up.right", color: .gray)
             }
             if snapshot.aheadCount > 0 {
-                AppLabelTag(text: "↑ \(snapshot.aheadCount)", color: .green)
+                gitTag("\(snapshot.aheadCount)", systemImage: "arrow.up", color: .green)
             }
             if snapshot.behindCount > 0 {
-                AppLabelTag(text: "↓ \(snapshot.behindCount)", color: .orange)
+                gitTag("\(snapshot.behindCount)", systemImage: "arrow.down", color: .orange)
             }
             Spacer()
         }
     }
 
+    private func gitTag(_ text: String, systemImage: String, color: Color) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .fontWidth(.expanded)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(color)
+    }
+
     private func commitBox(_ snapshot: RepositoryChangesSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Commit & Push")
+            Text("Commit")
                 .font(.headline)
-            Text("Stage files by checking them above, then commit and push from here.")
+            Text("Write a title, optionally add a description, then commit the included files.")
                 .font(.footnote)
                 .foregroundStyle(AppTheme.mutedText)
 
-            TextEditor(text: $viewModel.githubCommitMessage)
+            TextField("Commit title", text: $viewModel.githubCommitMessage)
+                .textFieldStyle(.roundedBorder)
+
+            Text("Description")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            TextEditor(text: $viewModel.githubCommitDescription)
                 .font(.body)
-                .frame(minHeight: 76, maxHeight: 96)
+                .frame(minHeight: 72, maxHeight: 100)
                 .padding(6)
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.cardFill))
 
             HStack {
-                Button("Commit \(snapshot.staged.count)") { viewModel.commitChanges() }
+                Button(viewModel.githubIsCommitting ? "Committing…" : "Commit \(snapshot.staged.count) file\(snapshot.staged.count == 1 ? "" : "s")") { viewModel.commitChanges() }
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.githubIsCommitting || !snapshot.canCommit || viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Push") { viewModel.pushCurrentBranch() }
-                    .disabled(viewModel.githubIsPushing || !snapshot.canPush)
+                if snapshot.canPush {
+                    Button(viewModel.githubIsPushing ? "Pushing…" : "Push \(snapshot.aheadCount)") { viewModel.pushCurrentBranch() }
+                        .disabled(viewModel.githubIsPushing)
+                }
                 Spacer()
             }
         }

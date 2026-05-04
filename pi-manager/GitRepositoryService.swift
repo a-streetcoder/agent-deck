@@ -50,8 +50,12 @@ struct GitRepositoryService {
         try await runGitMutation(arguments: ["restore", "--staged", "."], commandDescription: "git restore --staged .", in: repositoryURL)
     }
 
-    func commit(message: String, in repositoryURL: URL) async throws {
-        try await runGitMutation(arguments: ["commit", "-m", message], commandDescription: "git commit -m", in: repositoryURL)
+    func commit(message: String, description: String = "", in repositoryURL: URL) async throws {
+        var arguments = ["commit", "-m", message]
+        if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments += ["-m", description]
+        }
+        try await runGitMutation(arguments: arguments, commandDescription: "git commit", in: repositoryURL)
     }
 
     func pushCurrentBranch(in repositoryURL: URL) async throws {

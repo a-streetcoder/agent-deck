@@ -31,6 +31,7 @@ final class AppViewModel: ObservableObject {
     @Published var githubSelectedDiffKind: GitDiffKind?
     @Published var githubSelectedDiffText: String?
     @Published var githubCommitMessage = ""
+    @Published var githubCommitDescription = ""
     @Published var githubSelectedWorkItem: GitHubWorkItem?
     @Published var githubIssueDetail: GitHubIssueDetail?
     @Published var githubCommentDraft = ""
@@ -718,8 +719,9 @@ final class AppViewModel: ObservableObject {
     func commitChanges() {
         guard let project = selectedDiscoveredProject else { return }
         let message = githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = githubCommitDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else {
-            githubLastError = "Enter a commit message first."
+            githubLastError = "Enter a commit title first."
             return
         }
 
@@ -728,9 +730,10 @@ final class AppViewModel: ObservableObject {
 
         Task {
             do {
-                try await self.gitRepositoryService.commit(message: message, in: project.url)
+                try await self.gitRepositoryService.commit(message: message, description: description, in: project.url)
                 await MainActor.run {
                     self.githubCommitMessage = ""
+                    self.githubCommitDescription = ""
                     self.githubIsCommitting = false
                     self.refreshRepositoryChanges()
                 }
@@ -1222,6 +1225,8 @@ final class AppViewModel: ObservableObject {
         githubSelectedDiffFilePath = nil
         githubSelectedDiffKind = nil
         githubSelectedDiffText = nil
+        githubCommitMessage = ""
+        githubCommitDescription = ""
         githubSelectedWorkItem = nil
         githubIssueDetail = nil
         githubCommentDraft = ""
