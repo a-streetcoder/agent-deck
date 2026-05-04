@@ -3216,6 +3216,17 @@ private struct PiAgentStatusTranscriptRow: View {
             Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2)
                 .foregroundStyle(AppTheme.mutedText)
+            if isCopyableToolError {
+                Button {
+                    copyToPasteboard(errorClipboardText)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy tool error")
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -3226,6 +3237,20 @@ private struct PiAgentStatusTranscriptRow: View {
         if entry.title == "Compaction" { return "Context" }
         if entry.title.hasPrefix("Tool: ") { return "Tool failed" }
         return entry.title
+    }
+
+    private var isCopyableToolError: Bool {
+        entry.role == .error && entry.title.hasPrefix("Tool: ")
+    }
+
+    private var errorClipboardText: String {
+        let toolName = entry.title.replacingOccurrences(of: "Tool: ", with: "")
+        return "Tool failed: \(toolName)\n\n\(entry.text)"
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var detail: String {
@@ -3584,32 +3609,51 @@ struct PiAgentRepoChangesPanel: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Repo Changes", systemImage: "arrow.triangle.branch")
-                    .font(.headline)
+        HStack(alignment: .center, spacing: 12) {
+            Image("github")
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(repositoryDisplayName)
+                    .font(.title3.weight(.bold))
                     .fontWidth(.expanded)
-                Text(viewModel.piAgentSessionStore.selectedSession?.projectName ?? viewModel.selectedDiscoveredProject?.name ?? "Pi Agent repository")
-                    .font(.footnote)
-                    .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
+                if let branchName = snapshot?.branchName {
+                    Label(branchName, systemImage: "arrow.trianglehead.branch")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
             }
-            Spacer()
-            Button {
-                viewModel.prepareRepoChangesForSelectedPiAgentSession()
-            } label: {
-                Image(systemName: "arrow.clockwise")
+            Spacer(minLength: 12)
+            HStack(spacing: 6) {
+                Button {
+                    viewModel.prepareRepoChangesForSelectedPiAgentSession()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.borderless)
+                .help("Refresh changes")
+
+                Button {
+                    isPresented = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.borderless)
+                .help("Close repo changes")
             }
-            .buttonStyle(.plain)
-            .help("Refresh changes")
-            Button {
-                isPresented = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .help("Close repo changes")
         }
+    }
+
+    private var repositoryDisplayName: String {
+        viewModel.piAgentSessionStore.selectedSession?.projectName ?? viewModel.selectedDiscoveredProject?.name ?? "Pi Agent repository"
     }
 
     private func cleanRepositoryState(_ snapshot: RepositoryChangesSnapshot) -> some View {
@@ -3637,8 +3681,6 @@ struct PiAgentRepoChangesPanel: View {
     private func changesContent(_ snapshot: RepositoryChangesSnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                branchSummary(snapshot)
-
                 HStack(spacing: 8) {
                     Button("Include All") { viewModel.stageAllChanges() }
                         .disabled(!snapshot.canStageAll)
@@ -3673,7 +3715,7 @@ struct PiAgentRepoChangesPanel: View {
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
         HStack(spacing: 7) {
-            gitTag(snapshot.branchName, systemImage: "arrow.triangle.branch", color: .blue)
+            gitTag(snapshot.branchName, systemImage: "arrow.trianglehead.branch", color: .blue)
             if let upstream = snapshot.upstreamBranch {
                 gitTag(upstream, systemImage: "arrow.up.right", color: .gray)
             }

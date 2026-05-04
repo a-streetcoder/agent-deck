@@ -394,7 +394,11 @@ struct ContentView: View {
                             viewModel.prepareRepoChangesForSelectedPiAgentSession()
                         }
                     } label: {
-                        Image(systemName: "arrow.triangle.branch")
+                        Image("github")
+                            .resizable()
+                            .renderingMode(.template)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 16, height: 16)
                     }
                     .help("Open repo changes sidebar")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
@@ -703,15 +707,6 @@ private struct PiAgentSidebarButton: View {
                 }
 
                 Spacer(minLength: 8)
-
-                if needsAttentionCount > 0 {
-                    Text("\(needsAttentionCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Capsule(style: .continuous).fill(Color.accentColor))
-                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -720,8 +715,26 @@ private struct PiAgentSidebarButton: View {
                     .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
                     .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
             )
+            .overlay(alignment: .topTrailing) {
+                if needsAttentionCount > 0 {
+                    Text(badgeText)
+                        .font(.caption2.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, needsAttentionCount > 9 ? 6 : 5)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .background(Capsule(style: .continuous).fill(Color.red))
+                        .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.9), lineWidth: 1.5))
+                        .offset(x: 6, y: -6)
+                        .accessibilityLabel("\(needsAttentionCount) Pi Agent notification\(needsAttentionCount == 1 ? "" : "s")")
+                }
+            }
         }
         .buttonStyle(.plain)
+    }
+
+    private var badgeText: String {
+        needsAttentionCount > 99 ? "99+" : "\(needsAttentionCount)"
     }
 }
 
