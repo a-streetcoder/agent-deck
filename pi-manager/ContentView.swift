@@ -402,6 +402,14 @@ struct ContentView: View {
                     }
                     .help("Open repo changes sidebar")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+
+                    Button {
+                        viewModel.openSelectedPiAgentSessionInTerminal()
+                    } label: {
+                        Label("Open in Terminal", systemImage: "terminal")
+                    }
+                    .help("Resume this Pi session in the default terminal app")
+                    .disabled(!viewModel.canOpenSelectedPiAgentSessionInTerminal)
                 }
             }
         }
@@ -1512,6 +1520,38 @@ private struct SettingsScreen: View {
                     Text("Matches Pi's thinking visibility behavior: show full reasoning, show a compact preview, or hide thinking blocks from the transcript.")
                         .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Terminal app", selection: piAgentTerminalApplicationSelectionBinding) {
+                            ForEach(viewModel.piAgentTerminalApplicationOptions) { option in
+                                Text(option.name).tag(option.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Text(viewModel.appSettings.piAgentTerminalApplicationPath ?? "Use macOS' default app for .command files")
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                            .foregroundStyle(AppTheme.mutedText)
+
+                        HStack(spacing: 10) {
+                            Button("Choose Other…") {
+                                viewModel.choosePiAgentTerminalApplication()
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Use macOS Default") {
+                                viewModel.resetPiAgentTerminalApplicationToDefault()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+
+                    Text("Used by the Pi Agent toolbar terminal button when opening a CLI resume session.")
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
                 }
             }
 
@@ -1550,6 +1590,13 @@ private struct SettingsScreen: View {
         Binding(
             get: { viewModel.appSettings.piAgentThinkingDisplayMode },
             set: { viewModel.setPiAgentThinkingDisplayMode($0) }
+        )
+    }
+
+    private var piAgentTerminalApplicationSelectionBinding: Binding<String> {
+        Binding(
+            get: { viewModel.piAgentTerminalApplicationSelectionID },
+            set: { viewModel.setPiAgentTerminalApplicationSelection($0) }
         )
     }
 

@@ -124,7 +124,10 @@ final class PiAgentSessionStore: ObservableObject {
     func renameSession(_ id: UUID, title: String) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
-        updateSession(id, bumpUpdatedAt: false) { $0.title = trimmedTitle }
+        updateSession(id, bumpUpdatedAt: false) {
+            $0.title = trimmedTitle
+            $0.isTitleUserEdited = true
+        }
     }
 
     func setPinned(_ id: UUID, isPinned: Bool) {

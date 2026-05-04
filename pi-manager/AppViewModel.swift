@@ -981,6 +981,90 @@ final class AppViewModel: ObservableObject {
 
     func renamePiAgentSession(_ id: UUID, title: String) {
         piAgentSessionStore.renameSession(id, title: title)
+        piAgentRunner.syncSessionName(for: id)
+    }
+
+    var canOpenSelectedPiAgentSessionInTerminal: Bool {
+        guard let sessionFile = piAgentSessionStore.selectedSession?.piSessionFile else { return false }
+        return FileManager.default.fileExists(atPath: sessionFile)
+    }
+
+    func openSelectedPiAgentSessionInTerminal() {
+        guard let session = piAgentSessionStore.selectedSession,
+              let sessionFile = session.piSessionFile else { return }
+        guard FileManager.default.fileExists(atPath: sessionFile) else {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = "Pi session file no longer exists."
+            }
+            return
+        }
+
+        let workingDirectory = session.worktreePath ?? session.projectPath
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pi-manager-resume-\(session.id.uuidString)")
+            .appendingPathExtension("command")
+        let script = """
+        #!/bin/zsh
+        cd \(shellQuoted(workingDirectory)) || exit 1
+        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+        if command -v pi >/dev/null 2>&1; then
+          exec pi --session \(shellQuoted(sessionFile))
+        elif [ -x /opt/homebrew/bin/pi ]; then
+          exec /opt/homebrew/bin/pi --session \(shellQuoted(sessionFile))
+        elif [ -x /usr/local/bin/pi ]; then
+          exec /usr/local/bin/pi --session \(shellQuoted(sessionFile))
+        else
+          echo "Pi CLI not found. Install pi or add it to PATH."
+          echo ""
+          echo "Command: pi --session \(shellQuoted(sessionFile))"
+          read -k 1 "?Press any key to close."
+        fi
+        """
+
+        do {
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            openTerminalScript(scriptURL, for: session.id)
+        } catch {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    private func openTerminalScript(_ scriptURL: URL, for sessionID: UUID) {
+        guard let terminalPath = appSettings.piAgentTerminalApplicationPath, !terminalPath.isEmpty else {
+            guard NSWorkspace.shared.open(scriptURL) else {
+                piAgentSessionStore.updateSession(sessionID) { record in
+                    record.lastError = "Could not open the default terminal app."
+                }
+                return
+            }
+            return
+        }
+
+        let terminalURL = URL(fileURLWithPath: terminalPath)
+        guard FileManager.default.fileExists(atPath: terminalURL.path) else {
+            piAgentSessionStore.updateSession(sessionID) { record in
+                record.lastError = "Selected terminal app no longer exists. Choose another app in Settings."
+            }
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: configuration) { [weak self] _, error in
+            guard let error else { return }
+            Task { @MainActor in
+                self?.piAgentSessionStore.updateSession(sessionID) { record in
+                    record.lastError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func togglePiAgentSessionPinned(_ id: UUID) {
@@ -1288,6 +1372,74 @@ final class AppViewModel: ObservableObject {
 
     func resetProjectsRootPathToDefault() {
         setProjectsRootPath(ProjectDiscovery.defaultRootDirectoryURL().path)
+    }
+
+    var piAgentTerminalApplicationDisplayName: String {
+        guard let path = appSettings.piAgentTerminalApplicationPath, !path.isEmpty else {
+            return "macOS default"
+        }
+        return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+    }
+
+    var piAgentTerminalApplicationSelectionID: String {
+        appSettings.piAgentTerminalApplicationPath ?? TerminalApplicationOption.defaultID
+    }
+
+    var piAgentTerminalApplicationOptions: [TerminalApplicationOption] {
+        var options = [TerminalApplicationOption(name: "macOS Default", path: nil)]
+        let candidates = [
+            "/System/Applications/Utilities/Terminal.app",
+            "/Applications/Utilities/Terminal.app",
+            "/Applications/iTerm.app",
+            "/Applications/Warp.app",
+            "/Applications/Ghostty.app",
+            "/Applications/WezTerm.app",
+            "/Applications/Alacritty.app",
+            "/Applications/kitty.app",
+            "/Applications/Hyper.app"
+        ]
+
+        var seen = Set(options.map(\.id))
+        for path in candidates where FileManager.default.fileExists(atPath: path) {
+            let option = TerminalApplicationOption(name: URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent, path: path)
+            guard seen.insert(option.id).inserted else { continue }
+            options.append(option)
+        }
+
+        if let selectedPath = appSettings.piAgentTerminalApplicationPath,
+           !seen.contains(selectedPath) {
+            options.append(TerminalApplicationOption(name: URL(fileURLWithPath: selectedPath).deletingPathExtension().lastPathComponent, path: selectedPath))
+        }
+
+        return options
+    }
+
+    func setPiAgentTerminalApplicationSelection(_ selectionID: String) {
+        setPiAgentTerminalApplicationPath(selectionID == TerminalApplicationOption.defaultID ? nil : selectionID)
+    }
+
+    func choosePiAgentTerminalApplication() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application]
+        panel.prompt = "Choose App"
+        panel.message = "Choose the terminal app Pi Manager should use when resuming a Pi session in the CLI."
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setPiAgentTerminalApplicationPath(url.path)
+    }
+
+    func setPiAgentTerminalApplicationPath(_ path: String?) {
+        let normalizedPath = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        appSettings.piAgentTerminalApplicationPath = normalizedPath?.isEmpty == false ? normalizedPath : nil
+        appSettingsStore.settings = appSettings
+    }
+
+    func resetPiAgentTerminalApplicationToDefault() {
+        setPiAgentTerminalApplicationPath(nil)
     }
 
     func setPiAgentThinkingDisplayMode(_ mode: PiAgentThinkingDisplayMode) {
@@ -2607,7 +2759,17 @@ enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
 struct AppSettings: Codable, Hashable {
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
+    var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
+}
+
+struct TerminalApplicationOption: Identifiable, Hashable {
+    static let defaultID = "__macos_default__"
+
+    var name: String
+    var path: String?
+
+    var id: String { path ?? Self.defaultID }
 }
 
 @MainActor

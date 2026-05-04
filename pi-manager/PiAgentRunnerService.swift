@@ -78,6 +78,17 @@ final class PiAgentRunnerService {
         mark(sessionID, status: .running, error: nil)
     }
 
+    func syncSessionName(for sessionID: UUID) {
+        guard let session = store.sessions.first(where: { $0.id == sessionID }), session.isTitleUserEdited else { return }
+        let name = session.displayTitle
+        if let client = clientsBySessionID[sessionID], client.isRunning {
+            client.setSessionName(name)
+            return
+        }
+        guard let sessionFile = session.piSessionFile else { return }
+        appendSessionInfo(name: name, to: sessionFile)
+    }
+
     func respondToExtensionUI(sessionID: UUID, requestID: String, value: String) {
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: value)
         store.clearUIRequest(sessionID: sessionID, id: requestID)
@@ -187,7 +198,9 @@ final class PiAgentRunnerService {
             }
             client.getState()
             client.getAvailableModels()
-            client.setSessionName(session.displayTitle)
+            if session.isTitleUserEdited {
+                client.setSessionName(session.displayTitle)
+            }
             if let thinkingLevel = session.thinkingLevel, !thinkingLevel.isEmpty {
                 client.setThinkingLevel(thinkingLevel)
             }
@@ -203,6 +216,57 @@ final class PiAgentRunnerService {
             mark(session.id, status: .failed, error: error.localizedDescription)
             store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
         }
+    }
+
+    private func appendSessionInfo(name: String, to sessionFile: String) {
+        let url = URL(fileURLWithPath: sessionFile)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+
+        var parentID: String?
+        var existingIDs = Set<String>()
+        var hasSessionHeader = false
+        for line in content.split(whereSeparator: \.isNewline) {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            if object["type"] as? String == "session" {
+                hasSessionHeader = true
+            }
+            if let id = object["id"] as? String {
+                existingIDs.insert(id)
+                if object["type"] as? String != "session" {
+                    parentID = id
+                }
+            }
+        }
+        guard hasSessionHeader else { return }
+
+        let entryID = makeShortSessionEntryID(excluding: existingIDs)
+        var entry: [String: Any] = [
+            "type": "session_info",
+            "id": entryID,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "name": name
+        ]
+        entry["parentId"] = parentID ?? NSNull()
+        guard JSONSerialization.isValidJSONObject(entry),
+              let data = try? JSONSerialization.data(withJSONObject: entry),
+              let line = String(data: data, encoding: .utf8) else { return }
+
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            let prefix = content.hasSuffix("\n") || content.isEmpty ? "" : "\n"
+            handle.write(Data((prefix + line + "\n").utf8))
+        }
+    }
+
+    private func makeShortSessionEntryID(excluding existingIDs: Set<String>) -> String {
+        for _ in 0..<100 {
+            let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8).lowercased()
+            if !existingIDs.contains(id) { return String(id) }
+        }
+        return UUID().uuidString.lowercased()
     }
 
     private func userMessage(_ text: String, images: [PiAgentImageAttachment]) -> String {

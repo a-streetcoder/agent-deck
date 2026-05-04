@@ -2,6 +2,8 @@
 
 This document summarizes what you can customize in `pi-subagents`, where each customization lives, and which parts would make sense to expose in Pi Manager.
 
+If you want the **actual Pi Manager app storage model** — especially the split between active global resources, library resources, project resources, and app-managed symlinks — read `pi-manager-resource-management.md` alongside this file.
+
 `pi-subagents` has four main customization layers:
 
 1. **Builtin agent behavior** via settings overrides

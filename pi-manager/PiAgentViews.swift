@@ -202,6 +202,9 @@ struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
+    @State private var composerTextBySessionID: [UUID: String] = [:]
+    @State private var composerImagesBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
+    @State private var composerFilesBySessionID: [UUID: [PiAgentFileAttachment]] = [:]
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
@@ -228,13 +231,17 @@ struct PiAgentScreen: View {
         .onAppear {
             syncVisibleSessionSelection()
             syncSelectedSessionTitleDraft()
-            applyPendingComposerText()
+            loadComposerDraft(for: store.selectedSession?.id)
             scheduleTranscriptCacheUpdate()
         }
-        .onChange(of: store.selectedSession?.id) { _, _ in
+        .onDisappear {
+            saveComposerDraft(for: store.selectedSession?.id)
+        }
+        .onChange(of: store.selectedSession?.id) { oldID, newID in
+            saveComposerDraft(for: oldID)
             renamingSessionID = nil
             syncSelectedSessionTitleDraft()
-            applyPendingComposerText()
+            loadComposerDraft(for: newID)
             scheduleTranscriptCacheUpdate()
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
@@ -609,12 +616,37 @@ struct PiAgentScreen: View {
         }
     }
 
-    private func applyPendingComposerText() {
-        guard let pending = viewModel.consumePendingPiAgentComposerText() else { return }
-        composerText = pending
-        composerImages = []
-        composerFiles = []
+    private func loadComposerDraft(for sessionID: UUID?) {
+        if let pending = viewModel.consumePendingPiAgentComposerText() {
+            composerText = pending
+            composerImages = []
+            composerFiles = []
+            composerAttachmentError = nil
+            saveComposerDraft(for: sessionID)
+            return
+        }
+
+        guard let sessionID else {
+            clearComposerInput()
+            return
+        }
+        composerText = composerTextBySessionID[sessionID] ?? ""
+        composerImages = composerImagesBySessionID[sessionID] ?? []
+        composerFiles = composerFilesBySessionID[sessionID] ?? []
         composerAttachmentError = nil
+    }
+
+    private func saveComposerDraft(for sessionID: UUID?) {
+        guard let sessionID else { return }
+        if composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && composerImages.isEmpty && composerFiles.isEmpty {
+            composerTextBySessionID.removeValue(forKey: sessionID)
+            composerImagesBySessionID.removeValue(forKey: sessionID)
+            composerFilesBySessionID.removeValue(forKey: sessionID)
+        } else {
+            composerTextBySessionID[sessionID] = composerText
+            composerImagesBySessionID[sessionID] = composerImages
+            composerFilesBySessionID[sessionID] = composerFiles
+        }
     }
 
     private func clearComposerInput() {
@@ -631,11 +663,14 @@ struct PiAgentScreen: View {
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
+        let sentSessionID = store.selectedSession?.id
         viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
-        composerText = ""
-        composerImages = []
-        composerFiles = []
-        composerAttachmentError = nil
+        clearComposerInput()
+        if let sentSessionID {
+            composerTextBySessionID.removeValue(forKey: sentSessionID)
+            composerImagesBySessionID.removeValue(forKey: sentSessionID)
+            composerFilesBySessionID.removeValue(forKey: sentSessionID)
+        }
     }
 
     private func expandFileReferences(in message: String) -> String {

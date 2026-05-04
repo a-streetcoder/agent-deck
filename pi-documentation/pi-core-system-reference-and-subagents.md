@@ -13,12 +13,16 @@ Use this file as the main source of truth for:
 - discovery rules for agents, chains, skills, prompts, and related files
 - machine-specific setup notes that affect this repository's Pi usage
 
-Companion reference:
+Companion references:
 - `pi-skills-discovery.md` for the dedicated skills discovery breakdown, including global vs project lookup rules and `.pi` vs `.agents` behavior
+- `pi-manager-resource-management.md` for the app-specific library/symlink model Pi Manager uses for agents, chains, skills, and prompts
 
 ---
 
 ## Scope of this document
+
+Important: this file is mostly about **Pi runtime behavior** and `pi-subagents` runtime behavior.
+If you are asking "what does the Pi Manager app itself store, move, symlink, and surface?", read `pi-manager-resource-management.md` first.
 
 This document separates three layers that are easy to mix together:
 
