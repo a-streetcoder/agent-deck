@@ -135,9 +135,11 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Keep app artifact output as the default for native runs.
 - [x] Show warnings in the Run Subagent sheet when an agent has an `output` field.
 - [x] Avoid injecting old `pi-subagents`-style “write to plan.md” output instructions by default.
-- [ ] Confirm before writing agent-configured outputs into project files such as `plan.md`.
-- [ ] Add per-run output policy controls: app artifact only, allow explicit project writes, or use configured output.
-- [ ] Prevent silent overwrites of existing project artifacts.
+- [x] Require worktree isolation or explicit direct-write approval for writer-like manual native subagent tasks.
+- [x] Auto-isolate writer-like parent-bridge `managed_subagent` requests.
+- [x] Require isolated worktrees for writer-like native chain steps and parallel tasks.
+- [x] Keep agent-configured outputs such as `plan.md` as advisory text, not automatic project-file writes.
+- [ ] Add deeper per-tool overwrite interception if Pi RPC exposes host-side file mutation approvals later.
 - [x] Add artifact open actions for `output.md`, `input.md`, and `system-prompt.md`.
 
 ## Skill/config fidelity

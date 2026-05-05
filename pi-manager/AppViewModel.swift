@@ -1334,9 +1334,9 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.resume(session: session)
     }
 
-    func runNativeSubagent(agentName: String, task: String, useWorktreeIsolation: Bool = false) {
+    func runNativeSubagent(agentName: String, task: String, useWorktreeIsolation: Bool = false, allowDirectProjectWrites: Bool = false) {
         guard let session = piAgentSessionStore.selectedSession else { return }
-        runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
+        runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, completion: nil)
     }
 
     func runNativeChain(chainName: String, task: String, useWorktreeIsolation: Bool = false) {
@@ -1356,9 +1356,10 @@ final class AppViewModel: NSObject, ObservableObject {
             return
         }
         let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
+        let useWorktreeIsolation = likelyWritesToProject(agentName: request.agent, task: request.task)
         let gate = NativeSubagentCompletionGate()
         var timeoutTask: Task<Void, Never>?
-        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: false, contextOverride: contextOverride) { run in
+        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: false, contextOverride: contextOverride) { run in
             timeoutTask?.cancel()
             gate.complete {
                 let status = run.status == .completed ? "completed" : run.status.rawValue
@@ -1390,7 +1391,8 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Pi Manager could not find a native chain named `\(request.chain)`." )
             return
         }
-        runNativeChain(parentSession: session, chain: chain, task: request.task, useWorktreeIsolation: request.worktree == true) { run in
+        let useWorktreeIsolation = request.worktree == true || chain.steps.contains { likelyWritesToProject(agentName: $0.agent, task: $0.body.isEmpty ? request.task : $0.body) }
+        runNativeChain(parentSession: session, chain: chain, task: request.task, useWorktreeIsolation: useWorktreeIsolation) { run in
             let status = run.status == .completed ? "completed" : run.status.rawValue
             completion("Native chain \(chain.name) \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
         }
@@ -1408,11 +1410,18 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     @discardableResult
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
         guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Not Found", text: message))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
+            completion?(placeholder)
+            return placeholder
+        }
+        if likelyWritesToProject(agentName: agentName, task: task), !useWorktreeIsolation, !allowDirectProjectWrites {
+            let message = "Writer-like native subagent tasks require worktree isolation unless direct project writes are explicitly allowed."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Writer Safety", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
             completion?(placeholder)
             return placeholder
@@ -1435,6 +1444,12 @@ final class AppViewModel: NSObject, ObservableObject {
     private func runNativeChain(parentSession: PiAgentSessionRecord, chain: ChainRecord, task: String, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty, !chain.steps.isEmpty else { return }
+        if !useWorktreeIsolation, chain.steps.contains(where: { likelyWritesToProject(agentName: $0.agent, task: $0.body.isEmpty ? trimmedTask : $0.body) }) {
+            let message = "Writer-like native chain steps require isolated worktrees. Re-run with worktree isolation enabled."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Chain Writer Safety", text: message))
+            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: chain.name, task: trimmedTask, error: message))
+            return
+        }
         let now = Date()
         let runID = UUID()
         let artifactDirectory = nativeGraphArtifactDirectory(for: runID)

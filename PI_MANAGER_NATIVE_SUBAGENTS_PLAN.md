@@ -1,6 +1,6 @@
 # Pi Manager Native Subagents Plan
 
-Status: Native single-run execution is implemented beyond the original Phase 1 foundation, and native graph foundations are now in place. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run/graph cards and graph detail sheets, child transcript capture/navigation, parent-facing `managed_subagent(...)`, `managed_chain(...)`, and `managed_parallel(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent/chain catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, structured interview forms for JSON question payloads, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, graph stop/retry controls, heuristic parallel-writer worktree enforcement, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, optional git worktree isolation, and safe isolated-worktree patch/apply/discard workflows. Remaining major work is stricter output policy confirmations, full arbitrary pi-intercom UI/backend parity, true background process survival across app restarts, manual end-to-end app validation, and documentation.
+Status: Native single-run execution is implemented beyond the original Phase 1 foundation, and native graph foundations are now in place. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run/graph cards and graph detail sheets, child transcript capture/navigation, parent-facing `managed_subagent(...)`, `managed_chain(...)`, and `managed_parallel(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent/chain catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, structured interview forms for JSON question payloads, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, graph stop/retry controls, heuristic writer safety requiring isolated worktrees or explicit direct-write approval, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, optional git worktree isolation, and safe isolated-worktree patch/apply/discard workflows. Native subagent execution now replaces Pi Manager's dependency on `pi-subagents` for app-managed single, chain, and parallel flows. Remaining major work is native Session Relay for arbitrary opted-in Pi sessions, true background process survival across app restarts, manual end-to-end app validation, and documentation.
 
 ## Goals
 
@@ -12,15 +12,14 @@ Status: Native single-run execution is implemented beyond the original Phase 1 f
 - Preserve separate runtime isolation: every subagent has its own Pi process, session file, transcript, model, tools, skills, context window, and lifecycle.
 - Preserve key config behavior: `model`, `fallbackModels` where possible, `thinking`, `systemPromptMode`, `inheritProjectContext`, `inheritSkills`, `defaultContext`, `tools`, `extensions`, `skills`, `output`, `defaultReads`, `defaultProgress`, and disabled agents.
 - Let agents use private assigned skills from the skill library even when those skills are not enabled globally or assigned to the current project.
-- Replace global pi-intercom broker semantics with app-native parent/child routing and, eventually, a native `contact_supervisor` tool for child decision escalation.
+- Replace package broker semantics for native subagents with app-native parent/child routing and the native `contact_supervisor` tool for child decision escalation.
 - Make output safe by default: app artifacts first; writing to project paths should be explicit and visible.
 - Keep UI and docs consistent with the app's native model.
 
 ## Non-goals for the first implementation pass
 
-- Full replacement of every advanced `pi-subagents` feature in one step.
 - Running arbitrary parallel writer children in the same worktree without user confirmation or worktree isolation.
-- Reimplementing the global `pi-intercom` session-to-session broker.
+- Reimplementing arbitrary external session-to-session messaging as part of native subagent execution; that belongs to the separate Session Relay plan.
 - Relying on slash commands as the main app UX.
 - Making old `pi-subagents` package-managed runs disappear from historical transcripts.
 

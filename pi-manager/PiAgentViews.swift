@@ -216,6 +216,7 @@ struct PiAgentScreen: View {
     @State private var nativeSubagentAgentName = ""
     @State private var nativeSubagentTask = ""
     @State private var nativeSubagentUseWorktreeIsolation = false
+    @State private var nativeSubagentAllowDirectProjectWrites = false
     @State private var selectedSubagentTranscriptRunID: UUID?
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
@@ -277,9 +278,10 @@ struct PiAgentScreen: View {
                 selectedAgentName: $nativeSubagentAgentName,
                 task: $nativeSubagentTask,
                 useWorktreeIsolation: $nativeSubagentUseWorktreeIsolation,
+                allowDirectProjectWrites: $nativeSubagentAllowDirectProjectWrites,
                 onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation)
+                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites)
                     if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
                         clearComposerInput()
                     }
@@ -2202,11 +2204,12 @@ private struct PiNativeSubagentRunSheet: View {
     @Binding var selectedAgentName: String
     @Binding var task: String
     @Binding var useWorktreeIsolation: Bool
+    @Binding var allowDirectProjectWrites: Bool
     let onCancel: () -> Void
-    let onRun: (String, String, Bool) -> Void
+    let onRun: (String, String, Bool, Bool) -> Void
 
     private var canRun: Bool {
-        !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !requiresWriteSafetyChoice
     }
 
     private var selectedInfo: AgentInfo? {
@@ -2282,6 +2285,14 @@ private struct PiNativeSubagentRunSheet: View {
                 Text("Creates a detached git worktree inside the run artifacts so child file edits are isolated from the main checkout.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                Toggle("Allow direct project writes without a worktree", isOn: $allowDirectProjectWrites)
+                    .font(.caption)
+                    .disabled(useWorktreeIsolation)
+                if requiresWriteSafetyChoice {
+                    Label("This looks like writer work. Enable worktree isolation, or explicitly allow direct project writes.", systemImage: "lock.shield")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
             .padding(10)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -2291,7 +2302,7 @@ private struct PiNativeSubagentRunSheet: View {
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 Button("Run") {
-                    onRun(selectedAgentName, task, useWorktreeIsolation)
+                    onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canRun)
@@ -2304,6 +2315,21 @@ private struct PiNativeSubagentRunSheet: View {
                 selectedAgentName = agentNames.first ?? ""
             }
         }
+        .onChange(of: useWorktreeIsolation) { _, enabled in
+            if enabled { allowDirectProjectWrites = false }
+        }
+    }
+
+    private var requiresWriteSafetyChoice: Bool {
+        likelyWritesToProject(agentName: selectedAgentName, task: task) && !useWorktreeIsolation && !allowDirectProjectWrites
+    }
+
+    private func likelyWritesToProject(agentName: String, task: String) -> Bool {
+        let text = "\(agentName) \(task)".lowercased()
+        let writerTerms = ["worker", "implement", "edit", "modify", "change", "fix", "write", "create", "delete", "remove", "refactor", "apply", "update file", "commit"]
+        let readOnlyTerms = ["review-only", "read-only", "do not edit", "no edits", "only report", "analysis only"]
+        if readOnlyTerms.contains(where: { text.contains($0) }) { return false }
+        return writerTerms.contains { text.contains($0) }
     }
 
     private func subagentInfoLine(_ title: String, _ value: String) -> some View {
@@ -5254,6 +5280,7 @@ struct PiAgentInspectorPanel: View {
     @State private var nativeSubagentAgentName = ""
     @State private var nativeSubagentTask = ""
     @State private var nativeSubagentUseWorktreeIsolation = false
+    @State private var nativeSubagentAllowDirectProjectWrites = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -5376,9 +5403,10 @@ struct PiAgentInspectorPanel: View {
                 selectedAgentName: $nativeSubagentAgentName,
                 task: $nativeSubagentTask,
                 useWorktreeIsolation: $nativeSubagentUseWorktreeIsolation,
+                allowDirectProjectWrites: $nativeSubagentAllowDirectProjectWrites,
                 onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation)
+                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites)
                     if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
                         composerText = ""
                     }
