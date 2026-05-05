@@ -5,6 +5,7 @@ final class PiSubagentRunService {
     private let store: PiAgentSessionStore
     private var clientsByRunID: [UUID: PiRPCClient] = [:]
     private var finalTextByRunID: [UUID: String] = [:]
+    private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
     private let fileManager = FileManager.default
 
     init(store: PiAgentSessionStore) {
@@ -16,7 +17,7 @@ final class PiSubagentRunService {
     }
 
     @discardableResult
-    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String) throws -> PiSubagentRunRecord {
+    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool = false, onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty else { throw NativeSubagentError.emptyTask }
         guard agent.resolved.disabled != true else { throw NativeSubagentError.disabledAgent(agent.name) }
@@ -25,6 +26,9 @@ final class PiSubagentRunService {
         let runID = UUID()
         let artifactDirectory = try artifactDirectory(for: runID)
         let skillBlocks = resolveSkillBlocks(named: agent.resolved.skills, snapshot: snapshot)
+        let resolvedSkillNames = Set(skillBlocks.map(\.name))
+        let missingSkillNames = agent.resolved.skills.filter { !resolvedSkillNames.contains($0) }
+        let worktreeURL = useWorktreeIsolation ? try createWorktree(for: parentSession, artifactDirectory: artifactDirectory) : nil
         let prompt = buildSystemPrompt(agent: agent, skillBlocks: skillBlocks)
         let promptURL = artifactDirectory.appendingPathComponent("system-prompt.md")
         try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
@@ -46,14 +50,24 @@ final class PiSubagentRunService {
         if agent.resolved.inheritProjectContext != true {
             extraArguments.append("--no-context-files")
         }
-        extraArguments.append(contentsOf: toolArguments(for: agent))
+        var bridgeWarnings: [String] = []
+        let wantsSupervisorTool = agent.resolved.tools?.contains("contact_supervisor") == true
+        if wantsSupervisorTool {
+            if let bridgeURL = try? PiNativeSubagentBridgeExtensions.childExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
+            } else {
+                bridgeWarnings.append("contact_supervisor was requested, but Pi Manager could not write the child bridge extension.")
+            }
+        }
+        extraArguments.append(contentsOf: toolArguments(for: agent, includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
         if agent.resolved.inheritSkills != true {
             extraArguments.append("--no-skills")
         }
 
         let modelArgument = modelArgument(for: agent)
-        let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" }
+        let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
+        let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings
         var run = PiSubagentRunRecord(
             id: runID,
             parentSessionID: parentSession.id,
@@ -69,11 +83,12 @@ final class PiSubagentRunService {
             skills: agent.resolved.skills,
             artifactDirectory: artifactDirectory.path,
             outputPath: artifactDirectory.appendingPathComponent("output.md").path,
+            worktreePath: worktreeURL?.path ?? parentSession.worktreePath,
             childSessionID: nil,
             childPiSessionFile: nil,
             launchCommand: nil,
             summary: nil,
-            error: nil,
+            error: diagnosticMessages.isEmpty ? nil : diagnosticMessages.joined(separator: "\n"),
             child: PiSubagentChildRecord(
                 id: UUID(),
                 runID: runID,
@@ -100,7 +115,7 @@ final class PiSubagentRunService {
 
         let childSessionID = UUID()
         let client = try PiRPCClient(
-            cwd: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath),
+            cwd: worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath),
             modelArgument: modelArgument,
             extraArguments: extraArguments,
             environment: [
@@ -119,6 +134,9 @@ final class PiSubagentRunService {
             }
         )
         clientsByRunID[runID] = client
+        if let onCompletion {
+            completionHandlersByRunID[runID] = onCompletion
+        }
         run.childSessionID = childSessionID
         run.launchCommand = client.launchCommand
         run.status = .running
@@ -127,6 +145,32 @@ final class PiSubagentRunService {
         client.getState()
         client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory))
         return run
+    }
+
+    func respondToSupervisorRequest(_ requestID: String, parentSessionID: UUID, response: String) {
+        guard let request = store.supervisorRequests(for: parentSessionID).first(where: { $0.id == requestID }) else { return }
+        store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
+            request.status = .answered
+            request.response = response
+        }
+        store.updateSubagentRun(request.runID, parentSessionID: parentSessionID) { run in
+            if run.status == .blocked { run.status = .running }
+            if run.child?.status == .blocked { run.child?.status = .running }
+        }
+        clientsByRunID[request.runID]?.respondToExtensionUI(id: requestID, value: response)
+    }
+
+    func cancelSupervisorRequest(_ requestID: String, parentSessionID: UUID) {
+        guard let request = store.supervisorRequests(for: parentSessionID).first(where: { $0.id == requestID }) else { return }
+        store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
+            request.status = .cancelled
+            request.response = "Cancelled by supervisor."
+        }
+        store.updateSubagentRun(request.runID, parentSessionID: parentSessionID) { run in
+            if run.status == .blocked { run.status = .running }
+            if run.child?.status == .blocked { run.child?.status = .running }
+        }
+        clientsByRunID[request.runID]?.cancelExtensionUI(id: requestID)
     }
 
     func stop(runID: UUID, parentSessionID: UUID) {
@@ -141,7 +185,10 @@ final class PiSubagentRunService {
     }
 
     private func handle(rawLine: String, event: PiAgentRPCEvent?, runID: UUID, parentSessionID: UUID) {
-        guard let event else { return }
+        guard let event else {
+            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .raw, title: "Raw Output", text: rawLine), runID: runID, parentSessionID: parentSessionID)
+            return
+        }
         switch event.type {
         case "response":
             if event.command == "get_state", let data = event.data {
@@ -152,21 +199,28 @@ final class PiSubagentRunService {
             }
         case "tool_execution_start", "tool_execution_update", "tool_execution_end":
             let toolName = event.toolName ?? "tool"
+            let toolText = event.args?.compactDescription ?? event.partialResult?.compactDescription ?? event.result?.compactDescription ?? event.error?.compactDescription ?? event.type ?? "tool"
+            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .tool, title: "Tool: \(toolName)", text: toolText, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                 run.child?.currentTool = event.type == "tool_execution_end" ? nil : toolName
                 run.child?.updatedAt = Date()
             }
         case "message_end":
             handleMessageEnd(event, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
+        case "extension_ui_request":
+            handleExtensionUIRequest(event, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
         case "turn_end", "agent_end":
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
         default:
-            break
+            if let type = event.type, type != "message_update" {
+                store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .raw, title: type, text: event.data?.compactDescription ?? rawLine, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+            }
         }
     }
 
     private func handle(stderr line: String, runID: UUID, parentSessionID: UUID) {
         guard !line.localizedCaseInsensitiveContains("ready for input") else { return }
+        store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .stderr, title: "stderr", text: line), runID: runID, parentSessionID: parentSessionID)
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             run.error = [run.error, line].compactMap { $0 }.joined(separator: "\n")
         }
@@ -184,6 +238,7 @@ final class PiSubagentRunService {
                 run.child?.error = run.error
                 run.completedAt = Date()
             }
+            notifyCompletion(runID: runID, parentSessionID: parentSessionID)
             store.append(.init(sessionID: parentSessionID, role: .error, title: "Subagent Failed", text: "Child Pi process exited with code \(exitCode)."))
         }
     }
@@ -191,8 +246,12 @@ final class PiSubagentRunService {
     private func handleMessageEnd(_ event: PiAgentRPCEvent, rawLine: String, runID: UUID, parentSessionID: UUID) {
         guard let message = event.message else { return }
         let role = message["role"]?.stringValue ?? "assistant"
+        let text = role == "assistant" ? extractAssistantText(from: message) : extractText(from: message)
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let transcriptRole = PiAgentTranscriptRole(rawValue: role) ?? .raw
+            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: transcriptRole, title: role.capitalized, text: text, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+        }
         guard role == "assistant" else { return }
-        let text = extractAssistantText(from: message)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         finalTextByRunID[runID] = text
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
@@ -221,6 +280,7 @@ final class PiSubagentRunService {
             outputPath = run.outputPath
             shouldAppend = true
         }
+        notifyCompletion(runID: runID, parentSessionID: parentSessionID)
         clientsByRunID[runID]?.stop()
         clientsByRunID[runID] = nil
         if shouldAppend {
@@ -230,6 +290,30 @@ final class PiSubagentRunService {
             let artifactLine = outputPath.map { "\n\nArtifact: \($0)" } ?? ""
             store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Completed", text: "\(finalSummary)\(artifactLine)"))
         }
+    }
+
+    private func notifyCompletion(runID: UUID, parentSessionID: UUID) {
+        guard let handler = completionHandlersByRunID.removeValue(forKey: runID),
+              let run = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
+        handler(run)
+    }
+
+    private func createWorktree(for parentSession: PiAgentSessionRecord, artifactDirectory: URL) throws -> URL {
+        let worktreeURL = artifactDirectory.appendingPathComponent("worktree", isDirectory: true)
+        let projectPath = parentSession.worktreePath ?? parentSession.projectPath
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", projectPath, "worktree", "add", "--detach", worktreeURL.path, "HEAD"]
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NativeSubagentError.worktreeFailed(message?.isEmpty == false ? message! : "git worktree add failed")
+        }
+        return worktreeURL
     }
 
     private func artifactDirectory(for runID: UUID) throws -> URL {
@@ -267,9 +351,9 @@ final class PiSubagentRunService {
         return [mode == "append" ? "--append-system-prompt" : "--system-prompt", prompt]
     }
 
-    private func toolArguments(for agent: EffectiveAgentRecord) -> [String] {
+    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool) -> [String] {
         guard let tools = agent.resolved.tools else { return [] }
-        let supportedTools = tools.filter { $0 != "contact_supervisor" }
+        let supportedTools = tools.filter { $0 != "contact_supervisor" || includeSupervisorTool }
         guard !supportedTools.isEmpty else { return ["--no-tools"] }
         return ["--tools", supportedTools.joined(separator: ",")]
     }
@@ -361,6 +445,81 @@ final class PiSubagentRunService {
         return record.body
     }
 
+    private func handleExtensionUIRequest(_ event: PiAgentRPCEvent, rawLine: String, runID: UUID, parentSessionID: UUID) {
+        let title = event.title ?? event.method ?? "extension UI"
+        guard title == "PI_MANAGER_BRIDGE contact_supervisor", let requestID = event.id else {
+            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .status, title: title, text: event.message?.compactDescription ?? "Extension UI request", rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+            return
+        }
+        guard let payload = bridgePayload(from: event),
+              let data = payload.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse supervisor request.")
+            return
+        }
+        let requestKindRaw = json["requestKind"] as? String ?? "progress_update"
+        let kind = PiSubagentSupervisorRequestKind(rawValue: requestKindRaw) ?? .progressUpdate
+        let message = json["message"] as? String ?? ""
+        let requestTitle = json["title"] as? String ?? supervisorTitle(for: kind)
+        let now = Date()
+        let request = PiSubagentSupervisorRequest(
+            id: requestID,
+            runID: runID,
+            parentSessionID: parentSessionID,
+            childID: store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.child?.id,
+            kind: kind,
+            title: requestTitle,
+            message: message,
+            status: kind.isBlocking ? .pending : .answered,
+            response: kind.isBlocking ? nil : "Acknowledged.",
+            createdAt: now,
+            updatedAt: now
+        )
+        store.upsertSupervisorRequest(request)
+        store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .status, title: "Supervisor · \(kind.rawValue)", text: message, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+        if kind.isBlocking {
+            store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                run.status = .blocked
+                run.child?.status = .blocked
+            }
+            store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Needs Decision", text: message))
+        } else {
+            store.append(.init(sessionID: parentSessionID, role: .status, title: requestTitle, text: message))
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Acknowledged.")
+        }
+    }
+
+    private func bridgePayload(from event: PiAgentRPCEvent) -> String? {
+        if let prefill = event.prefill, !prefill.isEmpty { return prefill }
+        if let message = event.message?.stringValue, !message.isEmpty { return message }
+        return event.message?.compactDescription
+    }
+
+    private func supervisorTitle(for kind: PiSubagentSupervisorRequestKind) -> String {
+        switch kind {
+        case .progressUpdate: return "Subagent Progress"
+        case .needDecision: return "Subagent Needs Decision"
+        case .interviewRequest: return "Subagent Interview Request"
+        }
+    }
+
+    private func extractText(from message: JSONValue) -> String {
+        if let content = message["content"] {
+            switch content {
+            case let .string(value): return value
+            case let .array(blocks):
+                return blocks.compactMap { block in
+                    block["text"]?.stringValue ?? block["thinking"]?.stringValue ?? block["name"]?.stringValue
+                }.joined(separator: "\n")
+            default:
+                return content.compactDescription
+            }
+        }
+        if let output = message["output"]?.stringValue { return output }
+        if let command = message["command"]?.stringValue { return command }
+        return ""
+    }
+
     private func extractAssistantText(from message: JSONValue) -> String {
         if let content = message["content"] {
             switch content {
@@ -390,6 +549,7 @@ private struct ResolvedSkillBlock: Hashable {
 private enum NativeSubagentError: LocalizedError {
     case emptyTask
     case disabledAgent(String)
+    case worktreeFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -397,6 +557,8 @@ private enum NativeSubagentError: LocalizedError {
             return "Enter a task before running a subagent."
         case let .disabledAgent(name):
             return "Agent \(name) is disabled."
+        case let .worktreeFailed(message):
+            return "Could not create subagent worktree: \(message)"
         }
     }
 }

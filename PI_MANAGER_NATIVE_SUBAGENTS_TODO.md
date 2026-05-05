@@ -1,6 +1,10 @@
 # Pi Manager Native Subagents Remaining Work
 
-Checklist for the work still needed after the Phase 1 native single-subagent foundation.
+Checklist after the current native subagent implementation pass.
+
+Legend:
+- [x] implemented in code
+- [ ] still missing or needs manual validation
 
 ## Immediate validation
 
@@ -15,41 +19,46 @@ Checklist for the work still needed after the Phase 1 native single-subagent fou
 
 ## Run records and restart recovery
 
-- [ ] Add richer persisted restart recovery for active child runs.
-- [ ] On app restart, detect previously active runs and mark them as `stopped`, `unknown`, or `disconnected` instead of leaving them active forever.
-- [ ] Persist enough child process/session metadata to reconnect or clearly explain that reconnection is unavailable.
+- [x] Add richer persisted restart recovery for active child runs.
+- [x] On app restart, detect previously active runs and mark them as `disconnected` instead of leaving them active forever.
+- [x] Persist child session metadata, artifact directory, output path, launch command, and child transcripts.
 - [ ] Add duration fields and clearer timestamps to run/child records.
-- [ ] Add artifact open/reveal buttons on run cards.
+- [x] Add artifact open/reveal buttons on run cards.
 - [ ] Add cleanup policy for old app-managed subagent artifacts.
 
 ## Full child transcript navigation
 
-- [ ] Store child transcript entries separately from compact parent transcript status entries.
-- [ ] Add “Open Child Transcript” from native run cards.
-- [ ] Render child messages, thinking, tools, stderr, and errors using the existing transcript UI components where possible.
-- [ ] Show child Pi session file and app artifact directory in the child transcript view.
+- [x] Store child transcript entries separately from compact parent transcript status entries.
+- [x] Add “Open Child Transcript” from native run cards.
+- [x] Render child messages, tools, stderr, raw events, and errors in a child transcript sheet.
+- [x] Show child Pi session file and app artifact directory in the run UI/transcript sheet.
+- [ ] Improve child transcript rendering to use the full threaded transcript UI instead of compact cards.
 - [ ] Add child transcript search/filtering later if needed.
 
 ## Parent-facing delegation tool bridge
 
-- [ ] Build the parent-facing `managed_subagent(...)` tool bridge.
-- [ ] Let the parent Pi Agent see a compact catalog of available native subagents.
-- [ ] Let the parent call `managed_subagent(agent, task, context?, options?)` without loading every child prompt/skill into parent context.
-- [ ] Route the tool call into `PiSubagentRunService`.
-- [ ] Return compact child results as tool output.
-- [ ] Render parent transcript tool output cleanly, with links to native run cards/artifacts.
-- [ ] Decide whether the bridge is a bundled Pi extension, local IPC helper, or app-owned RPC endpoint.
+- [x] Build the parent-facing `managed_subagent(...)` tool bridge as an app-written Pi extension loaded explicitly for app parent sessions.
+- [x] Let the parent call `managed_subagent(agent, task, context?)` without relying on `/run` or `pi-subagents`.
+- [x] Route the tool call into `PiSubagentRunService`.
+- [x] Return compact child results as tool output through the extension UI bridge.
+- [x] Render parent transcript status entries for native subagent requests and results.
+- [x] Decide bridge mechanism for now: bundled/generated Pi extension using the RPC extension UI sub-protocol as a private app bridge.
+- [ ] Let the parent Pi Agent see a richer compact catalog of available native subagents beyond the tool description/prompt snippet.
+- [ ] Add timeouts/cancellation semantics for parent tool calls waiting on long-running children.
 
 ## Native child `contact_supervisor(...)`
 
-- [ ] Build the child-facing native `contact_supervisor(...)` bridge.
-- [ ] Support non-blocking `progress_update` messages from child to app/parent.
-- [ ] Support blocking `need_decision` requests.
-- [ ] Support blocking `interview_request` / structured question flows.
-- [ ] Add supervisor request cards in the parent/app UI.
-- [ ] Route human or parent-agent responses back to the child.
-- [ ] Add timeout/cancel behavior for blocked child runs.
-- [ ] Make `contact_supervisor` available only to native child runs that explicitly include it.
+- [x] Build the child-facing native `contact_supervisor(...)` bridge as an app-written Pi extension loaded for child runs that request the tool.
+- [x] Support non-blocking `progress_update` messages from child to app/parent.
+- [x] Support blocking `need_decision` requests.
+- [x] Support blocking `interview_request` / structured question flows at the text-response level.
+- [x] Add supervisor request cards in the parent/app UI.
+- [x] Route human responses back to the child.
+- [x] Add cancel behavior for blocked child runs.
+- [x] Make `contact_supervisor` available only to native child runs that explicitly include it.
+- [ ] Add timeout behavior for blocked child runs.
+- [ ] Add richer structured interview UI beyond a freeform text response.
+- [ ] Optionally route parent-agent responses, not only human responses, back to the child.
 
 ## Chains and parallel run graphs
 
@@ -64,38 +73,48 @@ Checklist for the work still needed after the Phase 1 native single-subagent fou
 
 ## Worktree isolation
 
-- [ ] Add optional git worktree creation for native subagent runs.
-- [ ] Require worktree isolation for parallel writer children.
+- [x] Add optional git worktree creation for native single-subagent runs.
+- [x] Add a Run Subagent sheet toggle for worktree isolation.
+- [x] Launch child Pi RPC sessions in the isolated worktree when enabled.
+- [ ] Require worktree isolation for parallel writer children when parallel runs exist.
 - [ ] Prevent multiple writer children from editing the same worktree unless explicitly allowed.
-- [ ] Show each child worktree path in the run UI.
+- [ ] Show each child worktree path more prominently in the run UI.
 - [ ] Surface diffs from each child worktree.
 - [ ] Add merge/apply/discard workflows for child worktree changes.
 - [ ] Clean up temporary worktrees safely.
 
 ## Output safety
 
-- [ ] Keep app artifact output as the default for native runs.
+- [x] Keep app artifact output as the default for native runs.
+- [x] Show warnings in the Run Subagent sheet when an agent has an `output` field.
+- [x] Avoid injecting old `pi-subagents`-style “write to plan.md” output instructions by default.
 - [ ] Confirm before writing agent-configured outputs into project files such as `plan.md`.
-- [ ] Show prominent warnings when an agent has an `output` field.
 - [ ] Add per-run output policy controls: app artifact only, allow explicit project writes, or use configured output.
 - [ ] Prevent silent overwrites of existing project artifacts.
 - [ ] Add artifact previews for `output.md`, logs, and prompt/input files.
 
 ## Skill/config fidelity
 
-- [ ] Improve diagnostics for missing private skills.
+- [x] Resolve explicit private skills from active skills plus reusable library skills.
+- [x] Add diagnostics for missing private skills.
+- [x] Preserve `model`, `thinking`, `tools`, `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, `defaultReads`, and app artifact output behavior for single runs.
+- [x] Support `fork` default context by passing `--fork <parent-session-file>` when available.
 - [ ] Show where each resolved skill came from: project, global, library, or package/builtin.
 - [ ] Support more complete fallback model behavior for child runs.
-- [ ] Audit `tools`, `extensions`, `mcpServers`, `inheritSkills`, and `inheritProjectContext` parity against old `pi-subagents` behavior.
+- [ ] Audit `mcpServers` parity against old `pi-subagents` behavior.
 - [ ] Confirm `defaultReads` behavior is safe and does not reintroduce stale file footguns.
-- [ ] Add UI explaining when a child is launched fresh vs forked.
+- [ ] Add clearer UI explaining when a child is launched fresh vs forked.
 
 ## App UI polish
 
+- [x] Replace `/run` insertion with native Run Subagent sheets.
+- [x] Add native run cards with transcript/reveal/stop actions.
+- [x] Add supervisor request cards.
+- [x] Add worktree isolation toggle.
 - [ ] Improve Run Subagent sheet layout for long tool/skill lists.
 - [ ] Add agent search/filtering to the subagent picker.
 - [ ] Add recent/favorite agents.
-- [ ] Add run history per parent session.
+- [ ] Add run history per parent session beyond the latest visible cards.
 - [ ] Add status badges in the session list when native subagents are running.
 - [ ] Add notifications for completed/failed long-running children.
 - [ ] Add accessibility labels/help for native subagent controls.
@@ -111,6 +130,4 @@ Checklist for the work still needed after the Phase 1 native single-subagent fou
 
 ## Later CLI/TUI parity options
 
-- [ ] Decide whether native subagent functionality should remain app-only or be extracted into a shared package/extension.
-- [ ] If parity is desired, design a shared bridge so CLI/TUI can call the same app-managed or package-managed run logic.
-- [ ] Avoid reintroducing global broker complexity unless explicitly needed.
+Intentionally deferred per current product direction.

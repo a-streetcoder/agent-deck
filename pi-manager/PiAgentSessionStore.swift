@@ -8,6 +8,8 @@ final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var transcriptRevisionsBySessionID: [UUID: Int] = [:]
     @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
     @Published private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:]
+    @Published private(set) var subagentTranscriptsByRunID: [UUID: [PiAgentTranscriptEntry]] = [:]
+    @Published private(set) var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
     var newSessionSubagentsEnabled = true
@@ -97,6 +99,7 @@ final class PiAgentSessionStore: ObservableObject {
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
+        supervisorRequestsBySessionID[record.id] = []
         selectedSessionID = record.id
         save()
         return record
@@ -160,6 +163,19 @@ final class PiAgentSessionStore: ObservableObject {
         subagentRunsBySessionID[sessionID] ?? []
     }
 
+    func subagentTranscript(for runID: UUID) -> [PiAgentTranscriptEntry] {
+        subagentTranscriptsByRunID[runID] ?? []
+    }
+
+    func supervisorRequests(for sessionID: UUID) -> [PiSubagentSupervisorRequest] {
+        supervisorRequestsBySessionID[sessionID] ?? []
+    }
+
+    var selectedSupervisorRequests: [PiSubagentSupervisorRequest] {
+        guard let session = selectedSession else { return [] }
+        return supervisorRequests(for: session.id)
+    }
+
     func upsertSubagentRun(_ run: PiSubagentRunRecord) {
         var runs = subagentRunsBySessionID[run.parentSessionID] ?? []
         if let index = runs.firstIndex(where: { $0.id == run.id }) {
@@ -177,6 +193,52 @@ final class PiAgentSessionStore: ObservableObject {
         mutate(&runs[index])
         runs[index].updatedAt = Date()
         subagentRunsBySessionID[parentSessionID] = runs.sorted { $0.updatedAt > $1.updatedAt }
+        touchSession(parentSessionID, bumpUpdatedAt: true)
+    }
+
+    func appendSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID) {
+        var entries = subagentTranscriptsByRunID[runID] ?? []
+        entries.append(entry)
+        if entries.count > maxTranscriptEntriesPerSession {
+            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
+        }
+        subagentTranscriptsByRunID[runID] = entries
+        touchSession(parentSessionID, bumpUpdatedAt: false)
+    }
+
+    func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil) {
+        var entries = subagentTranscriptsByRunID[runID] ?? []
+        if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[index] = entry
+        } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
+            entries.insert(entry, at: beforeIndex)
+        } else {
+            entries.append(entry)
+        }
+        if entries.count > maxTranscriptEntriesPerSession {
+            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
+        }
+        subagentTranscriptsByRunID[runID] = entries
+        touchSession(parentSessionID, bumpUpdatedAt: false)
+    }
+
+    func upsertSupervisorRequest(_ request: PiSubagentSupervisorRequest) {
+        var requests = supervisorRequestsBySessionID[request.parentSessionID] ?? []
+        if let index = requests.firstIndex(where: { $0.id == request.id }) {
+            requests[index] = request
+        } else {
+            requests.insert(request, at: 0)
+        }
+        supervisorRequestsBySessionID[request.parentSessionID] = requests.sorted { $0.updatedAt > $1.updatedAt }
+        touchSession(request.parentSessionID, bumpUpdatedAt: true)
+    }
+
+    func updateSupervisorRequest(_ id: String, parentSessionID: UUID, mutate: (inout PiSubagentSupervisorRequest) -> Void) {
+        var requests = supervisorRequestsBySessionID[parentSessionID] ?? []
+        guard let index = requests.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&requests[index])
+        requests[index].updatedAt = Date()
+        supervisorRequestsBySessionID[parentSessionID] = requests.sorted { $0.updatedAt > $1.updatedAt }
         touchSession(parentSessionID, bumpUpdatedAt: true)
     }
 
@@ -229,7 +291,12 @@ final class PiAgentSessionStore: ObservableObject {
         sessions.removeAll { $0.id == sessionID }
         transcriptsBySessionID[sessionID] = nil
         transcriptRevisionsBySessionID[sessionID] = nil
+        let runIDs = subagentRunsBySessionID[sessionID]?.map(\.id) ?? []
+        for runID in runIDs {
+            subagentTranscriptsByRunID[runID] = nil
+        }
         subagentRunsBySessionID[sessionID] = nil
+        supervisorRequestsBySessionID[sessionID] = nil
         if selectedSessionID == sessionID {
             selectedSessionID = sessions.first?.id
         }
@@ -259,7 +326,25 @@ final class PiAgentSessionStore: ObservableObject {
             sortSessions()
             transcriptsBySessionID = Dictionary(uniqueKeysWithValues: persisted.transcripts.map { ($0.sessionID, $0.entries) })
             transcriptRevisionsBySessionID = Dictionary(uniqueKeysWithValues: transcriptsBySessionID.map { ($0.key, 0) })
-            subagentRunsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.subagentRuns ?? []).map { ($0.sessionID, $0.runs) })
+            subagentRunsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.subagentRuns ?? []).map { persistedRuns in
+                let recovered = persistedRuns.runs.map { run -> PiSubagentRunRecord in
+                    var run = run
+                    if run.status.isActive {
+                        run.status = .disconnected
+                        run.error = run.error ?? "Disconnected because Pi Manager was restarted."
+                        run.completedAt = run.completedAt ?? Date()
+                        if var child = run.child {
+                            child.status = .disconnected
+                            child.error = child.error ?? run.error
+                            run.child = child
+                        }
+                    }
+                    return run
+                }
+                return (persistedRuns.sessionID, recovered)
+            })
+            subagentTranscriptsByRunID = Dictionary(uniqueKeysWithValues: (persisted.subagentTranscripts ?? []).map { ($0.runID, $0.entries) })
+            supervisorRequestsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.supervisorRequests ?? []).map { ($0.sessionID, $0.requests) })
             selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
@@ -309,7 +394,9 @@ final class PiAgentSessionStore: ObservableObject {
                 sessions: sessions,
                 transcripts: transcriptsBySessionID.map { PersistedTranscript(sessionID: $0.key, entries: $0.value) },
                 selectedSessionID: selectedSessionID,
-                subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) }
+                subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
+                subagentTranscripts: subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
+                supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) }
             )
             let data = try JSONEncoder.piAgent.encode(persisted)
             try data.write(to: fileURL, options: .atomic)
@@ -324,6 +411,8 @@ private struct PersistedState: Codable {
     var transcripts: [PersistedTranscript]
     var selectedSessionID: UUID?
     var subagentRuns: [PersistedSubagentRuns]?
+    var subagentTranscripts: [PersistedSubagentTranscript]?
+    var supervisorRequests: [PersistedSupervisorRequests]?
 }
 
 private struct PersistedTranscript: Codable {
@@ -334,6 +423,16 @@ private struct PersistedTranscript: Codable {
 private struct PersistedSubagentRuns: Codable {
     var sessionID: UUID
     var runs: [PiSubagentRunRecord]
+}
+
+private struct PersistedSubagentTranscript: Codable {
+    var runID: UUID
+    var entries: [PiAgentTranscriptEntry]
+}
+
+private struct PersistedSupervisorRequests: Codable {
+    var sessionID: UUID
+    var requests: [PiSubagentSupervisorRequest]
 }
 
 private extension JSONEncoder {

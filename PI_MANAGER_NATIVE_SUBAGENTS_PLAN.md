@@ -1,6 +1,6 @@
 # Pi Manager Native Subagents Plan
 
-Status: Phase 1 foundation implemented. Pi Manager now has persisted native subagent run records, a single-child Pi RPC runner, private skill injection from snapshots/library skills, native Run Subagent sheets, parent transcript status entries, and visible run cards. Later phases still cover parent tool delegation, native `contact_supervisor`, chains/parallel graphs, child transcript navigation, and worktrees.
+Status: Native single-run execution is implemented beyond the original Phase 1 foundation. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills, native Run Subagent sheets, parent transcript status entries, visible run cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, child-facing `contact_supervisor(...)`, restart disconnection recovery, artifact reveal actions, and optional single-run git worktree isolation. Remaining major work is chains/parallel run graphs, richer worktree merge/diff workflows, output-policy confirmations, richer skill/source diagnostics, manual end-to-end app validation, and documentation.
 
 ## Goals
 
@@ -71,7 +71,7 @@ Port the `contact_supervisor` semantics, not the broker:
 - `need_decision`: blocking decision request
 - `interview_request`: blocking structured question request
 
-The app should route these as typed records/cards between child run and parent session. The first implementation can reserve the model and UI hooks, then add the child extension/tool.
+The app routes these as typed records/cards between child run and parent session. The current implementation uses an app-written child Pi extension loaded only for native child runs that explicitly include `contact_supervisor`; blocking requests pause the run as `blocked` until the app sends a response or cancellation through the RPC extension UI bridge.
 
 ### Output
 
@@ -249,29 +249,34 @@ Child transcript can be opened separately.
 
 ### Phase 2: child transcript and controls
 
-- Add UI to open child transcript.
-- Add stop/interrupt for active child.
-- Add resume/talk-to-child using child session file.
-- Persist run status across app restart.
+- [x] Add UI to open child transcript.
+- [x] Add stop control for active child.
+- [ ] Add resume/talk-to-child using child session file.
+- [x] Persist run status across app restart by marking active child runs `disconnected`.
 
 ### Phase 3: parent tool bridge
 
-- Bundle a small app extension exposing `managed_subagent` to the parent Pi session.
-- The extension forwards structured requests to Pi Manager local IPC.
-- Parent gets compact results as tool output, not full child transcript.
+- [x] Bundle/write a small app extension exposing `managed_subagent` to the parent Pi session.
+- [x] Forward structured requests to Pi Manager via the RPC extension UI sub-protocol.
+- [x] Return compact child results as tool output, not full child transcript.
+- [ ] Add richer subagent catalog/context to the parent prompt.
+- [ ] Add timeout/cancellation behavior for long-running parent tool calls.
 
 ### Phase 4: native `contact_supervisor`
 
-- Bundle a child extension exposing `contact_supervisor`.
-- Route child decision/progress/interview requests into parent cards.
-- Let human or parent agent answer explicitly.
+- [x] Bundle/write a child extension exposing `contact_supervisor`.
+- [x] Route child decision/progress/interview requests into parent cards.
+- [x] Let the human answer explicitly and route the answer back to the child.
+- [ ] Add structured interview UI beyond freeform response.
+- [ ] Add timeout behavior for blocked child runs.
 
 ### Phase 5: chains, parallel, worktrees
 
-- Model chain/parallel as a run graph.
-- Add output dependencies and artifact passing.
-- Enforce one writer per worktree.
-- Add optional git worktree isolation for parallel writer children.
+- [ ] Model chain/parallel as a run graph.
+- [ ] Add output dependencies and artifact passing.
+- [ ] Enforce one writer per worktree for parallel runs.
+- [x] Add optional git worktree isolation for single native child runs.
+- [ ] Add diff/apply/discard workflows for isolated child worktrees.
 
 ## Validation checklist
 
@@ -287,7 +292,7 @@ Child transcript can be opened separately.
 ## Open risks
 
 - Pi's stable public API does not yet expose direct host-side subagent tool execution; the app-owned child RPC design avoids relying on that.
-- Full forked session branching may require stable Pi session-manager support. Initial implementation can preserve agent defaults and use compact handoff context while adding true fork later.
-- A child `contact_supervisor` tool needs either a small bundled extension with app IPC or extension UI request routing.
+- Forked child sessions use Pi's current `--fork <session-file>` support; if Pi changes this behavior, the app runner must be updated.
+- Parent/child bridge tools currently use the RPC extension UI sub-protocol as an app-private transport. A dedicated localhost/Unix-socket IPC bridge may be cleaner later.
 - Parallel writers require worktree isolation or explicit confirmation.
 - Existing historical package-managed runs remain in old transcripts and should be displayed as external/package-managed runs.

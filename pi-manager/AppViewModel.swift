@@ -100,6 +100,11 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
+        piAgentRunner.onManagedSubagentRequest = { [weak self] sessionID, request, completion in
+            Task { @MainActor in
+                self?.runManagedNativeSubagent(parentSessionID: sessionID, request: request, completion: completion)
+            }
+        }
         registerAppNotificationObservers()
         startAutoRefresh()
 
@@ -1279,22 +1284,50 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.resume(session: session)
     }
 
-    func runNativeSubagent(agentName: String, task: String) {
+    func runNativeSubagent(agentName: String, task: String, useWorktreeIsolation: Bool = false) {
         guard let session = piAgentSessionStore.selectedSession else { return }
-        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
-        guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName }) else {
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Subagent Not Found", text: "No enabled agent named \(agentName) was found for this session."))
+        runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
+    }
+
+    private func runManagedNativeSubagent(parentSessionID: UUID, request: PiManagedSubagentBridgeRequest, completion: @escaping (String) -> Void) {
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
+            completion("Pi Manager could not find the parent session.")
+            return
+        }
+        runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: false) { run in
+            let status = run.status == .completed ? "completed" : run.status.rawValue
+            let summary = run.summary ?? run.error ?? "No summary returned."
+            let artifact = run.outputPath.map { "\n\nArtifact: \($0)" } ?? ""
+            completion("Native subagent \(run.agentName) \(status).\n\n\(summary)\(artifact)")
+        }
+    }
+
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
+        let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
+        guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
+            let message = "No enabled agent named \(agentName) was found for this session."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Not Found", text: message))
+            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message))
             return
         }
         do {
-            _ = try nativeSubagentRunner.runSingle(parentSession: session, agent: agent, snapshot: snapshot, task: task)
+            _ = try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
         } catch {
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
+            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: error.localizedDescription))
         }
     }
 
     func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {
         nativeSubagentRunner.stop(runID: runID, parentSessionID: parentSessionID)
+    }
+
+    func respondToSubagentSupervisorRequest(_ requestID: String, parentSessionID: UUID, response: String) {
+        nativeSubagentRunner.respondToSupervisorRequest(requestID, parentSessionID: parentSessionID, response: response)
+    }
+
+    func cancelSubagentSupervisorRequest(_ requestID: String, parentSessionID: UUID) {
+        nativeSubagentRunner.cancelSupervisorRequest(requestID, parentSessionID: parentSessionID)
     }
 
     func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, images: [PiAgentImageAttachment] = []) {

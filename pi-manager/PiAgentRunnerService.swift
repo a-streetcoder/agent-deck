@@ -14,6 +14,7 @@ final class PiAgentRunnerService {
     private var pendingFreeformResponsesBySessionID: [UUID: String] = [:]
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     var onTurnFinished: ((UUID) -> Void)?
+    var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -196,11 +197,17 @@ final class PiAgentRunnerService {
         }
 
         do {
+            var extraArguments: [String] = []
+            if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
+            }
             let client = try PiRPCClient(
                 cwd: projectURL,
                 sessionFile: resumeExisting ? session.piSessionFile : nil,
                 provider: session.modelOverrideProvider,
                 model: session.modelOverrideID,
+                extraArguments: extraArguments,
+                environment: ["PI_MANAGER_PARENT_SESSION_ID": session.id.uuidString],
                 onEvent: { [weak self] rawLine, event in
                     DispatchQueue.main.async { self?.handle(rawLine: rawLine, event: event, sessionID: session.id) }
                 },
@@ -725,6 +732,11 @@ final class PiAgentRunnerService {
         let method = event.method ?? "extension UI"
         let title = event.title ?? method
 
+        if title == "PI_MANAGER_BRIDGE managed_subagent", let requestID = event.id {
+            handleManagedSubagentBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            return
+        }
+
         if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
             if requestMethod == .input, let pendingFreeform = pendingFreeformResponsesBySessionID.removeValue(forKey: sessionID) {
                 clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: pendingFreeform)
@@ -752,6 +764,30 @@ final class PiAgentRunnerService {
         } else if method != "setTitle" && method != "setStatus" && method != "setWidget" && method != "set_editor_text" {
             store.append(.init(sessionID: sessionID, role: .status, title: "Pi UI · \(method)", text: title, rawJSON: rawLine))
         }
+    }
+
+    private func handleManagedSubagentBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiManagedSubagentBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the managed_subagent request.")
+            return
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "Native Subagent Requested", text: "\(request.agent): \(request.task)", rawJSON: rawLine))
+        guard let onManagedSubagentRequest else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager native subagent bridge is not available.")
+            return
+        }
+        onManagedSubagentRequest(sessionID, request) { [weak self] result in
+            Task { @MainActor in
+                self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+            }
+        }
+    }
+
+    private func bridgePayload(from event: PiAgentRPCEvent) -> String? {
+        if let prefill = event.prefill, !prefill.isEmpty { return prefill }
+        if let message = event.message?.stringValue, !message.isEmpty { return message }
+        return event.message?.compactDescription
     }
 
     private func parsedUIRequest(

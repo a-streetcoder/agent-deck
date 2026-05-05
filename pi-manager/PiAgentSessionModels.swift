@@ -40,12 +40,53 @@ enum PiSubagentRunStatus: String, Codable, Hashable, CaseIterable, Identifiable 
     case completed
     case failed
     case stopped
+    case disconnected
 
     var id: String { rawValue }
 
     var isActive: Bool {
         self == .queued || self == .starting || self == .running || self == .blocked
     }
+}
+
+enum PiSubagentSupervisorRequestStatus: String, Codable, Hashable, Identifiable {
+    case pending
+    case answered
+    case cancelled
+
+    var id: String { rawValue }
+}
+
+enum PiSubagentSupervisorRequestKind: String, Codable, Hashable, Identifiable {
+    case progressUpdate = "progress_update"
+    case needDecision = "need_decision"
+    case interviewRequest = "interview_request"
+
+    var id: String { rawValue }
+
+    var isBlocking: Bool {
+        self == .needDecision || self == .interviewRequest
+    }
+}
+
+struct PiSubagentSupervisorRequest: Identifiable, Codable, Hashable {
+    var id: String
+    var runID: UUID
+    var parentSessionID: UUID
+    var childID: UUID?
+    var kind: PiSubagentSupervisorRequestKind
+    var title: String
+    var message: String
+    var status: PiSubagentSupervisorRequestStatus
+    var response: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct PiManagedSubagentBridgeRequest: Codable, Hashable {
+    var agent: String
+    var task: String
+    var context: String?
 }
 
 enum PiSubagentRunMode: String, Codable, Hashable {
@@ -95,6 +136,7 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var skills: [String]
     var artifactDirectory: String
     var outputPath: String?
+    var worktreePath: String?
     var childSessionID: UUID?
     var childPiSessionFile: String?
     var launchCommand: String?
@@ -104,6 +146,38 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var createdAt: Date
     var updatedAt: Date
     var completedAt: Date?
+}
+
+extension PiSubagentRunRecord {
+    static func failedPlaceholder(parentSessionID: UUID, agentName: String, task: String, error: String) -> PiSubagentRunRecord {
+        let now = Date()
+        return PiSubagentRunRecord(
+            id: UUID(),
+            parentSessionID: parentSessionID,
+            mode: .single,
+            status: .failed,
+            agentName: agentName,
+            task: task,
+            requestedContext: .agentDefault,
+            resolvedContext: .fresh,
+            model: nil,
+            thinking: nil,
+            tools: [],
+            skills: [],
+            artifactDirectory: "",
+            outputPath: nil,
+            worktreePath: nil,
+            childSessionID: nil,
+            childPiSessionFile: nil,
+            launchCommand: nil,
+            summary: nil,
+            error: error,
+            child: nil,
+            createdAt: now,
+            updatedAt: now,
+            completedAt: now
+        )
+    }
 }
 
 struct PiAgentImageAttachment: Identifiable, Codable, Hashable {
