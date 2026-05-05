@@ -1760,7 +1760,7 @@ final class AppViewModel: NSObject, ObservableObject {
             .filter { $0.resolved.disabled != true }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         guard !agents.isEmpty else { return nil }
-        let lines = agents.prefix(25).map { agent in
+        let lines = agents.map { agent in
             let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
             let context = agent.resolved.defaultContext ?? "fresh"
             let model = agent.resolved.model ?? "default"
@@ -1768,16 +1768,14 @@ final class AppViewModel: NSObject, ObservableObject {
             let skills = agent.resolved.skills.isEmpty ? "no private skills" : "skills: \(agent.resolved.skills.joined(separator: ", "))"
             return "- \(agent.name): \(description.isEmpty ? "No description" : description) [context: \(context), model: \(model), \(tools), \(skills)]"
         }
-        let suffix = agents.count > 25 ? "\n- …\(agents.count - 25) more agents available in Pi Manager." : ""
         let chains = allVisibleChainRecords
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .prefix(12)
             .map { "- \($0.name): \($0.description.isEmpty ? "\($0.steps.count) step(s)" : $0.description)" }
             .joined(separator: "\n")
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
         Native Pi Manager tools: `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use them for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
-        \(lines.joined(separator: "\n"))\(suffix)\(chainSection)
+        \(lines.joined(separator: "\n"))\(chainSection)
         """
     }
 
