@@ -340,8 +340,19 @@ final class PiAgentSessionStore: ObservableObject {
                             child.status = .disconnected
                             child.error = child.error ?? run.error
                             child.updatedAt = completedAt
+                            child.completedAt = child.completedAt ?? completedAt
                             child.durationMs = child.durationMs ?? max(0, Int((completedAt.timeIntervalSince(child.createdAt) * 1000).rounded()))
                             run.child = child
+                        }
+                        if var children = run.children {
+                            for index in children.indices where children[index].status.isActive {
+                                children[index].status = .disconnected
+                                children[index].error = children[index].error ?? run.error
+                                children[index].updatedAt = completedAt
+                                children[index].completedAt = children[index].completedAt ?? completedAt
+                                children[index].durationMs = children[index].durationMs ?? max(0, Int((completedAt.timeIntervalSince(children[index].createdAt) * 1000).rounded()))
+                            }
+                            run.children = children
                         }
                     }
                     return run

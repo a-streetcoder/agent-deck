@@ -15,6 +15,8 @@ final class PiAgentRunnerService {
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     var onTurnFinished: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
+    var onManagedChainRequest: ((UUID, PiManagedChainBridgeRequest, @escaping (String) -> Void) -> Void)?
+    var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
 
     init(store: PiAgentSessionStore) {
@@ -740,6 +742,14 @@ final class PiAgentRunnerService {
             handleManagedSubagentBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             return
         }
+        if title == "PI_MANAGER_BRIDGE managed_chain", let requestID = event.id {
+            handleManagedChainBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            return
+        }
+        if title == "PI_MANAGER_BRIDGE managed_parallel", let requestID = event.id {
+            handleManagedParallelBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            return
+        }
 
         if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
             if requestMethod == .input, let pendingFreeform = pendingFreeformResponsesBySessionID.removeValue(forKey: sessionID) {
@@ -782,6 +792,42 @@ final class PiAgentRunnerService {
             return
         }
         onManagedSubagentRequest(sessionID, request) { [weak self] result in
+            Task { @MainActor in
+                self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+            }
+        }
+    }
+
+    private func handleManagedChainBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiManagedChainBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the managed_chain request.")
+            return
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "Native Chain Requested", text: "\(request.chain): \(request.task)", rawJSON: rawLine))
+        guard let onManagedChainRequest else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager native chain bridge is not available.")
+            return
+        }
+        onManagedChainRequest(sessionID, request) { [weak self] result in
+            Task { @MainActor in
+                self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+            }
+        }
+    }
+
+    private func handleManagedParallelBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiManagedParallelBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the managed_parallel request.")
+            return
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "Native Parallel Requested", text: "\(request.tasks.count) task(s)", rawJSON: rawLine))
+        guard let onManagedParallelRequest else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager native parallel bridge is not available.")
+            return
+        }
+        onManagedParallelRequest(sessionID, request) { [weak self] result in
             Task { @MainActor in
                 self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
             }

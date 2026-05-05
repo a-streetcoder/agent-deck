@@ -4002,6 +4002,9 @@ private struct ChainsScreen: View {
     let onConvertChain: (ChainRecord, AgentEditingTarget.CustomAgentScope) throws -> Void
     let onEditChain: (ChainRecord) -> Void
     @Binding var isRecapPresented: Bool
+    @State private var isRunChainSheetPresented = false
+    @State private var chainRunTask = ""
+    @State private var chainRunUsesWorktreeIsolation = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -4072,6 +4075,14 @@ private struct ChainsScreen: View {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
 
                     ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            chainRunTask = ""
+                            isRunChainSheetPresented = true
+                        } label: {
+                            Label("Run", systemImage: "play.circle")
+                        }
+                        .help("Run this chain as a Pi Manager native chain")
+
                         Button {
                             openFile(selectedChain.filePath)
                         } label: {
@@ -4223,6 +4234,33 @@ private struct ChainsScreen: View {
             )
             .frame(width: 400)
         }
+        }
+        .sheet(isPresented: $isRunChainSheetPresented) {
+            if let chain = viewModel.selectedChain {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Run Native Chain")
+                        .font(.title3.bold())
+                    Text(chain.name)
+                        .font(.headline)
+                    TextEditor(text: $chainRunTask)
+                        .frame(minHeight: 140)
+                        .padding(8)
+                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+                    Toggle("Use isolated worktree per step", isOn: $chainRunUsesWorktreeIsolation)
+                    HStack {
+                        Spacer()
+                        Button("Cancel") { isRunChainSheetPresented = false }
+                        Button("Run") {
+                            viewModel.runNativeChain(chainName: chain.name, task: chainRunTask, useWorktreeIsolation: chainRunUsesWorktreeIsolation)
+                            isRunChainSheetPresented = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(chainRunTask.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .padding(22)
+                .frame(width: 560)
+            }
         }
     }
 

@@ -34,6 +34,23 @@ struct PiNativeSubagentBridgeExtensions {
             context: Type.Optional(StringEnum(["fresh", "fork"] as const, { description: "Optional context mode override." }))
         }, { additionalProperties: false });
 
+        const ManagedChainParams = Type.Object({
+            chain: Type.String({ description: "Name of the native chain to run." }),
+            task: Type.String({ description: "Initial task available as {task}." }),
+            worktree: Type.Optional(Type.Boolean({ description: "Use an isolated worktree for each writer step." }))
+        }, { additionalProperties: false });
+
+        const ManagedParallelTask = Type.Object({
+            agent: Type.String({ description: "Name of the native subagent to run." }),
+            task: Type.String({ description: "Specific bounded task for this subagent." })
+        }, { additionalProperties: false });
+
+        const ManagedParallelParams = Type.Object({
+            tasks: Type.Array(ManagedParallelTask, { minItems: 1, maxItems: 8, description: "Parallel native subagent tasks." }),
+            concurrency: Type.Optional(Type.Number({ minimum: 1, maximum: 8, description: "Maximum child runs at once." })),
+            worktree: Type.Optional(Type.Boolean({ description: "Use an isolated worktree per child for writer work." }))
+        }, { additionalProperties: false });
+
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "managed_subagent",
@@ -56,6 +73,49 @@ struct PiNativeSubagentBridgeExtensions {
                     onUpdate?.({ content: [{ type: "text", text: `Starting native subagent ${(params as any).agent}…` }] });
                     const result = await ctx.ui.editor("PI_MANAGER_BRIDGE managed_subagent", payload);
                     return { content: [{ type: "text", text: result || "Native subagent finished without a result." }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "managed_chain",
+                description: "Run a Pi Manager native chain as a supervised sequential workflow.",
+                parameters: ManagedChainParams,
+                promptSnippet: "managed_chain(chain, task, worktree?): run a native Pi Manager chain and get an aggregate result.",
+                promptGuidelines: ["Use managed_chain for multi-step workflows where each step depends on previous output."],
+                async execute(toolCallId, params, _signal, onUpdate, ctx) {
+                    const payload = JSON.stringify({
+                        bridge: "pi_manager_native_subagents",
+                        kind: "managed_chain",
+                        toolCallId,
+                        chain: String((params as any).chain ?? ""),
+                        task: String((params as any).task ?? ""),
+                        worktree: Boolean((params as any).worktree ?? false)
+                    });
+                    onUpdate?.({ content: [{ type: "text", text: `Starting native chain ${(params as any).chain}…` }] });
+                    const result = await ctx.ui.editor("PI_MANAGER_BRIDGE managed_chain", payload);
+                    return { content: [{ type: "text", text: result || "Native chain finished without a result." }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "managed_parallel",
+                description: "Run multiple Pi Manager native subagents concurrently and return an aggregate result.",
+                parameters: ManagedParallelParams,
+                promptSnippet: "managed_parallel(tasks, concurrency?, worktree?): run bounded native subagent tasks concurrently.",
+                promptGuidelines: ["Use managed_parallel for independent advisory/research tasks. Use worktree isolation for writer tasks."],
+                async execute(toolCallId, params, _signal, onUpdate, ctx) {
+                    const rawTasks = Array.isArray((params as any).tasks) ? (params as any).tasks : [];
+                    const payload = JSON.stringify({
+                        bridge: "pi_manager_native_subagents",
+                        kind: "managed_parallel",
+                        toolCallId,
+                        tasks: rawTasks.map((task: any) => ({ agent: String(task.agent ?? ""), task: String(task.task ?? "") })),
+                        concurrency: (params as any).concurrency ? Number((params as any).concurrency) : undefined,
+                        worktree: Boolean((params as any).worktree ?? false)
+                    });
+                    onUpdate?.({ content: [{ type: "text", text: `Starting ${rawTasks.length} native subagents…` }] });
+                    const result = await ctx.ui.editor("PI_MANAGER_BRIDGE managed_parallel", payload);
+                    return { content: [{ type: "text", text: result || "Native parallel run finished without a result." }] };
                 }
             });
         }

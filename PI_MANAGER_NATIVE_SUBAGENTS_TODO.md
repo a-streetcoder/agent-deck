@@ -109,12 +109,12 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 
 ## Chains and parallel run graphs
 
-- [ ] Add native run graph models for chains and parallel runs.
-- [ ] Implement sequential chain execution first.
-- [ ] Pass prior child results/artifacts into later chain steps.
-- [ ] Implement parallel read-only child runs.
-- [ ] Add fan-out/fan-in summary support.
-- [ ] Add UI for graph status: queued, running, blocked, completed, failed.
+- [x] Add native run graph models for chains and parallel runs.
+- [x] Implement sequential chain execution first.
+- [x] Pass prior child results/artifacts into later chain steps.
+- [x] Implement parallel read-only child runs.
+- [x] Add fan-out/fan-in summary support.
+- [x] Add UI for graph status: queued, running, blocked, completed, failed.
 - [ ] Add controls to stop one child or the entire graph.
 - [ ] Add partial failure behavior and retry controls.
 
@@ -126,9 +126,9 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [ ] Require worktree isolation for parallel writer children when parallel runs exist.
 - [ ] Prevent multiple writer children from editing the same worktree unless explicitly allowed.
 - [x] Show each child worktree path more prominently in the run UI.
-- [ ] Surface diffs from each child worktree.
-- [ ] Add merge/apply/discard workflows for child worktree changes.
-- [ ] Clean up temporary worktrees safely.
+- [x] Surface diffs from app-managed isolated child worktrees as generated patch artifacts.
+- [x] Add apply/discard workflows for app-managed isolated child worktree changes.
+- [x] Clean up temporary worktrees safely through `git worktree remove --force` plus prune.
 
 ## Output safety
 

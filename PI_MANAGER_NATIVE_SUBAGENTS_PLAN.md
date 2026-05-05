@@ -1,6 +1,6 @@
 # Pi Manager Native Subagents Plan
 
-Status: Native single-run execution is implemented beyond the original Phase 1 foundation. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, and optional single-run git worktree isolation. Remaining major work is chains/parallel run graphs, richer worktree merge/diff workflows, stricter output-policy confirmations, manual end-to-end app validation, and documentation.
+Status: Native single-run execution is implemented beyond the original Phase 1 foundation, and native graph foundations are now in place. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run/graph cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, `managed_chain(...)`, and `managed_parallel(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, optional git worktree isolation, and safe isolated-worktree patch/apply/discard workflows. Remaining major work is stricter writer/output policy confirmations, child-level graph stop/retry controls, manual end-to-end app validation, and documentation.
 
 ## Goals
 
@@ -274,11 +274,11 @@ Child transcript can be opened separately.
 
 ### Phase 5: chains, parallel, worktrees
 
-- [ ] Model chain/parallel as a run graph.
-- [ ] Add output dependencies and artifact passing.
+- [x] Model chain/parallel as a run graph.
+- [x] Add output dependencies and artifact passing.
 - [ ] Enforce one writer per worktree for parallel runs.
 - [x] Add optional git worktree isolation for single native child runs.
-- [ ] Add diff/apply/discard workflows for isolated child worktrees.
+- [x] Add diff/apply/discard workflows for isolated child worktrees.
 
 ## Validation checklist
 

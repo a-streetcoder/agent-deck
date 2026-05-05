@@ -21,6 +21,30 @@ private final class NativeSubagentCompletionGate {
 }
 
 @MainActor
+private final class NativeParallelGraphScheduler {
+    let id = UUID()
+    let parentSession: PiAgentSessionRecord
+    let graphRunID: UUID
+    let tasks: [(agentName: String, task: String)]
+    let concurrency: Int
+    let useWorktreeIsolation: Bool
+    let completion: ((PiSubagentRunRecord) -> Void)?
+    var nextIndex = 0
+    var active = 0
+    var completed = 0
+    var failed = false
+
+    init(parentSession: PiAgentSessionRecord, graphRunID: UUID, tasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
+        self.parentSession = parentSession
+        self.graphRunID = graphRunID
+        self.tasks = tasks
+        self.concurrency = concurrency
+        self.useWorktreeIsolation = useWorktreeIsolation
+        self.completion = completion
+    }
+}
+
+@MainActor
 final class AppViewModel: NSObject, ObservableObject {
     @Published var snapshot: ScanSnapshot = .empty
     @Published var selectedSidebarItem: SidebarItem = .agent
@@ -79,6 +103,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private let appSettingsStore = AppSettingsStore.shared
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
+    private let subagentWorktreeService = PiSubagentWorktreeService()
     private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
     private var globalSnapshot: ScanSnapshot = .empty
@@ -90,6 +115,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
     private var githubIssueDetailRequestID = 0
+    private var nativeParallelSchedulersByID: [UUID: NativeParallelGraphScheduler] = [:]
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
     private let lastExternalSkillsDirectoryDefaultsKey = "lastExternalSkillsDirectoryPath"
     private var githubProjectBoardCacheKey: String?
@@ -114,6 +140,16 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.onManagedSubagentRequest = { [weak self] sessionID, request, completion in
             Task { @MainActor in
                 self?.runManagedNativeSubagent(parentSessionID: sessionID, request: request, completion: completion)
+            }
+        }
+        piAgentRunner.onManagedChainRequest = { [weak self] sessionID, request, completion in
+            Task { @MainActor in
+                self?.runManagedNativeChain(parentSessionID: sessionID, request: request, completion: completion)
+            }
+        }
+        piAgentRunner.onManagedParallelRequest = { [weak self] sessionID, request, completion in
+            Task { @MainActor in
+                self?.runManagedNativeParallel(parentSessionID: sessionID, request: request, completion: completion)
             }
         }
         piAgentRunner.nativeSubagentCatalogProvider = { [weak self] session in
@@ -1303,6 +1339,17 @@ final class AppViewModel: NSObject, ObservableObject {
         runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
     }
 
+    func runNativeChain(chainName: String, task: String, useWorktreeIsolation: Bool = false) {
+        guard let session = piAgentSessionStore.selectedSession,
+              let chain = allVisibleChainRecords.first(where: { $0.name == chainName }) else { return }
+        runNativeChain(parentSession: session, chain: chain, task: task, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
+    }
+
+    func runNativeParallel(agentTasks: [(agentName: String, task: String)], concurrency: Int = 4, useWorktreeIsolation: Bool = false) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        runNativeParallel(parentSession: session, agentTasks: agentTasks, concurrency: concurrency, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
+    }
+
     private func runManagedNativeSubagent(parentSessionID: UUID, request: PiManagedSubagentBridgeRequest, completion: @escaping (String) -> Void) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
             completion("Pi Manager could not find the parent session.")
@@ -1334,6 +1381,32 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    private func runManagedNativeChain(parentSessionID: UUID, request: PiManagedChainBridgeRequest, completion: @escaping (String) -> Void) {
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
+            completion("Pi Manager could not find the parent session.")
+            return
+        }
+        guard let chain = allVisibleChainRecords.first(where: { $0.name == request.chain }) else {
+            completion("Pi Manager could not find a native chain named `\(request.chain)`." )
+            return
+        }
+        runNativeChain(parentSession: session, chain: chain, task: request.task, useWorktreeIsolation: request.worktree == true) { run in
+            let status = run.status == .completed ? "completed" : run.status.rawValue
+            completion("Native chain \(chain.name) \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
+        }
+    }
+
+    private func runManagedNativeParallel(parentSessionID: UUID, request: PiManagedParallelBridgeRequest, completion: @escaping (String) -> Void) {
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
+            completion("Pi Manager could not find the parent session.")
+            return
+        }
+        runNativeParallel(parentSession: session, agentTasks: request.tasks.map { (agentName: $0.agent, task: $0.task) }, concurrency: request.concurrency ?? 4, useWorktreeIsolation: request.worktree == true) { run in
+            let status = run.status == .completed ? "completed" : run.status.rawValue
+            completion("Native parallel run \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
+        }
+    }
+
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
@@ -1344,13 +1417,218 @@ final class AppViewModel: NSObject, ObservableObject {
             completion?(placeholder)
             return placeholder
         }
+        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: useWorktreeIsolation, contextOverride: contextOverride, completion: completion)
+    }
+
+    @discardableResult
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         do {
             return try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
         } catch {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
-            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: error.localizedDescription)
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: error.localizedDescription)
             completion?(placeholder)
             return placeholder
+        }
+    }
+
+    private func runNativeChain(parentSession: PiAgentSessionRecord, chain: ChainRecord, task: String, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
+        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTask.isEmpty, !chain.steps.isEmpty else { return }
+        let now = Date()
+        let runID = UUID()
+        let artifactDirectory = nativeGraphArtifactDirectory(for: runID)
+        let childRecords = chain.steps.enumerated().map { index, step in
+            PiSubagentChildRecord(
+                id: UUID(), runID: runID, index: index, agentName: step.agent, task: step.body.isEmpty ? nil : step.body,
+                status: .queued, requestedContext: .agentDefault, resolvedContext: nil, model: step.model,
+                currentTool: nil, inputTokens: nil, outputTokens: nil, totalTokens: nil, toolCount: nil, durationMs: nil,
+                artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil, launchCommand: nil, executionRunID: nil,
+                summary: nil, error: nil, dependencies: index == 0 ? nil : [UUID](), completedAt: nil, createdAt: now, updatedAt: now
+            )
+        }
+        let run = nativeGraphRun(id: runID, parentSession: parentSession, mode: .chain, title: chain.name, task: trimmedTask, artifactDirectory: artifactDirectory, children: childRecords, edges: chainEdges(for: childRecords), concurrency: 1, worktreeIsolation: useWorktreeIsolation)
+        piAgentSessionStore.upsertSubagentRun(run)
+        piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .status, title: "Native Chain Started", text: "\(chain.name) started with \(chain.steps.count) step(s)."))
+        runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: runID, originalTask: trimmedTask, previous: "", index: 0, useWorktreeIsolation: useWorktreeIsolation, completion: completion)
+    }
+
+    private func runNativeChainStep(parentSession: PiAgentSessionRecord, chain: ChainRecord, graphRunID: UUID, originalTask: String, previous: String, index: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
+        guard index < chain.steps.count else {
+            finishNativeGraphRun(graphRunID, parentSessionID: parentSession.id, status: .completed, summary: previous.isEmpty ? "Chain completed." : previous, completion: completion)
+            return
+        }
+        let step = chain.steps[index]
+        let template = step.body.isEmpty ? (index == 0 ? "{task}" : "{previous}") : step.body
+        let stepTask = renderChainTemplate(template, originalTask: originalTask, previous: previous, chainDir: nativeGraphChainDirectory(graphRunID: graphRunID))
+        updateNativeGraphChild(graphRunID, parentSessionID: parentSession.id, index: index) { child in
+            child.status = .running
+            child.task = stepTask
+        }
+        let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
+        guard let agent = snapshot.effectiveAgents.first(where: { $0.name == step.agent && $0.resolved.disabled != true }) else {
+            updateNativeGraphChild(graphRunID, parentSessionID: parentSession.id, index: index) { child in
+                child.status = .failed
+                child.error = "Agent not found: \(step.agent)"
+            }
+            finishNativeGraphRun(graphRunID, parentSessionID: parentSession.id, status: .failed, summary: "Chain failed: agent not found `\(step.agent)`.", completion: completion)
+            return
+        }
+        let stepAgent = agentApplying(chainStep: step, to: agent)
+        let childRun = runNativeSubagent(parentSession: parentSession, agent: stepAgent, snapshot: snapshot, task: stepTask, useWorktreeIsolation: useWorktreeIsolation) { [weak self] childResult in
+            guard let self else { return }
+            self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSession.id, index: index, childResult: childResult)
+            guard childResult.status == .completed else {
+                self.finishNativeGraphRun(graphRunID, parentSessionID: parentSession.id, status: .failed, summary: childResult.error ?? "Chain failed at step \(index + 1).", completion: completion)
+                return
+            }
+            self.runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: graphRunID, originalTask: originalTask, previous: childResult.summary ?? "", index: index + 1, useWorktreeIsolation: useWorktreeIsolation, completion: completion)
+        }
+        updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSession.id, index: index, childResult: childRun)
+    }
+
+    private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
+        let tasks = agentTasks.map { ($0.agentName.trimmingCharacters(in: .whitespacesAndNewlines), $0.task.trimmingCharacters(in: .whitespacesAndNewlines)) }.filter { !$0.0.isEmpty && !$0.1.isEmpty }
+        guard !tasks.isEmpty else { return }
+        let now = Date()
+        let runID = UUID()
+        let artifactDirectory = nativeGraphArtifactDirectory(for: runID)
+        let childRecords = tasks.enumerated().map { index, item in
+            PiSubagentChildRecord(
+                id: UUID(), runID: runID, index: index, agentName: item.0, task: item.1,
+                status: .queued, requestedContext: .agentDefault, resolvedContext: nil, model: nil,
+                currentTool: nil, inputTokens: nil, outputTokens: nil, totalTokens: nil, toolCount: nil, durationMs: nil,
+                artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil, launchCommand: nil, executionRunID: nil,
+                summary: nil, error: nil, dependencies: nil, completedAt: nil, createdAt: now, updatedAt: now
+            )
+        }
+        let limit = max(1, min(concurrency, tasks.count))
+        let run = nativeGraphRun(id: runID, parentSession: parentSession, mode: .parallel, title: "Parallel", task: "\(tasks.count) parallel native subagent task(s)", artifactDirectory: artifactDirectory, children: childRecords, edges: [], concurrency: limit, worktreeIsolation: useWorktreeIsolation)
+        piAgentSessionStore.upsertSubagentRun(run)
+        piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .status, title: "Native Parallel Started", text: "Started \(tasks.count) task(s), concurrency \(limit)."))
+        let scheduler = NativeParallelGraphScheduler(parentSession: parentSession, graphRunID: runID, tasks: tasks.map { (agentName: $0.0, task: $0.1) }, concurrency: limit, useWorktreeIsolation: useWorktreeIsolation, completion: completion)
+        nativeParallelSchedulersByID[scheduler.id] = scheduler
+        pumpNativeParallelScheduler(scheduler)
+    }
+
+    private func pumpNativeParallelScheduler(_ scheduler: NativeParallelGraphScheduler) {
+        if scheduler.completed == scheduler.tasks.count {
+            let run = piAgentSessionStore.subagentRuns(for: scheduler.parentSession.id).first(where: { $0.id == scheduler.graphRunID })
+            let summaries = (run?.children ?? []).sorted { $0.index < $1.index }.map { "- \($0.agentName): \($0.summary ?? $0.error ?? $0.status.rawValue)" }.joined(separator: "\n")
+            finishNativeGraphRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, status: scheduler.failed ? .failed : .completed, summary: summaries, completion: scheduler.completion)
+            nativeParallelSchedulersByID[scheduler.id] = nil
+            return
+        }
+        while scheduler.active < scheduler.concurrency && scheduler.nextIndex < scheduler.tasks.count {
+            let index = scheduler.nextIndex
+            scheduler.nextIndex += 1
+            scheduler.active += 1
+            let item = scheduler.tasks[index]
+            updateNativeGraphChild(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index) { $0.status = .running }
+            let childRun = runNativeSubagent(parentSession: scheduler.parentSession, agentName: item.agentName, task: item.task, useWorktreeIsolation: scheduler.useWorktreeIsolation) { [weak self, weak scheduler] childResult in
+                guard let self, let scheduler else { return }
+                self.updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childResult)
+                scheduler.active = max(0, scheduler.active - 1)
+                scheduler.completed += 1
+                scheduler.failed = scheduler.failed || childResult.status != .completed
+                self.pumpNativeParallelScheduler(scheduler)
+            }
+            updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childRun)
+        }
+    }
+
+    private func nativeGraphRun(id: UUID, parentSession: PiAgentSessionRecord, mode: PiSubagentRunMode, title: String, task: String, artifactDirectory: URL, children: [PiSubagentChildRecord], edges: [PiSubagentGraphEdgeRecord], concurrency: Int, worktreeIsolation: Bool) -> PiSubagentRunRecord {
+        PiSubagentRunRecord(
+            id: id, parentSessionID: parentSession.id, mode: mode, status: .running,
+            agentName: title, task: task, requestedContext: .agentDefault, resolvedContext: .fresh,
+            model: nil, thinking: nil, tools: [], skills: [], chainName: mode == .chain ? title : nil,
+            concurrencyLimit: concurrency, worktreePolicy: worktreeIsolation ? "isolated-per-child" : "parent", aggregateSummary: nil,
+            artifactDirectory: artifactDirectory.path, outputPath: artifactDirectory.appendingPathComponent("summary.md").path,
+            worktreePath: nil, parentRepoPath: parentSession.worktreePath ?? parentSession.projectPath, baseCommit: nil,
+            isWorktreeIsolated: false, worktreeStatus: PiSubagentWorktreeStatus.none, worktreePatchPath: nil,
+            childSessionID: nil, childPiSessionFile: nil, launchCommand: nil, summary: nil, error: nil,
+            child: nil, children: children, graphEdges: edges, createdAt: Date(), updatedAt: Date(), completedAt: nil, durationMs: nil
+        )
+    }
+
+    private func finishNativeGraphRun(_ runID: UUID, parentSessionID: UUID, status: PiSubagentRunStatus, summary: String, completion: ((PiSubagentRunRecord) -> Void)?) {
+        let completedAt = Date()
+        piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            run.status = status
+            run.summary = summary
+            run.aggregateSummary = summary
+            run.completedAt = completedAt
+            run.durationMs = max(0, Int((completedAt.timeIntervalSince(run.createdAt) * 1000).rounded()))
+            if status == .failed { run.error = summary }
+        }
+        if let outputPath = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.outputPath {
+            try? summary.write(toFile: outputPath, atomically: true, encoding: .utf8)
+        }
+        piAgentSessionStore.append(.init(sessionID: parentSessionID, role: status == .completed ? .status : .error, title: status == .completed ? "Native Graph Completed" : "Native Graph Failed", text: summary))
+        if let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) { completion?(run) }
+    }
+
+    private func updateNativeGraphChild(_ runID: UUID, parentSessionID: UUID, index: Int, mutate: (inout PiSubagentChildRecord) -> Void) {
+        piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            guard var children = run.children, children.indices.contains(index) else { return }
+            mutate(&children[index])
+            children[index].updatedAt = Date()
+            run.children = children
+        }
+    }
+
+    private func updateNativeGraphChildFromRun(_ graphRunID: UUID, parentSessionID: UUID, index: Int, childResult: PiSubagentRunRecord) {
+        updateNativeGraphChild(graphRunID, parentSessionID: parentSessionID, index: index) { child in
+            child.status = childResult.status
+            child.executionRunID = childResult.id
+            child.artifactDirectory = childResult.artifactDirectory
+            child.outputPath = childResult.outputPath
+            child.worktreePath = childResult.worktreePath
+            child.launchCommand = childResult.launchCommand
+            child.summary = childResult.summary
+            child.error = childResult.error
+            child.completedAt = childResult.completedAt
+            child.durationMs = childResult.durationMs
+        }
+    }
+
+    private func agentApplying(chainStep step: ChainStepRecord, to agent: EffectiveAgentRecord) -> EffectiveAgentRecord {
+        var config = agent.resolved
+        if let model = step.model, !model.isEmpty { config.model = model }
+        if let skills = step.skills { config.skills = skills }
+        if step.skillsDisabled { config.skills = [] }
+        if step.readsDisabled { config.defaultReads = [] }
+        else if let reads = step.reads { config.defaultReads = reads }
+        if step.outputDisabled { config.output = nil }
+        else if let output = step.output { config.output = output }
+        if let progress = step.progress { config.defaultProgress = progress }
+        return EffectiveAgentRecord(id: agent.id, name: agent.name, projectRoot: agent.projectRoot, builtin: agent.builtin, globalCustom: agent.globalCustom, projectCustom: agent.projectCustom, userOverride: agent.userOverride, projectOverride: agent.projectOverride, resolved: config, resolutionKind: agent.resolutionKind)
+    }
+
+    private func renderChainTemplate(_ template: String, originalTask: String, previous: String, chainDir: String) -> String {
+        template
+            .replacingOccurrences(of: "{task}", with: originalTask)
+            .replacingOccurrences(of: "{previous}", with: previous)
+            .replacingOccurrences(of: "{chain_dir}", with: chainDir)
+    }
+
+    private func nativeGraphArtifactDirectory(for runID: UUID) -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let directory = appSupport.appendingPathComponent("Pi Manager", isDirectory: true).appendingPathComponent("Subagent Runs", isDirectory: true).appendingPathComponent(runID.uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: directory.appendingPathComponent("chain_dir", isDirectory: true), withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func nativeGraphChainDirectory(graphRunID: UUID) -> String {
+        nativeGraphArtifactDirectory(for: graphRunID).appendingPathComponent("chain_dir", isDirectory: true).path
+    }
+
+    private func chainEdges(for children: [PiSubagentChildRecord]) -> [PiSubagentGraphEdgeRecord] {
+        guard children.count > 1 else { return [] }
+        return (1..<children.count).map { index in
+            PiSubagentGraphEdgeRecord(id: "\(children[index - 1].id.uuidString)->\(children[index].id.uuidString)", fromChildID: children[index - 1].id, toChildID: children[index].id)
         }
     }
 
@@ -1368,14 +1646,86 @@ final class AppViewModel: NSObject, ObservableObject {
             return "- \(agent.name): \(description.isEmpty ? "No description" : description) [context: \(context), model: \(model), \(tools), \(skills)]"
         }
         let suffix = agents.count > 40 ? "\n- …\(agents.count - 40) more agents available in Pi Manager." : ""
+        let chains = allVisibleChainRecords
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .prefix(20)
+            .map { "- \($0.name): \($0.description.isEmpty ? "\($0.steps.count) step(s)" : $0.description)" }
+            .joined(separator: "\n")
+        let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native Pi Manager subagents are available through the `managed_subagent` tool. Prefer these for bounded specialist work; keep tasks narrow and include the expected output. Available native subagents for this project:
-        \(lines.joined(separator: "\n"))\(suffix)
+        Native Pi Manager subagents are available through `managed_subagent`, `managed_chain`, and `managed_parallel`. Prefer these for bounded specialist work; keep tasks narrow and include the expected output. Use `managed_parallel` only for independent tasks; set `worktree: true` for writer tasks. Available native subagents for this project:
+        \(lines.joined(separator: "\n"))\(suffix)\(chainSection)
         """
     }
 
     func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {
         nativeSubagentRunner.stop(runID: runID, parentSessionID: parentSessionID)
+    }
+
+    func openNativeSubagentWorktreePatch(runID: UUID, parentSessionID: UUID) {
+        guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
+        Task {
+            do {
+                let patch = try await subagentWorktreeService.preparePatch(for: run)
+                await MainActor.run {
+                    piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                        run.worktreeStatus = .patchReady
+                        run.worktreePatchPath = patch.patchPath
+                    }
+                    piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Worktree Patch Ready", text: "\(patch.changedFiles.count) changed file(s).\n\n\(patch.patchPath)"))
+                    NSWorkspace.shared.open(URL(fileURLWithPath: patch.patchPath))
+                }
+            } catch {
+                await MainActor.run { recordSubagentWorktreeError(error, runID: runID, parentSessionID: parentSessionID) }
+            }
+        }
+    }
+
+    func applyNativeSubagentWorktreePatch(runID: UUID, parentSessionID: UUID) {
+        guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
+        Task {
+            do {
+                let patch = try await subagentWorktreeService.applyPatch(for: run)
+                await MainActor.run {
+                    piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                        run.worktreeStatus = .applied
+                        run.worktreePatchPath = patch.patchPath
+                    }
+                    piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Worktree Applied", text: "Applied \(patch.changedFiles.count) changed file(s) from the isolated worktree.\n\nPatch: \(patch.patchPath)"))
+                }
+            } catch {
+                await MainActor.run { recordSubagentWorktreeError(error, runID: runID, parentSessionID: parentSessionID) }
+            }
+        }
+    }
+
+    func discardNativeSubagentWorktree(runID: UUID, parentSessionID: UUID) {
+        if let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }), run.status.isActive {
+            nativeSubagentRunner.stop(runID: runID, parentSessionID: parentSessionID)
+        }
+        guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
+        Task {
+            do {
+                try await subagentWorktreeService.discardWorktree(for: run)
+                await MainActor.run {
+                    piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                        run.worktreeStatus = .discarded
+                    }
+                    piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Worktree Discarded", text: "Removed isolated worktree for run \(runID.uuidString). Artifacts were kept."))
+                }
+            } catch {
+                await MainActor.run { recordSubagentWorktreeError(error, runID: runID, parentSessionID: parentSessionID) }
+            }
+        }
+    }
+
+    private func recordSubagentWorktreeError(_ error: Error, runID: UUID, parentSessionID: UUID) {
+        let message = error.localizedDescription
+        piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            run.worktreeStatus = .failed
+            run.error = [run.error, message].compactMap { $0 }.joined(separator: "\n")
+        }
+        piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .error, title: "Subagent Worktree Failed", text: message))
     }
 
     func respondToSubagentSupervisorRequest(_ requestID: String, parentSessionID: UUID, response: String) {

@@ -490,7 +490,10 @@ struct PiAgentScreen: View {
                                     run: run,
                                     onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
                                     onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
-                                    onReveal: { revealSubagentRun(run) }
+                                    onReveal: { revealSubagentRun(run) },
+                                    onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
+                                    onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
+                                    onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
                                 )
                             }
                         }
@@ -529,7 +532,10 @@ struct PiAgentScreen: View {
                                         run: run,
                                         onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
                                         onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
-                                        onReveal: { revealSubagentRun(run) }
+                                        onReveal: { revealSubagentRun(run) },
+                                        onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
+                                        onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
+                                        onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
                                     )
                                 }
                             }
@@ -1681,6 +1687,9 @@ private struct PiNativeSubagentRunCard: View {
     let onStop: () -> Void
     let onOpenTranscript: () -> Void
     let onReveal: () -> Void
+    let onOpenWorktreePatch: () -> Void
+    let onApplyWorktreePatch: () -> Void
+    let onDiscardWorktree: () -> Void
 
     var body: some View {
         AppRowCard {
@@ -1710,6 +1719,13 @@ private struct PiNativeSubagentRunCard: View {
                             .disabled(!canOpenArtifact(named: "input.md"))
                         Button("Open System Prompt") { openArtifact(named: "system-prompt.md") }
                             .disabled(!canOpenArtifact(named: "system-prompt.md"))
+                        Divider()
+                        Button("Generate/Open Worktree Patch", action: onOpenWorktreePatch)
+                            .disabled(!canReviewWorktree)
+                        Button("Apply Worktree Patch", action: onApplyWorktreePatch)
+                            .disabled(!canReviewWorktree)
+                        Button("Discard Worktree", role: .destructive, action: onDiscardWorktree)
+                            .disabled(!canDiscardWorktree)
                     }
                     .menuStyle(.borderlessButton)
                     .controlSize(.small)
@@ -1724,6 +1740,30 @@ private struct PiNativeSubagentRunCard: View {
                     .font(.subheadline)
                     .lineLimit(3)
                     .foregroundStyle(.secondary)
+                if let children = run.children, !children.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(children.sorted { $0.index < $1.index }) { child in
+                            HStack(alignment: .top, spacing: 8) {
+                                Circle()
+                                    .fill(color(for: child.status))
+                                    .frame(width: 7, height: 7)
+                                    .padding(.top, 5)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(child.index + 1). \(child.agentName) · \(child.status.rawValue)")
+                                        .font(.caption.weight(.semibold))
+                                    if let summary = child.summary ?? child.error, !summary.isEmpty {
+                                        Text(summary)
+                                            .font(.caption2)
+                                            .lineLimit(2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 9))
+                }
                 if let currentTool = run.child?.currentTool {
                     Label("Running tool: \(currentTool)", systemImage: "hammer")
                         .font(.caption)
@@ -1758,6 +1798,18 @@ private struct PiNativeSubagentRunCard: View {
                         .foregroundStyle(AppTheme.mutedText)
                     if let worktreePath = run.worktreePath {
                         Text("Worktree: \(worktreePath)")
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    if run.isWorktreeIsolated == true {
+                        Text("Worktree status: \((run.worktreeStatus ?? .active).rawValue)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    if let patchPath = run.worktreePatchPath {
+                        Text("Patch: \(patchPath)")
                             .font(.caption2.monospaced())
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -1799,6 +1851,14 @@ private struct PiNativeSubagentRunCard: View {
         NSWorkspace.shared.open(artifactURL(named: fileName))
     }
 
+    private var canReviewWorktree: Bool {
+        run.isWorktreeIsolated == true && !run.status.isActive && run.worktreeStatus != .discarded
+    }
+
+    private var canDiscardWorktree: Bool {
+        run.isWorktreeIsolated == true && run.worktreeStatus != .discarded
+    }
+
     private func formattedDuration(_ milliseconds: Int) -> String {
         let seconds = max(0, milliseconds) / 1000
         if seconds < 60 { return "\(seconds)s" }
@@ -1806,6 +1866,21 @@ private struct PiNativeSubagentRunCard: View {
         let remainder = seconds % 60
         if minutes < 60 { return "\(minutes)m \(remainder)s" }
         return "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    private func color(for status: PiSubagentRunStatus) -> Color {
+        switch status {
+        case .queued, .starting, .running:
+            return .blue
+        case .blocked:
+            return .orange
+        case .completed:
+            return .green
+        case .failed:
+            return .red
+        case .stopped, .disconnected:
+            return .secondary
+        }
     }
 
     private var statusColor: Color {

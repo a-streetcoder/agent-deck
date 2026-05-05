@@ -71,6 +71,7 @@ enum PiSubagentSupervisorRequestKind: String, Codable, Hashable, Identifiable {
 
 struct PiSubagentSupervisorRequest: Identifiable, Codable, Hashable {
     var id: String
+    var bridgeRequestID: String?
     var runID: UUID
     var parentSessionID: UUID
     var childID: UUID?
@@ -89,10 +90,44 @@ struct PiManagedSubagentBridgeRequest: Codable, Hashable {
     var context: String?
 }
 
+struct PiManagedChainBridgeRequest: Codable, Hashable {
+    var chain: String
+    var task: String
+    var worktree: Bool?
+}
+
+struct PiManagedParallelTaskRequest: Codable, Hashable {
+    var agent: String
+    var task: String
+}
+
+struct PiManagedParallelBridgeRequest: Codable, Hashable {
+    var tasks: [PiManagedParallelTaskRequest]
+    var concurrency: Int?
+    var worktree: Bool?
+}
+
 enum PiSubagentRunMode: String, Codable, Hashable {
     case single
     case chain
     case parallel
+}
+
+enum PiSubagentWorktreeStatus: String, Codable, Hashable, CaseIterable, Identifiable {
+    case none
+    case active
+    case patchReady
+    case applied
+    case discarded
+    case failed
+
+    var id: String { rawValue }
+}
+
+struct PiSubagentGraphEdgeRecord: Identifiable, Codable, Hashable {
+    var id: String
+    var fromChildID: UUID
+    var toChildID: UUID
 }
 
 enum PiSubagentContextMode: String, Codable, Hashable, CaseIterable, Identifiable {
@@ -118,16 +153,27 @@ struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var runID: UUID
     var index: Int
     var agentName: String
+    var task: String?
     var status: PiSubagentRunStatus
+    var requestedContext: PiSubagentContextMode?
+    var resolvedContext: PiSubagentContextMode?
+    var model: String?
     var currentTool: String?
     var inputTokens: Int?
     var outputTokens: Int?
     var totalTokens: Int?
     var toolCount: Int?
     var durationMs: Int?
+    var artifactDirectory: String?
     var sessionFile: String?
     var outputPath: String?
+    var worktreePath: String?
+    var launchCommand: String?
+    var executionRunID: UUID?
+    var summary: String?
     var error: String?
+    var dependencies: [UUID]?
+    var completedAt: Date?
     var createdAt: Date
     var updatedAt: Date
 }
@@ -145,15 +191,26 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var thinking: String?
     var tools: [String]
     var skills: [String]
+    var chainName: String?
+    var concurrencyLimit: Int?
+    var worktreePolicy: String?
+    var aggregateSummary: String?
     var artifactDirectory: String
     var outputPath: String?
     var worktreePath: String?
+    var parentRepoPath: String?
+    var baseCommit: String?
+    var isWorktreeIsolated: Bool?
+    var worktreeStatus: PiSubagentWorktreeStatus?
+    var worktreePatchPath: String?
     var childSessionID: UUID?
     var childPiSessionFile: String?
     var launchCommand: String?
     var summary: String?
     var error: String?
     var child: PiSubagentChildRecord?
+    var children: [PiSubagentChildRecord]?
+    var graphEdges: [PiSubagentGraphEdgeRecord]?
     var createdAt: Date
     var updatedAt: Date
     var completedAt: Date?
@@ -176,15 +233,26 @@ extension PiSubagentRunRecord {
             thinking: nil,
             tools: [],
             skills: [],
+            chainName: nil,
+            concurrencyLimit: nil,
+            worktreePolicy: nil,
+            aggregateSummary: nil,
             artifactDirectory: "",
             outputPath: nil,
             worktreePath: nil,
+            parentRepoPath: nil,
+            baseCommit: nil,
+            isWorktreeIsolated: nil,
+            worktreeStatus: nil,
+            worktreePatchPath: nil,
             childSessionID: nil,
             childPiSessionFile: nil,
             launchCommand: nil,
             summary: nil,
             error: error,
             child: nil,
+            children: nil,
+            graphEdges: nil,
             createdAt: now,
             updatedAt: now,
             completedAt: now,

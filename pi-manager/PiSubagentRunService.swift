@@ -86,9 +86,18 @@ final class PiSubagentRunService {
             thinking: agent.resolved.thinking,
             tools: tools,
             skills: agent.resolved.skills,
+            chainName: nil,
+            concurrencyLimit: nil,
+            worktreePolicy: useWorktreeIsolation ? "isolated" : "parent",
+            aggregateSummary: nil,
             artifactDirectory: artifactDirectory.path,
             outputPath: artifactDirectory.appendingPathComponent("output.md").path,
             worktreePath: worktreeURL?.path ?? parentSession.worktreePath,
+            parentRepoPath: parentSession.worktreePath ?? parentSession.projectPath,
+            baseCommit: useWorktreeIsolation ? currentCommit(in: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)) : nil,
+            isWorktreeIsolated: useWorktreeIsolation,
+            worktreeStatus: useWorktreeIsolation ? .active : PiSubagentWorktreeStatus.none,
+            worktreePatchPath: nil,
             childSessionID: nil,
             childPiSessionFile: nil,
             launchCommand: nil,
@@ -99,19 +108,32 @@ final class PiSubagentRunService {
                 runID: runID,
                 index: 0,
                 agentName: agent.name,
+                task: trimmedTask,
                 status: .starting,
+                requestedContext: requestedContext,
+                resolvedContext: resolvedContext,
+                model: modelArgument,
                 currentTool: nil,
                 inputTokens: nil,
                 outputTokens: nil,
                 totalTokens: nil,
                 toolCount: nil,
                 durationMs: nil,
+                artifactDirectory: artifactDirectory.path,
                 sessionFile: nil,
                 outputPath: artifactDirectory.appendingPathComponent("output.md").path,
+                worktreePath: worktreeURL?.path,
+                launchCommand: nil,
+                executionRunID: nil,
+                summary: nil,
                 error: nil,
+                dependencies: nil,
+                completedAt: nil,
                 createdAt: now,
                 updatedAt: now
             ),
+            children: nil,
+            graphEdges: nil,
             createdAt: now,
             updatedAt: now,
             completedAt: nil,
@@ -148,6 +170,7 @@ final class PiSubagentRunService {
         run.launchCommand = client.launchCommand
         run.status = .running
         run.child?.status = .running
+        run.child?.launchCommand = client.launchCommand
         store.upsertSubagentRun(run)
         client.getState()
         client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory))
@@ -168,7 +191,7 @@ final class PiSubagentRunService {
             run.updatedAt = now
             run.child?.updatedAt = now
         }
-        clientsByRunID[request.runID]?.respondToExtensionUI(id: requestID, value: response)
+        clientsByRunID[request.runID]?.respondToExtensionUI(id: request.bridgeRequestID ?? requestID, value: response)
     }
 
     func cancelSupervisorRequest(_ requestID: String, parentSessionID: UUID) {
@@ -185,7 +208,7 @@ final class PiSubagentRunService {
             run.updatedAt = now
             run.child?.updatedAt = now
         }
-        clientsByRunID[request.runID]?.cancelExtensionUI(id: requestID)
+        clientsByRunID[request.runID]?.cancelExtensionUI(id: request.bridgeRequestID ?? requestID)
     }
 
     func stop(runID: UUID, parentSessionID: UUID) {
@@ -294,6 +317,7 @@ final class PiSubagentRunService {
         finalTextByRunID[runID] = text
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             run.summary = text
+            run.child?.summary = text
             if let usage = message["usage"] {
                 run.child?.inputTokens = usage["input"]?.numberValue.map(Int.init)
                 run.child?.outputTokens = usage["output"]?.numberValue.map(Int.init)
@@ -319,7 +343,10 @@ final class PiSubagentRunService {
             run.durationMs = durationMilliseconds(from: run.createdAt, to: completedAt)
             run.summary = finalSummary
             if var child = run.child {
+                child.status = .completed
+                child.summary = finalSummary
                 child.updatedAt = completedAt
+                child.completedAt = completedAt
                 child.durationMs = durationMilliseconds(from: child.createdAt, to: completedAt)
                 run.child = child
             }
@@ -358,7 +385,7 @@ final class PiSubagentRunService {
     private func timeoutSupervisorRequest(_ requestID: String, runID: UUID, parentSessionID: UUID) {
         guard let request = store.supervisorRequests(for: parentSessionID).first(where: { $0.id == requestID && $0.status == .pending }) else { return }
         supervisorTimeoutTasksByRequestID.removeValue(forKey: requestID)?.cancel()
-        clientsByRunID[runID]?.cancelExtensionUI(id: requestID)
+        clientsByRunID[runID]?.cancelExtensionUI(id: request.bridgeRequestID ?? requestID)
         store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
             request.status = .cancelled
             request.response = "Timed out waiting for supervisor response."
@@ -412,6 +439,23 @@ final class PiSubagentRunService {
             throw NativeSubagentError.worktreeFailed(message?.isEmpty == false ? message! : "git worktree add failed")
         }
         return worktreeURL
+    }
+
+    private func currentCommit(in repositoryURL: URL) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", repositoryURL.path, "rev-parse", "HEAD"]
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
     }
 
     private func artifactDirectory(for runID: UUID) throws -> URL {
@@ -582,11 +626,14 @@ final class PiSubagentRunService {
         let message = json["message"] as? String ?? ""
         let requestTitle = json["title"] as? String ?? supervisorTitle(for: kind)
         let now = Date()
+        let childID = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.child?.id
+        let appRequestID = [runID.uuidString, childID?.uuidString, requestID].compactMap { $0 }.joined(separator: ":")
         let request = PiSubagentSupervisorRequest(
-            id: requestID,
+            id: appRequestID,
+            bridgeRequestID: requestID,
             runID: runID,
             parentSessionID: parentSessionID,
-            childID: store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.child?.id,
+            childID: childID,
             kind: kind,
             title: requestTitle,
             message: message,
@@ -604,7 +651,7 @@ final class PiSubagentRunService {
                 run.updatedAt = now
                 run.child?.updatedAt = now
             }
-            scheduleSupervisorTimeout(requestID: requestID, runID: runID, parentSessionID: parentSessionID)
+            scheduleSupervisorTimeout(requestID: appRequestID, runID: runID, parentSessionID: parentSessionID)
             store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Needs Decision", text: message))
         } else {
             store.append(.init(sessionID: parentSessionID, role: .status, title: requestTitle, text: message))
