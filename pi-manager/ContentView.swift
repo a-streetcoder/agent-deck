@@ -626,8 +626,7 @@ struct ContentView: View {
         case .agent:
             PiAgentScreen(
                 viewModel: viewModel,
-                store: viewModel.piAgentSessionStore,
-                isSidePanelPresented: isPiAgentActivityPresented || isPiAgentRepoChangesPresented || viewModel.isPiAgentInspectorPresented
+                store: viewModel.piAgentSessionStore
             )
         case .extensions:
             ExtensionsScreen(viewModel: viewModel)

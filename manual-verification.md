@@ -44,7 +44,7 @@ This checklist covers the current working tree plus today's committed changes:
   - You are using the latest build, not the Xcode DerivedData app.
   - Pi Agent screen loads without stale warnings or broken layout.
 
-- [ ] **MV-A2 — Startup resources collapsed by default**
+- [x] **MV-A2 — Startup resources collapsed by default**
   1. Open/create a Pi Agent session.
   2. Inspect the `Pi startup resources` card.
   Expected:
@@ -53,7 +53,7 @@ This checklist covers the current working tree plus today's committed changes:
   - Chevron expands/collapses smoothly.
   - Skills do not dominate the chat.
 
-- [ ] **MV-A3 — Agent scanner does not show skills as agents**
+- [x] **MV-A3 — Agent scanner does not show skills as agents**
   1. Expand startup resources.
   2. Inspect Agents list.
   Expected:
@@ -705,4 +705,4 @@ Add notes here or send them to the coding agent to update.
 
 | Item | Result | Notes |
 |---|---|---|
-|  |  |  |
+| MV-A2 | Passed | User verified collapsed-by-default behavior. Startup resources expansion animation was too slide-like; simplified to opacity-only content transition in `PiAgentViews.swift`. |

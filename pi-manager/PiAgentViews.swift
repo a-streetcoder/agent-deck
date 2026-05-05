@@ -201,7 +201,6 @@ private final class PiAgentTranscriptRenderCache: ObservableObject {
 struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
-    var isSidePanelPresented: Bool = false
     @State private var composerText = ""
     @State private var composerTextBySessionID: [UUID: String] = [:]
     @State private var composerImagesBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
@@ -227,13 +226,12 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var composerScrollRequest = 0
-    @State private var isSessionsColumnCompact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 sessionsColumn
-                    .frame(width: isSessionsColumnCompact ? 88 : 360)
+                    .frame(width: 360)
 
                 Divider()
 
@@ -266,11 +264,6 @@ struct PiAgentScreen: View {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
-        .onChange(of: isSidePanelPresented) { _, isPresented in
-            if isPresented {
-                withAnimation(.snappy(duration: 0.22)) { isSessionsColumnCompact = true }
-            }
-        }
         .sheet(item: selectedSubagentTranscriptBinding) { run in
             PiNativeSubagentTranscriptSheet(run: run, entries: store.subagentTranscript(for: run.id))
         }
@@ -328,11 +321,7 @@ struct PiAgentScreen: View {
     }
 
     private var sessionsColumn: some View {
-        Group {
-            if isSessionsColumnCompact {
-                compactSessionsColumn
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Sessions")
@@ -343,17 +332,6 @@ struct PiAgentScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Button {
-                    withAnimation(.snappy(duration: 0.22)) { isSessionsColumnCompact = true }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .help("Slim sessions column")
                 Button {
                     viewModel.showPiAgentAttentionOnly.toggle()
                 } label: {
@@ -452,92 +430,7 @@ struct PiAgentScreen: View {
                 }
             }
         }
-                .background(AppTheme.subtleFill)
-            }
-        }
-    }
-
-    private var compactSessionsColumn: some View {
-        VStack(spacing: 12) {
-            Button {
-                withAnimation(.snappy(duration: 0.22)) { isSessionsColumnCompact = false }
-            } label: {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .help("Expand sessions")
-
-            PiAgentAddSessionButton {
-                viewModel.createPiAgentDraftForSelectedProject()
-            }
-            .help(viewModel.selectedDiscoveredProject == nil ? "New Pi Agent session in \(viewModel.configuredProjectsRootPath)" : "New Pi Agent session")
-
-            Button {
-                viewModel.showPiAgentAttentionOnly.toggle()
-            } label: {
-                Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(viewModel.showPiAgentAttentionOnly ? .white : Color.accentColor)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(viewModel.showPiAgentAttentionOnly ? Color.accentColor : Color.accentColor.opacity(0.12)))
-            }
-            .buttonStyle(.plain)
-            .help(viewModel.showPiAgentAttentionOnly ? "Show all sessions" : "Show unread Pi Agent updates")
-
-            Divider()
-                .padding(.vertical, 2)
-
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 10) {
-                    ForEach(visibleSessions) { session in
-                        Button {
-                            renamingSessionID = nil
-                            withAnimation(.snappy(duration: 0.22)) {
-                                viewModel.selectPiAgentSession(session.id)
-                            }
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                PiAgentProjectIcon(
-                                    project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
-                                    session: session
-                                )
-                                Circle()
-                                    .fill(session.needsAttention ? Color.accentColor : (viewModel.isPiAgentSessionRunning(session.id) ? .green : sessionStatusColor(session)))
-                                    .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
-                                    .offset(x: 3, y: -3)
-                            }
-                            .padding(7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(store.selectedSession?.id == session.id ? Color.accentColor.opacity(0.14) : AppTheme.cardFill)
-                                    .stroke(store.selectedSession?.id == session.id ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .help(session.displayTitle)
-                    }
-                }
-                .padding(.bottom, 18)
-            }
-        }
-        .padding(.top, 16)
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.subtleFill)
-    }
-
-    private func sessionStatusColor(_ session: PiAgentSessionRecord) -> Color {
-        switch session.status {
-        case .running, .starting: return .green
-        case .idle, .completed: return .blue
-        case .failed: return .red
-        case .stopped: return .orange
-        case .draft: return .secondary
-        }
     }
 
     private var activeSessionColumn: some View {
@@ -1164,10 +1057,9 @@ private struct PiAgentStartupResourcesCard: View {
                         resourceSection("Prompts", count: effectiveResourceCount(promptItems), icon: "text.badge.star", color: .indigo, items: promptItems)
                         resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: isExpanded)
         }
     }
 
