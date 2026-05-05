@@ -98,7 +98,7 @@ This checklist covers the current working tree plus today's committed changes:
   - New sessions follow the last toggle state.
   - Current session and future default stay in sync.
 
-- [ ] **MV-B4 — Main and inspector composer launch paths**
+- [x] **MV-B4 — Main and inspector composer launch paths**
   1. From the main composer footer, open the native subagent picker and run a harmless no-edit task.
   2. Open the Pi Agent inspector for the same session.
   3. From the inspector composer, open the native subagent picker and run the same harmless no-edit task.

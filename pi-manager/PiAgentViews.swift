@@ -536,7 +536,8 @@ struct PiAgentScreen: View {
                             PiAgentTranscriptThreadCard(
                                 thread: thread,
                                 thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
-                                visibility: viewModel.appSettings.piAgentTranscriptVisibility
+                                visibility: viewModel.appSettings.piAgentTranscriptVisibility,
+                                skills: visibleSkillsForSelectedSession
                             )
                             .id(thread.id)
                         }
@@ -643,6 +644,7 @@ struct PiAgentScreen: View {
         VStack(alignment: .leading, spacing: 10) {
             PiAgentCommandSuggestions(
                 commands: slashSuggestions,
+                skills: skillSlashSuggestions,
                 fileSuggestions: fileSuggestions,
                 onSelectFile: insertFileSuggestion,
                 onSelectCommand: insertSlashSuggestion
@@ -723,11 +725,28 @@ struct PiAgentScreen: View {
 
     private var slashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
+        guard !query.hasPrefix("skill:") else { return [] }
+        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
+        return all.filter { query.isEmpty || $0.dropFirst().lowercased().contains(query) }.prefix(8).map { $0 }
+    }
+
+    private var skillSlashSuggestions: [String] {
+        guard case let .slash(query) = composerSuggestionTrigger else { return [] }
+        let normalizedQuery = query.hasPrefix("skill:") ? String(query.dropFirst("skill:".count)) : query
+        return visibleSkillsForSelectedSession
+            .filter { normalizedQuery.isEmpty || $0.name.lowercased().contains(normalizedQuery) || ($0.description?.lowercased().contains(normalizedQuery) == true) }
+            .map { "/skill:\($0.name)" }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private var visibleSkillsForSelectedSession: [SkillRecord] {
         let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
         let snapshot = projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
-        let skillInvocations = Array(Set((snapshot.skills + snapshot.librarySkills).map { "/skill:\($0.name)" }))
-        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + skillInvocations + ["/compact"])).sorted()
-        return all.filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(10).map { $0 }
+        var seen = Set<String>()
+        return (snapshot.skills + snapshot.librarySkills)
+            .filter { seen.insert($0.name).inserted }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private var fileSuggestions: [PiAgentFileSuggestion] {
@@ -1428,6 +1447,7 @@ private struct PiAgentFileSuggestion: Identifiable, Hashable {
 
 private struct PiAgentCommandSuggestions: View {
     let commands: [String]
+    let skills: [String]
     let fileSuggestions: [PiAgentFileSuggestion]
     let onSelectFile: (PiAgentFileSuggestion) -> Void
     let onSelectCommand: (String) -> Void
@@ -1449,19 +1469,32 @@ private struct PiAgentCommandSuggestions: View {
                     .buttonStyle(.plain)
                 }
             }
-        } else if !commands.isEmpty {
-            suggestionPanel(title: "Slash commands", icon: "terminal") {
-                ForEach(commands, id: \.self) { command in
-                    Button { onSelectCommand(command) } label: {
-                        Text(command)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !commands.isEmpty || !skills.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                if !commands.isEmpty {
+                    suggestionPanel(title: "Slash commands", icon: "terminal") {
+                        commandRows(commands)
                     }
-                    .buttonStyle(.plain)
+                }
+                if !skills.isEmpty {
+                    suggestionPanel(title: "Skills", icon: "sparkles") {
+                        commandRows(skills)
+                    }
                 }
             }
+        }
+    }
+
+    private func commandRows(_ items: [String]) -> some View {
+        ForEach(items, id: \.self) { command in
+            Button { onSelectCommand(command) } label: {
+                Text(command)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -1495,6 +1528,59 @@ private struct PiAgentCommandSuggestions: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.subtleFill))
+        }
+    }
+}
+
+private struct PiAgentSkillUsePill: View {
+    let skill: SkillRecord?
+    let invocation: String
+    @State private var isPreviewPresented = false
+
+    var body: some View {
+        Button {
+            isPreviewPresented.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Color.purple)
+                Text(skill?.name ?? invocation)
+                    .font(.callout.weight(.semibold))
+                Text("skill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(AppTheme.subtleFill))
+                Spacer(minLength: 0)
+                Image(systemName: "info.circle")
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.purple.opacity(0.08)).stroke(Color.purple.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPreviewPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(skill?.name ?? invocation)
+                    .font(.headline)
+                if let description = skill?.description, !description.isEmpty {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Divider()
+                ScrollView {
+                    Text(skill?.body.isEmpty == false ? skill!.body : (skill?.filePath ?? "Skill details are not available in Pi Manager's current scan snapshot."))
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 320)
+            }
+            .padding(14)
+            .frame(width: 520, alignment: .leading)
         }
     }
 }
@@ -4740,11 +4826,12 @@ private struct PiAgentTranscriptThreadCard: View {
     let thread: PiAgentTranscriptThread
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
     let visibility: PiAgentTranscriptVisibilitySettings
+    let skills: [SkillRecord]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let question = thread.question {
-                PiAgentTranscriptCard(entry: question, thinkingDisplayMode: thinkingDisplayMode, style: .question)
+                PiAgentTranscriptCard(entry: question, thinkingDisplayMode: thinkingDisplayMode, style: .question, skills: skills)
                     .id(question.id)
             }
 
@@ -4758,15 +4845,15 @@ private struct PiAgentTranscriptThreadCard: View {
                     }
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(thread.steeringMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
+                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(entry.id)
                         }
                         if let thinking = thread.thinking, effectiveThinkingDisplayMode != .hidden {
-                            PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: effectiveThinkingDisplayMode, style: childStyle)
+                            PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: effectiveThinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(thinking.id)
                         }
                         ForEach(thread.assistantMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle)
+                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(entry.id)
                         }
                         if visibility.showWebActivity && !webActivities.isEmpty {
@@ -5260,6 +5347,7 @@ private struct PiAgentTranscriptCard: View {
     let entry: PiAgentTranscriptEntry
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
     var style: PiAgentTranscriptCardStyle = .standalone
+    var skills: [SkillRecord] = []
     @State private var isThinkingExpanded = true
 
     var body: some View {
@@ -5307,6 +5395,14 @@ private struct PiAgentTranscriptCard: View {
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.primary)
                 PiAgentTypingIndicator()
+            }
+        } else if entry.role == .user, let skillUse = skillUse {
+            VStack(alignment: .leading, spacing: 8) {
+                PiAgentSkillUsePill(skill: skillUse.skill, invocation: skillUse.invocation)
+                if !skillUse.remainingText.isEmpty {
+                    MarkdownTextView(source: skillUse.remainingText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         } else if entry.role == .assistant || entry.role == .user {
             MarkdownTextView(source: entry.text)
@@ -5359,6 +5455,18 @@ private struct PiAgentTranscriptCard: View {
         let allLines = text.split(separator: "\n", omittingEmptySubsequences: false)
         let preview = allLines.prefix(3).joined(separator: "\n")
         return allLines.count > 3 ? preview + "…" : preview
+    }
+
+    private var skillUse: (skill: SkillRecord?, invocation: String, remainingText: String)? {
+        let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/skill:") else { return nil }
+        let parts = trimmed.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard let invocationPart = parts.first else { return nil }
+        let invocation = String(invocationPart)
+        let name = String(invocation.dropFirst("/skill:".count))
+        let skill = skills.first { $0.name == name }
+        let remaining = parts.count > 1 ? String(parts[1]) : ""
+        return (skill, invocation, remaining)
     }
 
     private var headerTitle: String {
