@@ -36,7 +36,7 @@ This checklist covers the current working tree plus today's committed changes:
 
 ## A. Launch, project, and clean UI baseline
 
-- [ ] **MV-A1 — Launch latest build manually**
+- [x] **MV-A1 — Launch latest build manually**
   1. Quit any older Pi Manager instances.
   2. Open `/tmp/pi-manager-build/pi-manager.app` manually.
   3. Select `/Users/andrea/Documents/GitHub/claude-code-meter`.
@@ -60,7 +60,7 @@ This checklist covers the current working tree plus today's committed changes:
   - Builtins/custom agents appear.
   - `.agents/skills/*/SKILL.md` entries do **not** appear as agents.
 
-- [ ] **MV-A4 — Autoscroll baseline**
+- [x] **MV-A4 — Autoscroll baseline**
   1. Scroll upward in the transcript.
   2. Paste/type into the composer.
   3. Send a simple message and wait for the reply.

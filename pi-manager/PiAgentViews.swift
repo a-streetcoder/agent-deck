@@ -225,7 +225,7 @@ struct PiAgentScreen: View {
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
-    @State private var composerScrollRequest = 0
+    @State private var transcriptBottomScrollRequest = 0
 
     var body: some View {
         HSplitView {
@@ -561,8 +561,8 @@ struct PiAgentScreen: View {
                 guard message != nil else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
-            .onChange(of: composerScrollRequest) { _, _ in
-                scrollToComposerAnchor(proxy: proxy)
+            .onChange(of: transcriptBottomScrollRequest) { _, _ in
+                scrollToRequestedBottom(proxy: proxy)
             }
         }
     }
@@ -618,11 +618,11 @@ struct PiAgentScreen: View {
         scrollToConversationBottom(proxy: proxy, animated: false)
     }
 
-    private func requestComposerScroll() {
-        composerScrollRequest &+= 1
+    private func requestTranscriptBottomScroll() {
+        transcriptBottomScrollRequest &+= 1
     }
 
-    private func scrollToComposerAnchor(proxy: ScrollViewProxy) {
+    private func scrollToRequestedBottom(proxy: ScrollViewProxy) {
         scrollToConversationBottom(proxy: proxy, animated: true)
     }
 
@@ -680,12 +680,6 @@ struct PiAgentScreen: View {
                 onStop: { viewModel.stopSelectedPiAgentSession() },
                 onClear: clearComposerInput
             )
-            .onChange(of: composerText.isEmpty) { wasEmpty, isEmpty in
-                if wasEmpty && !isEmpty { requestComposerScroll() }
-            }
-            .onChange(of: composerImages.count + composerFiles.count) { oldCount, newCount in
-                if oldCount == 0 && newCount > 0 { requestComposerScroll() }
-            }
         }
     }
 
@@ -861,6 +855,7 @@ struct PiAgentScreen: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
+        requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
             composerTextBySessionID.removeValue(forKey: sentSessionID)
