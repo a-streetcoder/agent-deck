@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var showingPiAgentDeleteAlert = false
     @State private var isPiAgentTranscriptOptionsPresented = false
     @State private var isPiAgentRepoChangesPresented = false
+    @State private var isPiAgentActivityPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
 
     var body: some View {
@@ -102,7 +103,11 @@ struct ContentView: View {
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
+                if viewModel.selectedSidebarItem == .agent && isPiAgentActivityPresented {
+                    Divider()
+                    PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
+                        .frame(width: 420)
+                } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
                     Divider()
                     PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
                         .frame(width: 380)
@@ -411,8 +416,18 @@ struct ContentView: View {
                     }
 
                     Button {
+                        isPiAgentActivityPresented.toggle()
+                        if isPiAgentActivityPresented { isPiAgentRepoChangesPresented = false }
+                    } label: {
+                        Label("Activity", systemImage: "wrench.and.screwdriver")
+                    }
+                    .help("Open Pi Agent activity sidebar")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+
+                    Button {
                         isPiAgentRepoChangesPresented.toggle()
                         if isPiAgentRepoChangesPresented {
+                            isPiAgentActivityPresented = false
                             viewModel.prepareRepoChangesForSelectedPiAgentSession()
                         }
                     } label: {
