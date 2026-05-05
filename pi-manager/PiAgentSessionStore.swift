@@ -253,7 +253,7 @@ final class PiAgentSessionStore: ObservableObject {
         } else {
             runs.insert(run, at: 0)
         }
-        subagentRunsBySessionID[run.parentSessionID] = runs.sorted { $0.updatedAt > $1.updatedAt }
+        subagentRunsBySessionID[run.parentSessionID] = runs.sorted { $0.createdAt > $1.createdAt }
         touchSession(run.parentSessionID, bumpUpdatedAt: true)
     }
 
@@ -262,7 +262,7 @@ final class PiAgentSessionStore: ObservableObject {
         guard let index = runs.firstIndex(where: { $0.id == runID }) else { return }
         mutate(&runs[index])
         runs[index].updatedAt = Date()
-        subagentRunsBySessionID[parentSessionID] = runs.sorted { $0.updatedAt > $1.updatedAt }
+        subagentRunsBySessionID[parentSessionID] = runs.sorted { $0.createdAt > $1.createdAt }
         touchSession(parentSessionID, bumpUpdatedAt: true)
     }
 

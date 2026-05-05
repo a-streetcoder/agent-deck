@@ -18,7 +18,6 @@ struct ContentView: View {
     @State private var isSubagentsRecapPresented = false
     @State private var showingEnableAllProjectsAlert = false
     @State private var showingDisableAllProjectsAlert = false
-    @State private var showingPiAgentSubagentsToggleAlert = false
     @State private var showingPiAgentDeleteAlert = false
     @State private var isPiAgentTranscriptOptionsPresented = false
     @State private var isPiAgentRepoChangesPresented = false
@@ -138,14 +137,6 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will disable every project currently in Pi Manager and clear the active project selection.")
-        }
-        .alert(viewModel.areSubagentsEnabledForNewSessions ? "Disable subagents for new sessions?" : "Enable subagents for new sessions?", isPresented: $showingPiAgentSubagentsToggleAlert) {
-            Button(viewModel.areSubagentsEnabledForNewSessions ? "Disable" : "Enable", role: viewModel.areSubagentsEnabledForNewSessions ? .destructive : .none) {
-                viewModel.toggleSubagentsForNewSessions()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(viewModel.areSubagentsEnabledForNewSessions ? "New Pi Agent sessions will have no subagents." : "New Pi Agent sessions will include subagents again.")
         }
         .alert("Delete Pi Agent session?", isPresented: $showingPiAgentDeleteAlert) {
             Button("Delete", role: .destructive) {
@@ -396,14 +387,6 @@ struct ContentView: View {
                     .help("Delete session")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
-                    if viewModel.canShowPiAgentSubagentsToggle {
-                        Button {
-                            showingPiAgentSubagentsToggleAlert = true
-                        } label: {
-                            PiAgentSubagentsToolbarIcon(isEnabled: viewModel.areSubagentsEnabledForNewSessions)
-                        }
-                        .help(viewModel.areSubagentsEnabledForNewSessions ? "Subagents enabled for new sessions" : "Subagents disabled for new sessions")
-                    }
 
                     Button {
                         isPiAgentTranscriptOptionsPresented.toggle()
@@ -803,15 +786,6 @@ private struct PiAgentTranscriptDisplayOptionsPopover: View {
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isOn ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct PiAgentSubagentsToolbarIcon: View {
-    let isEnabled: Bool
-
-    var body: some View {
-            Image(systemName: SidebarItem.agents.systemImage)
-            .foregroundStyle(isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.red.gradient))
     }
 }
 

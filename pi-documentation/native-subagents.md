@@ -116,7 +116,7 @@ Parent-agent answers route through Pi Manager to the waiting child.
 
 ## Worktrees
 
-Writer-like manual runs require either worktree isolation or explicit direct-write approval. Writer-like parent bridge requests are auto-isolated. Parallel writer-like runs require isolated worktrees.
+Worktree isolation is an advanced safety path, not the default editing model. Normal approved worker subagents should edit the current project like Pi normally does. Use isolated worktrees only for risky, experimental, or parallel writer work where Pi Manager should review/apply/discard a patch afterward.
 
 For isolated worktrees, Pi Manager can:
 
@@ -133,6 +133,10 @@ Native run artifacts live under:
 ```
 
 Pi Manager keeps artifacts referenced by persisted run records. Old orphaned run directories are cleaned up after the retention window.
+
+## Session enablement
+
+The composer footer subagent icon controls native subagents for the current Pi Agent session and the default for newly created sessions. Disabling a session hides manual native launches and makes parent bridge calls return a disabled message.
 
 ## Remaining known limitation
 

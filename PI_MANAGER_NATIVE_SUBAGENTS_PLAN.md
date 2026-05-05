@@ -259,7 +259,7 @@ Child transcript can be opened separately.
 - [x] Forward structured requests to Pi Manager via the RPC extension UI sub-protocol.
 - [x] Return compact child results as tool output, not full child transcript.
 - [x] Honor parent-requested `context` overrides for `fresh` and `fork` native child runs.
-- [ ] Add richer subagent catalog/context to the parent prompt.
+- [x] Add richer subagent catalog/context to the parent prompt.
 - [x] Add timeout behavior for long-running parent tool calls.
 - [x] Complete waiting parent tool calls when their native child run is stopped.
 
@@ -268,7 +268,7 @@ Child transcript can be opened separately.
 - [x] Bundle/write a child extension exposing `contact_supervisor`.
 - [x] Route child decision/progress/interview requests into parent cards.
 - [x] Let the human answer explicitly and route the answer back to the child.
-- [ ] Add structured interview UI beyond freeform response.
+- [x] Add structured interview UI beyond freeform response.
 - [x] Add timeout behavior for blocked child runs.
 
 ### Phase 5: chains, parallel, worktrees

@@ -141,7 +141,12 @@ struct PiScanner {
         let urls = markdownFiles(in: directory)
 
         return urls
-            .filter { $0.pathExtension == "md" && !$0.lastPathComponent.hasSuffix(".chain.md") }
+            .filter { url in
+                url.pathExtension == "md" &&
+                !url.lastPathComponent.hasSuffix(".chain.md") &&
+                url.lastPathComponent != "SKILL.md" &&
+                !url.pathComponents.contains("skills")
+            }
             .compactMap { url in
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
                 let document = parseMarkdownDocument(text)

@@ -252,6 +252,13 @@ final class PiSubagentRunService {
             if event.command == "get_state", let data = event.data {
                 store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                     run.childPiSessionFile = data["sessionFile"]?.stringValue ?? run.childPiSessionFile
+                    if let resolvedModel = resolvedModelName(from: data) {
+                        run.model = resolvedModel
+                        run.child?.model = resolvedModel
+                    }
+                    if let thinkingLevel = resolvedThinkingLevel(from: data) {
+                        run.thinking = thinkingLevel
+                    }
                     run.child?.sessionFile = run.childPiSessionFile
                 }
             }
@@ -267,13 +274,35 @@ final class PiSubagentRunService {
             handleMessageEnd(event, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
         case "extension_ui_request":
             handleExtensionUIRequest(event, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
-        case "turn_end", "agent_end":
+        case "agent_end":
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
+        case "turn_end":
+            break
         default:
             if let type = event.type, type != "message_update" {
                 store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .raw, title: type, text: event.data?.compactDescription ?? rawLine, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             }
         }
+    }
+
+    private func resolvedModelName(from data: JSONValue) -> String? {
+        guard let model = data["model"] else { return nil }
+        if let modelID = model.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !modelID.isEmpty {
+            return modelID
+        }
+        let provider = model["provider"]?.stringValue ?? model["providerId"]?.stringValue
+        let modelID = model["id"]?.stringValue ?? model["modelId"]?.stringValue ?? model["model"]?.stringValue
+        guard let trimmedModel = modelID?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedModel.isEmpty else { return nil }
+        if let provider = provider?.trimmingCharacters(in: .whitespacesAndNewlines), !provider.isEmpty {
+            return "\(provider)/\(trimmedModel)"
+        }
+        return trimmedModel
+    }
+
+    private func resolvedThinkingLevel(from data: JSONValue) -> String? {
+        let level = data["thinkingLevel"]?.stringValue ?? data["level"]?.stringValue
+        guard let trimmed = level?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private func handle(stderr line: String, runID: UUID, parentSessionID: UUID) {

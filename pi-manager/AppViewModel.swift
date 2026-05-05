@@ -131,7 +131,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
         appSettings = appSettingsStore.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
-        piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
+        piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         refresh(includeModels: true)
         lastWatchFingerprint = watchFingerprint()
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
@@ -242,7 +242,7 @@ final class AppViewModel: NSObject, ObservableObject {
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
         lastWatchFingerprint = watchFingerprint()
 
-        piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
+        piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
         if includeModels {
             refreshAvailableModels()
@@ -1389,9 +1389,13 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Pi Manager could not find the parent session.")
             return
         }
+        guard session.subagentsEnabled else {
+            completion("Native subagents are disabled for this Pi Manager session.")
+            return
+        }
         let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
-        let useWorktreeIsolation = likelyWritesToProject(agentName: request.agent, task: request.task)
-        let expectedOutcome: PiSubagentExpectedOutcome = useWorktreeIsolation ? .editFilesInWorktree : .reportOnly
+        let useWorktreeIsolation = false
+        let expectedOutcome: PiSubagentExpectedOutcome = .reportOnly
         let gate = NativeSubagentCompletionGate()
         var timeoutTask: Task<Void, Never>?
         let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: false, expectedOutcome: expectedOutcome, requestedOutputPath: nil, allowOverwrite: false, readFirstPaths: request.reads ?? [], contextOverride: contextOverride) { run in
@@ -1422,11 +1426,15 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Pi Manager could not find the parent session.")
             return
         }
+        guard session.subagentsEnabled else {
+            completion("Native subagents are disabled for this Pi Manager session.")
+            return
+        }
         guard let chain = allVisibleChainRecords.first(where: { $0.name == request.chain }) else {
             completion("Pi Manager could not find a native chain named `\(request.chain)`." )
             return
         }
-        let useWorktreeIsolation = request.worktree == true || chain.steps.contains { likelyWritesToProject(agentName: $0.agent, task: $0.body.isEmpty ? request.task : $0.body) }
+        let useWorktreeIsolation = request.worktree == true
         runNativeChain(parentSession: session, chain: chain, task: request.task, useWorktreeIsolation: useWorktreeIsolation) { run in
             let status = run.status == .completed ? "completed" : run.status.rawValue
             completion("Native chain \(chain.name) \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
@@ -1438,8 +1446,12 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Pi Manager could not find the parent session.")
             return
         }
+        guard session.subagentsEnabled else {
+            completion("Native subagents are disabled for this Pi Manager session.")
+            return
+        }
         let tasks = request.tasks.map { (agentName: $0.agent, task: $0.task) }
-        let useWorktreeIsolation = request.worktree == true || tasks.contains { likelyWritesToProject(agentName: $0.agentName, task: $0.task) }
+        let useWorktreeIsolation = request.worktree == true
         runNativeParallel(parentSession: session, agentTasks: tasks, concurrency: request.concurrency ?? 4, useWorktreeIsolation: useWorktreeIsolation) { run in
             let status = run.status == .completed ? "completed" : run.status.rawValue
             completion("Native parallel run \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
@@ -1448,6 +1460,13 @@ final class AppViewModel: NSObject, ObservableObject {
 
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
+        guard parentSession.subagentsEnabled else {
+            let message = "Native subagents are disabled for this session."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagents Disabled", text: message))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
+            completion?(placeholder)
+            return placeholder
+        }
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
         guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
@@ -1459,13 +1478,6 @@ final class AppViewModel: NSObject, ObservableObject {
         if let validationError = validateNativeSubagentOutcome(parentSession: parentSession, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite) {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Output Policy", text: validationError))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: validationError)
-            completion?(placeholder)
-            return placeholder
-        }
-        if expectedOutcome == .reportOnly, likelyWritesToProject(agentName: agentName, task: task), !useWorktreeIsolation, !allowDirectProjectWrites {
-            let message = "This looks like writer work. Choose a writer expected outcome, enable worktree isolation, or explicitly allow direct project writes."
-            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Writer Safety", text: message))
-            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
             completion?(placeholder)
             return placeholder
         }
@@ -1487,12 +1499,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private func runNativeChain(parentSession: PiAgentSessionRecord, chain: ChainRecord, task: String, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty, !chain.steps.isEmpty else { return }
-        if !useWorktreeIsolation, chain.steps.contains(where: { likelyWritesToProject(agentName: $0.agent, task: $0.body.isEmpty ? trimmedTask : $0.body) }) {
-            let message = "Writer-like native chain steps require isolated worktrees. Re-run with worktree isolation enabled."
-            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Chain Writer Safety", text: message))
-            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: chain.name, task: trimmedTask, error: message))
-            return
-        }
         let now = Date()
         let runID = UUID()
         let artifactDirectory = nativeGraphArtifactDirectory(for: runID)
@@ -1550,13 +1556,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
         let tasks = agentTasks.map { ($0.agentName.trimmingCharacters(in: .whitespacesAndNewlines), $0.task.trimmingCharacters(in: .whitespacesAndNewlines)) }.filter { !$0.0.isEmpty && !$0.1.isEmpty }
         guard !tasks.isEmpty else { return }
-        if !useWorktreeIsolation, tasks.contains(where: { likelyWritesToProject(agentName: $0.0, task: $0.1) }) {
-            let message = "Parallel writer-like tasks require isolated worktrees. Re-run with worktree isolation enabled, or rewrite the tasks as review-only/read-only work."
-            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Parallel Writer Safety", text: message))
-            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: "Parallel", task: "\(tasks.count) task(s)", error: message)
-            completion?(placeholder)
-            return
-        }
         let now = Date()
         let runID = UUID()
         let artifactDirectory = nativeGraphArtifactDirectory(for: runID)
@@ -1603,14 +1602,6 @@ final class AppViewModel: NSObject, ObservableObject {
             }
             updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childRun)
         }
-    }
-
-    private func likelyWritesToProject(agentName: String, task: String) -> Bool {
-        let text = "\(agentName) \(task)".lowercased()
-        let writerTerms = ["worker", "implement", "edit", "modify", "change", "fix", "write", "create", "delete", "remove", "refactor", "apply", "update file", "commit"]
-        let readOnlyTerms = ["review-only", "read-only", "do not edit", "no edits", "only report", "analysis only"]
-        if readOnlyTerms.contains(where: { text.contains($0) }) { return false }
-        return writerTerms.contains { text.contains($0) }
     }
 
     private func validateNativeSubagentOutcome(parentSession: PiAgentSessionRecord, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool) -> String? {
@@ -2438,39 +2429,26 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    var isSubagentsToggleExtensionInstalled: Bool {
-        let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions")
-        let candidates = [
-            base.appendingPathComponent("subagents-toggle.ts"),
-            base.appendingPathComponent("subagents-toggle/index.ts")
-        ]
-        return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    var canShowPiAgentSubagentsToggle: Bool {
-        isSubagentsToggleExtensionInstalled && isPackageInstalled("pi-subagents")
-    }
-
     var areSubagentsEnabledForNewSessions: Bool {
-        subagentsPackageEntries().contains(where: isSubagentsPackageEntry)
+        appSettings.nativeSubagentsEnabledForNewSessions
+    }
+
+    func setSubagentsEnabledForNewSessions(_ isEnabled: Bool) {
+        guard appSettings.nativeSubagentsEnabledForNewSessions != isEnabled else { return }
+        appSettings.nativeSubagentsEnabledForNewSessions = isEnabled
+        appSettingsStore.settings = appSettings
+        piAgentSessionStore.newSessionSubagentsEnabled = isEnabled
     }
 
     func toggleSubagentsForNewSessions() {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/settings.json")
+        setSubagentsEnabledForNewSessions(!areSubagentsEnabledForNewSessions)
+    }
 
-        var settings = loadJSONSettings(at: settingsURL) ?? [:]
-        let packages = subagentsPackageEntries(from: settings)
-
-        if areSubagentsEnabledForNewSessions {
-            settings["packages"] = packages.filter { !isSubagentsPackageEntry($0) }
-        } else {
-            settings["packages"] = packages + ["npm:pi-subagents"]
+    func setSubagentsEnabledForSelectedSession(_ isEnabled: Bool) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        piAgentSessionStore.updateSession(session.id, bumpUpdatedAt: false) { session in
+            session.subagentsEnabled = isEnabled
         }
-
-        saveJSONSettings(settings, to: settingsURL)
-        piAgentSessionStore.newSessionSubagentsEnabled = areSubagentsEnabledForNewSessions
-        refresh(includeModels: false)
     }
 
     private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {
@@ -3799,6 +3777,7 @@ struct AppSettings: Codable, Hashable {
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
     var defaultSkillsImportRootPath: String?
+    var nativeSubagentsEnabledForNewSessions: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case gitHubBoardCacheLifetimeMinutes
@@ -3808,6 +3787,7 @@ struct AppSettings: Codable, Hashable {
         case piAgentTerminalApplicationPath
         case projectsRootPath
         case defaultSkillsImportRootPath
+        case nativeSubagentsEnabledForNewSessions
     }
 
     init() {}
@@ -3821,6 +3801,7 @@ struct AppSettings: Codable, Hashable {
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
+        nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
     }
 }
 

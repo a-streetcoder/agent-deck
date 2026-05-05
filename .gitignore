@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode / Swift build products
+build/
+DerivedData/
+.build/
+*.xcresult
+*.dSYM
+*.dSYM.zip
+
+# Xcode user-local state
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# Local logs and temporary files
+*.log
+/tmp/
+tmp/

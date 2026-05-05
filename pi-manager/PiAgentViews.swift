@@ -225,6 +225,7 @@ struct PiAgentScreen: View {
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
+    @State private var composerScrollRequest = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -492,32 +493,33 @@ struct PiAgentScreen: View {
     }
 
     private var transcript: some View {
-        Group {
-            if store.selectedTranscript.isEmpty {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if let session = store.selectedSession {
-                            PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
-                            ForEach(store.supervisorRequests(for: session.id).filter { $0.status == .pending }) { request in
-                                PiSubagentSupervisorRequestCard(
-                                    request: request,
-                                    onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
-                                    onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
-                                )
-                            }
-                            ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
-                                PiNativeSubagentRunCard(
-                                    run: run,
-                                    onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
-                                    onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
-                                    onReveal: { revealSubagentRun(run) },
-                                    onOpenGraph: { selectedSubagentGraphRunID = run.id },
-                                    onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
-                                    onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
-                                    onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
-                                )
-                            }
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if let session = store.selectedSession {
+                        PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
+                        ForEach(store.supervisorRequests(for: session.id).filter { $0.status == .pending }) { request in
+                            PiSubagentSupervisorRequestCard(
+                                request: request,
+                                onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
+                                onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
+                            )
                         }
+                        ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
+                            PiNativeSubagentRunCard(
+                                run: run,
+                                onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
+                                onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
+                                onReveal: { revealSubagentRun(run) },
+                                onOpenGraph: { selectedSubagentGraphRunID = run.id },
+                                onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
+                                onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
+                                onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
+                            )
+                        }
+                    }
+
+                    if store.selectedTranscript.isEmpty {
                         AppRowCard {
                             HStack(spacing: 12) {
                                 Image(systemName: "text.bubble")
@@ -532,60 +534,39 @@ struct PiAgentScreen: View {
                                 Spacer()
                             }
                         }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            if let session = store.selectedSession {
-                                PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
-                                ForEach(store.supervisorRequests(for: session.id).filter { $0.status == .pending }) { request in
-                                    PiSubagentSupervisorRequestCard(
-                                        request: request,
-                                        onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
-                                        onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
-                                    )
-                                }
-                                ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
-                                    PiNativeSubagentRunCard(
-                                        run: run,
-                                        onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
-                                        onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
-                                        onReveal: { revealSubagentRun(run) },
-                                        onOpenGraph: { selectedSubagentGraphRunID = run.id },
-                                        onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
-                                        onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
-                                        onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
-                                    )
-                                }
-                            }
-                            ForEach(transcriptCache.threads) { thread in
-                                PiAgentTranscriptThreadCard(
-                                    thread: thread,
-                                    thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
-                                    visibility: viewModel.appSettings.piAgentTranscriptVisibility
-                                )
-                                    .id(thread.id)
-                            }
-                            if let processingMessage = selectedSessionProcessingMessage {
-                                PiAgentProcessingIndicatorCard(message: processingMessage)
-                                    .id("pi-agent-processing")
-                            }
+                    } else {
+                        ForEach(transcriptCache.threads) { thread in
+                            PiAgentTranscriptThreadCard(
+                                thread: thread,
+                                thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
+                                visibility: viewModel.appSettings.piAgentTranscriptVisibility
+                            )
+                            .id(thread.id)
+                        }
+                        if let processingMessage = selectedSessionProcessingMessage {
+                            PiAgentProcessingIndicatorCard(message: processingMessage)
+                                .id("pi-agent-processing")
                         }
                     }
-                    .onChange(of: transcriptCache.renderRevision) { _, _ in
-                        scrollToLatestThread(proxy: proxy)
-                    }
-                    .onChange(of: transcriptCache.streamingRevision) { _, _ in
-                        throttleStreamingScroll(proxy: proxy)
-                    }
-                    .onChange(of: selectedSessionProcessingMessage) { _, message in
-                        guard message != nil else { return }
-                        scrollToProcessingIndicator(proxy: proxy)
-                    }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id("pi-agent-bottom-anchor")
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .onChange(of: transcriptCache.renderRevision) { _, _ in
+                scrollToLatestThread(proxy: proxy)
+            }
+            .onChange(of: transcriptCache.streamingRevision) { _, _ in
+                throttleStreamingScroll(proxy: proxy)
+            }
+            .onChange(of: selectedSessionProcessingMessage) { _, message in
+                guard message != nil else { return }
+                scrollToProcessingIndicator(proxy: proxy)
+            }
+            .onChange(of: composerScrollRequest) { _, _ in
+                scrollToComposerAnchor(proxy: proxy)
             }
         }
     }
@@ -634,21 +615,25 @@ struct PiAgentScreen: View {
     }
 
     private func scrollToLatestThread(proxy: ScrollViewProxy) {
-        if selectedSessionProcessingMessage != nil {
-            scrollToProcessingIndicator(proxy: proxy)
-            return
-        }
-        guard let id = transcriptCache.lastThreadID else { return }
-        lastStreamingScrollAt = Date()
-        withTransaction(Transaction(animation: nil)) {
-            proxy.scrollTo(id, anchor: .bottom)
-        }
+        scrollToConversationBottom(proxy: proxy, animated: false)
     }
 
     private func scrollToProcessingIndicator(proxy: ScrollViewProxy) {
+        scrollToConversationBottom(proxy: proxy, animated: false)
+    }
+
+    private func requestComposerScroll() {
+        composerScrollRequest &+= 1
+    }
+
+    private func scrollToComposerAnchor(proxy: ScrollViewProxy) {
+        scrollToConversationBottom(proxy: proxy, animated: true)
+    }
+
+    private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool) {
         lastStreamingScrollAt = Date()
-        withTransaction(Transaction(animation: nil)) {
-            proxy.scrollTo("pi-agent-processing", anchor: .bottom)
+        withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
+            proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
         }
     }
 
@@ -682,6 +667,10 @@ struct PiAgentScreen: View {
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
                 subagentNames: runnableSubagentNames,
+                subagentsEnabled: store.selectedSession?.subagentsEnabled == true,
+                subagentsEnabledForNewSessions: viewModel.areSubagentsEnabledForNewSessions,
+                onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
+                onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
                 onSelectSubagent: presentNativeSubagentRun,
                 footer: store.selectedSession.map { session in
                     AnyView(PiAgentComposerFooterBar(
@@ -695,6 +684,12 @@ struct PiAgentScreen: View {
                 onStop: { viewModel.stopSelectedPiAgentSession() },
                 onClear: clearComposerInput
             )
+            .onChange(of: composerText.isEmpty) { wasEmpty, isEmpty in
+                if wasEmpty && !isEmpty { requestComposerScroll() }
+            }
+            .onChange(of: composerImages.count + composerFiles.count) { oldCount, newCount in
+                if oldCount == 0 && newCount > 0 { requestComposerScroll() }
+            }
         }
     }
 
@@ -1037,23 +1032,35 @@ private extension Array where Element == PiStartupResourceItem {
 private struct PiAgentStartupResourcesCard: View {
     @ObservedObject var viewModel: AppViewModel
     let session: PiAgentSessionRecord
+    @State private var isExpanded = false
 
     var body: some View {
         AppRowCard {
             VStack(alignment: .leading, spacing: 16) {
-                header
-
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 10) {
-                        resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
-                        resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
                     }
-                    resourceSection("Agents", count: effectiveResourceCount(agentItems), icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
-                    resourceSection("Skills", count: effectiveResourceCount(skillItems), icon: "wand.and.stars", color: .purple, items: skillItems)
-                    resourceSection("Prompts", count: effectiveResourceCount(promptItems), icon: "text.badge.star", color: .indigo, items: promptItems)
-                    resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
+                } label: {
+                    header
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top, spacing: 10) {
+                            resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
+                            resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
+                        }
+                        resourceSection("Agents", count: effectiveResourceCount(agentItems), icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
+                        resourceSection("Skills", count: effectiveResourceCount(skillItems), icon: "wand.and.stars", color: .purple, items: skillItems)
+                        resourceSection("Prompts", count: effectiveResourceCount(promptItems), icon: "text.badge.star", color: .indigo, items: promptItems)
+                        resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: isExpanded)
         }
     }
 
@@ -1082,7 +1089,14 @@ private struct PiAgentStartupResourcesCard: View {
                 }
             }
             Spacer()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(AppTheme.subtleFill))
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
         }
+        .contentShape(Rectangle())
     }
 
     private var contextItems: [PiStartupResourceItem] {
@@ -1806,170 +1820,325 @@ private struct PiNativeSubagentRunCard: View {
     let onOpenWorktreePatch: () -> Void
     let onApplyWorktreePatch: () -> Void
     let onDiscardWorktree: () -> Void
+    @State private var isDetailsPresented = false
 
     var body: some View {
         AppRowCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Image(systemName: "rectangle.connected.to.line.below")
-                        .foregroundStyle(statusColor)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Subagent: \(run.agentName)")
-                            .font(.headline)
-                        Text(run.status.rawValue.capitalized)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(statusColor)
-                    }
-                    Spacer()
-                    Button("Transcript", action: onOpenTranscript)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    Button("Reveal", action: onReveal)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(run.artifactDirectory.isEmpty)
-                    if run.children?.isEmpty == false {
-                        Button("Graph", action: onOpenGraph)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
-                    Menu("Artifacts") {
-                        Button("Open Output") { openArtifact(named: "output.md") }
-                            .disabled(!canOpenArtifact(named: "output.md"))
-                        Button("Open Input") { openArtifact(named: "input.md") }
-                            .disabled(!canOpenArtifact(named: "input.md"))
-                        Button("Open System Prompt") { openArtifact(named: "system-prompt.md") }
-                            .disabled(!canOpenArtifact(named: "system-prompt.md"))
-                        Divider()
-                        Button("Generate/Open Worktree Patch", action: onOpenWorktreePatch)
-                            .disabled(!canReviewWorktree)
-                        Button("Apply Worktree Patch", action: onApplyWorktreePatch)
-                            .disabled(!canReviewWorktree)
-                        Button("Discard Worktree", role: .destructive, action: onDiscardWorktree)
-                            .disabled(!canDiscardWorktree)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .controlSize(.small)
-                    .disabled(run.artifactDirectory.isEmpty)
-                    if run.status.isActive {
-                        Button("Stop", action: onStop)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
+            VStack(alignment: .leading, spacing: 12) {
+                header
+
+                taskPreview
+
+                if let summaryText {
+                    answerPreview(summaryText)
                 }
-                Text(run.task)
-                    .font(.subheadline)
-                    .lineLimit(3)
-                    .foregroundStyle(.secondary)
+
                 if let children = run.children, !children.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(children.sorted { $0.index < $1.index }) { child in
-                            HStack(alignment: .top, spacing: 8) {
-                                Circle()
-                                    .fill(color(for: child.status))
-                                    .frame(width: 7, height: 7)
-                                    .padding(.top, 5)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(child.index + 1). \(child.agentName) · \(child.status.rawValue)")
-                                        .font(.caption.weight(.semibold))
-                                    if let summary = child.summary ?? child.error, !summary.isEmpty {
-                                        Text(summary)
-                                            .font(.caption2)
-                                            .lineLimit(2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
+                    childSummary(children)
+                }
+
+                if !compactMetadata.isEmpty {
+                    HStack(spacing: 10) {
+                        ForEach(compactMetadata) { item in
+                            compactMetric(item)
                         }
                     }
-                    .padding(8)
-                    .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 9))
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
                 }
-                if let currentTool = run.child?.currentTool {
-                    Label("Running tool: \(currentTool)", systemImage: "hammer")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if let summary = run.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.caption)
-                        .lineLimit(4)
-                        .foregroundStyle(.secondary)
-                } else if let error = run.error, !error.isEmpty {
-                    Text(error)
-                        .font(.caption)
-                        .lineLimit(4)
-                        .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "rectangle.connected.to.line.below")
+                .foregroundStyle(statusColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(run.agentName)
+                    .font(.headline)
+                Text(run.status.rawValue.capitalized)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+            }
+            Spacer(minLength: 0)
+            actionButtons
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if run.children?.isEmpty == false {
+            Button("Graph", action: onOpenGraph)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        Button("Transcript", action: onOpenTranscript)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        Button {
+            isDetailsPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(AppTheme.mutedText)
+        .help("Run details")
+        .popover(isPresented: $isDetailsPresented, arrowEdge: .trailing) {
+            detailsPopover
+        }
+        if run.status.isActive {
+            Button("Stop", action: onStop)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var taskPreview: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Task", systemImage: "arrowshape.turn.up.forward.circle")
+                .font(.caption.weight(.semibold))
+                .fontWidth(.expanded)
+                .foregroundStyle(Color.accentColor)
+
+            MarkdownTextView(source: run.task)
+                .lineLimit(3)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.accentColor.opacity(0.08))
+                .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
+        )
+        .help(run.task)
+    }
+
+    @ViewBuilder
+    private func answerPreview(_ text: String) -> some View {
+        if run.status == .failed {
+            Text(text)
+                .font(.callout)
+                .lineLimit(4)
+                .truncationMode(.tail)
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+        } else if run.child?.currentTool != nil {
+            Label(text, systemImage: "hammer")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(AppTheme.mutedText)
+        } else {
+            MarkdownTextView(source: text)
+                .lineLimit(5)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var summaryText: String? {
+        if let currentTool = run.child?.currentTool {
+            return "Running tool: \(currentTool)"
+        }
+        if let error = run.error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return error
+        }
+        guard let summary = run.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty else { return nil }
+        return summary == "Completed without a text summary." ? nil : summary
+    }
+
+    private var detailRows: [(String, String)] {
+        var rows: [(String, String)] = [
+            ("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened)),
+            ("Context", "requested \(run.requestedContext.rawValue), resolved \(run.resolvedContext.rawValue)")
+        ]
+        if let completedAt = run.completedAt {
+            rows.append(("Completed", completedAt.formatted(date: .abbreviated, time: .shortened)))
+        }
+        if let duration = run.durationMs {
+            rows.append(("Duration", formattedDuration(duration)))
+        }
+        if let totalTokens {
+            rows.append(("Tokens", compactNumber(totalTokens)))
+        }
+        if let toolCount {
+            rows.append(("Tools", "\(toolCount)"))
+        }
+        if let modelName {
+            rows.append(("Model", modelName))
+        }
+        if let thinkingLevel {
+            rows.append(("Thinking", thinkingLevel))
+        }
+        if let expectedOutcome = run.expectedOutcome {
+            rows.append(("Outcome", expectedOutcome.displayName + (run.requestedOutputPath.map { " · \($0)" } ?? "")))
+        }
+        if let reads = run.readFirstPaths, !reads.isEmpty {
+            rows.append(("Read first", reads.joined(separator: ", ")))
+        }
+        if run.isWorktreeIsolated == true {
+            rows.append(("Worktree status", (run.worktreeStatus ?? .active).rawValue))
+        }
+        appendPath("Worktree", run.worktreePath, to: &rows)
+        appendPath("Patch", run.worktreePatchPath, to: &rows)
+        appendPath("Output", run.outputPath, to: &rows)
+        appendPath("Run folder", run.artifactDirectory, to: &rows)
+        appendPath("Child session", run.childPiSessionFile, to: &rows)
+        return rows
+    }
+
+    private func appendPath(_ label: String, _ value: String?, to rows: inout [(String, String)]) {
+        guard let value, !value.isEmpty else { return }
+        rows.append((label, value))
+    }
+
+    private var detailsPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Run details", systemImage: "info.circle")
+                .font(.headline)
+
+            AppKeyValueList(rows: detailRows)
+
+            if hasDetailActions {
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Actions")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+
+                    if !run.artifactDirectory.isEmpty {
+                        Button("Reveal Run Folder", action: onReveal)
+                        Button("Open Output", action: { openArtifact(named: "output.md") })
+                            .disabled(!canOpenArtifact(named: "output.md"))
+                        Button("Open Input", action: { openArtifact(named: "input.md") })
+                            .disabled(!canOpenArtifact(named: "input.md"))
+                        Button("Open System Prompt", action: { openArtifact(named: "system-prompt.md") })
+                            .disabled(!canOpenArtifact(named: "system-prompt.md"))
+                    }
+                    if canReviewWorktree {
+                        Button("Generate/Open Worktree Patch", action: onOpenWorktreePatch)
+                        Button("Apply Worktree Patch", action: onApplyWorktreePatch)
+                    }
+                    if canDiscardWorktree {
+                        Button("Discard Worktree", role: .destructive, action: onDiscardWorktree)
+                    }
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Started: \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                    if let completedAt = run.completedAt {
-                        Text("Completed: \(completedAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    if let duration = run.durationMs {
-                        Text("Duration: \(formattedDuration(duration))")
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    Text("Context: requested \(run.requestedContext.rawValue), resolved \(run.resolvedContext.rawValue)")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                    if let expectedOutcome = run.expectedOutcome {
-                        Text("Outcome: \(expectedOutcome.displayName)" + (run.requestedOutputPath.map { " · \($0)" } ?? ""))
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    if let reads = run.readFirstPaths, !reads.isEmpty {
-                        Text("Read first: \(reads.joined(separator: ", "))")
-                            .font(.caption2.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    if let worktreePath = run.worktreePath {
-                        Text("Worktree: \(worktreePath)")
-                            .font(.caption2.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    if run.isWorktreeIsolated == true {
-                        Text("Worktree status: \((run.worktreeStatus ?? .active).rawValue)")
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    if let patchPath = run.worktreePatchPath {
-                        Text("Patch: \(patchPath)")
-                            .font(.caption2.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    if let outputPath = run.outputPath {
-                        Text("Output: \(outputPath)")
-                            .font(.caption2.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    Text("Run folder: \(run.artifactDirectory)")
-                        .font(.caption2.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(AppTheme.mutedText)
-                    if let childPiSessionFile = run.childPiSessionFile {
-                        Text("Child session: \(childPiSessionFile)")
-                            .font(.caption2.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(AppTheme.mutedText)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(16)
+        .frame(width: 430, alignment: .leading)
+    }
+
+    private var hasDetailActions: Bool {
+        !run.artifactDirectory.isEmpty || canReviewWorktree || canDiscardWorktree
+    }
+
+    private struct CompactMetadataItem: Identifiable {
+        let id = UUID()
+        let text: String
+        let icon: String
+    }
+
+    private var compactMetadata: [CompactMetadataItem] {
+        var items: [CompactMetadataItem] = []
+        if let duration = run.durationMs {
+            items.append(.init(text: formattedDuration(duration), icon: "timer"))
+        }
+        if let totalTokens {
+            items.append(.init(text: compactNumber(totalTokens), icon: "tugriksign.circle"))
+        }
+        if let toolCount {
+            items.append(.init(text: "\(toolCount)", icon: "wrench.and.screwdriver"))
+        }
+        items.append(.init(text: run.resolvedContext.rawValue, icon: "viewfinder"))
+        if let expectedOutcome = run.expectedOutcome {
+            items.append(.init(text: shortOutcomeName(expectedOutcome), icon: "target"))
+        }
+        if let modelName {
+            items.append(.init(text: modelName, icon: "cpu"))
+        }
+        if let thinkingLevel {
+            items.append(.init(text: thinkingLevel, icon: "brain.head.profile"))
+        }
+        return items
+    }
+
+    private var totalTokens: Int? {
+        if let total = run.child?.totalTokens { return total }
+        let totals = run.children?.compactMap(\.totalTokens) ?? []
+        guard !totals.isEmpty else { return nil }
+        return totals.reduce(0, +)
+    }
+
+    private var toolCount: Int? {
+        if let count = run.child?.toolCount { return count }
+        let counts = run.children?.compactMap(\.toolCount) ?? []
+        guard !counts.isEmpty else { return nil }
+        return counts.reduce(0, +)
+    }
+
+    private var modelName: String? {
+        let value = run.model ?? run.child?.model ?? run.children?.compactMap(\.model).first
+        return nonEmpty(value)
+    }
+
+    private var thinkingLevel: String? {
+        nonEmpty(run.thinking)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private func compactMetric(_ item: CompactMetadataItem) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: item.icon)
+                .font(.caption2.weight(.semibold))
+            Text(item.text)
+                .lineLimit(1)
+        }
+    }
+
+    private func shortOutcomeName(_ outcome: PiSubagentExpectedOutcome) -> String {
+        switch outcome {
+        case .reportOnly: return "report"
+        case .editFilesInWorktree: return "worktree"
+        case .writeProjectFile: return "file write"
+        case .directProjectWrites: return "direct edit"
+        }
+    }
+
+    private func childSummary(_ children: [PiSubagentChildRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(children.sorted { $0.index < $1.index }) { child in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle()
+                        .fill(color(for: child.status))
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(child.index + 1). \(child.agentName) · \(child.status.rawValue)")
+                            .font(.caption.weight(.semibold))
+                        if let summary = child.summary ?? child.error, !summary.isEmpty {
+                            Text(summary)
+                                .font(.caption2)
+                                .lineLimit(2)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
                     }
                 }
             }
         }
+        .padding(8)
+        .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
     private func artifactURL(named fileName: String) -> URL {
@@ -1999,6 +2168,12 @@ private struct PiNativeSubagentRunCard: View {
         let remainder = seconds % 60
         if minutes < 60 { return "\(minutes)m \(remainder)s" }
         return "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    private func compactNumber(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return "\(value / 1_000)k" }
+        return "\(value)"
     }
 
     private func color(for status: PiSubagentRunStatus) -> Color {
@@ -2157,75 +2332,162 @@ private struct PiNativeSubagentGraphSheet: View {
 private struct PiNativeSubagentTranscriptSheet: View {
     let run: PiSubagentRunRecord
     let entries: [PiAgentTranscriptEntry]
-    @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
+    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var showExecutionLog = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Subagent Transcript · \(run.agentName)")
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Subagent transcript")
                         .font(.title3.bold())
-                    Text(run.status.rawValue.capitalized)
+                    Text("\(run.agentName) · \(run.status.rawValue.capitalized)")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(statusColor)
                 }
                 Spacer()
-                Button("Reveal Artifacts") {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: run.outputPath ?? run.artifactDirectory)])
-                }
-                .disabled(run.artifactDirectory.isEmpty)
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
+
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search child transcript", text: $query)
+                    .foregroundStyle(AppTheme.mutedText)
+                TextField("Search task, answer, or execution log", text: $query)
                     .textFieldStyle(.roundedBorder)
             }
+
             Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if transcriptCache.threads.isEmpty {
-                        Text("No child transcript entries captured yet.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(filteredThreads) { thread in
-                            PiAgentTranscriptThreadCard(
-                                thread: thread,
-                                thinkingDisplayMode: .compact,
-                                visibility: .init(showThinking: true, showWebActivity: true, showToolCalls: true, showErrors: true)
-                            )
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    transcriptSection(title: "Task", systemImage: "person.crop.circle", color: .blue) {
+                        Text(run.task)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    transcriptSection(title: "Answer", systemImage: "sparkles", color: .green) {
+                        if let answer = finalAnswer {
+                            Text(answer)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Text("No final answer was captured for this run. Older runs may have completed before final-answer capture was fixed.")
+                                .foregroundStyle(AppTheme.mutedText)
                         }
+                    }
+
+                    DisclosureGroup(isExpanded: $showExecutionLog) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if filteredActivityEntries.isEmpty {
+                                Text("No matching execution events.")
+                                    .foregroundStyle(AppTheme.mutedText)
+                            } else {
+                                ForEach(filteredActivityEntries) { entry in
+                                    executionRow(entry)
+                                }
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Label("Execution log", systemImage: "terminal")
+                            .font(.headline)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(22)
-        .frame(width: 860, height: 680)
-        .onAppear { refreshCache() }
-        .onChange(of: entries) { _, _ in refreshCache() }
+        .frame(width: 820, height: 620)
     }
 
-    private var filteredThreads: [PiAgentTranscriptThread] {
+    private var finalAnswer: String? {
+        let summary = run.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let summary, !summary.isEmpty, summary != "Completed without a text summary." { return summary }
+        return entries.reversed().first { $0.role == .assistant && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?.text
+    }
+
+    private var filteredActivityEntries: [PiAgentTranscriptEntry] {
+        let activity = entries.filter { entry in
+            switch entry.role {
+            case .tool, .status, .error, .stderr, .raw: return true
+            case .assistant: return entry.text != finalAnswer
+            case .user, .thinking: return false
+            }
+        }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return transcriptCache.threads }
-        return transcriptCache.threads.filter { threadText($0).lowercased().contains(needle) }
+        guard !needle.isEmpty else { return activity }
+        return activity.filter { "\($0.title)\n\($0.text)".lowercased().contains(needle) }
     }
 
-    private func refreshCache() {
-        transcriptCache.scheduleUpdate(sessionID: run.id, revision: entries.count, rawEntries: entries)
+    private func transcriptSection<Content: View>(title: String, systemImage: String, color: Color, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .foregroundStyle(color)
+            content()
+        }
+        .padding(14)
+        .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func threadText(_ thread: PiAgentTranscriptThread) -> String {
-        var entries: [PiAgentTranscriptEntry] = []
-        if let question = thread.question { entries.append(question) }
-        entries.append(contentsOf: thread.steeringMessages)
-        if let thinking = thread.thinking { entries.append(thinking) }
-        entries.append(contentsOf: thread.assistantMessages)
-        entries.append(contentsOf: thread.statuses)
-        entries.append(contentsOf: thread.errors)
-        return entries.map(\.text).joined(separator: "\n")
+    private func executionRow(_ entry: PiAgentTranscriptEntry) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                AppLabelTag(text: label(for: entry.role), color: color(for: entry.role))
+                Text(entry.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                Spacer(minLength: 0)
+                Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(entry.text)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                    .lineLimit(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(10)
+        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func label(for role: PiAgentTranscriptRole) -> String {
+        switch role {
+        case .assistant: return "answer"
+        case .tool: return "tool"
+        case .status: return "status"
+        case .error: return "error"
+        case .stderr: return "stderr"
+        case .raw: return "raw"
+        case .user: return "task"
+        case .thinking: return "thinking"
+        }
+    }
+
+    private func color(for role: PiAgentTranscriptRole) -> Color {
+        switch role {
+        case .assistant: return .green
+        case .tool: return .purple
+        case .status: return .blue
+        case .error, .stderr: return .red
+        case .raw, .thinking, .user: return AppTheme.mutedText
+        }
+    }
+
+    private var statusColor: Color {
+        switch run.status {
+        case .queued, .starting, .running: return .blue
+        case .blocked: return .orange
+        case .completed: return .green
+        case .failed: return .red
+        case .stopped, .disconnected: return AppTheme.mutedText
+        }
     }
 }
 
@@ -2405,8 +2667,6 @@ private struct PiNativeSubagentRunSheet: View {
             syncOutcomeSafetyDefaults()
         }
         .onChange(of: expectedOutcome) { _, _ in syncOutcomeSafetyDefaults() }
-        .onChange(of: selectedAgentName) { _, _ in syncHeuristicOutcome() }
-        .onChange(of: task) { _, _ in syncHeuristicOutcome() }
     }
 
     private var parsedReadFirstPaths: [String] {
@@ -2419,9 +2679,6 @@ private struct PiNativeSubagentRunSheet: View {
     private var outputPolicyError: String? {
         switch expectedOutcome {
         case .reportOnly:
-            if likelyWritesToProject(agentName: selectedAgentName, task: task) {
-                return "This looks like writer work. Choose a writer outcome or make the task clearly report-only."
-            }
             return nil
         case .editFilesInWorktree:
             return useWorktreeIsolation ? nil : "Editing files should use worktree isolation."
@@ -2442,21 +2699,6 @@ private struct PiNativeSubagentRunSheet: View {
         case .reportOnly:
             allowDirectProjectWrites = false
         }
-    }
-
-    private func syncHeuristicOutcome() {
-        if expectedOutcome == .reportOnly, likelyWritesToProject(agentName: selectedAgentName, task: task) {
-            expectedOutcome = .editFilesInWorktree
-            useWorktreeIsolation = true
-        }
-    }
-
-    private func likelyWritesToProject(agentName: String, task: String) -> Bool {
-        let text = "\(agentName) \(task)".lowercased()
-        let writerTerms = ["worker", "implement", "edit", "modify", "change", "fix", "write", "create", "delete", "remove", "refactor", "apply", "update file", "commit"]
-        let readOnlyTerms = ["review-only", "read-only", "do not edit", "no edits", "only report", "analysis only"]
-        if readOnlyTerms.contains(where: { text.contains($0) }) { return false }
-        return writerTerms.contains { text.contains($0) }
     }
 
     private func subagentInfoLine(_ title: String, _ value: String) -> some View {
@@ -2487,6 +2729,10 @@ private struct PiAgentComposerBox: View {
     let path: String?
     let onFiles: ([URL]) -> Void
     let subagentNames: [String]
+    let subagentsEnabled: Bool
+    let subagentsEnabledForNewSessions: Bool
+    let onSetSessionSubagentsEnabled: (Bool) -> Void
+    let onSetNewSessionSubagentsEnabled: (Bool) -> Void
     let onSelectSubagent: (String) -> Void
     let footer: AnyView?
     let metricsFooter: AnyView?
@@ -2494,6 +2740,7 @@ private struct PiAgentComposerBox: View {
     let onStop: () -> Void
     let onClear: () -> Void
     @State private var isDropTargeted = false
+    @State private var isSubagentPopoverPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2563,21 +2810,32 @@ private struct PiAgentComposerBox: View {
                         .buttonStyle(.plain)
                         .help("Attach images or UTF-8 text files")
 
-                        if !subagentNames.isEmpty {
-                            Menu {
-                                ForEach(subagentNames, id: \.self) { agentName in
-                                    Button(agentName) { onSelectSubagent(agentName) }
+                        Button {
+                            isSubagentPopoverPresented.toggle()
+                        } label: {
+                            Image(systemName: "rectangle.connected.to.line.below")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(subagentsEnabled ? Color.accentColor : AppTheme.mutedText)
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(subagentsEnabled ? Color.accentColor.opacity(0.12) : AppTheme.subtleFill))
+                        }
+                        .buttonStyle(.plain)
+                        .help(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
+                        .popover(isPresented: $isSubagentPopoverPresented, arrowEdge: .bottom) {
+                            PiAgentSubagentPopover(
+                                agentNames: subagentNames,
+                                isEnabled: Binding(
+                                    get: { subagentsEnabled },
+                                    set: { isEnabled in
+                                        onSetSessionSubagentsEnabled(isEnabled)
+                                        onSetNewSessionSubagentsEnabled(isEnabled)
+                                    }
+                                ),
+                                onSelectAgent: { agentName in
+                                    isSubagentPopoverPresented = false
+                                    onSelectSubagent(agentName)
                                 }
-                            } label: {
-                                Image(systemName: "rectangle.connected.to.line.below")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .frame(width: 30, height: 30)
-                                    .background(Circle().fill(AppTheme.subtleFill))
-                            }
-                            .menuStyle(.button)
-                            .buttonStyle(.plain)
-                            .help("Run a native Pi Manager subagent")
+                            )
                         }
 
                         Spacer(minLength: 18)
@@ -2864,6 +3122,70 @@ private final class DropSafeNSTextView: NSTextView {
 
     private func acceptsDrop(_ pasteboard: NSPasteboard) -> Bool {
         !PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard).isEmpty || !PiAgentComposerImageLoader.fileURLs(from: pasteboard).isEmpty
+    }
+}
+
+private struct PiAgentSubagentPopover: View {
+    let agentNames: [String]
+    @Binding var isEnabled: Bool
+    let onSelectAgent: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if isEnabled {
+                if agentNames.isEmpty {
+                    Text("No enabled agents found.")
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                } else {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(agentNames, id: \.self) { agentName in
+                            Button {
+                                onSelectAgent(agentName)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(agentName)
+                                        .font(.body.weight(.medium))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "arrow.right.circle")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            } else {
+                Label("Subagents disabled", systemImage: "nosign")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            }
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Text("Subagents")
+                    .font(.body.weight(.medium))
+                Spacer(minLength: 24)
+                Toggle("Subagents", isOn: $isEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+        }
+        .padding(14)
+        .frame(width: 300, alignment: .leading)
     }
 }
 
@@ -5153,10 +5475,9 @@ struct PiAgentActivityPanel: View {
     }
 
     private func stickySubagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {
-        let runs = store.subagentRuns(for: sessionID)
-        let active = runs.filter { $0.status.isActive || $0.status == .blocked }
-        let recent = runs.filter { !($0.status.isActive || $0.status == .blocked) }.prefix(max(0, 4 - active.count))
-        return Array((active + recent).prefix(4))
+        // The activity sidebar is for current work. Completed subagents already
+        // have transcript cards, so repeating them here makes the UI noisy.
+        Array(store.subagentRuns(for: sessionID).filter(\.status.isActive).prefix(4))
     }
 
     private var filterBar: some View {
@@ -6260,6 +6581,10 @@ struct PiAgentInspectorPanel: View {
                         }
                     },
                     subagentNames: runnableSubagentNames(for: session),
+                    subagentsEnabled: session.subagentsEnabled,
+                    subagentsEnabledForNewSessions: viewModel.areSubagentsEnabledForNewSessions,
+                    onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
+                    onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
                     onSelectSubagent: presentNativeSubagentRun,
                     footer: AnyView(PiAgentComposerFooterBar(
                         session: session,
