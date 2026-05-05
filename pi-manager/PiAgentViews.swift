@@ -230,7 +230,7 @@ struct PiAgentScreen: View {
     var body: some View {
         HSplitView {
             sessionsColumn
-                .frame(minWidth: 220, idealWidth: 320, maxWidth: 460)
+                .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
 
             activeSessionColumn
                 .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
@@ -727,14 +727,14 @@ struct PiAgentScreen: View {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
         guard !query.hasPrefix("skill:") else { return [] }
         let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
-        return all.filter { query.isEmpty || $0.dropFirst().lowercased().contains(query) }.prefix(8).map { $0 }
+        return all.filter { query.isEmpty || $0.dropFirst().lowercased().hasPrefix(query) }.prefix(8).map { $0 }
     }
 
     private var skillSlashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
         let normalizedQuery = query.hasPrefix("skill:") ? String(query.dropFirst("skill:".count)) : query
         return visibleSkillsForSelectedSession
-            .filter { normalizedQuery.isEmpty || $0.name.lowercased().contains(normalizedQuery) || ($0.description?.lowercased().contains(normalizedQuery) == true) }
+            .filter { normalizedQuery.isEmpty || $0.name.lowercased().hasPrefix(normalizedQuery) }
             .map { "/skill:\($0.name)" }
             .prefix(8)
             .map { $0 }
