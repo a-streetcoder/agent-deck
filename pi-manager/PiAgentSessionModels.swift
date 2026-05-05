@@ -32,6 +32,80 @@ enum PiAgentInputMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum PiSubagentRunStatus: String, Codable, Hashable, CaseIterable, Identifiable {
+    case queued
+    case starting
+    case running
+    case blocked
+    case completed
+    case failed
+    case stopped
+
+    var id: String { rawValue }
+
+    var isActive: Bool {
+        self == .queued || self == .starting || self == .running || self == .blocked
+    }
+}
+
+enum PiSubagentRunMode: String, Codable, Hashable {
+    case single
+    case chain
+    case parallel
+}
+
+enum PiSubagentContextMode: String, Codable, Hashable, CaseIterable, Identifiable {
+    case agentDefault
+    case fresh
+    case fork
+
+    var id: String { rawValue }
+}
+
+struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
+    var id: UUID
+    var runID: UUID
+    var index: Int
+    var agentName: String
+    var status: PiSubagentRunStatus
+    var currentTool: String?
+    var inputTokens: Int?
+    var outputTokens: Int?
+    var totalTokens: Int?
+    var toolCount: Int?
+    var sessionFile: String?
+    var outputPath: String?
+    var error: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
+    var id: UUID
+    var parentSessionID: UUID
+    var mode: PiSubagentRunMode
+    var status: PiSubagentRunStatus
+    var agentName: String
+    var task: String
+    var requestedContext: PiSubagentContextMode
+    var resolvedContext: PiSubagentContextMode
+    var model: String?
+    var thinking: String?
+    var tools: [String]
+    var skills: [String]
+    var artifactDirectory: String
+    var outputPath: String?
+    var childSessionID: UUID?
+    var childPiSessionFile: String?
+    var launchCommand: String?
+    var summary: String?
+    var error: String?
+    var child: PiSubagentChildRecord?
+    var createdAt: Date
+    var updatedAt: Date
+    var completedAt: Date?
+}
+
 struct PiAgentImageAttachment: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String

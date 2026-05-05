@@ -7,6 +7,7 @@ final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]] = [:]
     @Published private(set) var transcriptRevisionsBySessionID: [UUID: Int] = [:]
     @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
+    @Published private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
     var newSessionSubagentsEnabled = true
@@ -95,6 +96,7 @@ final class PiAgentSessionStore: ObservableObject {
         transcriptsBySessionID[record.id] = []
         transcriptRevisionsBySessionID[record.id] = 0
         uiRequestsBySessionID[record.id] = nil
+        subagentRunsBySessionID[record.id] = []
         selectedSessionID = record.id
         save()
         return record
@@ -154,6 +156,30 @@ final class PiAgentSessionStore: ObservableObject {
         }
     }
 
+    func subagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {
+        subagentRunsBySessionID[sessionID] ?? []
+    }
+
+    func upsertSubagentRun(_ run: PiSubagentRunRecord) {
+        var runs = subagentRunsBySessionID[run.parentSessionID] ?? []
+        if let index = runs.firstIndex(where: { $0.id == run.id }) {
+            runs[index] = run
+        } else {
+            runs.insert(run, at: 0)
+        }
+        subagentRunsBySessionID[run.parentSessionID] = runs.sorted { $0.updatedAt > $1.updatedAt }
+        touchSession(run.parentSessionID, bumpUpdatedAt: true)
+    }
+
+    func updateSubagentRun(_ runID: UUID, parentSessionID: UUID, mutate: (inout PiSubagentRunRecord) -> Void) {
+        var runs = subagentRunsBySessionID[parentSessionID] ?? []
+        guard let index = runs.firstIndex(where: { $0.id == runID }) else { return }
+        mutate(&runs[index])
+        runs[index].updatedAt = Date()
+        subagentRunsBySessionID[parentSessionID] = runs.sorted { $0.updatedAt > $1.updatedAt }
+        touchSession(parentSessionID, bumpUpdatedAt: true)
+    }
+
     func append(_ entry: PiAgentTranscriptEntry) {
         var entries = transcriptsBySessionID[entry.sessionID] ?? []
         entries.append(entry)
@@ -203,6 +229,7 @@ final class PiAgentSessionStore: ObservableObject {
         sessions.removeAll { $0.id == sessionID }
         transcriptsBySessionID[sessionID] = nil
         transcriptRevisionsBySessionID[sessionID] = nil
+        subagentRunsBySessionID[sessionID] = nil
         if selectedSessionID == sessionID {
             selectedSessionID = sessions.first?.id
         }
@@ -232,6 +259,7 @@ final class PiAgentSessionStore: ObservableObject {
             sortSessions()
             transcriptsBySessionID = Dictionary(uniqueKeysWithValues: persisted.transcripts.map { ($0.sessionID, $0.entries) })
             transcriptRevisionsBySessionID = Dictionary(uniqueKeysWithValues: transcriptsBySessionID.map { ($0.key, 0) })
+            subagentRunsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.subagentRuns ?? []).map { ($0.sessionID, $0.runs) })
             selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
@@ -280,7 +308,8 @@ final class PiAgentSessionStore: ObservableObject {
             let persisted = PersistedState(
                 sessions: sessions,
                 transcripts: transcriptsBySessionID.map { PersistedTranscript(sessionID: $0.key, entries: $0.value) },
-                selectedSessionID: selectedSessionID
+                selectedSessionID: selectedSessionID,
+                subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) }
             )
             let data = try JSONEncoder.piAgent.encode(persisted)
             try data.write(to: fileURL, options: .atomic)
@@ -294,11 +323,17 @@ private struct PersistedState: Codable {
     var sessions: [PiAgentSessionRecord]
     var transcripts: [PersistedTranscript]
     var selectedSessionID: UUID?
+    var subagentRuns: [PersistedSubagentRuns]?
 }
 
 private struct PersistedTranscript: Codable {
     var sessionID: UUID
     var entries: [PiAgentTranscriptEntry]
+}
+
+private struct PersistedSubagentRuns: Codable {
+    var sessionID: UUID
+    var runs: [PiSubagentRunRecord]
 }
 
 private extension JSONEncoder {

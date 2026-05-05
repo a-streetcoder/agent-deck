@@ -1,0 +1,293 @@
+# Pi Manager Native Subagents Plan
+
+Status: Phase 1 foundation implemented. Pi Manager now has persisted native subagent run records, a single-child Pi RPC runner, private skill injection from snapshots/library skills, native Run Subagent sheets, parent transcript status entries, and visible run cards. Later phases still cover parent tool delegation, native `contact_supervisor`, chains/parallel graphs, child transcript navigation, and worktrees.
+
+## Goals
+
+- Keep Pi Manager's current resource management model for agents, chains, skills, prompts, and library/global/project visibility.
+- Keep the existing agent discovery folders and precedence model; do not introduce new user-facing storage locations for agent definitions.
+- Let the app launch subagents directly through app-owned Pi RPC child sessions, instead of sending `/run ...` slash text into the parent chat.
+- Let the parent Pi session know it has subagents and delegate to them through a small app bridge/tool, without loading the full old `pi-subagents` package.
+- Let a human open a native Run Subagent UI from the composer, select an agent, and run a task without transcript pollution or duplicate parent replies.
+- Preserve separate runtime isolation: every subagent has its own Pi process, session file, transcript, model, tools, skills, context window, and lifecycle.
+- Preserve key config behavior: `model`, `fallbackModels` where possible, `thinking`, `systemPromptMode`, `inheritProjectContext`, `inheritSkills`, `defaultContext`, `tools`, `extensions`, `skills`, `output`, `defaultReads`, `defaultProgress`, and disabled agents.
+- Let agents use private assigned skills from the skill library even when those skills are not enabled globally or assigned to the current project.
+- Replace global pi-intercom broker semantics with app-native parent/child routing and, eventually, a native `contact_supervisor` tool for child decision escalation.
+- Make output safe by default: app artifacts first; writing to project paths should be explicit and visible.
+- Keep UI and docs consistent with the app's native model.
+
+## Non-goals for the first implementation pass
+
+- Full replacement of every advanced `pi-subagents` feature in one step.
+- Running arbitrary parallel writer children in the same worktree without user confirmation or worktree isolation.
+- Reimplementing the global `pi-intercom` session-to-session broker.
+- Relying on slash commands as the main app UX.
+- Making old `pi-subagents` package-managed runs disappear from historical transcripts.
+
+## Current package behavior to port or improve
+
+### Discovery
+
+Current `pi-subagents` discovers:
+
+- builtins from the package's `agents/` directory
+- user agents from `~/.pi/agent/agents/**/*.md` and legacy `~/.agents/**/*.md`
+- project agents from `.pi/agents/**/*.md` and legacy `.agents/**/*.md`
+- chains from `~/.pi/agent/chains/**/*.chain.md` and `.pi/chains/**/*.chain.md`
+- builtin overrides from `~/.pi/agent/settings.json` and `.pi/settings.json`
+
+Pi Manager already scans most of this. The native runtime should reuse `PiScanner` and `ScanSnapshot` instead of invoking `pi-subagents` discovery.
+
+### Execution
+
+Current `pi-subagents` launches children by spawning Pi in JSON mode with custom args, parsing child stdout, and saving artifacts. Pi Manager should launch children with `pi --mode rpc`, because the app already has an RPC process abstraction and native transcript rendering.
+
+### Context
+
+Port these semantics:
+
+- `defaultContext: fork` means the child should use a branched or referenced copy of the parent session context by default.
+- `context: fresh` means no parent conversation history.
+- `inheritProjectContext: true` means project instruction files such as `AGENTS.md`/`CLAUDE.md` remain available to the child; native runs pass `--no-context-files` when this is false.
+- `inheritSkills: true` means Pi's ambient skill catalog is available to the child. Explicit `skills` remain separate and should be injected by the app.
+
+The Phase 1 implementation launches child sessions with a native child prompt and `--system-prompt` / `--append-system-prompt`. When an agent defaults to `fork` and the parent session has a Pi session file, the child is launched with Pi's `--fork <parent-session-file>` so it receives a branched copy of parent history. Otherwise the child falls back to a fresh app-artifact session directory.
+
+### Skills
+
+Current `pi-subagents` resolves explicit child skills from user/project/package paths. Pi Manager should improve this:
+
+- explicit agent `skills` resolve from active project/global skills first
+- then reusable `~/.pi/agent/skill-library`
+- then package-discovered skills where visible
+- inject only those skill contents into the child system prompt
+- do not require skills to be globally enabled or assigned to the project
+
+### Intercom/contact supervisor
+
+Port the `contact_supervisor` semantics, not the broker:
+
+- `progress_update`: non-blocking update to parent/app
+- `need_decision`: blocking decision request
+- `interview_request`: blocking structured question request
+
+The app should route these as typed records/cards between child run and parent session. The first implementation can reserve the model and UI hooks, then add the child extension/tool.
+
+### Output
+
+Current `pi-subagents` injects prompt text like `Write your findings to plan.md`. This can overwrite files accidentally. Native default should be:
+
+- write final child transcript/result into an app artifact directory
+- only write project files when the agent config explicitly requests it and the user/parent approves or the run UI shows it clearly
+- never silently overwrite `plan.md` from a casual test task
+
+## Native architecture
+
+```text
+Pi Manager App
+  ├─ AppViewModel
+  │   ├─ PiScanner / resource snapshots
+  │   ├─ PiAgentRunnerService for parent sessions
+  │   └─ PiSubagentRunService for child sessions
+  │
+  ├─ Parent Pi RPC session
+  │   ├─ normal chat/tool/runtime state
+  │   └─ future app bridge tool: managed_subagent(...)
+  │
+  ├─ PiSubagentRunStore
+  │   ├─ run records
+  │   ├─ child records
+  │   ├─ artifacts
+  │   └─ supervisor requests
+  │
+  └─ Child Pi RPC sessions
+      ├─ one process/session per subagent child
+      ├─ child-specific system prompt
+      ├─ child-specific model/thinking/tools/extensions
+      ├─ explicit private skills
+      ├─ optional project context inheritance
+      └─ future contact_supervisor tool
+```
+
+## App data model
+
+Add app-persisted records:
+
+```swift
+PiSubagentRunRecord
+- id
+- parentSessionID
+- title
+- mode: single | chain | parallel
+- status: queued | starting | running | blocked | completed | failed | stopped
+- agentName
+- task
+- contextMode
+- model
+- thinking
+- artifactDirectory
+- outputPath
+- childSessionID
+- childPiSessionFile
+- launchCommand
+- error
+- createdAt / updatedAt / completedAt
+
+PiSubagentChildRecord
+- id
+- runID
+- index
+- agentName
+- status
+- currentTool
+- tokens
+- durationMs
+- sessionFile
+- outputPath
+- error
+
+PiSubagentSupervisorRequest
+- id
+- runID
+- childID
+- reason
+- message
+- expectsReply
+- response
+- status
+```
+
+## App service responsibilities
+
+### `PiSubagentRunService`
+
+- create run records
+- resolve effective agent config from current snapshot
+- resolve private skills and build child system prompt
+- choose model/thinking/tools/extensions
+- create artifact directory
+- launch `PiRPCClient` child
+- send initial task prompt
+- stream child events into child transcript/run state
+- append compact run cards to parent transcript
+- stop/interrupt child
+- open/focus child transcript in UI
+
+### `PiSubagentPromptBuilder`
+
+Builds the child system prompt from:
+
+- agent prompt body / override prompt
+- child boundary instructions
+- resolved explicit skill blocks
+- project context policy note
+- output/artifact policy
+- supervisor contract
+
+### `PiSubagentSkillResolver`
+
+Resolve explicit agent skill names from:
+
+1. selected project active skills
+2. global active skills
+3. skill library
+4. package-discovered skills in the snapshot
+
+Returns skill contents and diagnostics.
+
+## UI plan
+
+### Composer
+
+- Keep the subagent icon next to the paperclip.
+- Show it when the selected session has subagents enabled and at least one enabled effective agent.
+- Clicking opens a Run Subagent sheet/popover, not raw `/run` insertion.
+- If composer text exists, use it to prefill the task.
+
+### Run Subagent sheet
+
+Fields:
+
+- Agent picker
+- Task editor
+- Agent summary: description, model, thinking, tools, skills
+- Context: shows agent default (`fresh`/`fork`) and whether project context is inherited
+- Output behavior: app artifact by default; show warning if agent config has `output`
+- Run button
+
+### Transcript
+
+Parent transcript gets structured status cards:
+
+- `Subagent started: apple-engineer`
+- progress/current tool updates
+- `Subagent completed` with compact summary and artifact/session links
+- `Subagent failed` with error and logs
+
+Child transcript can be opened separately.
+
+### Agent detail views
+
+- Show whether an agent is runnable natively.
+- Show private skill resolution: active/project/global/library/package.
+- Explain that assigned skills do not need global/project enablement for native runs.
+
+## Implementation phases
+
+### Phase 1: native single-run foundation
+
+- [x] Add plan document.
+- [x] Add run record models and store persistence.
+- [x] Add `PiRPCClient` support for child launch args/environment.
+- [x] Add `PiSubagentRunService` for single child runs.
+- [x] Add private skill resolver.
+- [x] Add child prompt builder.
+- [x] Change composer subagent button to show Run Subagent sheet.
+- [x] Run selected agent tasks through app-owned child RPC path.
+- [x] Render parent transcript status/result entries and native run cards.
+- [x] Validate with repeated Debug builds.
+
+### Phase 2: child transcript and controls
+
+- Add UI to open child transcript.
+- Add stop/interrupt for active child.
+- Add resume/talk-to-child using child session file.
+- Persist run status across app restart.
+
+### Phase 3: parent tool bridge
+
+- Bundle a small app extension exposing `managed_subagent` to the parent Pi session.
+- The extension forwards structured requests to Pi Manager local IPC.
+- Parent gets compact results as tool output, not full child transcript.
+
+### Phase 4: native `contact_supervisor`
+
+- Bundle a child extension exposing `contact_supervisor`.
+- Route child decision/progress/interview requests into parent cards.
+- Let human or parent agent answer explicitly.
+
+### Phase 5: chains, parallel, worktrees
+
+- Model chain/parallel as a run graph.
+- Add output dependencies and artifact passing.
+- Enforce one writer per worktree.
+- Add optional git worktree isolation for parallel writer children.
+
+## Validation checklist
+
+- Build Pi Manager after every implementation slice.
+- Start a project session with subagents disabled from old packages and confirm native button still works from app data.
+- Run a harmless child task with `planner` and confirm no project `plan.md` overwrite unless explicitly allowed.
+- Run `apple-engineer` in a Swift/macOS repo and confirm separate child Pi session/process is created.
+- Confirm parent transcript gets one structured result card and no duplicate parent chat answer.
+- Confirm assigned skill from library is injected even if not active globally/project.
+- Confirm disabled agents do not appear in the native run picker.
+- Confirm no raw `/run` text is required.
+
+## Open risks
+
+- Pi's stable public API does not yet expose direct host-side subagent tool execution; the app-owned child RPC design avoids relying on that.
+- Full forked session branching may require stable Pi session-manager support. Initial implementation can preserve agent defaults and use compact handoff context while adding true fork later.
+- A child `contact_supervisor` tool needs either a small bundled extension with app IPC or extension UI request routing.
+- Parallel writers require worktree isolation or explicit confirmation.
+- Existing historical package-managed runs remain in old transcripts and should be displayed as external/package-managed runs.

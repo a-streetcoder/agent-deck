@@ -212,6 +212,9 @@ struct PiAgentScreen: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
+    @State private var isNativeSubagentRunSheetPresented = false
+    @State private var nativeSubagentAgentName = ""
+    @State private var nativeSubagentTask = ""
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
 
@@ -252,6 +255,22 @@ struct PiAgentScreen: View {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
+        .sheet(isPresented: $isNativeSubagentRunSheetPresented) {
+            PiNativeSubagentRunSheet(
+                agentNames: runnableSubagentNames,
+                agentInfos: nativeSubagentSheetInfos,
+                selectedAgentName: $nativeSubagentAgentName,
+                task: $nativeSubagentTask,
+                onCancel: { isNativeSubagentRunSheetPresented = false },
+                onRun: { agentName, task in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task)
+                    if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        clearComposerInput()
+                    }
+                    isNativeSubagentRunSheetPresented = false
+                }
+            )
+        }
     }
 
     private var sessionScopePath: String? {
@@ -453,6 +472,11 @@ struct PiAgentScreen: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if let session = store.selectedSession {
                             PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
+                            ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
+                                PiNativeSubagentRunCard(run: run, onStop: {
+                                    viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id)
+                                })
+                            }
                         }
                         AppRowCard {
                             HStack(spacing: 12) {
@@ -477,6 +501,11 @@ struct PiAgentScreen: View {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             if let session = store.selectedSession {
                                 PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
+                                ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
+                                    PiNativeSubagentRunCard(run: run, onStop: {
+                                        viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id)
+                                    })
+                                }
                             }
                             ForEach(transcriptCache.threads) { thread in
                                 PiAgentTranscriptThreadCard(
@@ -599,7 +628,7 @@ struct PiAgentScreen: View {
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
                 subagentNames: runnableSubagentNames,
-                onSelectSubagent: insertRunCommand,
+                onSelectSubagent: presentNativeSubagentRun,
                 footer: store.selectedSession.map { session in
                     AnyView(PiAgentComposerFooterBar(
                         session: session,
@@ -681,18 +710,18 @@ struct PiAgentScreen: View {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    private func insertRunCommand(for agentName: String) {
-        let current = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if current.isEmpty {
-            composerText = "/run \(agentName) "
-        } else {
-            composerText = "/run \(agentName) \(quotedSlashArgument(current))"
-        }
-        saveComposerDraft(for: store.selectedSession?.id)
+    private var nativeSubagentSheetInfos: [String: PiNativeSubagentRunSheet.AgentInfo] {
+        guard let session = store.selectedSession else { return [:] }
+        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
+        return Dictionary(uniqueKeysWithValues: snapshot.effectiveAgents.map { agent in
+            (agent.name, PiNativeSubagentRunSheet.AgentInfo(agent: agent))
+        })
     }
 
-    private func quotedSlashArgument(_ value: String) -> String {
-        "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    private func presentNativeSubagentRun(for agentName: String) {
+        nativeSubagentAgentName = agentName
+        nativeSubagentTask = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        isNativeSubagentRunSheetPresented = true
     }
 
     private func replaceCurrentSuggestionToken(with replacement: String) {
@@ -1574,6 +1603,217 @@ private struct PiAgentFileAttachment: Identifiable, Hashable {
     }
 }
 
+private struct PiNativeSubagentRunCard: View {
+    let run: PiSubagentRunRecord
+    let onStop: () -> Void
+
+    var body: some View {
+        AppRowCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "rectangle.connected.to.line.below")
+                        .foregroundStyle(statusColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Subagent: \(run.agentName)")
+                            .font(.headline)
+                        Text(run.status.rawValue.capitalized)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(statusColor)
+                    }
+                    Spacer()
+                    if run.status.isActive {
+                        Button("Stop", action: onStop)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                }
+                Text(run.task)
+                    .font(.subheadline)
+                    .lineLimit(3)
+                    .foregroundStyle(.secondary)
+                if let currentTool = run.child?.currentTool {
+                    Label("Running tool: \(currentTool)", systemImage: "hammer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let summary = run.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.caption)
+                        .lineLimit(4)
+                        .foregroundStyle(.secondary)
+                } else if let error = run.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .lineLimit(4)
+                        .foregroundStyle(.red)
+                }
+                if let outputPath = run.outputPath {
+                    Text(outputPath)
+                        .font(.caption2.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+        }
+    }
+
+    private var statusColor: Color {
+        switch run.status {
+        case .queued, .starting, .running:
+            return .blue
+        case .blocked:
+            return .orange
+        case .completed:
+            return .green
+        case .failed:
+            return .red
+        case .stopped:
+            return .secondary
+        }
+    }
+}
+
+private struct PiNativeSubagentRunSheet: View {
+    struct AgentInfo: Hashable {
+        let description: String
+        let model: String?
+        let thinking: String?
+        let defaultContext: String?
+        let inheritProjectContext: Bool
+        let inheritSkills: Bool
+        let tools: [String]
+        let skills: [String]
+        let output: String?
+
+        init(agent: EffectiveAgentRecord) {
+            description = agent.resolved.description
+            model = agent.resolved.model
+            thinking = agent.resolved.thinking
+            defaultContext = agent.resolved.defaultContext
+            inheritProjectContext = agent.resolved.inheritProjectContext == true
+            inheritSkills = agent.resolved.inheritSkills == true
+            tools = agent.resolved.tools ?? []
+            skills = agent.resolved.skills
+            output = agent.resolved.output
+        }
+    }
+
+    let agentNames: [String]
+    let agentInfos: [String: AgentInfo]
+    @Binding var selectedAgentName: String
+    @Binding var task: String
+    let onCancel: () -> Void
+    let onRun: (String, String) -> Void
+
+    private var canRun: Bool {
+        !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var selectedInfo: AgentInfo? {
+        agentInfos[selectedAgentName]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.connected.to.line.below")
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Run Subagent")
+                        .font(.title3.bold())
+                    Text("Launches a separate Pi RPC child session managed by Pi Manager. This does not insert or send a raw /run command.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            Picker("Agent", selection: $selectedAgentName) {
+                ForEach(agentNames, id: \.self) { name in
+                    Text(name).tag(name)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(agentNames.isEmpty)
+
+            if let selectedInfo {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(selectedInfo.description.isEmpty ? "No description" : selectedInfo.description)
+                        .font(.subheadline)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 6) {
+                        subagentInfoLine("Model", selectedInfo.model ?? "Default")
+                        subagentInfoLine("Thinking", selectedInfo.thinking ?? "Default")
+                        subagentInfoLine("Context", selectedInfo.defaultContext ?? "fresh")
+                        subagentInfoLine("Project Context", selectedInfo.inheritProjectContext ? "Inherited" : "Off")
+                        subagentInfoLine("Ambient Skills", selectedInfo.inheritSkills ? "Inherited" : "Off")
+                        subagentInfoLine("Private Skills", selectedInfo.skills.isEmpty ? "None" : selectedInfo.skills.joined(separator: ", "))
+                        subagentInfoLine("Tools", selectedInfo.tools.isEmpty ? "Default" : selectedInfo.tools.joined(separator: ", "))
+                        subagentInfoLine("Output", selectedInfo.output ?? "App artifact")
+                    }
+                    if selectedInfo.output != nil {
+                        Label("Native runs save the final response to app artifacts by default. Project-file output should be explicit in the task.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .padding(10)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Task")
+                    .font(.headline)
+                TextEditor(text: $task)
+                    .font(.body)
+                    .frame(minHeight: 140)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Native run", systemImage: "checkmark.seal")
+                    .font(.subheadline.weight(.semibold))
+                Text("Pi Manager starts and tracks the child session directly, records artifacts under Application Support, and posts a status/result entry back to the parent transcript.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Run") {
+                    onRun(selectedAgentName, task)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canRun)
+            }
+        }
+        .padding(22)
+        .frame(width: 600)
+        .onAppear {
+            if selectedAgentName.isEmpty {
+                selectedAgentName = agentNames.first ?? ""
+            }
+        }
+    }
+
+    private func subagentInfoLine(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(title):")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
 private struct PiAgentComposerBox: View {
     private let maxImages = 8
 
@@ -1679,7 +1919,7 @@ private struct PiAgentComposerBox: View {
                             }
                             .menuStyle(.button)
                             .buttonStyle(.plain)
-                            .help("Run a subagent with /run")
+                            .help("Run a native Pi Manager subagent")
                         }
 
                         Spacer(minLength: 18)
@@ -4505,6 +4745,9 @@ struct PiAgentInspectorPanel: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
+    @State private var isNativeSubagentRunSheetPresented = false
+    @State private var nativeSubagentAgentName = ""
+    @State private var nativeSubagentTask = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -4576,7 +4819,7 @@ struct PiAgentInspectorPanel: View {
                         }
                     },
                     subagentNames: runnableSubagentNames(for: session),
-                    onSelectSubagent: insertRunCommand,
+                    onSelectSubagent: presentNativeSubagentRun,
                     footer: AnyView(PiAgentComposerFooterBar(
                         session: session,
                         viewModel: viewModel,
@@ -4620,6 +4863,22 @@ struct PiAgentInspectorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .sheet(isPresented: $isNativeSubagentRunSheetPresented) {
+            PiNativeSubagentRunSheet(
+                agentNames: store.selectedSession.map { runnableSubagentNames(for: $0) } ?? [],
+                agentInfos: nativeSubagentSheetInfos,
+                selectedAgentName: $nativeSubagentAgentName,
+                task: $nativeSubagentTask,
+                onCancel: { isNativeSubagentRunSheetPresented = false },
+                onRun: { agentName, task in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task)
+                    if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        composerText = ""
+                    }
+                    isNativeSubagentRunSheetPresented = false
+                }
+            )
+        }
     }
 
     private func runnableSubagentNames(for session: PiAgentSessionRecord) -> [String] {
@@ -4631,17 +4890,18 @@ struct PiAgentInspectorPanel: View {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    private func insertRunCommand(for agentName: String) {
-        let current = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if current.isEmpty {
-            composerText = "/run \(agentName) "
-        } else {
-            composerText = "/run \(agentName) \(quotedSlashArgument(current))"
-        }
+    private var nativeSubagentSheetInfos: [String: PiNativeSubagentRunSheet.AgentInfo] {
+        guard let session = store.selectedSession else { return [:] }
+        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
+        return Dictionary(uniqueKeysWithValues: snapshot.effectiveAgents.map { agent in
+            (agent.name, PiNativeSubagentRunSheet.AgentInfo(agent: agent))
+        })
     }
 
-    private func quotedSlashArgument(_ value: String) -> String {
-        "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    private func presentNativeSubagentRun(for agentName: String) {
+        nativeSubagentAgentName = agentName
+        nativeSubagentTask = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        isNativeSubagentRunSheetPresented = true
     }
 
     private func isCompactTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {

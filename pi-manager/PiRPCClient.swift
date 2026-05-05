@@ -13,20 +13,34 @@ final class PiRPCClient: @unchecked Sendable {
     var launchCommand: String { process.launchCommand }
     var isRunning: Bool { process.isRunning }
 
-    init(cwd: URL, sessionFile: String? = nil, provider: String? = nil, model: String? = nil, onEvent: @escaping EventHandler, onStderr: @escaping StderrHandler, onTermination: @escaping TerminationHandler) throws {
+    init(
+        cwd: URL,
+        sessionFile: String? = nil,
+        provider: String? = nil,
+        model: String? = nil,
+        modelArgument: String? = nil,
+        extraArguments: [String] = [],
+        environment: [String: String] = [:],
+        onEvent: @escaping EventHandler,
+        onStderr: @escaping StderrHandler,
+        onTermination: @escaping TerminationHandler
+    ) throws {
         var args = ["--mode", "rpc"]
+        args.append(contentsOf: extraArguments)
         if let sessionFile, !sessionFile.isEmpty {
             args.append(contentsOf: ["--session", sessionFile])
         }
         if let provider, !provider.isEmpty {
             args.append(contentsOf: ["--provider", provider])
         }
-        if let model, !model.isEmpty {
+        if let modelArgument, !modelArgument.isEmpty {
+            args.append(contentsOf: ["--model", modelArgument])
+        } else if let model, !model.isEmpty {
             args.append(contentsOf: ["--model", model])
         }
 
         process = try PiAgentProcess(
-            configuration: .init(arguments: args, currentDirectoryURL: cwd),
+            configuration: .init(arguments: args, currentDirectoryURL: cwd, environment: environment),
             onStdoutLine: { line in
                 let data = Data(line.utf8)
                 let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)

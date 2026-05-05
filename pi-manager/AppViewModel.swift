@@ -69,6 +69,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
     private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
+    private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
     private var globalSnapshot: ScanSnapshot = .empty
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
@@ -1276,6 +1277,24 @@ final class AppViewModel: NSObject, ObservableObject {
         isPiAgentInspectorPresented = true
         acknowledgePiAgentSession(session.id)
         piAgentRunner.resume(session: session)
+    }
+
+    func runNativeSubagent(agentName: String, task: String) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
+        guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName }) else {
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Subagent Not Found", text: "No enabled agent named \(agentName) was found for this session."))
+            return
+        }
+        do {
+            _ = try nativeSubagentRunner.runSingle(parentSession: session, agent: agent, snapshot: snapshot, task: task)
+        } catch {
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
+        }
+    }
+
+    func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {
+        nativeSubagentRunner.stop(runID: runID, parentSessionID: parentSessionID)
     }
 
     func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, images: [PiAgentImageAttachment] = []) {
