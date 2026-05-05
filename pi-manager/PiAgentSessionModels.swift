@@ -148,6 +148,24 @@ enum PiSubagentContextMode: String, Codable, Hashable, CaseIterable, Identifiabl
     }
 }
 
+enum PiSubagentExpectedOutcome: String, Codable, Hashable, CaseIterable, Identifiable {
+    case reportOnly
+    case editFilesInWorktree
+    case writeProjectFile
+    case directProjectWrites
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .reportOnly: return "Report only"
+        case .editFilesInWorktree: return "Edit files in worktree"
+        case .writeProjectFile: return "Write/update project file"
+        case .directProjectWrites: return "Direct project writes"
+        }
+    }
+}
+
 struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var id: UUID
     var runID: UUID
@@ -158,6 +176,9 @@ struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var requestedContext: PiSubagentContextMode?
     var resolvedContext: PiSubagentContextMode?
     var model: String?
+    var expectedOutcome: PiSubagentExpectedOutcome?
+    var requestedOutputPath: String?
+    var allowOverwrite: Bool?
     var currentTool: String?
     var inputTokens: Int?
     var outputTokens: Int?
@@ -189,6 +210,9 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var resolvedContext: PiSubagentContextMode
     var model: String?
     var thinking: String?
+    var expectedOutcome: PiSubagentExpectedOutcome?
+    var requestedOutputPath: String?
+    var allowOverwrite: Bool?
     var tools: [String]
     var skills: [String]
     var chainName: String?
@@ -231,6 +255,9 @@ extension PiSubagentRunRecord {
             resolvedContext: .fresh,
             model: nil,
             thinking: nil,
+            expectedOutcome: nil,
+            requestedOutputPath: nil,
+            allowOverwrite: nil,
             tools: [],
             skills: [],
             chainName: nil,

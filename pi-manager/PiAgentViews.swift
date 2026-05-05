@@ -217,6 +217,9 @@ struct PiAgentScreen: View {
     @State private var nativeSubagentTask = ""
     @State private var nativeSubagentUseWorktreeIsolation = false
     @State private var nativeSubagentAllowDirectProjectWrites = false
+    @State private var nativeSubagentExpectedOutcome: PiSubagentExpectedOutcome = .reportOnly
+    @State private var nativeSubagentRequestedOutputPath = ""
+    @State private var nativeSubagentAllowOverwrite = false
     @State private var selectedSubagentTranscriptRunID: UUID?
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
@@ -279,9 +282,12 @@ struct PiAgentScreen: View {
                 task: $nativeSubagentTask,
                 useWorktreeIsolation: $nativeSubagentUseWorktreeIsolation,
                 allowDirectProjectWrites: $nativeSubagentAllowDirectProjectWrites,
+                expectedOutcome: $nativeSubagentExpectedOutcome,
+                requestedOutputPath: $nativeSubagentRequestedOutputPath,
+                allowOverwrite: $nativeSubagentAllowOverwrite,
                 onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites)
+                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite)
                     if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
                         clearComposerInput()
                     }
@@ -1909,6 +1915,11 @@ private struct PiNativeSubagentRunCard: View {
                     Text("Context: requested \(run.requestedContext.rawValue), resolved \(run.resolvedContext.rawValue)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(AppTheme.mutedText)
+                    if let expectedOutcome = run.expectedOutcome {
+                        Text("Outcome: \(expectedOutcome.displayName)" + (run.requestedOutputPath.map { " · \($0)" } ?? ""))
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
                     if let worktreePath = run.worktreePath {
                         Text("Worktree: \(worktreePath)")
                             .font(.caption2.monospaced())
@@ -2205,11 +2216,14 @@ private struct PiNativeSubagentRunSheet: View {
     @Binding var task: String
     @Binding var useWorktreeIsolation: Bool
     @Binding var allowDirectProjectWrites: Bool
+    @Binding var expectedOutcome: PiSubagentExpectedOutcome
+    @Binding var requestedOutputPath: String
+    @Binding var allowOverwrite: Bool
     let onCancel: () -> Void
-    let onRun: (String, String, Bool, Bool) -> Void
+    let onRun: (String, String, Bool, Bool, PiSubagentExpectedOutcome, String?, Bool) -> Void
 
     private var canRun: Bool {
-        !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !requiresWriteSafetyChoice
+        !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && outputPolicyError == nil
     }
 
     private var selectedInfo: AgentInfo? {
@@ -2280,16 +2294,28 @@ private struct PiNativeSubagentRunSheet: View {
                 Text("Pi Manager starts and tracks the child session directly, records artifacts under Application Support, and posts a status/result entry back to the parent transcript.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Picker("Expected outcome", selection: $expectedOutcome) {
+                    ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
+                        Text(outcome.displayName).tag(outcome)
+                    }
+                }
+                .pickerStyle(.menu)
                 Toggle("Use git worktree isolation", isOn: $useWorktreeIsolation)
                     .font(.caption)
                 Text("Creates a detached git worktree inside the run artifacts so child file edits are isolated from the main checkout.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                if expectedOutcome == .writeProjectFile {
+                    TextField("Project-relative output path, e.g. docs/plan.md", text: $requestedOutputPath)
+                        .textFieldStyle(.roundedBorder)
+                    Toggle("Allow overwrite if the file exists", isOn: $allowOverwrite)
+                        .font(.caption)
+                }
                 Toggle("Allow direct project writes without a worktree", isOn: $allowDirectProjectWrites)
                     .font(.caption)
-                    .disabled(useWorktreeIsolation)
-                if requiresWriteSafetyChoice {
-                    Label("This looks like writer work. Enable worktree isolation, or explicitly allow direct project writes.", systemImage: "lock.shield")
+                    .disabled(useWorktreeIsolation || expectedOutcome != .directProjectWrites)
+                if let outputPolicyError {
+                    Label(outputPolicyError, systemImage: "lock.shield")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -2302,7 +2328,8 @@ private struct PiNativeSubagentRunSheet: View {
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 Button("Run") {
-                    onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites)
+                    let trimmedOutputPath = requestedOutputPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, trimmedOutputPath.isEmpty ? nil : trimmedOutputPath, allowOverwrite)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canRun)
@@ -2317,11 +2344,46 @@ private struct PiNativeSubagentRunSheet: View {
         }
         .onChange(of: useWorktreeIsolation) { _, enabled in
             if enabled { allowDirectProjectWrites = false }
+            syncOutcomeSafetyDefaults()
+        }
+        .onChange(of: expectedOutcome) { _, _ in syncOutcomeSafetyDefaults() }
+        .onChange(of: selectedAgentName) { _, _ in syncHeuristicOutcome() }
+        .onChange(of: task) { _, _ in syncHeuristicOutcome() }
+    }
+
+    private var outputPolicyError: String? {
+        switch expectedOutcome {
+        case .reportOnly:
+            if likelyWritesToProject(agentName: selectedAgentName, task: task) {
+                return "This looks like writer work. Choose a writer outcome or make the task clearly report-only."
+            }
+            return nil
+        case .editFilesInWorktree:
+            return useWorktreeIsolation ? nil : "Editing files should use worktree isolation."
+        case .writeProjectFile:
+            return requestedOutputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Choose the project-relative file to write or update." : nil
+        case .directProjectWrites:
+            return allowDirectProjectWrites ? nil : "Direct project writes require explicit approval."
         }
     }
 
-    private var requiresWriteSafetyChoice: Bool {
-        likelyWritesToProject(agentName: selectedAgentName, task: task) && !useWorktreeIsolation && !allowDirectProjectWrites
+    private func syncOutcomeSafetyDefaults() {
+        switch expectedOutcome {
+        case .editFilesInWorktree, .writeProjectFile:
+            useWorktreeIsolation = true
+            allowDirectProjectWrites = false
+        case .directProjectWrites:
+            useWorktreeIsolation = false
+        case .reportOnly:
+            allowDirectProjectWrites = false
+        }
+    }
+
+    private func syncHeuristicOutcome() {
+        if expectedOutcome == .reportOnly, likelyWritesToProject(agentName: selectedAgentName, task: task) {
+            expectedOutcome = .editFilesInWorktree
+            useWorktreeIsolation = true
+        }
     }
 
     private func likelyWritesToProject(agentName: String, task: String) -> Bool {
@@ -5281,6 +5343,9 @@ struct PiAgentInspectorPanel: View {
     @State private var nativeSubagentTask = ""
     @State private var nativeSubagentUseWorktreeIsolation = false
     @State private var nativeSubagentAllowDirectProjectWrites = false
+    @State private var nativeSubagentExpectedOutcome: PiSubagentExpectedOutcome = .reportOnly
+    @State private var nativeSubagentRequestedOutputPath = ""
+    @State private var nativeSubagentAllowOverwrite = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -5404,9 +5469,12 @@ struct PiAgentInspectorPanel: View {
                 task: $nativeSubagentTask,
                 useWorktreeIsolation: $nativeSubagentUseWorktreeIsolation,
                 allowDirectProjectWrites: $nativeSubagentAllowDirectProjectWrites,
+                expectedOutcome: $nativeSubagentExpectedOutcome,
+                requestedOutputPath: $nativeSubagentRequestedOutputPath,
+                allowOverwrite: $nativeSubagentAllowOverwrite,
                 onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites)
+                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite)
                     if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
                         composerText = ""
                     }

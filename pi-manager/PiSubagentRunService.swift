@@ -18,7 +18,7 @@ final class PiSubagentRunService {
     }
 
     @discardableResult
-    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, requestedContext contextOverride: PiSubagentContextMode? = nil, useWorktreeIsolation: Bool = false, onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
+    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, requestedContext contextOverride: PiSubagentContextMode? = nil, useWorktreeIsolation: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty else { throw NativeSubagentError.emptyTask }
         guard agent.resolved.disabled != true else { throw NativeSubagentError.disabledAgent(agent.name) }
@@ -84,6 +84,9 @@ final class PiSubagentRunService {
             resolvedContext: resolvedContext,
             model: modelArgument,
             thinking: agent.resolved.thinking,
+            expectedOutcome: expectedOutcome,
+            requestedOutputPath: requestedOutputPath,
+            allowOverwrite: allowOverwrite,
             tools: tools,
             skills: agent.resolved.skills,
             chainName: nil,
@@ -113,6 +116,9 @@ final class PiSubagentRunService {
                 requestedContext: requestedContext,
                 resolvedContext: resolvedContext,
                 model: modelArgument,
+                expectedOutcome: expectedOutcome,
+                requestedOutputPath: requestedOutputPath,
+                allowOverwrite: allowOverwrite,
                 currentTool: nil,
                 inputTokens: nil,
                 outputTokens: nil,
@@ -173,7 +179,7 @@ final class PiSubagentRunService {
         run.child?.launchCommand = client.launchCommand
         store.upsertSubagentRun(run)
         client.getState()
-        client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory))
+        client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, useWorktreeIsolation: useWorktreeIsolation))
         return run
     }
 
@@ -553,15 +559,32 @@ final class PiSubagentRunService {
         """
     }
 
-    private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL) -> String {
+    private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool) -> String {
         var lines: [String] = []
         if let reads = agent.resolved.defaultReads, !reads.isEmpty {
             lines.append("Read these files first if they exist and are relevant: \(reads.joined(separator: ", "))")
         }
         if let output = agent.resolved.output, !output.isEmpty {
-            lines.append("Agent default output is `\(output)`, but Pi Manager native runs save the final result to the app artifact directory unless the task explicitly asks you to edit a project file.")
+            lines.append("Agent configured output is `\(output)`. Treat this as advisory only unless the expected outcome below explicitly names that project file.")
         }
         lines.append("Artifact directory: \(artifactDirectory.path)")
+        lines.append("Expected outcome: \(expectedOutcome.displayName)")
+        switch expectedOutcome {
+        case .reportOnly:
+            lines.append("Write the final answer normally. Do not create, edit, delete, or overwrite project files.")
+        case .editFilesInWorktree:
+            lines.append("Edit project files only in the current isolated worktree. Do not attempt to apply changes back to the parent checkout; Pi Manager will review/apply/discard the worktree diff.")
+        case .writeProjectFile:
+            if let requestedOutputPath, !requestedOutputPath.isEmpty {
+                lines.append("Write/update exactly this project-relative output file: \(requestedOutputPath).")
+            }
+            lines.append(allowOverwrite ? "Overwrite policy: overwriting that exact file is allowed if needed." : "Overwrite policy: do not overwrite an existing file; if it exists, report that instead of modifying it.")
+            if useWorktreeIsolation {
+                lines.append("Write this file in the isolated worktree only; Pi Manager will review/apply/discard the patch.")
+            }
+        case .directProjectWrites:
+            lines.append("Direct project writes were explicitly allowed by the user for this run. Keep edits limited to the task scope and mention every changed path in the final response.")
+        }
         lines.append("Task:\n\(task)")
         return lines.joined(separator: "\n\n")
     }

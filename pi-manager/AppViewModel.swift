@@ -1334,9 +1334,9 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.resume(session: session)
     }
 
-    func runNativeSubagent(agentName: String, task: String, useWorktreeIsolation: Bool = false, allowDirectProjectWrites: Bool = false) {
+    func runNativeSubagent(agentName: String, task: String, useWorktreeIsolation: Bool = false, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false) {
         guard let session = piAgentSessionStore.selectedSession else { return }
-        runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, completion: nil)
+        runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, completion: nil)
     }
 
     func runNativeChain(chainName: String, task: String, useWorktreeIsolation: Bool = false) {
@@ -1357,9 +1357,10 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
         let useWorktreeIsolation = likelyWritesToProject(agentName: request.agent, task: request.task)
+        let expectedOutcome: PiSubagentExpectedOutcome = useWorktreeIsolation ? .editFilesInWorktree : .reportOnly
         let gate = NativeSubagentCompletionGate()
         var timeoutTask: Task<Void, Never>?
-        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: false, contextOverride: contextOverride) { run in
+        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: false, expectedOutcome: expectedOutcome, requestedOutputPath: nil, allowOverwrite: false, contextOverride: contextOverride) { run in
             timeoutTask?.cancel()
             gate.complete {
                 let status = run.status == .completed ? "completed" : run.status.rawValue
@@ -1403,14 +1404,16 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Pi Manager could not find the parent session.")
             return
         }
-        runNativeParallel(parentSession: session, agentTasks: request.tasks.map { (agentName: $0.agent, task: $0.task) }, concurrency: request.concurrency ?? 4, useWorktreeIsolation: request.worktree == true) { run in
+        let tasks = request.tasks.map { (agentName: $0.agent, task: $0.task) }
+        let useWorktreeIsolation = request.worktree == true || tasks.contains { likelyWritesToProject(agentName: $0.agentName, task: $0.task) }
+        runNativeParallel(parentSession: session, agentTasks: tasks, concurrency: request.concurrency ?? 4, useWorktreeIsolation: useWorktreeIsolation) { run in
             let status = run.status == .completed ? "completed" : run.status.rawValue
             completion("Native parallel run \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
         }
     }
 
     @discardableResult
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
         guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
@@ -1419,20 +1422,26 @@ final class AppViewModel: NSObject, ObservableObject {
             completion?(placeholder)
             return placeholder
         }
-        if likelyWritesToProject(agentName: agentName, task: task), !useWorktreeIsolation, !allowDirectProjectWrites {
-            let message = "Writer-like native subagent tasks require worktree isolation unless direct project writes are explicitly allowed."
+        if let validationError = validateNativeSubagentOutcome(parentSession: parentSession, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite) {
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Output Policy", text: validationError))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: validationError)
+            completion?(placeholder)
+            return placeholder
+        }
+        if expectedOutcome == .reportOnly, likelyWritesToProject(agentName: agentName, task: task), !useWorktreeIsolation, !allowDirectProjectWrites {
+            let message = "This looks like writer work. Choose a writer expected outcome, enable worktree isolation, or explicitly allow direct project writes."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Writer Safety", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
             completion?(placeholder)
             return placeholder
         }
-        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: useWorktreeIsolation, contextOverride: contextOverride, completion: completion)
+        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, contextOverride: contextOverride, completion: completion)
     }
 
     @discardableResult
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         do {
-            return try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
+            return try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, onCompletion: completion)
         } catch {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: error.localizedDescription)
@@ -1457,6 +1466,7 @@ final class AppViewModel: NSObject, ObservableObject {
             PiSubagentChildRecord(
                 id: UUID(), runID: runID, index: index, agentName: step.agent, task: step.body.isEmpty ? nil : step.body,
                 status: .queued, requestedContext: .agentDefault, resolvedContext: nil, model: step.model,
+                expectedOutcome: useWorktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false,
                 currentTool: nil, inputTokens: nil, outputTokens: nil, totalTokens: nil, toolCount: nil, durationMs: nil,
                 artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil, launchCommand: nil, executionRunID: nil,
                 summary: nil, error: nil, dependencies: index == 0 ? nil : [UUID](), completedAt: nil, createdAt: now, updatedAt: now
@@ -1490,7 +1500,8 @@ final class AppViewModel: NSObject, ObservableObject {
             return
         }
         let stepAgent = agentApplying(chainStep: step, to: agent)
-        let childRun = runNativeSubagent(parentSession: parentSession, agent: stepAgent, snapshot: snapshot, task: stepTask, useWorktreeIsolation: useWorktreeIsolation) { [weak self] childResult in
+        let stepOutcome: PiSubagentExpectedOutcome = useWorktreeIsolation ? .editFilesInWorktree : .reportOnly
+        let childRun = runNativeSubagent(parentSession: parentSession, agent: stepAgent, snapshot: snapshot, task: stepTask, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: stepOutcome) { [weak self] childResult in
             guard let self else { return }
             self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSession.id, index: index, childResult: childResult)
             guard childResult.status == .completed else {
@@ -1519,6 +1530,7 @@ final class AppViewModel: NSObject, ObservableObject {
             PiSubagentChildRecord(
                 id: UUID(), runID: runID, index: index, agentName: item.0, task: item.1,
                 status: .queued, requestedContext: .agentDefault, resolvedContext: nil, model: nil,
+                expectedOutcome: useWorktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false,
                 currentTool: nil, inputTokens: nil, outputTokens: nil, totalTokens: nil, toolCount: nil, durationMs: nil,
                 artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil, launchCommand: nil, executionRunID: nil,
                 summary: nil, error: nil, dependencies: nil, completedAt: nil, createdAt: now, updatedAt: now
@@ -1547,7 +1559,7 @@ final class AppViewModel: NSObject, ObservableObject {
             scheduler.active += 1
             let item = scheduler.tasks[index]
             updateNativeGraphChild(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index) { $0.status = .running }
-            let childRun = runNativeSubagent(parentSession: scheduler.parentSession, agentName: item.agentName, task: item.task, useWorktreeIsolation: scheduler.useWorktreeIsolation) { [weak self, weak scheduler] childResult in
+            let childRun = runNativeSubagent(parentSession: scheduler.parentSession, agentName: item.agentName, task: item.task, useWorktreeIsolation: scheduler.useWorktreeIsolation, expectedOutcome: scheduler.useWorktreeIsolation ? .editFilesInWorktree : .reportOnly) { [weak self, weak scheduler] childResult in
                 guard let self, let scheduler else { return }
                 self.updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childResult)
                 scheduler.active = max(0, scheduler.active - 1)
@@ -1567,11 +1579,30 @@ final class AppViewModel: NSObject, ObservableObject {
         return writerTerms.contains { text.contains($0) }
     }
 
+    private func validateNativeSubagentOutcome(parentSession: PiAgentSessionRecord, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool) -> String? {
+        switch expectedOutcome {
+        case .reportOnly, .editFilesInWorktree, .directProjectWrites:
+            return nil
+        case .writeProjectFile:
+            let trimmedPath = requestedOutputPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedPath.isEmpty else { return "Write/update project file requires a project-relative output path." }
+            guard !trimmedPath.hasPrefix("/") && !trimmedPath.contains("..") else { return "Output path must be project-relative and cannot contain `..`." }
+            let rootURL = URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
+            let outputURL = rootURL.appendingPathComponent(trimmedPath).standardizedFileURL
+            let rootPath = rootURL.standardizedFileURL.path.hasSuffix("/") ? rootURL.standardizedFileURL.path : rootURL.standardizedFileURL.path + "/"
+            guard (outputURL.path + (outputURL.hasDirectoryPath ? "/" : "")).hasPrefix(rootPath) else { return "Output path must stay inside the project." }
+            if FileManager.default.fileExists(atPath: outputURL.path), !allowOverwrite {
+                return "`\(trimmedPath)` already exists. Enable overwrite or choose another output path."
+            }
+            return nil
+        }
+    }
+
     private func nativeGraphRun(id: UUID, parentSession: PiAgentSessionRecord, mode: PiSubagentRunMode, title: String, task: String, artifactDirectory: URL, children: [PiSubagentChildRecord], edges: [PiSubagentGraphEdgeRecord], concurrency: Int, worktreeIsolation: Bool) -> PiSubagentRunRecord {
         PiSubagentRunRecord(
             id: id, parentSessionID: parentSession.id, mode: mode, status: .running,
             agentName: title, task: task, requestedContext: .agentDefault, resolvedContext: .fresh,
-            model: nil, thinking: nil, tools: [], skills: [], chainName: mode == .chain ? title : nil,
+            model: nil, thinking: nil, expectedOutcome: worktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false, tools: [], skills: [], chainName: mode == .chain ? title : nil,
             concurrencyLimit: concurrency, worktreePolicy: worktreeIsolation ? "isolated-per-child" : "parent", aggregateSummary: nil,
             artifactDirectory: artifactDirectory.path, outputPath: artifactDirectory.appendingPathComponent("summary.md").path,
             worktreePath: nil, parentRepoPath: parentSession.worktreePath ?? parentSession.projectPath, baseCommit: nil,
@@ -1780,7 +1811,8 @@ final class AppViewModel: NSObject, ObservableObject {
             runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: graphRunID, originalTask: run.task, previous: previous, index: childIndex, useWorktreeIsolation: run.worktreePolicy == "isolated-per-child", completion: nil)
         } else {
             let child = children[childIndex]
-            let childRun = runNativeSubagent(parentSession: parentSession, agentName: child.agentName, task: child.task ?? run.task, useWorktreeIsolation: run.worktreePolicy == "isolated-per-child") { [weak self] childResult in
+            let isolated = run.worktreePolicy == "isolated-per-child"
+            let childRun = runNativeSubagent(parentSession: parentSession, agentName: child.agentName, task: child.task ?? run.task, useWorktreeIsolation: isolated, expectedOutcome: isolated ? .editFilesInWorktree : (child.expectedOutcome ?? .reportOnly), requestedOutputPath: child.requestedOutputPath, allowOverwrite: child.allowOverwrite == true) { [weak self] childResult in
                 guard let self else { return }
                 self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childResult)
                 self.recomputeNativeGraphCompletion(graphRunID, parentSessionID: parentSessionID)
