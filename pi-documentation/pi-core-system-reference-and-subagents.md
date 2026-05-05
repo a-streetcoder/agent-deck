@@ -9,7 +9,8 @@ It replaces the older split between:
 Use this file as the main source of truth for:
 - Pi core prompt assembly
 - normal-session behavior
-- subagent-specific behavior
+- package `pi-subagents` behavior
+- Pi Manager native subagent integration points
 - discovery rules for agents, chains, skills, prompts, and related files
 - machine-specific setup notes that affect this repository's Pi usage
 
@@ -40,7 +41,12 @@ This document separates three layers that are easy to mix together:
    - parallel runs
    - forked child sessions
    - worktrees
-3. **This machine's setup**
+3. **Pi Manager native subagent behavior**
+   - app-owned child Pi RPC sessions
+   - managed parent bridge tools
+   - child supervisor communication
+   - app-persisted artifacts, transcripts, worktrees, chains, and parallel graphs
+4. **This machine's setup**
    - installed packages
    - extra skill libraries
    - dotenv behavior
@@ -69,8 +75,8 @@ A normal Pi session:
 5. lets extensions modify behavior per turn
 6. persists message history in a session file
 
-### `pi-subagents` child session
-A subagent is a new child Pi session.
+### Package `pi-subagents` child session
+A package-managed subagent is a new child Pi session.
 It:
 1. starts a child Pi process
 2. builds a Pi prompt stack for that child
@@ -78,7 +84,16 @@ It:
 4. optionally forks parent session history with `context: "fork"`
 5. runs with its own session, output, and orchestration rules
 
-So a subagent is **not** just “the parent prompt plus one extra instruction”.
+### Pi Manager native child session
+A Pi Manager native subagent is also a child Pi session, but the app owns the lifecycle directly through Pi RPC:
+1. Pi Manager creates a run record and artifact directory
+2. starts a child `PiRPCClient` in the parent project or isolated worktree
+3. passes native boundary instructions, the agent prompt, and explicit private skill blocks as system prompt content
+4. sends expected outcome, read-first paths, artifact directory, and task as the user task prompt
+5. streams child events into app-persisted transcripts and status records
+6. writes the final child response to app artifacts and posts a compact result back to the parent transcript
+
+So a subagent is **not** just “the parent prompt plus one extra instruction”. Native Pi Manager runs are also not raw `/run` text inserted into the parent chat.
 
 ---
 
@@ -416,6 +431,86 @@ A normal Pi session usually feels like:
 - Use prompt templates for reusable prompt text
 
 ---
+
+## Pi Manager native subagents
+
+Pi Manager's current integrated subagent system is native/app-managed. The package `pi-subagents` can still exist for compatibility and external Pi usage, but Pi Manager's manual Run Subagent UI and managed parent bridge tools launch child Pi RPC sessions directly.
+
+Detailed app-specific reference: `native-subagents.md`.
+
+### Native entry points
+
+Native runs can start from:
+
+- the Run Subagent sheet in the Pi Agent composer
+- parent bridge tool `managed_subagent(agent, task, context?, reads?)`
+- parent bridge tool `managed_chain(chain, task, worktree?)`
+- parent bridge tool `managed_parallel(tasks, concurrency?, worktree?)`
+
+The composer's subagent enablement toggle controls whether these app-managed runs are available for the selected session. When disabled, bridge calls return a disabled message instead of launching children.
+
+### Native artifacts and parent result flow
+
+Each native run gets an artifact directory under:
+
+```text
+~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/
+```
+
+Typical files include:
+
+- `system-prompt.md`
+- `input.md`
+- `output.md`
+- optional isolated `worktree/`
+- optional `worktree.patch`
+
+Pi Manager persists run/child metadata, transcripts, supervisor requests, and graph records in its session store. On completion, the app writes the final response to `output.md`, updates the run summary, and appends a compact **Subagent Completed** status/result entry to the parent transcript. Managed bridge calls also return a compact result string to the parent Pi turn.
+
+### Native communication layer
+
+Pi Manager writes bridge extensions for app-managed parent/child communication.
+
+Parent-side bridge tools include:
+
+- `set_session_plan(items)`
+- `update_session_plan(updates)`
+- `managed_subagent(...)`
+- `managed_chain(...)`
+- `managed_parallel(...)`
+- `list_supervisor_requests()`
+- `answer_supervisor_request(requestID, response)`
+
+Child-side communication is opt-in through the `contact_supervisor` tool. A child receives it only when the selected agent's `tools` include `contact_supervisor` and Pi Manager can write/load the child bridge extension.
+
+`contact_supervisor` supports:
+
+- `progress_update` — non-blocking and auto-acknowledged
+- `need_decision` — blocking until a human or parent agent answers
+- `interview_request` — blocking structured question flow
+
+Blocking requests create supervisor cards in Pi Manager and can also be answered by the parent agent through `answer_supervisor_request`.
+
+### Native expected-outcome and read-first policy
+
+Native runs make output policy explicit:
+
+- `Report only` — child should not edit project files
+- `Edit files in worktree` — edits stay isolated until reviewed/applied/discarded
+- `Write/update project file` — one explicit project-relative output path, usually in a worktree
+- `Direct project writes` — allowed only after explicit approval
+
+Read-first paths are hints, not injected contents. They must be project-relative; absolute paths and `..` are rejected. Caller-provided reads override agent `defaultReads`; otherwise agent defaults are used.
+
+### Native prompt construction
+
+Pi Manager follows Pi's core prompt semantics:
+
+- native boundary instructions + agent prompt + explicit private skill blocks are passed with `--system-prompt`
+- `inheritProjectContext: false` maps to `--no-context-files`
+- `inheritSkills: false` maps to `--no-skills`
+- configured extension allowlists are passed explicitly
+- run-specific outcome/read/task details are sent as the initial user prompt, not embedded as stale system context
 
 ## `pi-subagents`: core mental model
 
@@ -775,7 +870,8 @@ Because subagents inherit the parent environment, env vars loaded by `pi-dotenv`
 If you are keeping this repository's Pi documentation current, these are the important docs:
 
 ### Canonical technical reference
-- `pi-documentation/pi-core-system-reference.md`
+- `pi-documentation/pi-core-system-reference-and-subagents.md`
+- `pi-documentation/native-subagents.md`
 
 ### Product/app spec
 - `pi-manager-spec.md`

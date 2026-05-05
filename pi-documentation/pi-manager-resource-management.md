@@ -5,6 +5,8 @@ This is the app-specific reference for how **Pi Manager actually manages** agent
 It is intentionally different from the broader Pi / `pi-subagents` runtime docs.
 
 Those runtime docs explain everything Pi *can* discover.
+Pi Manager also has a **native subagent runtime** now: the app launches and tracks child Pi RPC sessions directly, instead of sending raw package `/run` commands for app-managed work. The same agent/skill/resource records described here feed that native runtime, but run execution, artifacts, supervisor requests, worktrees, chains, and parallel graphs are app-managed. See `native-subagents.md` for the execution model.
+
 This file explains the narrower model Pi Manager uses to keep things understandable:
 
 1. **Builtin** resources shipped by packages
@@ -84,6 +86,16 @@ They are the right place for one-off experiments, repo-specific specialists, and
 ### Important nuance
 On this machine, `~/.agents` exists, so Pi Manager currently prefers it for new global agents and global agent symlinks.
 
+### Pi Manager bundled native agents
+Pi Manager also ships a small app-bundled native starter pack:
+
+- `scout`
+- `planner`
+- `worker`
+- `reviewer`
+
+These are treated as builtins in the app's effective agent list. Same-name global/project custom agents can replace them, and builtin override controls can disable or patch supported fields. They are written for Pi Manager's native RPC runner and use the `contact_supervisor` communication tool vocabulary when available.
+
 ---
 
 ## Chains
@@ -131,16 +143,18 @@ An agent can explicitly list skills in its frontmatter:
 skills: axiom-ai
 ```
 
-That means: "when this agent runs, ask `pi-subagents` to inject the skill named `axiom-ai`."
+That means: "when this agent runs, inject the skill named `axiom-ai` into that child session."
+
+For Pi Manager native subagents, the app resolves these explicit skills from the current scan snapshot and writes their current `SKILL.md` content into the child system prompt as private skill blocks. For package-managed `pi-subagents` runs, `pi-subagents` resolves and injects explicit skills itself.
 
 It does **not** mean Pi Manager copies, bundles, or carries the skill directory together with the agent.
 The agent stores only the skill name.
 
-For the skill to actually be injected at runtime, the skill must be visible in the runtime scope where the agent is launched:
+For the skill to actually be injected at runtime, the skill must be visible in the scope Pi Manager scans for the selected project/session:
 
 - enabled globally in `~/.pi/agent/skills/<skill>`
 - assigned to that same project in `PROJECT/.pi/skills/<skill>`
-- provided by an installed package/settings source that Pi discovers
+- provided by an installed package/settings source that Pi Manager scans
 
 A skill that exists only in Pi Manager's library folder is **not active**:
 
@@ -295,7 +309,8 @@ It intentionally narrows the surface area.
 ## Pi Manager actively models well today
 
 ### Agents
-- builtin agents
+- app-bundled native starter agents (`scout`, `planner`, `worker`, `reviewer`)
+- package builtin agents
 - global agents in `~/.agents` and `~/.pi/agent/agents`
 - project agents in `.pi/agents` and legacy `.agents`
 - builtin overrides from settings
@@ -329,6 +344,8 @@ The main gaps are:
 - CLI-only skill injection
 - some legacy chain locations discussed in older docs
 - broader extension-contributed dynamic resource paths
+
+Native subagent bridge tools are not managed resources in these folders. Pi Manager writes temporary/local bridge extensions for parent-managed calls (`managed_subagent`, `managed_chain`, `managed_parallel`, plan tools, supervisor-answer tools) and child-to-parent communication (`contact_supervisor`) as part of the app runtime.
 
 So when in doubt:
 - use this file for **how the app manages things**
