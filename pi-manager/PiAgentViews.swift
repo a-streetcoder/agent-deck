@@ -598,6 +598,8 @@ struct PiAgentScreen: View {
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
+                subagentNames: runnableSubagentNames,
+                onSelectSubagent: insertRunCommand,
                 footer: store.selectedSession.map { session in
                     AnyView(PiAgentComposerFooterBar(
                         session: session,
@@ -668,6 +670,29 @@ struct PiAgentScreen: View {
 
     private func insertSlashSuggestion(_ command: String) {
         replaceCurrentSuggestionToken(with: command)
+    }
+
+    private var runnableSubagentNames: [String] {
+        guard let session = store.selectedSession, session.subagentsEnabled else { return [] }
+        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
+        return snapshot.effectiveAgents
+            .filter { $0.resolved.disabled != true }
+            .map(\.name)
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func insertRunCommand(for agentName: String) {
+        let current = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if current.isEmpty {
+            composerText = "/run \(agentName) "
+        } else {
+            composerText = "/run \(agentName) \(quotedSlashArgument(current))"
+        }
+        saveComposerDraft(for: store.selectedSession?.id)
+    }
+
+    private func quotedSlashArgument(_ value: String) -> String {
+        "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     private func replaceCurrentSuggestionToken(with replacement: String) {
@@ -1563,6 +1588,8 @@ private struct PiAgentComposerBox: View {
     let canSend: Bool
     let path: String?
     let onFiles: ([URL]) -> Void
+    let subagentNames: [String]
+    let onSelectSubagent: (String) -> Void
     let footer: AnyView?
     let metricsFooter: AnyView?
     let onSend: () -> Void
@@ -1637,6 +1664,24 @@ private struct PiAgentComposerBox: View {
                         }
                         .buttonStyle(.plain)
                         .help("Attach images or UTF-8 text files")
+
+                        if !subagentNames.isEmpty {
+                            Menu {
+                                ForEach(subagentNames, id: \.self) { agentName in
+                                    Button(agentName) { onSelectSubagent(agentName) }
+                                }
+                            } label: {
+                                Image(systemName: "rectangle.connected.to.line.below")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .frame(width: 30, height: 30)
+                                    .background(Circle().fill(AppTheme.subtleFill))
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(.plain)
+                            .help("Run a subagent with /run")
+                        }
+
                         Spacer(minLength: 18)
                         PiAgentSendButton(isRunning: isRunning, canSend: canSend && !isDisabled, sendAction: onSend, stopAction: onStop)
                             .keyboardShortcut(.return, modifiers: [])
@@ -4530,6 +4575,8 @@ struct PiAgentInspectorPanel: View {
                             composerFiles.append(attachment)
                         }
                     },
+                    subagentNames: runnableSubagentNames(for: session),
+                    onSelectSubagent: insertRunCommand,
                     footer: AnyView(PiAgentComposerFooterBar(
                         session: session,
                         viewModel: viewModel,
@@ -4573,6 +4620,28 @@ struct PiAgentInspectorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func runnableSubagentNames(for session: PiAgentSessionRecord) -> [String] {
+        guard session.subagentsEnabled else { return [] }
+        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
+        return snapshot.effectiveAgents
+            .filter { $0.resolved.disabled != true }
+            .map(\.name)
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func insertRunCommand(for agentName: String) {
+        let current = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if current.isEmpty {
+            composerText = "/run \(agentName) "
+        } else {
+            composerText = "/run \(agentName) \(quotedSlashArgument(current))"
+        }
+    }
+
+    private func quotedSlashArgument(_ value: String) -> String {
+        "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     private func isCompactTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
