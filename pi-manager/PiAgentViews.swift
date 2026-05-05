@@ -1478,7 +1478,7 @@ private struct PiAgentCommandSuggestions: View {
                 }
                 if !skills.isEmpty {
                     suggestionPanel(title: "Skills", icon: "sparkles") {
-                        commandRows(skills)
+                        skillRows(skills)
                     }
                 }
             }
@@ -1489,6 +1489,19 @@ private struct PiAgentCommandSuggestions: View {
         ForEach(items, id: \.self) { command in
             Button { onSelectCommand(command) } label: {
                 Text(command)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func skillRows(_ items: [String]) -> some View {
+        ForEach(items, id: \.self) { command in
+            Button { onSelectCommand(command) } label: {
+                Text(command.replacingOccurrences(of: "/skill:", with: ""))
                     .font(.caption.monospaced())
                     .lineLimit(1)
                     .truncationMode(.middle)
