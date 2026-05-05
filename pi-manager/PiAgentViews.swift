@@ -220,6 +220,7 @@ struct PiAgentScreen: View {
     @State private var nativeSubagentExpectedOutcome: PiSubagentExpectedOutcome = .reportOnly
     @State private var nativeSubagentRequestedOutputPath = ""
     @State private var nativeSubagentAllowOverwrite = false
+    @State private var nativeSubagentReadFirstPaths = ""
     @State private var selectedSubagentTranscriptRunID: UUID?
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
@@ -285,9 +286,10 @@ struct PiAgentScreen: View {
                 expectedOutcome: $nativeSubagentExpectedOutcome,
                 requestedOutputPath: $nativeSubagentRequestedOutputPath,
                 allowOverwrite: $nativeSubagentAllowOverwrite,
+                readFirstPathsText: $nativeSubagentReadFirstPaths,
                 onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite)
+                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite, readFirstPaths in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths)
                     if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
                         clearComposerInput()
                     }
@@ -1920,6 +1922,13 @@ private struct PiNativeSubagentRunCard: View {
                             .font(.caption2.monospaced())
                             .foregroundStyle(AppTheme.mutedText)
                     }
+                    if let reads = run.readFirstPaths, !reads.isEmpty {
+                        Text("Read first: \(reads.joined(separator: ", "))")
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
                     if let worktreePath = run.worktreePath {
                         Text("Worktree: \(worktreePath)")
                             .font(.caption2.monospaced())
@@ -2219,8 +2228,9 @@ private struct PiNativeSubagentRunSheet: View {
     @Binding var expectedOutcome: PiSubagentExpectedOutcome
     @Binding var requestedOutputPath: String
     @Binding var allowOverwrite: Bool
+    @Binding var readFirstPathsText: String
     let onCancel: () -> Void
-    let onRun: (String, String, Bool, Bool, PiSubagentExpectedOutcome, String?, Bool) -> Void
+    let onRun: (String, String, Bool, Bool, PiSubagentExpectedOutcome, String?, Bool, [String]) -> Void
 
     private var canRun: Bool {
         !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && outputPolicyError == nil
@@ -2289,6 +2299,19 @@ private struct PiNativeSubagentRunSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                Label("Files to read first", systemImage: "doc.text.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                TextField("Optional project-relative paths, comma or newline separated", text: $readFirstPathsText, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                Text("Use this for files the caller knows are relevant now. Defaults from the agent are treated as hints only; Pi Manager does not inject stale file contents.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+            VStack(alignment: .leading, spacing: 8) {
                 Label("Native run", systemImage: "checkmark.seal")
                     .font(.subheadline.weight(.semibold))
                 Text("Pi Manager starts and tracks the child session directly, records artifacts under Application Support, and posts a status/result entry back to the parent transcript.")
@@ -2329,7 +2352,7 @@ private struct PiNativeSubagentRunSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Run") {
                     let trimmedOutputPath = requestedOutputPath.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, trimmedOutputPath.isEmpty ? nil : trimmedOutputPath, allowOverwrite)
+                    onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, trimmedOutputPath.isEmpty ? nil : trimmedOutputPath, allowOverwrite, parsedReadFirstPaths)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canRun)
@@ -2349,6 +2372,13 @@ private struct PiNativeSubagentRunSheet: View {
         .onChange(of: expectedOutcome) { _, _ in syncOutcomeSafetyDefaults() }
         .onChange(of: selectedAgentName) { _, _ in syncHeuristicOutcome() }
         .onChange(of: task) { _, _ in syncHeuristicOutcome() }
+    }
+
+    private var parsedReadFirstPaths: [String] {
+        readFirstPathsText
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private var outputPolicyError: String? {
@@ -5346,6 +5376,7 @@ struct PiAgentInspectorPanel: View {
     @State private var nativeSubagentExpectedOutcome: PiSubagentExpectedOutcome = .reportOnly
     @State private var nativeSubagentRequestedOutputPath = ""
     @State private var nativeSubagentAllowOverwrite = false
+    @State private var nativeSubagentReadFirstPaths = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -5472,9 +5503,10 @@ struct PiAgentInspectorPanel: View {
                 expectedOutcome: $nativeSubagentExpectedOutcome,
                 requestedOutputPath: $nativeSubagentRequestedOutputPath,
                 allowOverwrite: $nativeSubagentAllowOverwrite,
+                readFirstPathsText: $nativeSubagentReadFirstPaths,
                 onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite)
+                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite, readFirstPaths in
+                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths)
                     if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
                         composerText = ""
                     }

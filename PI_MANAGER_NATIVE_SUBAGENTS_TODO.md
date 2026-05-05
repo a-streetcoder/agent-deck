@@ -36,7 +36,7 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 
 - [ ] Confirm disabled agents do not appear in the native picker.
 - [ ] Confirm agent `model`, `thinking`, `tools`, configured `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, and `defaultReads` are reflected in launch behavior/UI.
-- [ ] Confirm `defaultReads` is only a soft “read first if relevant” instruction, not forced project-file injection.
+- [ ] Confirm `defaultReads` and caller-provided read-first files are soft “read current project files first if relevant” instructions, not forced/stale file injection.
 - [ ] Confirm agents with private library skills receive those skill contents even when the skills are not globally/project enabled.
 - [ ] Confirm resolved skill source diagnostics distinguish project/global/library/package/builtin skills in child prompt artifacts.
 
@@ -67,7 +67,7 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Persist child session metadata, artifact directory, output path, launch command, and child transcripts.
 - [x] Add duration fields and clearer timestamps to run/child records.
 - [x] Add artifact open/reveal buttons on run cards.
-- [ ] Add cleanup policy for old app-managed subagent artifacts.
+- [x] Add cleanup policy for orphaned old app-managed subagent artifacts.
 
 ## Full child transcript navigation
 
@@ -154,8 +154,10 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Support `fork` default context by passing `--fork <parent-session-file>` when available.
 - [x] Show where each resolved skill came from: project, global, library, or package/builtin.
 - [ ] Support more complete fallback model behavior for child runs.
-- [ ] Audit `mcpServers` parity against old `pi-subagents` behavior.
-- [x] Keep `defaultReads` as a soft "read first if relevant" instruction instead of forced file injection.
+- [x] Add direct MCP tool parity by setting `MCP_DIRECT_TOOLS` per native child, with `__none__` isolation when unset.
+- [x] Add caller-provided read-first files for manual and parent-bridge native subagent runs.
+- [x] Let caller-provided reads override agent `defaultReads` to avoid stale default plans/context.
+- [x] Keep `defaultReads` and caller reads as soft "read current project files first if relevant" instructions instead of forced file injection.
 - [x] Add clearer UI explaining when a child is launched fresh vs forked.
 
 ## App UI polish

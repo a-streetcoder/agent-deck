@@ -18,7 +18,7 @@ final class PiSubagentRunService {
     }
 
     @discardableResult
-    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, requestedContext contextOverride: PiSubagentContextMode? = nil, useWorktreeIsolation: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
+    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, requestedContext contextOverride: PiSubagentContextMode? = nil, useWorktreeIsolation: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty else { throw NativeSubagentError.emptyTask }
         guard agent.resolved.disabled != true else { throw NativeSubagentError.disabledAgent(agent.name) }
@@ -72,6 +72,7 @@ final class PiSubagentRunService {
 
         let modelArgument = modelArgument(for: agent)
         let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
+        let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
         let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings + contextWarnings
         var run = PiSubagentRunRecord(
             id: runID,
@@ -87,6 +88,7 @@ final class PiSubagentRunService {
             expectedOutcome: expectedOutcome,
             requestedOutputPath: requestedOutputPath,
             allowOverwrite: allowOverwrite,
+            readFirstPaths: resolvedReadFirstPaths,
             tools: tools,
             skills: agent.resolved.skills,
             chainName: nil,
@@ -119,6 +121,7 @@ final class PiSubagentRunService {
                 expectedOutcome: expectedOutcome,
                 requestedOutputPath: requestedOutputPath,
                 allowOverwrite: allowOverwrite,
+                readFirstPaths: resolvedReadFirstPaths,
                 currentTool: nil,
                 inputTokens: nil,
                 outputTokens: nil,
@@ -156,7 +159,8 @@ final class PiSubagentRunService {
             environment: [
                 "PI_MANAGER_NATIVE_SUBAGENT": "1",
                 "PI_MANAGER_SUBAGENT_RUN_ID": runID.uuidString,
-                "PI_MANAGER_SUBAGENT_AGENT": agent.name
+                "PI_MANAGER_SUBAGENT_AGENT": agent.name,
+                "MCP_DIRECT_TOOLS": mcpDirectTools(for: agent).isEmpty ? "__none__" : mcpDirectTools(for: agent).joined(separator: ",")
             ],
             onEvent: { [weak self] rawLine, event in
                 DispatchQueue.main.async { self?.handle(rawLine: rawLine, event: event, runID: runID, parentSessionID: parentSession.id) }
@@ -179,7 +183,7 @@ final class PiSubagentRunService {
         run.child?.launchCommand = client.launchCommand
         store.upsertSubagentRun(run)
         client.getState()
-        client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, useWorktreeIsolation: useWorktreeIsolation))
+        client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, useWorktreeIsolation: useWorktreeIsolation, readFirstPaths: resolvedReadFirstPaths))
         return run
     }
 
@@ -559,10 +563,10 @@ final class PiSubagentRunService {
         """
     }
 
-    private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool) -> String {
+    private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String]) -> String {
         var lines: [String] = []
-        if let reads = agent.resolved.defaultReads, !reads.isEmpty {
-            lines.append("Read these files first if they exist and are relevant: \(reads.joined(separator: ", "))")
+        if !readFirstPaths.isEmpty {
+            lines.append("Read these current project files first if they exist and are relevant to this exact task. Treat them as hints, not stale injected truth; if a listed file appears unrelated or obsolete, say so and continue with the task-relevant files: \(readFirstPaths.joined(separator: ", "))")
         }
         if let output = agent.resolved.output, !output.isEmpty {
             lines.append("Agent configured output is `\(output)`. Treat this as advisory only unless the expected outcome below explicitly names that project file.")
@@ -601,6 +605,32 @@ final class PiSubagentRunService {
 
         \(task)
         """
+    }
+
+    private func sanitizedReadFirstPaths(agentReads: [String], requestReads: [String], projectRoot: URL) -> [String] {
+        let allReads = requestReads.isEmpty ? agentReads : requestReads
+        let rootPath = projectRoot.standardizedFileURL.path
+        return distinctPreservingOrder(allReads).compactMap { raw -> String? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("/"), !trimmed.contains("..") else { return nil }
+            let candidate = projectRoot.appendingPathComponent(trimmed).standardizedFileURL
+            guard candidate.path == rootPath || candidate.path.hasPrefix(rootPath + "/") else { return nil }
+            return trimmed
+        }
+    }
+
+    private func distinctPreservingOrder(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values where !seen.contains(value) {
+            seen.insert(value)
+            result.append(value)
+        }
+        return result
+    }
+
+    private func mcpDirectTools(for agent: EffectiveAgentRecord) -> [String] {
+        agent.resolved.mcpDirectTools ?? []
     }
 
     private func resolveSkillBlocks(named names: [String], snapshot: ScanSnapshot) -> [ResolvedSkillBlock] {

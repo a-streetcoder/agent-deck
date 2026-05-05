@@ -88,6 +88,7 @@ struct PiManagedSubagentBridgeRequest: Codable, Hashable {
     var agent: String
     var task: String
     var context: String?
+    var reads: [String]?
 }
 
 struct PiManagedChainBridgeRequest: Codable, Hashable {
@@ -179,6 +180,7 @@ struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var expectedOutcome: PiSubagentExpectedOutcome?
     var requestedOutputPath: String?
     var allowOverwrite: Bool?
+    var readFirstPaths: [String]?
     var currentTool: String?
     var inputTokens: Int?
     var outputTokens: Int?
@@ -213,6 +215,7 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var expectedOutcome: PiSubagentExpectedOutcome?
     var requestedOutputPath: String?
     var allowOverwrite: Bool?
+    var readFirstPaths: [String]?
     var tools: [String]
     var skills: [String]
     var chainName: String?
@@ -258,6 +261,7 @@ extension PiSubagentRunRecord {
             expectedOutcome: nil,
             requestedOutputPath: nil,
             allowOverwrite: nil,
+            readFirstPaths: nil,
             tools: [],
             skills: [],
             chainName: nil,

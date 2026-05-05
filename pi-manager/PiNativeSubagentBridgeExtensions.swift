@@ -31,7 +31,8 @@ struct PiNativeSubagentBridgeExtensions {
         const ManagedSubagentParams = Type.Object({
             agent: Type.String({ description: "Name of the native subagent to run." }),
             task: Type.String({ description: "Specific task for the subagent." }),
-            context: Type.Optional(StringEnum(["fresh", "fork"] as const, { description: "Optional context mode override." }))
+            context: Type.Optional(StringEnum(["fresh", "fork"] as const, { description: "Optional context mode override." })),
+            reads: Type.Optional(Type.Array(Type.String(), { description: "Project-relative files the subagent should read first if current and relevant." }))
         }, { additionalProperties: false });
 
         const ManagedChainParams = Type.Object({
@@ -68,7 +69,8 @@ struct PiNativeSubagentBridgeExtensions {
                         toolCallId,
                         agent: String((params as any).agent ?? ""),
                         task: String((params as any).task ?? ""),
-                        context: (params as any).context ? String((params as any).context) : undefined
+                        context: (params as any).context ? String((params as any).context) : undefined,
+                        reads: Array.isArray((params as any).reads) ? (params as any).reads.map((item: any) => String(item)) : undefined
                     });
                     onUpdate?.({ content: [{ type: "text", text: `Starting native subagent ${(params as any).agent}…` }] });
                     const result = await ctx.ui.editor("PI_MANAGER_BRIDGE managed_subagent", payload);
