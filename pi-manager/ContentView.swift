@@ -4,21 +4,36 @@ import SwiftUI
 private struct PiAgentOpenTerminalToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
+    @State private var isParallelContinuationWarningPresented = false
 
     var body: some View {
         Button {
-            viewModel.openSelectedPiAgentSessionInTerminal()
+            if selectedSessionIsActive {
+                isParallelContinuationWarningPresented = true
+            } else {
+                viewModel.openSelectedPiAgentSessionInTerminal()
+            }
         } label: {
-            Label("Open in Terminal", systemImage: "terminal")
+            Label("Resume in Terminal", systemImage: "terminal")
         }
-        .help("Resume this Pi session in the default terminal app")
+        .help("Opens a terminal continuation from this session file. Terminal messages do not sync back into Pi Manager yet.")
         .disabled(!canOpen)
+        .alert("Resume in Terminal?", isPresented: $isParallelContinuationWarningPresented) {
+            Button("Resume in Terminal") { viewModel.openSelectedPiAgentSessionInTerminal() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This opens a parallel terminal continuation from the session file. Messages sent in Terminal do not sync back into Pi Manager yet.")
+        }
     }
 
     private var canOpen: Bool {
         guard let session = store.selectedSession else { return false }
         if let sessionFile = session.piSessionFile, FileManager.default.fileExists(atPath: sessionFile) { return true }
         return session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private var selectedSessionIsActive: Bool {
+        store.selectedSession?.status.isActive == true
     }
 }
 
