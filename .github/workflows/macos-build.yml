@@ -10,11 +10,30 @@ on:
 jobs:
   build:
     name: Build Pi Manager
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Select Xcode 26.4+
+        run: |
+          set -euo pipefail
+          for app in \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.5_beta_2.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app \
+            /Applications/Xcode_26.4_Release_Candidate.app; do
+            if [ -d "$app" ]; then
+              echo "DEVELOPER_DIR=$app/Contents/Developer" >> "$GITHUB_ENV"
+              echo "Selected $app"
+              exit 0
+            fi
+          done
+          echo "No Xcode 26.4+ install found" >&2
+          ls -1 /Applications | grep '^Xcode' || true
+          exit 1
 
       - name: Show Xcode environment
         run: |
