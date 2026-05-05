@@ -5489,21 +5489,23 @@ private struct PiAgentActivityDetail: View {
                 if let diff = item.diff, !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     PiAgentDiffView(diffText: diff)
                 } else {
-                    detailText(item.detailText)
+                    quietNote("No diff payload was emitted for this edit.")
                 }
             case .write:
                 if let preview = item.contentPreview {
-                    PiAgentCodePreview(title: "Content", text: preview)
+                    PiAgentCodePreview(title: "Content preview", text: preview, maxHeight: 180, lineLimit: 24)
                 } else {
-                    detailText(item.detailText)
+                    quietNote(item.detailText)
                 }
             case .bash:
                 if let command = item.command, !command.isEmpty {
-                    PiAgentCodePreview(title: "Command", text: command, maxHeight: 90)
+                    PiAgentCodePreview(title: "Command", text: command, maxHeight: 80, lineLimit: 8)
                 }
-                detailText(item.detailText)
+                PiAgentCodePreview(title: "Output", text: item.detailText, maxHeight: 180, lineLimit: 32)
+            case .web:
+                PiAgentWebActivitySnippet(entry: item.entry)
             default:
-                detailText(item.detailText)
+                quietNote(item.detailText)
             }
         }
     }
@@ -5532,8 +5534,14 @@ private struct PiAgentActivityDetail: View {
         }
     }
 
-    private func detailText(_ text: String) -> some View {
-        PiAgentCodePreview(title: nil, text: text)
+    private func quietNote(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(AppTheme.mutedText)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(9)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.subtleFill.opacity(0.6)))
     }
 
     private func resolvedURL(for path: String) -> URL? {
@@ -5544,10 +5552,25 @@ private struct PiAgentActivityDetail: View {
     }
 }
 
+private struct PiAgentWebActivitySnippet: View {
+    let entry: PiAgentTranscriptEntry
+
+    var body: some View {
+        if let activity = PiAgentTranscriptActivity.make(from: [entry]).first {
+            PiAgentWebActivitySummaryView(activities: [activity])
+        } else {
+            Text("Web activity details are unavailable for this event.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+}
+
 private struct PiAgentCodePreview: View {
     let title: String?
     let text: String
     var maxHeight: CGFloat = 240
+    var lineLimit: Int = 80
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -5571,8 +5594,8 @@ private struct PiAgentCodePreview: View {
 
     private var displayText: String {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard lines.count > 120 else { return text }
-        return lines.prefix(120).joined(separator: "\n") + "\n… \(lines.count - 120) more lines"
+        guard lines.count > lineLimit else { return text }
+        return lines.prefix(lineLimit).joined(separator: "\n") + "\n… \(lines.count - lineLimit) more lines"
     }
 }
 
