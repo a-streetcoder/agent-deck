@@ -1294,7 +1294,8 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Pi Manager could not find the parent session.")
             return
         }
-        runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: false) { run in
+        let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
+        runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: false, contextOverride: contextOverride) { run in
             let status = run.status == .completed ? "completed" : run.status.rawValue
             let summary = run.summary ?? run.error ?? "No summary returned."
             let artifact = run.outputPath.map { "\n\nArtifact: \($0)" } ?? ""
@@ -1302,7 +1303,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) {
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
         guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
@@ -1311,7 +1312,7 @@ final class AppViewModel: NSObject, ObservableObject {
             return
         }
         do {
-            _ = try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
+            _ = try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
         } catch {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
             completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: error.localizedDescription))

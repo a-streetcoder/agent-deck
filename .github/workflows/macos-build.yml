@@ -1,0 +1,42 @@
+name: macOS Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build Pi Manager
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode environment
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          xcodebuild -showsdks
+
+      - name: Build Debug app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project pi-manager.xcodeproj \
+            -target pi-manager \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore

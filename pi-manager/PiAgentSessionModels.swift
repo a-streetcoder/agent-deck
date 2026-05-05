@@ -101,6 +101,16 @@ enum PiSubagentContextMode: String, Codable, Hashable, CaseIterable, Identifiabl
     case fork
 
     var id: String { rawValue }
+
+    init?(bridgeValue: String?) {
+        guard let value = bridgeValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !value.isEmpty else { return nil }
+        switch value {
+        case "fresh": self = .fresh
+        case "fork": self = .fork
+        case "agentdefault", "agent_default", "default": self = .agentDefault
+        default: return nil
+        }
+    }
 }
 
 struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
@@ -114,6 +124,7 @@ struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var outputTokens: Int?
     var totalTokens: Int?
     var toolCount: Int?
+    var durationMs: Int?
     var sessionFile: String?
     var outputPath: String?
     var error: String?
@@ -146,6 +157,7 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var createdAt: Date
     var updatedAt: Date
     var completedAt: Date?
+    var durationMs: Int?
 }
 
 extension PiSubagentRunRecord {
@@ -175,7 +187,8 @@ extension PiSubagentRunRecord {
             child: nil,
             createdAt: now,
             updatedAt: now,
-            completedAt: now
+            completedAt: now,
+            durationMs: 0
         )
     }
 }

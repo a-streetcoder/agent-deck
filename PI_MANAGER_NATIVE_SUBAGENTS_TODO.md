@@ -21,8 +21,9 @@ Legend:
 
 - [x] Add richer persisted restart recovery for active child runs.
 - [x] On app restart, detect previously active runs and mark them as `disconnected` instead of leaving them active forever.
+- [x] Cancel stale pending supervisor requests whose child run is no longer active after restart recovery.
 - [x] Persist child session metadata, artifact directory, output path, launch command, and child transcripts.
-- [ ] Add duration fields and clearer timestamps to run/child records.
+- [x] Add duration fields and clearer timestamps to run/child records.
 - [x] Add artifact open/reveal buttons on run cards.
 - [ ] Add cleanup policy for old app-managed subagent artifacts.
 
@@ -38,17 +39,21 @@ Legend:
 ## Parent-facing delegation tool bridge
 
 - [x] Build the parent-facing `managed_subagent(...)` tool bridge as an app-written Pi extension loaded explicitly for app parent sessions.
+- [x] Define bridge tool schemas with TypeBox/StringEnum so Pi executes the extension tools reliably.
 - [x] Let the parent call `managed_subagent(agent, task, context?)` without relying on `/run` or `pi-subagents`.
 - [x] Route the tool call into `PiSubagentRunService`.
 - [x] Return compact child results as tool output through the extension UI bridge.
+- [x] Honor `managed_subagent` context overrides (`fresh` / `fork`) instead of silently falling back to agent defaults.
 - [x] Render parent transcript status entries for native subagent requests and results.
 - [x] Decide bridge mechanism for now: bundled/generated Pi extension using the RPC extension UI sub-protocol as a private app bridge.
 - [ ] Let the parent Pi Agent see a richer compact catalog of available native subagents beyond the tool description/prompt snippet.
-- [ ] Add timeouts/cancellation semantics for parent tool calls waiting on long-running children.
+- [ ] Add timeout semantics for parent tool calls waiting on long-running children.
+- [x] Return a stopped status to waiting parent `managed_subagent` tool calls when a native child run is stopped.
 
 ## Native child `contact_supervisor(...)`
 
 - [x] Build the child-facing native `contact_supervisor(...)` bridge as an app-written Pi extension loaded for child runs that request the tool.
+- [x] Validate parent/child bridge extensions with Pi RPC smoke tests using `zai/glm-4.5-air`.
 - [x] Support non-blocking `progress_update` messages from child to app/parent.
 - [x] Support blocking `need_decision` requests.
 - [x] Support blocking `interview_request` / structured question flows at the text-response level.
@@ -78,7 +83,7 @@ Legend:
 - [x] Launch child Pi RPC sessions in the isolated worktree when enabled.
 - [ ] Require worktree isolation for parallel writer children when parallel runs exist.
 - [ ] Prevent multiple writer children from editing the same worktree unless explicitly allowed.
-- [ ] Show each child worktree path more prominently in the run UI.
+- [x] Show each child worktree path more prominently in the run UI.
 - [ ] Surface diffs from each child worktree.
 - [ ] Add merge/apply/discard workflows for child worktree changes.
 - [ ] Clean up temporary worktrees safely.
@@ -97,7 +102,8 @@ Legend:
 
 - [x] Resolve explicit private skills from active skills plus reusable library skills.
 - [x] Add diagnostics for missing private skills.
-- [x] Preserve `model`, `thinking`, `tools`, `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, `defaultReads`, and app artifact output behavior for single runs.
+- [x] Preserve `model`, `thinking`, `tools`, configured `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, `defaultReads`, and app artifact output behavior for single runs.
+- [x] Disable ambient extension discovery for native child runs so only configured extensions plus app bridge extensions load.
 - [x] Support `fork` default context by passing `--fork <parent-session-file>` when available.
 - [ ] Show where each resolved skill came from: project, global, library, or package/builtin.
 - [ ] Support more complete fallback model behavior for child runs.

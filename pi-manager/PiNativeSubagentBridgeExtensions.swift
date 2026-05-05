@@ -25,21 +25,20 @@ struct PiNativeSubagentBridgeExtensions {
 
     private static let parentExtensionSource = """
         import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+        import { StringEnum } from "@mariozechner/pi-ai";
+        import { Type } from "typebox";
+
+        const ManagedSubagentParams = Type.Object({
+            agent: Type.String({ description: "Name of the native subagent to run." }),
+            task: Type.String({ description: "Specific task for the subagent." }),
+            context: Type.Optional(StringEnum(["fresh", "fork"] as const, { description: "Optional context mode override." }))
+        }, { additionalProperties: false });
 
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "managed_subagent",
                 description: "Delegate a bounded task to a Pi Manager native subagent. Use this when a specialized subagent can work separately and return a compact result.",
-                parameters: {
-                    type: "object",
-                    properties: {
-                        agent: { type: "string", description: "Name of the native subagent to run." },
-                        task: { type: "string", description: "Specific task for the subagent." },
-                        context: { type: "string", description: "Optional context mode override: fresh or fork." }
-                    },
-                    required: ["agent", "task"],
-                    additionalProperties: false
-                },
+                parameters: ManagedSubagentParams,
                 promptSnippet: "managed_subagent(agent, task, context?): delegate to a Pi Manager native subagent and get a compact result.",
                 promptGuidelines: [
                     "Use managed_subagent for separable specialist work; keep tasks narrow and include expected output.",
@@ -64,25 +63,22 @@ struct PiNativeSubagentBridgeExtensions {
 
     private static let childExtensionSource = """
         import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+        import { StringEnum } from "@mariozechner/pi-ai";
+        import { Type } from "typebox";
+
+        const ContactSupervisorParams = Type.Object({
+            kind: StringEnum(["progress_update", "need_decision", "interview_request"] as const, {
+                description: "progress_update is non-blocking; need_decision and interview_request block for supervisor response."
+            }),
+            message: Type.String({ description: "Message/question for the supervisor." }),
+            title: Type.Optional(Type.String({ description: "Short title for the supervisor request." }))
+        }, { additionalProperties: false });
 
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "contact_supervisor",
                 description: "Contact the Pi Manager supervisor for progress updates or blocking decisions.",
-                parameters: {
-                    type: "object",
-                    properties: {
-                        kind: {
-                            type: "string",
-                            enum: ["progress_update", "need_decision", "interview_request"],
-                            description: "progress_update is non-blocking; need_decision and interview_request block for supervisor response."
-                        },
-                        message: { type: "string", description: "Message/question for the supervisor." },
-                        title: { type: "string", description: "Short title for the supervisor request." }
-                    },
-                    required: ["kind", "message"],
-                    additionalProperties: false
-                },
+                parameters: ContactSupervisorParams,
                 promptSnippet: "contact_supervisor(kind, message, title?): update or ask the Pi Manager supervisor.",
                 promptGuidelines: [
                     "Use progress_update sparingly for meaningful progress.",

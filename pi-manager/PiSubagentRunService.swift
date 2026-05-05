@@ -17,7 +17,7 @@ final class PiSubagentRunService {
     }
 
     @discardableResult
-    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool = false, onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
+    func runSingle(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, requestedContext contextOverride: PiSubagentContextMode? = nil, useWorktreeIsolation: Bool = false, onCompletion: ((PiSubagentRunRecord) -> Void)? = nil) throws -> PiSubagentRunRecord {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty else { throw NativeSubagentError.emptyTask }
         guard agent.resolved.disabled != true else { throw NativeSubagentError.disabledAgent(agent.name) }
@@ -38,13 +38,17 @@ final class PiSubagentRunService {
             encoding: .utf8
         )
 
-        let requestedContext = PiSubagentContextMode.agentDefault
-        let resolvedContext = resolvedContextMode(for: agent, parentSession: parentSession)
+        let requestedContext = contextOverride ?? .agentDefault
+        let resolvedContext = resolvedContextMode(for: agent, parentSession: parentSession, requestedContext: requestedContext)
         var extraArguments: [String] = []
+        var contextWarnings: [String] = []
         if resolvedContext == .fork, let parentSessionFile = parentSession.piSessionFile {
             extraArguments.append(contentsOf: ["--fork", parentSessionFile])
         } else {
             extraArguments.append(contentsOf: ["--session-dir", artifactDirectory.appendingPathComponent("sessions", isDirectory: true).path])
+            if requestedContext == .fork, parentSession.piSessionFile == nil {
+                contextWarnings.append("Requested fork context, but the parent Pi session file is not available; launched fresh instead.")
+            }
         }
         extraArguments.append(contentsOf: systemPromptArguments(for: agent, prompt: prompt))
         if agent.resolved.inheritProjectContext != true {
@@ -67,7 +71,7 @@ final class PiSubagentRunService {
 
         let modelArgument = modelArgument(for: agent)
         let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
-        let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings
+        let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings + contextWarnings
         var run = PiSubagentRunRecord(
             id: runID,
             parentSessionID: parentSession.id,
@@ -100,6 +104,7 @@ final class PiSubagentRunService {
                 outputTokens: nil,
                 totalTokens: nil,
                 toolCount: nil,
+                durationMs: nil,
                 sessionFile: nil,
                 outputPath: artifactDirectory.appendingPathComponent("output.md").path,
                 error: nil,
@@ -108,7 +113,8 @@ final class PiSubagentRunService {
             ),
             createdAt: now,
             updatedAt: now,
-            completedAt: nil
+            completedAt: nil,
+            durationMs: nil
         )
         store.upsertSubagentRun(run)
         store.append(.init(sessionID: parentSession.id, role: .status, title: "Subagent Started", text: "\(agent.name) is running.\n\nTask: \(trimmedTask)"))
@@ -154,8 +160,11 @@ final class PiSubagentRunService {
             request.response = response
         }
         store.updateSubagentRun(request.runID, parentSessionID: parentSessionID) { run in
+            let now = Date()
             if run.status == .blocked { run.status = .running }
             if run.child?.status == .blocked { run.child?.status = .running }
+            run.updatedAt = now
+            run.child?.updatedAt = now
         }
         clientsByRunID[request.runID]?.respondToExtensionUI(id: requestID, value: response)
     }
@@ -167,8 +176,11 @@ final class PiSubagentRunService {
             request.response = "Cancelled by supervisor."
         }
         store.updateSubagentRun(request.runID, parentSessionID: parentSessionID) { run in
+            let now = Date()
             if run.status == .blocked { run.status = .running }
             if run.child?.status == .blocked { run.child?.status = .running }
+            run.updatedAt = now
+            run.child?.updatedAt = now
         }
         clientsByRunID[request.runID]?.cancelExtensionUI(id: requestID)
     }
@@ -177,10 +189,19 @@ final class PiSubagentRunService {
         guard let client = clientsByRunID.removeValue(forKey: runID) else { return }
         client.stop()
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            let completedAt = Date()
             run.status = .stopped
             run.child?.status = .stopped
-            run.completedAt = Date()
+            run.updatedAt = completedAt
+            run.completedAt = completedAt
+            run.durationMs = durationMilliseconds(from: run.createdAt, to: completedAt)
+            if var child = run.child {
+                child.updatedAt = completedAt
+                child.durationMs = durationMilliseconds(from: child.createdAt, to: completedAt)
+                run.child = child
+            }
         }
+        notifyCompletion(runID: runID, parentSessionID: parentSessionID)
         store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Stopped", text: "Subagent run stopped."))
     }
 
@@ -232,11 +253,19 @@ final class PiSubagentRunService {
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
         } else {
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                let completedAt = Date()
                 run.status = .failed
                 run.child?.status = .failed
                 run.error = "Child Pi process exited with code \(exitCode)."
                 run.child?.error = run.error
-                run.completedAt = Date()
+                run.updatedAt = completedAt
+                run.completedAt = completedAt
+                run.durationMs = durationMilliseconds(from: run.createdAt, to: completedAt)
+                if var child = run.child {
+                    child.updatedAt = completedAt
+                    child.durationMs = durationMilliseconds(from: child.createdAt, to: completedAt)
+                    run.child = child
+                }
             }
             notifyCompletion(runID: runID, parentSessionID: parentSessionID)
             store.append(.init(sessionID: parentSessionID, role: .error, title: "Subagent Failed", text: "Child Pi process exited with code \(exitCode)."))
@@ -273,10 +302,18 @@ final class PiSubagentRunService {
         var outputPath: String?
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             guard run.status.isActive else { return }
+            let completedAt = Date()
             run.status = .completed
             run.child?.status = .completed
-            run.completedAt = Date()
+            run.updatedAt = completedAt
+            run.completedAt = completedAt
+            run.durationMs = durationMilliseconds(from: run.createdAt, to: completedAt)
             run.summary = finalSummary
+            if var child = run.child {
+                child.updatedAt = completedAt
+                child.durationMs = durationMilliseconds(from: child.createdAt, to: completedAt)
+                run.child = child
+            }
             outputPath = run.outputPath
             shouldAppend = true
         }
@@ -332,10 +369,21 @@ final class PiSubagentRunService {
         return URL(fileURLWithPath: outputPath)
     }
 
-    private func resolvedContextMode(for agent: EffectiveAgentRecord, parentSession: PiAgentSessionRecord) -> PiSubagentContextMode {
-        if agent.resolved.defaultContext == "fork", parentSession.piSessionFile != nil { return .fork }
-        if agent.resolved.defaultContext == "fresh" { return .fresh }
-        return .fresh
+    private func durationMilliseconds(from start: Date, to end: Date) -> Int {
+        max(0, Int((end.timeIntervalSince(start) * 1000).rounded()))
+    }
+
+    private func resolvedContextMode(for agent: EffectiveAgentRecord, parentSession: PiAgentSessionRecord, requestedContext: PiSubagentContextMode) -> PiSubagentContextMode {
+        switch requestedContext {
+        case .fresh:
+            return .fresh
+        case .fork:
+            return parentSession.piSessionFile == nil ? .fresh : .fork
+        case .agentDefault:
+            if agent.resolved.defaultContext == "fork", parentSession.piSessionFile != nil { return .fork }
+            if agent.resolved.defaultContext == "fresh" { return .fresh }
+            return .fresh
+        }
     }
 
     private func modelArgument(for agent: EffectiveAgentRecord) -> String? {
@@ -359,9 +407,8 @@ final class PiSubagentRunService {
     }
 
     private func extensionArguments(for agent: EffectiveAgentRecord) -> [String] {
-        guard let extensions = agent.resolved.extensions else { return [] }
         var args = ["--no-extensions"]
-        for ext in extensions where !ext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        for ext in agent.resolved.extensions ?? [] where !ext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args.append(contentsOf: ["--extension", ext])
         }
         return args

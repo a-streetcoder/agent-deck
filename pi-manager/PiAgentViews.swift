@@ -1729,6 +1729,29 @@ private struct PiNativeSubagentRunCard: View {
                         .foregroundStyle(.red)
                 }
                 VStack(alignment: .leading, spacing: 3) {
+                    Text("Started: \(run.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                    if let completedAt = run.completedAt {
+                        Text("Completed: \(completedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    if let duration = run.durationMs {
+                        Text("Duration: \(formattedDuration(duration))")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    Text("Context: requested \(run.requestedContext.rawValue), resolved \(run.resolvedContext.rawValue)")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                    if let worktreePath = run.worktreePath {
+                        Text("Worktree: \(worktreePath)")
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
                     if let outputPath = run.outputPath {
                         Text("Output: \(outputPath)")
                             .font(.caption2.monospaced())
@@ -1751,6 +1774,15 @@ private struct PiNativeSubagentRunCard: View {
                 }
             }
         }
+    }
+
+    private func formattedDuration(_ milliseconds: Int) -> String {
+        let seconds = max(0, milliseconds) / 1000
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        if minutes < 60 { return "\(minutes)m \(remainder)s" }
+        return "\(minutes / 60)h \(minutes % 60)m"
     }
 
     private var statusColor: Color {

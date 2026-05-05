@@ -1,6 +1,6 @@
 # Pi Manager Native Subagents Plan
 
-Status: Native single-run execution is implemented beyond the original Phase 1 foundation. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills, native Run Subagent sheets, parent transcript status entries, visible run cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, child-facing `contact_supervisor(...)`, restart disconnection recovery, artifact reveal actions, and optional single-run git worktree isolation. Remaining major work is chains/parallel run graphs, richer worktree merge/diff workflows, output-policy confirmations, richer skill/source diagnostics, manual end-to-end app validation, and documentation.
+Status: Native single-run execution is implemented beyond the original Phase 1 foundation. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills, native Run Subagent sheets, parent transcript status entries, visible run cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, artifact reveal actions, run duration/timestamp display, honored `managed_subagent` context overrides, and optional single-run git worktree isolation. Remaining major work is chains/parallel run graphs, richer worktree merge/diff workflows, output-policy confirmations, richer skill/source diagnostics, manual end-to-end app validation, and documentation.
 
 ## Goals
 
@@ -252,15 +252,17 @@ Child transcript can be opened separately.
 - [x] Add UI to open child transcript.
 - [x] Add stop control for active child.
 - [ ] Add resume/talk-to-child using child session file.
-- [x] Persist run status across app restart by marking active child runs `disconnected`.
+- [x] Persist run status across app restart by marking active child runs `disconnected` and cancelling stale pending supervisor requests.
 
 ### Phase 3: parent tool bridge
 
 - [x] Bundle/write a small app extension exposing `managed_subagent` to the parent Pi session.
 - [x] Forward structured requests to Pi Manager via the RPC extension UI sub-protocol.
 - [x] Return compact child results as tool output, not full child transcript.
+- [x] Honor parent-requested `context` overrides for `fresh` and `fork` native child runs.
 - [ ] Add richer subagent catalog/context to the parent prompt.
-- [ ] Add timeout/cancellation behavior for long-running parent tool calls.
+- [ ] Add timeout behavior for long-running parent tool calls.
+- [x] Complete waiting parent tool calls when their native child run is stopped.
 
 ### Phase 4: native `contact_supervisor`
 

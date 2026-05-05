@@ -330,12 +330,17 @@ final class PiAgentSessionStore: ObservableObject {
                 let recovered = persistedRuns.runs.map { run -> PiSubagentRunRecord in
                     var run = run
                     if run.status.isActive {
+                        let completedAt = Date()
                         run.status = .disconnected
                         run.error = run.error ?? "Disconnected because Pi Manager was restarted."
-                        run.completedAt = run.completedAt ?? Date()
+                        run.updatedAt = completedAt
+                        run.completedAt = run.completedAt ?? completedAt
+                        run.durationMs = run.durationMs ?? max(0, Int((completedAt.timeIntervalSince(run.createdAt) * 1000).rounded()))
                         if var child = run.child {
                             child.status = .disconnected
                             child.error = child.error ?? run.error
+                            child.updatedAt = completedAt
+                            child.durationMs = child.durationMs ?? max(0, Int((completedAt.timeIntervalSince(child.createdAt) * 1000).rounded()))
                             run.child = child
                         }
                     }
@@ -344,7 +349,21 @@ final class PiAgentSessionStore: ObservableObject {
                 return (persistedRuns.sessionID, recovered)
             })
             subagentTranscriptsByRunID = Dictionary(uniqueKeysWithValues: (persisted.subagentTranscripts ?? []).map { ($0.runID, $0.entries) })
-            supervisorRequestsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.supervisorRequests ?? []).map { ($0.sessionID, $0.requests) })
+            let subagentStatusesByRunID = Dictionary(uniqueKeysWithValues: subagentRunsBySessionID.values.flatMap { runs in
+                runs.map { ($0.id, $0.status) }
+            })
+            supervisorRequestsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.supervisorRequests ?? []).map { persistedRequests in
+                let recovered = persistedRequests.requests.map { request -> PiSubagentSupervisorRequest in
+                    var request = request
+                    if request.status == .pending, let runStatus = subagentStatusesByRunID[request.runID], !runStatus.isActive {
+                        request.status = .cancelled
+                        request.response = request.response ?? "Cancelled because the child subagent is no longer connected."
+                        request.updatedAt = Date()
+                    }
+                    return request
+                }
+                return (persistedRequests.sessionID, recovered)
+            })
             selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
