@@ -120,7 +120,7 @@ struct AppSidebarPane<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(AppTheme.subtleFill)
+        .background(.regularMaterial)
     }
 }
 

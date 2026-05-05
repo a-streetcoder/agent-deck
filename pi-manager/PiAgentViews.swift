@@ -228,16 +228,12 @@ struct PiAgentScreen: View {
     @State private var composerScrollRequest = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 0) {
-                sessionsColumn
-                    .frame(width: 360)
+        HSplitView {
+            sessionsColumn
+                .frame(minWidth: 220, idealWidth: 320, maxWidth: 460)
 
-                Divider()
-
-                activeSessionColumn
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            activeSessionColumn
+                .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
@@ -430,7 +426,7 @@ struct PiAgentScreen: View {
                 }
             }
         }
-        .background(AppTheme.subtleFill)
+        .background(.regularMaterial)
     }
 
     private var activeSessionColumn: some View {

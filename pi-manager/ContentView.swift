@@ -104,6 +104,8 @@ struct ContentView: View {
                         }
                     }
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
@@ -132,30 +134,26 @@ struct ContentView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
+            .background(.regularMaterial, ignoresSafeAreaEdges: .all)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
         } detail: {
-            HStack(spacing: 0) {
+            HSplitView {
                 detailView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 580 : 500, maxWidth: .infinity, maxHeight: .infinity)
 
                 if viewModel.selectedSidebarItem == .agent && isPiAgentActivityPresented {
-                    Divider()
                     PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
-                        .frame(width: 360)
+                        .frame(minWidth: 280, idealWidth: 360, maxWidth: 520)
                 } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
-                    Divider()
                     PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
-                        .frame(width: 380)
+                        .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
                 } else if viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent {
-                    Divider()
                     PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
-                        .frame(width: 380)
-
+                        .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
                 }
             }
-
         }
-        .frame(minWidth: 1180, minHeight: 760)
+        .frame(minWidth: 1040, minHeight: 700)
         .navigationTitle(toolbarTitle)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             if newValue == .agent {
