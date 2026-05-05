@@ -217,6 +217,7 @@ struct PiAgentScreen: View {
     @State private var nativeSubagentTask = ""
     @State private var nativeSubagentUseWorktreeIsolation = false
     @State private var selectedSubagentTranscriptRunID: UUID?
+    @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
 
@@ -259,6 +260,15 @@ struct PiAgentScreen: View {
         .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
         .sheet(item: selectedSubagentTranscriptBinding) { run in
             PiNativeSubagentTranscriptSheet(run: run, entries: store.subagentTranscript(for: run.id))
+        }
+        .sheet(item: selectedSubagentGraphBinding) { run in
+            PiNativeSubagentGraphSheet(
+                run: run,
+                onStopGraph: { viewModel.stopNativeSubagentGraph(runID: run.id, parentSessionID: run.parentSessionID) },
+                onStopChild: { child in viewModel.stopNativeSubagentGraphChild(graphRunID: run.id, childID: child.id, parentSessionID: run.parentSessionID) },
+                onRetryChild: { child in viewModel.retryNativeSubagentGraphChild(graphRunID: run.id, childID: child.id, parentSessionID: run.parentSessionID) },
+                onOpenChildArtifacts: { child in if let path = child.artifactDirectory { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } }
+            )
         }
         .sheet(isPresented: $isNativeSubagentRunSheetPresented) {
             PiNativeSubagentRunSheet(
@@ -491,6 +501,7 @@ struct PiAgentScreen: View {
                                     onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
                                     onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
                                     onReveal: { revealSubagentRun(run) },
+                                    onOpenGraph: { selectedSubagentGraphRunID = run.id },
                                     onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
                                     onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
                                     onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
@@ -533,6 +544,7 @@ struct PiAgentScreen: View {
                                         onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
                                         onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
                                         onReveal: { revealSubagentRun(run) },
+                                        onOpenGraph: { selectedSubagentGraphRunID = run.id },
                                         onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
                                         onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
                                         onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
@@ -758,6 +770,17 @@ struct PiAgentScreen: View {
                 return store.subagentRuns(for: session.id).first(where: { $0.id == runID })
             },
             set: { newValue in selectedSubagentTranscriptRunID = newValue?.id }
+        )
+    }
+
+    private var selectedSubagentGraphBinding: Binding<PiSubagentRunRecord?> {
+        Binding(
+            get: {
+                guard let runID = selectedSubagentGraphRunID,
+                      let session = store.selectedSession else { return nil }
+                return store.subagentRuns(for: session.id).first(where: { $0.id == runID })
+            },
+            set: { newValue in selectedSubagentGraphRunID = newValue?.id }
         )
     }
 
@@ -1657,6 +1680,7 @@ private struct PiSubagentSupervisorRequestCard: View {
     let onRespond: (String) -> Void
     let onCancel: () -> Void
     @State private var response = ""
+    @State private var structuredResponses: [String: String] = [:]
 
     var body: some View {
         AppRowCard {
@@ -1664,21 +1688,102 @@ private struct PiSubagentSupervisorRequestCard: View {
                 Label(request.title, systemImage: "questionmark.bubble")
                     .font(.headline)
                     .foregroundStyle(.orange)
-                Text(request.message)
-                    .font(.subheadline)
-                TextEditor(text: $response)
-                    .frame(minHeight: 76)
-                    .padding(6)
-                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                if let interview = structuredInterview {
+                    if let intro = interview.prompt ?? interview.message, !intro.isEmpty {
+                        Text(intro).font(.subheadline)
+                    }
+                    ForEach(interview.questions) { question in
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(question.labelText)
+                                .font(.caption.weight(.semibold))
+                            if question.type == "info" {
+                                Text(question.placeholder ?? "No response required.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                TextField(question.placeholder ?? "Response", text: binding(for: question.id), axis: .vertical)
+                                    .textFieldStyle(.roundedBorder)
+                                    .lineLimit(1...4)
+                            }
+                        }
+                    }
+                } else {
+                    Text(request.message)
+                        .font(.subheadline)
+                    TextEditor(text: $response)
+                        .frame(minHeight: 76)
+                        .padding(6)
+                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                }
                 HStack {
                     Spacer()
                     Button("Cancel", action: onCancel)
-                    Button("Send Response") { onRespond(response.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    Button("Send Response") { onRespond(responsePayload) }
                         .buttonStyle(.borderedProminent)
-                        .disabled(response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(!canRespond)
                 }
             }
         }
+    }
+
+    private var structuredInterview: SupervisorInterviewPayload? {
+        guard request.kind == .interviewRequest else { return nil }
+        let trimmed = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let jsonText: String
+        if trimmed.hasPrefix("```") {
+            jsonText = trimmed
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            jsonText = trimmed
+        }
+        guard let data = jsonText.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(SupervisorInterviewPayload.self, from: data),
+              !payload.questions.isEmpty else { return nil }
+        return payload
+    }
+
+    private var canRespond: Bool {
+        if let interview = structuredInterview {
+            return interview.questions.filter { $0.type != "info" && $0.required != false }.allSatisfy { !(structuredResponses[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+        return !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var responsePayload: String {
+        guard let interview = structuredInterview else { return response.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let responses = interview.questions
+            .filter { $0.type != "info" }
+            .map { ["id": $0.id, "value": (structuredResponses[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)] }
+        let object: [String: Any] = ["responses": responses]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return "{\"responses\":[]}" }
+        return text
+    }
+
+    private func binding(for id: String) -> Binding<String> {
+        Binding(
+            get: { structuredResponses[id] ?? "" },
+            set: { structuredResponses[id] = $0 }
+        )
+    }
+
+    private struct SupervisorInterviewPayload: Codable {
+        var prompt: String?
+        var message: String?
+        var questions: [SupervisorInterviewQuestion]
+    }
+
+    private struct SupervisorInterviewQuestion: Codable, Identifiable {
+        var id: String
+        var label: String?
+        var question: String?
+        var type: String?
+        var required: Bool?
+        var placeholder: String?
+
+        var labelText: String { label ?? question ?? id }
     }
 }
 
@@ -1687,6 +1792,7 @@ private struct PiNativeSubagentRunCard: View {
     let onStop: () -> Void
     let onOpenTranscript: () -> Void
     let onReveal: () -> Void
+    let onOpenGraph: () -> Void
     let onOpenWorktreePatch: () -> Void
     let onApplyWorktreePatch: () -> Void
     let onDiscardWorktree: () -> Void
@@ -1712,6 +1818,11 @@ private struct PiNativeSubagentRunCard: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(run.artifactDirectory.isEmpty)
+                    if run.children?.isEmpty == false {
+                        Button("Graph", action: onOpenGraph)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
                     Menu("Artifacts") {
                         Button("Open Output") { openArtifact(named: "output.md") }
                             .disabled(!canOpenArtifact(named: "output.md"))
@@ -1895,6 +2006,128 @@ private struct PiNativeSubagentRunCard: View {
             return .red
         case .stopped, .disconnected:
             return .secondary
+        }
+    }
+}
+
+private struct PiNativeSubagentGraphSheet: View {
+    let run: PiSubagentRunRecord
+    let onStopGraph: () -> Void
+    let onStopChild: (PiSubagentChildRecord) -> Void
+    let onRetryChild: (PiSubagentChildRecord) -> Void
+    let onOpenChildArtifacts: (PiSubagentChildRecord) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Native Graph · \(run.agentName)")
+                        .font(.title3.bold())
+                    Text("\(run.mode.rawValue.capitalized) · \(run.status.rawValue.capitalized) · \(run.children?.count ?? 0) child runs")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if run.status.isActive {
+                    Button("Stop Graph", role: .destructive, action: onStopGraph)
+                        .buttonStyle(.bordered)
+                }
+            }
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach((run.children ?? []).sorted { $0.index < $1.index }) { child in
+                        graphChildCard(child)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let summary = run.aggregateSummary ?? run.summary, !summary.isEmpty {
+                Divider()
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(5)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 760, minHeight: 520)
+    }
+
+    private func graphChildCard(_ child: PiSubagentChildRecord) -> some View {
+        AppRowCard {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle().fill(color(for: child.status)).frame(width: 9, height: 9)
+                    Text("\(child.index + 1). \(child.agentName)")
+                        .font(.headline)
+                    AppLabelTag(text: child.status.rawValue, color: color(for: child.status))
+                    Spacer()
+                    if child.status.isActive {
+                        Button("Stop") { onStopChild(child) }
+                            .controlSize(.small)
+                    }
+                    if [.failed, .stopped, .disconnected].contains(child.status) {
+                        Button("Retry") { onRetryChild(child) }
+                            .controlSize(.small)
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Button("Artifacts") { onOpenChildArtifacts(child) }
+                        .controlSize(.small)
+                        .disabled(child.artifactDirectory == nil)
+                }
+                if let task = child.task, !task.isEmpty {
+                    Text(task)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                if let summary = child.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.caption)
+                        .lineLimit(4)
+                } else if let error = child.error, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(4)
+                }
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 4) {
+                    graphMeta("Output", child.outputPath)
+                    graphMeta("Worktree", child.worktreePath)
+                    graphMeta("Execution", child.executionRunID?.uuidString)
+                    graphMeta("Duration", child.durationMs.map(formattedDuration))
+                }
+            }
+        }
+    }
+
+    private func graphMeta(_ title: String, _ value: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text("\(title):")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value ?? "—")
+                .font(.caption2.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+
+    private func formattedDuration(_ milliseconds: Int) -> String {
+        let seconds = max(0, milliseconds) / 1000
+        if seconds < 60 { return "\(seconds)s" }
+        return "\(seconds / 60)m \(seconds % 60)s"
+    }
+
+    private func color(for status: PiSubagentRunStatus) -> Color {
+        switch status {
+        case .queued, .starting, .running: return .blue
+        case .blocked: return .orange
+        case .completed: return .green
+        case .failed: return .red
+        case .stopped, .disconnected: return .secondary
         }
     }
 }

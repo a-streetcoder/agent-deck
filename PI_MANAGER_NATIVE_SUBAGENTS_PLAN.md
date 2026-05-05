@@ -1,6 +1,6 @@
 # Pi Manager Native Subagents Plan
 
-Status: Native single-run execution is implemented beyond the original Phase 1 foundation, and native graph foundations are now in place. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run/graph cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, `managed_chain(...)`, and `managed_parallel(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, optional git worktree isolation, and safe isolated-worktree patch/apply/discard workflows. Remaining major work is stricter writer/output policy confirmations, child-level graph stop/retry controls, manual end-to-end app validation, and documentation.
+Status: Native single-run execution is implemented beyond the original Phase 1 foundation, and native graph foundations are now in place. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run/graph cards and graph detail sheets, child transcript capture/navigation, parent-facing `managed_subagent(...)`, `managed_chain(...)`, and `managed_parallel(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent/chain catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, structured interview forms for JSON question payloads, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, graph stop/retry controls, heuristic parallel-writer worktree enforcement, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, optional git worktree isolation, and safe isolated-worktree patch/apply/discard workflows. Remaining major work is stricter output policy confirmations, full arbitrary pi-intercom UI/backend parity, true background process survival across app restarts, manual end-to-end app validation, and documentation.
 
 ## Goals
 
@@ -276,7 +276,7 @@ Child transcript can be opened separately.
 
 - [x] Model chain/parallel as a run graph.
 - [x] Add output dependencies and artifact passing.
-- [ ] Enforce one writer per worktree for parallel runs.
+- [x] Enforce one writer per worktree for heuristic writer-like parallel runs.
 - [x] Add optional git worktree isolation for single native child runs.
 - [x] Add diff/apply/discard workflows for isolated child worktrees.
 

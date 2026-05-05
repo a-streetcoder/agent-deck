@@ -104,7 +104,7 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Add cancel behavior for blocked child runs.
 - [x] Make `contact_supervisor` available only to native child runs that explicitly include it.
 - [x] Add timeout behavior for blocked child runs.
-- [ ] Add richer structured interview UI beyond a freeform text response.
+- [x] Add structured interview UI for JSON `questions` payloads, with freeform fallback.
 - [ ] Optionally route parent-agent responses, not only human responses, back to the child.
 
 ## Chains and parallel run graphs
@@ -115,16 +115,16 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Implement parallel read-only child runs.
 - [x] Add fan-out/fan-in summary support.
 - [x] Add UI for graph status: queued, running, blocked, completed, failed.
-- [ ] Add controls to stop one child or the entire graph.
-- [ ] Add partial failure behavior and retry controls.
+- [x] Add controls to stop one child or the entire graph.
+- [x] Add basic retry controls for failed/stopped/disconnected graph children.
 
 ## Worktree isolation
 
 - [x] Add optional git worktree creation for native single-subagent runs.
 - [x] Add a Run Subagent sheet toggle for worktree isolation.
 - [x] Launch child Pi RPC sessions in the isolated worktree when enabled.
-- [ ] Require worktree isolation for parallel writer children when parallel runs exist.
-- [ ] Prevent multiple writer children from editing the same worktree unless explicitly allowed.
+- [x] Require worktree isolation for heuristic writer-like parallel children.
+- [x] Prevent multiple writer children from editing the same checkout by rejecting writer-like parallel runs without isolated worktrees.
 - [x] Show each child worktree path more prominently in the run UI.
 - [x] Surface diffs from app-managed isolated child worktrees as generated patch artifacts.
 - [x] Add apply/discard workflows for app-managed isolated child worktree changes.

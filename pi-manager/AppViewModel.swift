@@ -1490,6 +1490,13 @@ final class AppViewModel: NSObject, ObservableObject {
     private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
         let tasks = agentTasks.map { ($0.agentName.trimmingCharacters(in: .whitespacesAndNewlines), $0.task.trimmingCharacters(in: .whitespacesAndNewlines)) }.filter { !$0.0.isEmpty && !$0.1.isEmpty }
         guard !tasks.isEmpty else { return }
+        if !useWorktreeIsolation, tasks.contains(where: { likelyWritesToProject(agentName: $0.0, task: $0.1) }) {
+            let message = "Parallel writer-like tasks require isolated worktrees. Re-run with worktree isolation enabled, or rewrite the tasks as review-only/read-only work."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Parallel Writer Safety", text: message))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: "Parallel", task: "\(tasks.count) task(s)", error: message)
+            completion?(placeholder)
+            return
+        }
         let now = Date()
         let runID = UUID()
         let artifactDirectory = nativeGraphArtifactDirectory(for: runID)
@@ -1535,6 +1542,14 @@ final class AppViewModel: NSObject, ObservableObject {
             }
             updateNativeGraphChildFromRun(scheduler.graphRunID, parentSessionID: scheduler.parentSession.id, index: index, childResult: childRun)
         }
+    }
+
+    private func likelyWritesToProject(agentName: String, task: String) -> Bool {
+        let text = "\(agentName) \(task)".lowercased()
+        let writerTerms = ["worker", "implement", "edit", "modify", "change", "fix", "write", "create", "delete", "remove", "refactor", "apply", "update file", "commit"]
+        let readOnlyTerms = ["review-only", "read-only", "do not edit", "no edits", "only report", "analysis only"]
+        if readOnlyTerms.contains(where: { text.contains($0) }) { return false }
+        return writerTerms.contains { text.contains($0) }
     }
 
     private func nativeGraphRun(id: UUID, parentSession: PiAgentSessionRecord, mode: PiSubagentRunMode, title: String, task: String, artifactDirectory: URL, children: [PiSubagentChildRecord], edges: [PiSubagentGraphEdgeRecord], concurrency: Int, worktreeIsolation: Bool) -> PiSubagentRunRecord {
@@ -1590,6 +1605,13 @@ final class AppViewModel: NSObject, ObservableObject {
             child.completedAt = childResult.completedAt
             child.durationMs = childResult.durationMs
         }
+    }
+
+    private func recomputeNativeGraphCompletion(_ graphRunID: UUID, parentSessionID: UUID) {
+        guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == graphRunID }), let children = run.children else { return }
+        guard !children.contains(where: { $0.status.isActive || $0.status == .queued }) else { return }
+        let summary = children.sorted { $0.index < $1.index }.map { "- \($0.agentName): \($0.summary ?? $0.error ?? $0.status.rawValue)" }.joined(separator: "\n")
+        finishNativeGraphRun(graphRunID, parentSessionID: parentSessionID, status: children.allSatisfy { $0.status == .completed } ? .completed : .failed, summary: summary, completion: nil)
     }
 
     private func agentApplying(chainStep step: ChainStepRecord, to agent: EffectiveAgentRecord) -> EffectiveAgentRecord {
@@ -1659,7 +1681,97 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {
+        if let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }), run.children?.isEmpty == false {
+            stopNativeSubagentGraph(runID: runID, parentSessionID: parentSessionID)
+            return
+        }
         nativeSubagentRunner.stop(runID: runID, parentSessionID: parentSessionID)
+    }
+
+    func stopNativeSubagentGraph(runID: UUID, parentSessionID: UUID) {
+        guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
+        for child in run.children ?? [] where child.status.isActive {
+            if let executionRunID = child.executionRunID {
+                nativeSubagentRunner.stop(runID: executionRunID, parentSessionID: parentSessionID)
+            }
+        }
+        let completedAt = Date()
+        piAgentSessionStore.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            run.status = .stopped
+            run.completedAt = completedAt
+            run.durationMs = max(0, Int((completedAt.timeIntervalSince(run.createdAt) * 1000).rounded()))
+            if var children = run.children {
+                for index in children.indices where children[index].status.isActive || children[index].status == .queued {
+                    children[index].status = .stopped
+                    children[index].updatedAt = completedAt
+                    children[index].completedAt = completedAt
+                    children[index].durationMs = max(0, Int((completedAt.timeIntervalSince(children[index].createdAt) * 1000).rounded()))
+                }
+                run.children = children
+            }
+        }
+        piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Native Graph Stopped", text: "Stopped graph run \(runID.uuidString)."))
+    }
+
+    func stopNativeSubagentGraphChild(graphRunID: UUID, childID: UUID, parentSessionID: UUID) {
+        guard let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == graphRunID }),
+              let child = (run.children ?? []).first(where: { $0.id == childID }) else { return }
+        if let executionRunID = child.executionRunID, child.status.isActive {
+            nativeSubagentRunner.stop(runID: executionRunID, parentSessionID: parentSessionID)
+        }
+        let completedAt = Date()
+        piAgentSessionStore.updateSubagentRun(graphRunID, parentSessionID: parentSessionID) { run in
+            guard var children = run.children, let index = children.firstIndex(where: { $0.id == childID }) else { return }
+            children[index].status = .stopped
+            children[index].updatedAt = completedAt
+            children[index].completedAt = completedAt
+            children[index].durationMs = max(0, Int((completedAt.timeIntervalSince(children[index].createdAt) * 1000).rounded()))
+            run.children = children
+            if run.mode == .chain { run.status = .stopped }
+        }
+        piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Native Graph Child Stopped", text: "Stopped \(child.agentName)."))
+    }
+
+    func retryNativeSubagentGraphChild(graphRunID: UUID, childID: UUID, parentSessionID: UUID) {
+        guard let parentSession = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }),
+              let run = piAgentSessionStore.subagentRuns(for: parentSessionID).first(where: { $0.id == graphRunID }),
+              let children = run.children,
+              let childIndex = children.firstIndex(where: { $0.id == childID }) else { return }
+        piAgentSessionStore.updateSubagentRun(graphRunID, parentSessionID: parentSessionID) { run in
+            run.status = .running
+            run.error = nil
+            guard var children = run.children else { return }
+            if run.mode == .chain {
+                for index in childIndex..<children.count {
+                    children[index].status = index == childIndex ? .running : .queued
+                    children[index].summary = nil
+                    children[index].error = nil
+                    children[index].completedAt = nil
+                    children[index].durationMs = nil
+                    children[index].executionRunID = nil
+                }
+            } else {
+                children[childIndex].status = .running
+                children[childIndex].summary = nil
+                children[childIndex].error = nil
+                children[childIndex].completedAt = nil
+                children[childIndex].durationMs = nil
+                children[childIndex].executionRunID = nil
+            }
+            run.children = children
+        }
+        if run.mode == .chain, let chainName = run.chainName, let chain = allVisibleChainRecords.first(where: { $0.name == chainName }) {
+            let previous = childIndex > 0 ? (children[childIndex - 1].summary ?? "") : ""
+            runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: graphRunID, originalTask: run.task, previous: previous, index: childIndex, useWorktreeIsolation: run.worktreePolicy == "isolated-per-child", completion: nil)
+        } else {
+            let child = children[childIndex]
+            let childRun = runNativeSubagent(parentSession: parentSession, agentName: child.agentName, task: child.task ?? run.task, useWorktreeIsolation: run.worktreePolicy == "isolated-per-child") { [weak self] childResult in
+                guard let self else { return }
+                self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childResult)
+                self.recomputeNativeGraphCompletion(graphRunID, parentSessionID: parentSessionID)
+            }
+            updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childRun)
+        }
     }
 
     func openNativeSubagentWorktreePatch(runID: UUID, parentSessionID: UUID) {
