@@ -281,14 +281,7 @@ Child transcript can be opened separately.
 
 ## Validation checklist
 
-- Build Pi Manager after every implementation slice.
-- Start a project session with subagents disabled from old packages and confirm native button still works from app data.
-- Run a harmless child task with `planner` and confirm no project `plan.md` overwrite unless explicitly allowed.
-- Run `apple-engineer` in a Swift/macOS repo and confirm separate child Pi session/process is created.
-- Confirm parent transcript gets one structured result card and no duplicate parent chat answer.
-- Confirm assigned skill from library is injected even if not active globally/project.
-- Confirm disabled agents do not appear in the native run picker.
-- Confirm no raw `/run` text is required.
+Manual app validation has moved to `manual-verification.md`, which is the source of truth for native subagent verification coverage.
 
 ## Open risks
 

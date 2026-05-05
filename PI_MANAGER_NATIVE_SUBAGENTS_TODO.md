@@ -8,56 +8,7 @@ Legend:
 
 ## Immediate manual validation
 
-Manual app validation is intentionally deferred until Pi Manager can be launched interactively on a Mac with Xcode/app runtime access. Use a harmless task such as: `Say hello and report your working directory. Do not edit files.`
-
-### Launch paths
-
-- [ ] Main composer: open a Pi Agent project session, click the native subagent button, pick an enabled agent, and run the harmless task.
-- [ ] Inspector composer: open the Pi Agent inspector for a session, click the native subagent button, pick an enabled agent, and run the harmless task.
-- [ ] Confirm neither path inserts raw `/run ...` text into the composer.
-- [ ] Confirm neither path sends raw `/run ...` text to the parent Pi session.
-
-### Parent transcript behavior
-
-- [ ] Confirm the parent transcript receives exactly one native start/status flow for the run.
-- [ ] Confirm the parent transcript receives exactly one native completion/failure result flow.
-- [ ] Confirm there are no duplicate parent replies caused by both parent and child answering the same task.
-- [ ] Confirm the run card shows status, requested/resolved context, timestamps/duration, artifact directory, output path, child session file when available, and worktree path when enabled.
-
-### Artifacts and output safety
-
-- [ ] Confirm app artifacts are written under `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/`.
-- [ ] Confirm `input.md`, `system-prompt.md`, and `output.md` are created for a completed run.
-- [ ] Confirm run-card artifact actions open/reveal the expected files/folder.
-- [ ] Confirm a harmless native run does not create accidental project files such as `plan.md`.
-- [ ] Confirm an agent with an `output` field shows an output warning and still defaults final response storage to app artifacts unless project-file edits are explicitly requested.
-
-### Agent picker/config fidelity
-
-- [ ] Confirm disabled agents do not appear in the native picker.
-- [ ] Confirm agent `model`, `thinking`, `tools`, configured `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, and `defaultReads` are reflected in launch behavior/UI.
-- [ ] Confirm `defaultReads` and caller-provided read-first files are soft “read current project files first if relevant” instructions, not forced/stale file injection.
-- [ ] Confirm agents with private library skills receive those skill contents even when the skills are not globally/project enabled.
-- [ ] Confirm resolved skill source diagnostics distinguish project/global/library/package/builtin skills in child prompt artifacts.
-
-### Parent bridge and supervisor bridge
-
-- [ ] Ask the parent Pi Agent to call `managed_subagent(agent, task, context: "fresh")`; confirm native run launches fresh and returns a compact tool result.
-- [ ] Ask the parent Pi Agent to call `managed_subagent(agent, task, context: "fork")` after a parent session file exists; confirm native run launches with forked context or records a clear fallback warning if no session file exists.
-- [ ] Run a child agent with `contact_supervisor` and confirm a non-blocking `progress_update` appears as a parent/app status update and auto-acknowledges.
-- [ ] Run a child agent with `contact_supervisor` and confirm blocking `need_decision` / `interview_request` creates a supervisor request card, blocks the child, accepts a human response, and resumes the child.
-- [ ] Confirm stopping a blocked child cancels/clears the pending bridge request and returns a stopped result to any waiting parent tool call.
-
-### Restart recovery
-
-- [ ] Start a native child run, quit/relaunch Pi Manager while it is active, and confirm the run is marked `disconnected` rather than active forever.
-- [ ] Quit/relaunch while a child is blocked on a supervisor request and confirm stale pending request cards are cancelled/hidden.
-
-### Worktree isolation
-
-- [ ] Run a harmless native subagent with worktree isolation enabled.
-- [ ] Confirm the child Pi RPC process launches in the isolated worktree under the run artifact directory.
-- [ ] Confirm project checkout files are not modified by isolated child edits unless later merge/apply workflows are explicitly used.
+Manual app validation has moved to `manual-verification.md`, which is the source of truth for native subagent verification coverage.
 
 ## Run records and restart recovery
 

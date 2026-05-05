@@ -9,6 +9,9 @@ When you finish items, tell me the item IDs that passed/failed and any notes/scr
 This checklist covers the current working tree plus today's committed changes:
 
 - Native single subagent execution and transcripts
+- Main and inspector composer native launch paths
+- App artifact files/actions and no accidental project output
+- Agent config/private skill fidelity and skill source diagnostics
 - Parent bridge tools: `managed_subagent`, `managed_chain`, `managed_parallel`
 - Parent plan tools: `set_session_plan`, `update_session_plan`
 - Supervisor routing: child `contact_supervisor`, parent `list_supervisor_requests`, `answer_supervisor_request`
@@ -95,6 +98,16 @@ This checklist covers the current working tree plus today's committed changes:
   - New sessions follow the last toggle state.
   - Current session and future default stay in sync.
 
+- [ ] **MV-B4 — Main and inspector composer launch paths**
+  1. From the main composer footer, open the native subagent picker and run a harmless no-edit task.
+  2. Open the Pi Agent inspector for the same session.
+  3. From the inspector composer, open the native subagent picker and run the same harmless no-edit task.
+  Expected:
+  - Both launch paths open native Run Subagent UI, not raw text insertion.
+  - Neither path inserts `/run ...` into the composer.
+  - Neither path sends `/run ...` to the parent Pi session.
+  - Disabled agents do not appear in either native picker.
+
 ---
 
 ## C. Manual native subagent runs
@@ -120,6 +133,8 @@ This checklist covers the current working tree plus today's committed changes:
   - Run starts and completes.
   - No heuristic blocks the task.
   - Card shows `scout` + `Completed`.
+  - Parent transcript receives exactly one native start/status flow and exactly one completion/failure result flow.
+  - There are no duplicate parent replies caused by both parent and child answering the task.
   - Task renders as a compact markdown Task message.
   - Answer renders as an assistant-style Answer message.
   - Metadata line uses icons, no pills/dot separators.
@@ -137,7 +152,7 @@ This checklist covers the current working tree plus today's committed changes:
   1. Click the `info.circle` button on the subagent card.
   Expected:
   - Popover opens near the card.
-  - Advanced details are there: timestamps, context, model/thinking, paths, artifact folder, child session file where available.
+  - Advanced details are there: status, requested/resolved context, timestamps/duration, model/thinking, artifact directory, output path, child session file, and worktree path when available.
   - Advanced actions are in the popover, not cluttering the main card.
 
 - [ ] **MV-C4 — Long task truncation**
@@ -154,7 +169,26 @@ This checklist covers the current working tree plus today's committed changes:
   Expected:
   - Absolute paths and `..` are rejected if attempted.
   - Project-relative read hints are accepted.
-  - The child is instructed to read current files if relevant.
+  - The child is instructed to read current project files first if relevant; files are not injected as stale forced content.
+
+- [ ] **MV-C6 — App artifact files and actions**
+  1. Complete any harmless manual subagent run.
+  2. Open the run info popover and Transcript sheet.
+  3. Use available artifact Open/Reveal actions.
+  Expected:
+  - Artifacts are under `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/`.
+  - `input.md`, `system-prompt.md`, and `output.md` exist for a completed run.
+  - Artifact actions open/reveal the expected files or folder.
+  - A harmless report-only run does not create accidental project files such as `plan.md`.
+
+- [ ] **MV-C7 — Agent config and private skill fidelity**
+  1. Pick an enabled agent with visible non-default config if available.
+  2. Run a harmless no-edit task.
+  3. Inspect run details and `system-prompt.md`.
+  Expected:
+  - Agent `model`, `thinking`, `tools`, configured `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, and `defaultReads` are reflected in launch behavior/UI where configured.
+  - Agents with private library skills receive those skill contents even when the skills are not globally/project enabled.
+  - Skill source diagnostics distinguish project/global/library/package/builtin skills.
 
 ---
 
@@ -209,6 +243,19 @@ This checklist covers the current working tree plus today's committed changes:
   - Run metadata shows requested/resolved context clearly.
   - Read-first file is captured in advanced details.
   - Result is returned compactly to parent.
+
+- [ ] **MV-D4 — Parent bridge fork context override**
+  After the parent session has a Pi session file, send:
+
+  ```text
+  Use managed_subagent with agent scout, context fork, and task:
+  Say whether you were launched with forked context if that is visible to you. Then answer "fork context smoke completed". Do not edit files.
+  ```
+
+  Expected:
+  - Native run launches with requested context `fork` when possible.
+  - If no parent session file is available, the run records a clear fallback warning instead of silently changing behavior.
+  - Parent receives a compact result.
 
 ---
 
@@ -273,6 +320,14 @@ This checklist covers the current working tree plus today's committed changes:
   - Supervisor card renders structured fields, not a plain text area.
   - Required field gates the Send Response button.
   - Child receives JSON response and completes.
+
+- [ ] **MV-E5 — Stopping a blocked child clears supervisor state**
+  1. Start a manual `scout` task that calls `contact_supervisor(kind: "need_decision")` and waits.
+  2. When the run is blocked, stop the child/run from the card.
+  Expected:
+  - Pending supervisor request is cancelled/cleared.
+  - Child/run status becomes stopped/disconnected/failed clearly, not permanently blocked.
+  - Any waiting parent bridge call receives a stopped result if applicable.
 
 ---
 
@@ -478,7 +533,9 @@ This checklist covers the current working tree plus today's committed changes:
 
   Expected:
   - Run uses an isolated worktree.
+  - Child Pi RPC process launches in the isolated worktree under the run artifact directory.
   - Card/info popover shows worktree metadata.
+  - Main checkout files are not modified by isolated child edits before apply.
   - Worktree patch/open/apply/discard actions are available.
 
 - [ ] **MV-H6 — Worktree patch apply/discard**
@@ -500,6 +557,13 @@ This checklist covers the current working tree plus today's committed changes:
 
   Expected:
   - Test repo returns to expected clean/known state.
+
+- [ ] **MV-H8 — Agent-configured output remains advisory**
+  If an enabled agent has a configured `output` field such as `plan.md`, run a harmless report-only task with that agent.
+  Expected:
+  - Run Subagent UI shows an output warning.
+  - Final response is stored in app artifacts by default.
+  - No project file from the agent-configured output path is overwritten unless project-file edits are explicitly requested and approved.
 
 ---
 
@@ -548,7 +612,6 @@ Use a throwaway test file only. Avoid pushing unless you explicitly want to vali
   Expected:
   - Old active run does not remain falsely running forever.
   - It is marked disconnected/stopped/failed cleanly.
-  - No stale pending supervisor requests remain active forever.
 
 - [ ] **MV-J2 — Session list/run ordering stability**
   1. Create multiple native runs in one session.
@@ -556,6 +619,14 @@ Use a throwaway test file only. Avoid pushing unless you explicitly want to vali
   Expected:
   - Run ordering is stable by creation time.
   - Cards do not jump/reorder unexpectedly.
+
+- [ ] **MV-J3 — Blocked supervisor request app restart behavior**
+  1. Start a manual `scout` task that blocks on `contact_supervisor(kind: "need_decision")`.
+  2. Quit Pi Manager while the request is pending.
+  3. Relaunch manually.
+  Expected:
+  - Stale pending supervisor request cards are cancelled/hidden.
+  - The child run is not shown as active or blocked forever.
 
 ---
 

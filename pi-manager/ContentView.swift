@@ -1,6 +1,27 @@
 import AppKit
 import SwiftUI
 
+private struct PiAgentOpenTerminalToolbarButton: View {
+    @ObservedObject var viewModel: AppViewModel
+    @ObservedObject var store: PiAgentSessionStore
+
+    var body: some View {
+        Button {
+            viewModel.openSelectedPiAgentSessionInTerminal()
+        } label: {
+            Label("Open in Terminal", systemImage: "terminal")
+        }
+        .help("Resume this Pi session in the default terminal app")
+        .disabled(!canOpen)
+    }
+
+    private var canOpen: Bool {
+        guard let session = store.selectedSession else { return false }
+        if let sessionFile = session.piSessionFile, FileManager.default.fileExists(atPath: sessionFile) { return true }
+        return session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
     @State private var agentDraft: AgentEditorDraft?
@@ -423,13 +444,10 @@ struct ContentView: View {
                     .help("Open repo changes sidebar")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
-                    Button {
-                        viewModel.openSelectedPiAgentSessionInTerminal()
-                    } label: {
-                        Label("Open in Terminal", systemImage: "terminal")
-                    }
-                    .help("Resume this Pi session in the default terminal app")
-                    .disabled(!viewModel.canOpenSelectedPiAgentSessionInTerminal)
+                    PiAgentOpenTerminalToolbarButton(
+                        viewModel: viewModel,
+                        store: viewModel.piAgentSessionStore
+                    )
                 }
             }
         }

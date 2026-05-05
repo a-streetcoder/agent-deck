@@ -1272,26 +1272,21 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var canOpenSelectedPiAgentSessionInTerminal: Bool {
-        guard let sessionFile = piAgentSessionStore.selectedSession?.piSessionFile else { return false }
-        return FileManager.default.fileExists(atPath: sessionFile)
+        guard let session = piAgentSessionStore.selectedSession else { return false }
+        if let sessionFile = session.piSessionFile, FileManager.default.fileExists(atPath: sessionFile) { return true }
+        return session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     func openSelectedPiAgentSessionInTerminal() {
         guard let session = piAgentSessionStore.selectedSession,
-              let sessionFile = session.piSessionFile else { return }
+              let sessionRef = resumablePiSessionReference(for: session) else { return }
         acknowledgePiAgentSession(session.id)
-        guard FileManager.default.fileExists(atPath: sessionFile) else {
-            piAgentSessionStore.updateSession(session.id) { record in
-                record.lastError = "Pi session file no longer exists."
-            }
-            return
-        }
 
         let workingDirectory = session.worktreePath ?? session.projectPath
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pi-manager-resume-\(session.id.uuidString)")
             .appendingPathExtension("command")
-        let resumeCommand = terminalResumeCommand(workingDirectory: workingDirectory, sessionFile: sessionFile)
+        let resumeCommand = terminalResumeCommand(workingDirectory: workingDirectory, sessionReference: sessionRef)
         let script = """
         #!/bin/zsh
         \(resumeCommand)
@@ -1308,20 +1303,37 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func terminalResumeCommand(workingDirectory: String, sessionFile: String) -> String {
+    private func resumablePiSessionReference(for session: PiAgentSessionRecord) -> String? {
+        if let sessionFile = session.piSessionFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sessionFile.isEmpty,
+           FileManager.default.fileExists(atPath: sessionFile) {
+            return sessionFile
+        }
+        if let sessionID = session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty {
+            return sessionID
+        }
+        if let sessionFile = session.piSessionFile?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionFile.isEmpty {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = "Pi session file no longer exists; trying session id if available."
+            }
+        }
+        return nil
+    }
+
+    private func terminalResumeCommand(workingDirectory: String, sessionReference: String) -> String {
         """
         cd \(shellQuoted(workingDirectory)) || exit 1
         export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
         if command -v pi >/dev/null 2>&1; then
-          exec pi --session \(shellQuoted(sessionFile))
+          exec pi --session \(shellQuoted(sessionReference))
         elif [ -x /opt/homebrew/bin/pi ]; then
-          exec /opt/homebrew/bin/pi --session \(shellQuoted(sessionFile))
+          exec /opt/homebrew/bin/pi --session \(shellQuoted(sessionReference))
         elif [ -x /usr/local/bin/pi ]; then
-          exec /usr/local/bin/pi --session \(shellQuoted(sessionFile))
+          exec /usr/local/bin/pi --session \(shellQuoted(sessionReference))
         else
           echo "Pi CLI not found. Install pi or add it to PATH."
           echo ""
-          echo "Command: pi --session \(shellQuoted(sessionFile))"
+          echo "Command: pi --session \(shellQuoted(sessionReference))"
           read -k 1 "?Press any key to close."
         fi
         """
@@ -1332,11 +1344,13 @@ final class AppViewModel: NSObject, ObservableObject {
         let selectedTerminalName = selectedTerminalPath.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() }
 
         if selectedTerminalPath == nil || selectedTerminalName == "terminal.app" {
-            openInAppleTerminal(command: command, sessionID: sessionID)
+            if openInAppleTerminal(command: command, sessionID: sessionID) { return }
+            openCommandFile(scriptURL, withApplicationAt: defaultTerminalURL(), sessionID: sessionID)
             return
         }
         if selectedTerminalName == "iterm.app" {
-            openInITerm(command: command, sessionID: sessionID)
+            if openInITerm(command: command, sessionID: sessionID) { return }
+            openCommandFile(scriptURL, withApplicationAt: selectedTerminalPath.map(URL.init(fileURLWithPath:)), sessionID: sessionID)
             return
         }
 
@@ -1345,6 +1359,20 @@ final class AppViewModel: NSObject, ObservableObject {
         guard FileManager.default.fileExists(atPath: terminalURL.path) else {
             piAgentSessionStore.updateSession(sessionID) { record in
                 record.lastError = "Selected terminal app no longer exists. Choose another app in Settings."
+            }
+            return
+        }
+
+        openCommandFile(scriptURL, withApplicationAt: terminalURL, sessionID: sessionID)
+    }
+
+    private func openCommandFile(_ scriptURL: URL, withApplicationAt terminalURL: URL?, sessionID: UUID) {
+        guard let terminalURL else {
+            guard NSWorkspace.shared.open(scriptURL) else {
+                piAgentSessionStore.updateSession(sessionID) { record in
+                    record.lastError = "Could not open the default terminal app."
+                }
+                return
             }
             return
         }
@@ -1362,31 +1390,43 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func openInAppleTerminal(command: String, sessionID: UUID) {
+    private func defaultTerminalURL() -> URL? {
+        [
+            "/System/Applications/Utilities/Terminal.app",
+            "/Applications/Utilities/Terminal.app"
+        ]
+        .map(URL.init(fileURLWithPath:))
+        .first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    @discardableResult
+    private func openInAppleTerminal(command: String, sessionID: UUID) -> Bool {
         let script = """
         tell application "Terminal"
             activate
             do script "\(appleScriptEscaped(command))"
         end tell
         """
-        runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open Terminal.")
+        return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open Terminal.")
     }
 
-    private func openInITerm(command: String, sessionID: UUID) {
+    @discardableResult
+    private func openInITerm(command: String, sessionID: UUID) -> Bool {
         let script = """
         tell application "iTerm"
             activate
             create window with default profile command "\(appleScriptEscaped(command))"
         end tell
         """
-        runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open iTerm.")
+        return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open iTerm.")
     }
 
-    private func runAppleScript(_ source: String, sessionID: UUID, fallbackMessage: String) {
+    @discardableResult
+    private func runAppleScript(_ source: String, sessionID: UUID, fallbackMessage: String) -> Bool {
         var errorInfo: NSDictionary?
         guard let script = NSAppleScript(source: source) else {
             piAgentSessionStore.updateSession(sessionID) { $0.lastError = fallbackMessage }
-            return
+            return false
         }
         _ = script.executeAndReturnError(&errorInfo)
         if let errorInfo {
@@ -1394,7 +1434,9 @@ final class AppViewModel: NSObject, ObservableObject {
             piAgentSessionStore.updateSession(sessionID) { record in
                 record.lastError = message
             }
+            return false
         }
+        return true
     }
 
     private func appleScriptEscaped(_ value: String) -> String {
