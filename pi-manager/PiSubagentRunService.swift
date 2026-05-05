@@ -6,6 +6,7 @@ final class PiSubagentRunService {
     private var clientsByRunID: [UUID: PiRPCClient] = [:]
     private var finalTextByRunID: [UUID: String] = [:]
     private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
+    private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
     private let fileManager = FileManager.default
 
     init(store: PiAgentSessionStore) {
@@ -155,6 +156,7 @@ final class PiSubagentRunService {
 
     func respondToSupervisorRequest(_ requestID: String, parentSessionID: UUID, response: String) {
         guard let request = store.supervisorRequests(for: parentSessionID).first(where: { $0.id == requestID }) else { return }
+        supervisorTimeoutTasksByRequestID.removeValue(forKey: requestID)?.cancel()
         store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
             request.status = .answered
             request.response = response
@@ -171,6 +173,7 @@ final class PiSubagentRunService {
 
     func cancelSupervisorRequest(_ requestID: String, parentSessionID: UUID) {
         guard let request = store.supervisorRequests(for: parentSessionID).first(where: { $0.id == requestID }) else { return }
+        supervisorTimeoutTasksByRequestID.removeValue(forKey: requestID)?.cancel()
         store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
             request.status = .cancelled
             request.response = "Cancelled by supervisor."
@@ -187,6 +190,7 @@ final class PiSubagentRunService {
 
     func stop(runID: UUID, parentSessionID: UUID) {
         guard let client = clientsByRunID.removeValue(forKey: runID) else { return }
+        cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         client.stop()
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             let completedAt = Date()
@@ -249,10 +253,14 @@ final class PiSubagentRunService {
 
     private func handleTermination(exitCode: Int32, runID: UUID, parentSessionID: UUID) {
         clientsByRunID[runID] = nil
+        cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         if exitCode == 0 {
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
         } else {
+            var didFailActiveRun = false
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                guard run.status.isActive else { return }
+                didFailActiveRun = true
                 let completedAt = Date()
                 run.status = .failed
                 run.child?.status = .failed
@@ -267,6 +275,7 @@ final class PiSubagentRunService {
                     run.child = child
                 }
             }
+            guard didFailActiveRun else { return }
             notifyCompletion(runID: runID, parentSessionID: parentSessionID)
             store.append(.init(sessionID: parentSessionID, role: .error, title: "Subagent Failed", text: "Child Pi process exited with code \(exitCode)."))
         }
@@ -318,6 +327,7 @@ final class PiSubagentRunService {
             shouldAppend = true
         }
         notifyCompletion(runID: runID, parentSessionID: parentSessionID)
+        cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clientsByRunID[runID]?.stop()
         clientsByRunID[runID] = nil
         if shouldAppend {
@@ -333,6 +343,57 @@ final class PiSubagentRunService {
         guard let handler = completionHandlersByRunID.removeValue(forKey: runID),
               let run = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) else { return }
         handler(run)
+    }
+
+    private func scheduleSupervisorTimeout(requestID: String, runID: UUID, parentSessionID: UUID) {
+        supervisorTimeoutTasksByRequestID.removeValue(forKey: requestID)?.cancel()
+        supervisorTimeoutTasksByRequestID[requestID] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30 * 60))
+            await MainActor.run {
+                self?.timeoutSupervisorRequest(requestID, runID: runID, parentSessionID: parentSessionID)
+            }
+        }
+    }
+
+    private func timeoutSupervisorRequest(_ requestID: String, runID: UUID, parentSessionID: UUID) {
+        guard let request = store.supervisorRequests(for: parentSessionID).first(where: { $0.id == requestID && $0.status == .pending }) else { return }
+        supervisorTimeoutTasksByRequestID.removeValue(forKey: requestID)?.cancel()
+        clientsByRunID[runID]?.cancelExtensionUI(id: requestID)
+        store.updateSupervisorRequest(requestID, parentSessionID: parentSessionID) { request in
+            request.status = .cancelled
+            request.response = "Timed out waiting for supervisor response."
+        }
+        failRun(runID: runID, parentSessionID: parentSessionID, message: "Timed out waiting for supervisor response to: \(request.title)")
+    }
+
+    private func cancelSupervisorTimeouts(for runID: UUID, parentSessionID: UUID) {
+        for request in store.supervisorRequests(for: parentSessionID) where request.runID == runID {
+            supervisorTimeoutTasksByRequestID.removeValue(forKey: request.id)?.cancel()
+        }
+    }
+
+    private func failRun(runID: UUID, parentSessionID: UUID, message: String) {
+        let client = clientsByRunID.removeValue(forKey: runID)
+        client?.stop()
+        cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            guard run.status.isActive else { return }
+            let completedAt = Date()
+            run.status = .failed
+            run.child?.status = .failed
+            run.error = message
+            run.child?.error = message
+            run.updatedAt = completedAt
+            run.completedAt = completedAt
+            run.durationMs = durationMilliseconds(from: run.createdAt, to: completedAt)
+            if var child = run.child {
+                child.updatedAt = completedAt
+                child.durationMs = durationMilliseconds(from: child.createdAt, to: completedAt)
+                run.child = child
+            }
+        }
+        notifyCompletion(runID: runID, parentSessionID: parentSessionID)
+        store.append(.init(sessionID: parentSessionID, role: .error, title: "Subagent Failed", text: message))
     }
 
     private func createWorktree(for parentSession: PiAgentSessionRecord, artifactDirectory: URL) throws -> URL {
@@ -423,7 +484,7 @@ final class PiSubagentRunService {
         if !skillBlocks.isEmpty {
             sections.append(skillBlocks.map { block in
                 """
-                <skill name=\"\(block.name)\" location=\"\(block.path)\">
+                <skill name=\"\(block.name)\" source=\"\(block.source)\" location=\"\(block.path)\">
                 \(block.content)
                 </skill>
                 """
@@ -467,7 +528,7 @@ final class PiSubagentRunService {
 
         Agent: \(agent.name)
         Description: \(agent.resolved.description)
-        Skills: \(skillBlocks.map(\.name).joined(separator: ", "))
+        Skills: \(skillBlocks.map { "\($0.name) [\($0.source)]" }.joined(separator: ", "))
 
         ## Task
 
@@ -483,13 +544,25 @@ final class PiSubagentRunService {
         return names.compactMap { name in
             guard let record = recordsByName[name] else { return nil }
             let content = skillMarkdown(for: record)
-            return ResolvedSkillBlock(name: name, path: record.filePath, content: content)
+            return ResolvedSkillBlock(name: name, source: skillSourceDescription(for: record), path: record.filePath, content: content)
         }
     }
 
     private func skillMarkdown(for record: SkillRecord) -> String {
         if let raw = try? String(contentsOfFile: record.filePath, encoding: .utf8), !raw.isEmpty { return raw }
         return record.body
+    }
+
+    private func skillSourceDescription(for record: SkillRecord) -> String {
+        switch record.source.kind {
+        case .project: return "project"
+        case .legacyProject: return "legacy project"
+        case .global: return "global"
+        case .library: return "library"
+        case .package: return "package"
+        case .builtin: return "builtin"
+        case .override: return "override"
+        }
     }
 
     private func handleExtensionUIRequest(_ event: PiAgentRPCEvent, rawLine: String, runID: UUID, parentSessionID: UUID) {
@@ -528,7 +601,10 @@ final class PiSubagentRunService {
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                 run.status = .blocked
                 run.child?.status = .blocked
+                run.updatedAt = now
+                run.child?.updatedAt = now
             }
+            scheduleSupervisorTimeout(requestID: requestID, runID: runID, parentSessionID: parentSessionID)
             store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Needs Decision", text: message))
         } else {
             store.append(.init(sessionID: parentSessionID, role: .status, title: requestTitle, text: message))
@@ -589,6 +665,7 @@ final class PiSubagentRunService {
 
 private struct ResolvedSkillBlock: Hashable {
     let name: String
+    let source: String
     let path: String
     let content: String
 }

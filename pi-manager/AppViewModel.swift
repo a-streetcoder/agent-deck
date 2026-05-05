@@ -10,6 +10,17 @@ extension Notification.Name {
 }
 
 @MainActor
+private final class NativeSubagentCompletionGate {
+    private(set) var isCompleted = false
+
+    func complete(_ body: () -> Void) {
+        guard !isCompleted else { return }
+        isCompleted = true
+        body()
+    }
+}
+
+@MainActor
 final class AppViewModel: NSObject, ObservableObject {
     @Published var snapshot: ScanSnapshot = .empty
     @Published var selectedSidebarItem: SidebarItem = .agent
@@ -104,6 +115,9 @@ final class AppViewModel: NSObject, ObservableObject {
             Task { @MainActor in
                 self?.runManagedNativeSubagent(parentSessionID: sessionID, request: request, completion: completion)
             }
+        }
+        piAgentRunner.nativeSubagentCatalogProvider = { [weak self] session in
+            self?.nativeSubagentCatalogPrompt(for: session)
         }
         registerAppNotificationObservers()
         startAutoRefresh()
@@ -1295,28 +1309,69 @@ final class AppViewModel: NSObject, ObservableObject {
             return
         }
         let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
-        runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: false, contextOverride: contextOverride) { run in
-            let status = run.status == .completed ? "completed" : run.status.rawValue
-            let summary = run.summary ?? run.error ?? "No summary returned."
-            let artifact = run.outputPath.map { "\n\nArtifact: \($0)" } ?? ""
-            completion("Native subagent \(run.agentName) \(status).\n\n\(summary)\(artifact)")
+        let gate = NativeSubagentCompletionGate()
+        var timeoutTask: Task<Void, Never>?
+        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: false, contextOverride: contextOverride) { run in
+            timeoutTask?.cancel()
+            gate.complete {
+                let status = run.status == .completed ? "completed" : run.status.rawValue
+                let summary = run.summary ?? run.error ?? "No summary returned."
+                let artifact = run.outputPath.map { "\n\nArtifact: \($0)" } ?? ""
+                completion("Native subagent \(run.agentName) \(status).\n\n\(summary)\(artifact)")
+            }
+        }
+        if launchedRun.status.isActive, !gate.isCompleted {
+            timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(30 * 60))
+                await MainActor.run {
+                    guard let self else { return }
+                    gate.complete {
+                        self.nativeSubagentRunner.stop(runID: launchedRun.id, parentSessionID: parentSessionID)
+                        completion("Native subagent \(launchedRun.agentName) timed out after 30 minutes waiting for a result.")
+                    }
+                }
+            }
         }
     }
 
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) {
+    @discardableResult
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
         guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Not Found", text: message))
-            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message))
-            return
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
+            completion?(placeholder)
+            return placeholder
         }
         do {
-            _ = try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
+            return try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, onCompletion: completion)
         } catch {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
-            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: error.localizedDescription))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: error.localizedDescription)
+            completion?(placeholder)
+            return placeholder
         }
+    }
+
+    private func nativeSubagentCatalogPrompt(for session: PiAgentSessionRecord) -> String? {
+        let agents = startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
+            .filter { $0.resolved.disabled != true }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        guard !agents.isEmpty else { return nil }
+        let lines = agents.prefix(40).map { agent in
+            let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let context = agent.resolved.defaultContext ?? "fresh"
+            let model = agent.resolved.model ?? "default"
+            let tools = (agent.resolved.tools ?? []).isEmpty ? "default tools" : "tools: \((agent.resolved.tools ?? []).joined(separator: ", "))"
+            let skills = agent.resolved.skills.isEmpty ? "no private skills" : "skills: \(agent.resolved.skills.joined(separator: ", "))"
+            return "- \(agent.name): \(description.isEmpty ? "No description" : description) [context: \(context), model: \(model), \(tools), \(skills)]"
+        }
+        let suffix = agents.count > 40 ? "\n- …\(agents.count - 40) more agents available in Pi Manager." : ""
+        return """
+        Native Pi Manager subagents are available through the `managed_subagent` tool. Prefer these for bounded specialist work; keep tasks narrow and include the expected output. Available native subagents for this project:
+        \(lines.joined(separator: "\n"))\(suffix)
+        """
     }
 
     func stopNativeSubagent(runID: UUID, parentSessionID: UUID) {

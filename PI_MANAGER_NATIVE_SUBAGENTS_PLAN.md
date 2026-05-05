@@ -1,6 +1,6 @@
 # Pi Manager Native Subagents Plan
 
-Status: Native single-run execution is implemented beyond the original Phase 1 foundation. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills, native Run Subagent sheets, parent transcript status entries, visible run cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, artifact reveal actions, run duration/timestamp display, honored `managed_subagent` context overrides, and optional single-run git worktree isolation. Remaining major work is chains/parallel run graphs, richer worktree merge/diff workflows, output-policy confirmations, richer skill/source diagnostics, manual end-to-end app validation, and documentation.
+Status: Native single-run execution is implemented beyond the original Phase 1 foundation. Pi Manager now has persisted native subagent run records, app-owned child Pi RPC sessions, private skill injection from snapshots/library skills with source diagnostics, native Run Subagent sheets, parent transcript status entries, visible run cards, child transcript capture/navigation, parent-facing `managed_subagent(...)`, child-facing `contact_supervisor(...)`, TypeBox/StringEnum bridge schemas validated with Pi RPC smoke tests, parent-visible native subagent catalog prompt, parent tool-call timeout handling, blocked supervisor timeout handling, restart disconnection recovery, stale supervisor-request cancellation, child extension-discovery isolation, artifact reveal/open actions, run duration/timestamp/context display, honored `managed_subagent` context overrides, and optional single-run git worktree isolation. Remaining major work is chains/parallel run graphs, richer worktree merge/diff workflows, stricter output-policy confirmations, manual end-to-end app validation, and documentation.
 
 ## Goals
 
@@ -261,7 +261,7 @@ Child transcript can be opened separately.
 - [x] Return compact child results as tool output, not full child transcript.
 - [x] Honor parent-requested `context` overrides for `fresh` and `fork` native child runs.
 - [ ] Add richer subagent catalog/context to the parent prompt.
-- [ ] Add timeout behavior for long-running parent tool calls.
+- [x] Add timeout behavior for long-running parent tool calls.
 - [x] Complete waiting parent tool calls when their native child run is stopped.
 
 ### Phase 4: native `contact_supervisor`
@@ -270,7 +270,7 @@ Child transcript can be opened separately.
 - [x] Route child decision/progress/interview requests into parent cards.
 - [x] Let the human answer explicitly and route the answer back to the child.
 - [ ] Add structured interview UI beyond freeform response.
-- [ ] Add timeout behavior for blocked child runs.
+- [x] Add timeout behavior for blocked child runs.
 
 ### Phase 5: chains, parallel, worktrees
 

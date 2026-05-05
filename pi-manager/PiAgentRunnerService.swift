@@ -15,6 +15,7 @@ final class PiAgentRunnerService {
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     var onTurnFinished: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
+    var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -200,6 +201,9 @@ final class PiAgentRunnerService {
             var extraArguments: [String] = []
             if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
+                if let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty {
+                    extraArguments.append(contentsOf: ["--append-system-prompt", catalog])
+                }
             }
             let client = try PiRPCClient(
                 cwd: projectURL,

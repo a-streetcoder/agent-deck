@@ -1703,6 +1703,17 @@ private struct PiNativeSubagentRunCard: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(run.artifactDirectory.isEmpty)
+                    Menu("Artifacts") {
+                        Button("Open Output") { openArtifact(named: "output.md") }
+                            .disabled(!canOpenArtifact(named: "output.md"))
+                        Button("Open Input") { openArtifact(named: "input.md") }
+                            .disabled(!canOpenArtifact(named: "input.md"))
+                        Button("Open System Prompt") { openArtifact(named: "system-prompt.md") }
+                            .disabled(!canOpenArtifact(named: "system-prompt.md"))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .controlSize(.small)
+                    .disabled(run.artifactDirectory.isEmpty)
                     if run.status.isActive {
                         Button("Stop", action: onStop)
                             .buttonStyle(.bordered)
@@ -1774,6 +1785,18 @@ private struct PiNativeSubagentRunCard: View {
                 }
             }
         }
+    }
+
+    private func artifactURL(named fileName: String) -> URL {
+        URL(fileURLWithPath: run.artifactDirectory).appendingPathComponent(fileName)
+    }
+
+    private func canOpenArtifact(named fileName: String) -> Bool {
+        FileManager.default.fileExists(atPath: artifactURL(named: fileName).path)
+    }
+
+    private func openArtifact(named fileName: String) {
+        NSWorkspace.shared.open(artifactURL(named: fileName))
     }
 
     private func formattedDuration(_ milliseconds: Int) -> String {

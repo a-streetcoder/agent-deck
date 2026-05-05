@@ -46,8 +46,8 @@ Legend:
 - [x] Honor `managed_subagent` context overrides (`fresh` / `fork`) instead of silently falling back to agent defaults.
 - [x] Render parent transcript status entries for native subagent requests and results.
 - [x] Decide bridge mechanism for now: bundled/generated Pi extension using the RPC extension UI sub-protocol as a private app bridge.
-- [ ] Let the parent Pi Agent see a richer compact catalog of available native subagents beyond the tool description/prompt snippet.
-- [ ] Add timeout semantics for parent tool calls waiting on long-running children.
+- [x] Let the parent Pi Agent see a richer compact catalog of available native subagents beyond the tool description/prompt snippet.
+- [x] Add timeout semantics for parent tool calls waiting on long-running children.
 - [x] Return a stopped status to waiting parent `managed_subagent` tool calls when a native child run is stopped.
 
 ## Native child `contact_supervisor(...)`
@@ -61,7 +61,7 @@ Legend:
 - [x] Route human responses back to the child.
 - [x] Add cancel behavior for blocked child runs.
 - [x] Make `contact_supervisor` available only to native child runs that explicitly include it.
-- [ ] Add timeout behavior for blocked child runs.
+- [x] Add timeout behavior for blocked child runs.
 - [ ] Add richer structured interview UI beyond a freeform text response.
 - [ ] Optionally route parent-agent responses, not only human responses, back to the child.
 
@@ -96,7 +96,7 @@ Legend:
 - [ ] Confirm before writing agent-configured outputs into project files such as `plan.md`.
 - [ ] Add per-run output policy controls: app artifact only, allow explicit project writes, or use configured output.
 - [ ] Prevent silent overwrites of existing project artifacts.
-- [ ] Add artifact previews for `output.md`, logs, and prompt/input files.
+- [x] Add artifact open actions for `output.md`, `input.md`, and `system-prompt.md`.
 
 ## Skill/config fidelity
 
@@ -105,11 +105,11 @@ Legend:
 - [x] Preserve `model`, `thinking`, `tools`, configured `extensions`, `inheritSkills`, `inheritProjectContext`, `defaultContext`, `defaultReads`, and app artifact output behavior for single runs.
 - [x] Disable ambient extension discovery for native child runs so only configured extensions plus app bridge extensions load.
 - [x] Support `fork` default context by passing `--fork <parent-session-file>` when available.
-- [ ] Show where each resolved skill came from: project, global, library, or package/builtin.
+- [x] Show where each resolved skill came from: project, global, library, or package/builtin.
 - [ ] Support more complete fallback model behavior for child runs.
 - [ ] Audit `mcpServers` parity against old `pi-subagents` behavior.
-- [ ] Confirm `defaultReads` behavior is safe and does not reintroduce stale file footguns.
-- [ ] Add clearer UI explaining when a child is launched fresh vs forked.
+- [x] Keep `defaultReads` as a soft "read first if relevant" instruction instead of forced file injection.
+- [x] Add clearer UI explaining when a child is launched fresh vs forked.
 
 ## App UI polish
 
