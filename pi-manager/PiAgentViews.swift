@@ -284,6 +284,7 @@ struct PiAgentScreen: View {
                 requestedOutputPath: $nativeSubagentRequestedOutputPath,
                 allowOverwrite: $nativeSubagentAllowOverwrite,
                 readFirstPathsText: $nativeSubagentReadFirstPaths,
+                projectRootPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onCancel: { isNativeSubagentRunSheetPresented = false },
                 onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite, readFirstPaths in
                     viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths)
@@ -722,8 +723,11 @@ struct PiAgentScreen: View {
 
     private var slashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
-        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
-        return all.filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(8).map { $0 }
+        let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+        let snapshot = projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
+        let skillInvocations = Array(Set((snapshot.skills + snapshot.librarySkills).map { "/skill:\($0.name)" }))
+        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + skillInvocations + ["/compact"])).sorted()
+        return all.filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(10).map { $0 }
     }
 
     private var fileSuggestions: [PiAgentFileSuggestion] {
@@ -1389,7 +1393,7 @@ private struct PiAgentStartupResourcesCard: View {
 }
 
 private struct PiAgentFileSuggestion: Identifiable, Hashable {
-    private static let maxScanResults = 80
+    private static let maxScanResults = 40
 
     let id: String
     let relativePath: String
@@ -1430,8 +1434,8 @@ private struct PiAgentCommandSuggestions: View {
 
     var body: some View {
         if !fileSuggestions.isEmpty {
-            suggestionPanel(title: "Files", icon: "paperclip", scrollable: true) {
-                ForEach(fileSuggestions) { suggestion in
+            suggestionPanel(title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files", icon: "paperclip", scrollable: true) {
+                ForEach(fileSuggestions.prefix(10)) { suggestion in
                     Button { onSelectFile(suggestion) } label: {
                         HStack(spacing: 8) {
                             Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
@@ -2535,8 +2539,10 @@ private struct PiNativeSubagentRunSheet: View {
     @Binding var requestedOutputPath: String
     @Binding var allowOverwrite: Bool
     @Binding var readFirstPathsText: String
+    let projectRootPath: String?
     let onCancel: () -> Void
     let onRun: (String, String, Bool, Bool, PiSubagentExpectedOutcome, String?, Bool, [String]) -> Void
+    @State private var isReadFirstDropTargeted = false
 
     private var canRun: Bool {
         !selectedAgentName.isEmpty && !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && outputPolicyError == nil
@@ -2607,15 +2613,57 @@ private struct PiNativeSubagentRunSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Files to read first", systemImage: "doc.text.magnifyingglass")
                     .font(.subheadline.weight(.semibold))
-                TextField("Optional project-relative paths, comma or newline separated", text: $readFirstPathsText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                Text("Use this for files the caller knows are relevant now. Defaults from the agent are treated as hints only; Pi Manager does not inject stale file contents.")
+                HStack(alignment: .top, spacing: 8) {
+                    TextField("Optional project-relative paths, comma or newline separated", text: $readFirstPathsText, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...4)
+                    Button(action: addReadFirstPathsFromOpenPanel) {
+                        Image(systemName: "paperclip")
+                    }
+                    .help("Add project files to read first")
+                    .disabled(projectRootPath == nil)
+                }
+                if !readFirstFileSuggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(readFirstFileSuggestions.prefix(8)) { suggestion in
+                            Button {
+                                insertReadFirstSuggestion(suggestion)
+                            } label: {
+                                Label(suggestion.relativePath, systemImage: "doc.text")
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    if readFirstFileSuggestions.count > 8 {
+                        Text("Showing top 8 — keep typing to refine")
+                            .font(.caption2)
+                            .italic()
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                    }
+                }
+                Text("Use this for files the caller knows are relevant now. Type @ to search project files, use the paperclip, or drag files here. Defaults from the agent are treated as hints only; Pi Manager does not inject stale file contents.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             .padding(10)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                if isReadFirstDropTargeted {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .onDrop(of: [.fileURL], isTargeted: $isReadFirstDropTargeted) { providers in
+                loadReadFirstDroppedFiles(from: providers)
+                return true
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Label("Native run", systemImage: "checkmark.seal")
@@ -2676,6 +2724,65 @@ private struct PiNativeSubagentRunSheet: View {
             syncOutcomeSafetyDefaults()
         }
         .onChange(of: expectedOutcome) { _, _ in syncOutcomeSafetyDefaults() }
+    }
+
+    private var readFirstSuggestionToken: (query: String, range: Range<String.Index>)? {
+        let nsText = readFirstPathsText as NSString
+        let tokenRange = nsText.range(of: "(^|[,\\n\\s])@[^,\\n\\s]*$", options: .regularExpression)
+        guard tokenRange.location != NSNotFound,
+              let range = Range(tokenRange, in: readFirstPathsText) else { return nil }
+        let token = String(readFirstPathsText[range])
+        guard let atIndex = token.lastIndex(of: "@") else { return nil }
+        return (String(token[token.index(after: atIndex)...]).lowercased(), range)
+    }
+
+    private var readFirstFileSuggestions: [PiAgentFileSuggestion] {
+        guard let projectRootPath, let token = readFirstSuggestionToken else { return [] }
+        return PiAgentFileSuggestion.scan(rootPath: projectRootPath, query: token.query)
+    }
+
+    private func insertReadFirstSuggestion(_ suggestion: PiAgentFileSuggestion) {
+        guard let token = readFirstSuggestionToken else { return }
+        let prefix = readFirstPathsText[token.range].prefix { $0 != "@" }
+        readFirstPathsText.replaceSubrange(token.range, with: "\(prefix)\(suggestion.relativePath)")
+        if !readFirstPathsText.hasSuffix("\n") { readFirstPathsText += "\n" }
+    }
+
+    private func addReadFirstPathsFromOpenPanel() {
+        guard let projectRootPath else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.item]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = URL(fileURLWithPath: projectRootPath)
+        guard panel.runModal() == .OK else { return }
+        appendReadFirstURLs(panel.urls)
+    }
+
+    private func loadReadFirstDroppedFiles(from providers: [NSItemProvider]) {
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                guard let url else { return }
+                DispatchQueue.main.async { appendReadFirstURLs([url]) }
+            }
+        }
+    }
+
+    private func appendReadFirstURLs(_ urls: [URL]) {
+        guard let projectRootPath else { return }
+        let rootURL = URL(fileURLWithPath: projectRootPath).standardizedFileURL
+        let rootPath = rootURL.path
+        let relatives = urls.filter { !$0.hasDirectoryPath }.compactMap { url -> String? in
+            let standardized = url.standardizedFileURL.path
+            guard standardized.hasPrefix(rootPath + "/") else { return nil }
+            return String(standardized.dropFirst(rootPath.count + 1))
+        }
+        guard !relatives.isEmpty else { return }
+        var current = parsedReadFirstPaths
+        for relative in relatives where !current.contains(relative) { current.append(relative) }
+        readFirstPathsText = current.joined(separator: "\n")
     }
 
     private var parsedReadFirstPaths: [String] {
@@ -6710,6 +6817,7 @@ struct PiAgentInspectorPanel: View {
                 requestedOutputPath: $nativeSubagentRequestedOutputPath,
                 allowOverwrite: $nativeSubagentAllowOverwrite,
                 readFirstPathsText: $nativeSubagentReadFirstPaths,
+                projectRootPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onCancel: { isNativeSubagentRunSheetPresented = false },
                 onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite, readFirstPaths in
                     viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths)

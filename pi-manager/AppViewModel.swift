@@ -1570,7 +1570,7 @@ final class AppViewModel: NSObject, ObservableObject {
             completion?(placeholder)
             return placeholder
         }
-        if let validationError = validateNativeSubagentOutcome(parentSession: parentSession, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite) {
+        if let validationError = validateNativeSubagentOutcome(parentSession: parentSession, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, allowDirectProjectWrites: allowDirectProjectWrites) {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Output Policy", text: validationError))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: validationError)
             completion?(placeholder)
@@ -1699,10 +1699,12 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func validateNativeSubagentOutcome(parentSession: PiAgentSessionRecord, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool) -> String? {
+    private func validateNativeSubagentOutcome(parentSession: PiAgentSessionRecord, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, allowDirectProjectWrites: Bool) -> String? {
         switch expectedOutcome {
-        case .reportOnly, .editFilesInWorktree, .directProjectWrites:
+        case .reportOnly, .editFilesInWorktree:
             return nil
+        case .directProjectWrites:
+            return allowDirectProjectWrites ? nil : "Direct project writes require explicit approval."
         case .writeProjectFile:
             let trimmedPath = requestedOutputPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !trimmedPath.isEmpty else { return "Write/update project file requires a project-relative output path." }

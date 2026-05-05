@@ -73,7 +73,7 @@ This checklist covers the current working tree plus today's committed changes:
 
 ## B. Composer subagent popover and enablement
 
-- [ ] **MV-B1 — Footer subagent popover layout**
+- [x] **MV-B1 — Footer subagent popover layout**
   1. Click the subagent icon in the composer footer.
   Expected:
   - The same popover opens every time.
@@ -81,7 +81,7 @@ This checklist covers the current working tree plus today's committed changes:
   - Each row has a right-side action icon.
   - The `Subagents` toggle is at the bottom, label left and switch far right.
 
-- [ ] **MV-B2 — Toggle disables manual native launches**
+- [x] **MV-B2 — Toggle disables manual native launches**
   1. In the footer popover, turn Subagents off.
   2. Reopen the popover.
   Expected:
@@ -89,7 +89,7 @@ This checklist covers the current working tree plus today's committed changes:
   - Agent list is hidden/disabled.
   - Turn Subagents back on before continuing.
 
-- [ ] **MV-B3 — Toggle persists as default for new sessions**
+- [x] **MV-B3 — Toggle persists as default for new sessions**
   1. Turn Subagents off.
   2. Create a new Pi Agent session.
   3. Check the footer popover state.
