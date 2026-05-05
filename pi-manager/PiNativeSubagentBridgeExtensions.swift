@@ -52,6 +52,11 @@ struct PiNativeSubagentBridgeExtensions {
             worktree: Type.Optional(Type.Boolean({ description: "Use an isolated worktree per child for writer work." }))
         }, { additionalProperties: false });
 
+        const AnswerSupervisorParams = Type.Object({
+            requestID: Type.String({ description: "Pending supervisor request id from list_supervisor_requests." }),
+            response: Type.String({ description: "Decision or answer to send to the blocked child." })
+        }, { additionalProperties: false });
+
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "managed_subagent",
@@ -118,6 +123,36 @@ struct PiNativeSubagentBridgeExtensions {
                     onUpdate?.({ content: [{ type: "text", text: `Starting ${rawTasks.length} native subagents…` }] });
                     const result = await ctx.ui.editor("PI_MANAGER_BRIDGE managed_parallel", payload);
                     return { content: [{ type: "text", text: result || "Native parallel run finished without a result." }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "list_supervisor_requests",
+                description: "List pending Pi Manager native child supervisor requests for this parent session.",
+                parameters: Type.Object({}, { additionalProperties: false }),
+                promptSnippet: "list_supervisor_requests(): list pending native child questions awaiting a supervisor response.",
+                promptGuidelines: ["Use list_supervisor_requests before answer_supervisor_request when a child needs a decision."],
+                async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+                    const result = await ctx.ui.editor("PI_MANAGER_BRIDGE list_supervisor_requests", JSON.stringify({ kind: "list_supervisor_requests" }));
+                    return { content: [{ type: "text", text: result || "[]" }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "answer_supervisor_request",
+                description: "Answer a pending Pi Manager native child supervisor request.",
+                parameters: AnswerSupervisorParams,
+                promptSnippet: "answer_supervisor_request(requestID, response): answer a blocked native child subagent.",
+                promptGuidelines: ["Use answer_supervisor_request only for pending request ids returned by list_supervisor_requests."],
+                async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+                    const payload = JSON.stringify({
+                        kind: "answer_supervisor_request",
+                        toolCallId,
+                        requestID: String((params as any).requestID ?? ""),
+                        response: String((params as any).response ?? "")
+                    });
+                    const result = await ctx.ui.editor("PI_MANAGER_BRIDGE answer_supervisor_request", payload);
+                    return { content: [{ type: "text", text: result || "Supervisor response routed." }] };
                 }
             });
         }

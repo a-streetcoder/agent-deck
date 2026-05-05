@@ -75,8 +75,8 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Add “Open Child Transcript” from native run cards.
 - [x] Render child messages, tools, stderr, raw events, and errors in a child transcript sheet.
 - [x] Show child Pi session file and app artifact directory in the run UI/transcript sheet.
-- [ ] Improve child transcript rendering to use the full threaded transcript UI instead of compact cards.
-- [ ] Add child transcript search/filtering later if needed.
+- [x] Improve child transcript rendering to use the full threaded transcript UI instead of compact cards.
+- [x] Add child transcript search/filtering.
 
 ## Parent-facing delegation tool bridge
 
@@ -105,7 +105,7 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 - [x] Make `contact_supervisor` available only to native child runs that explicitly include it.
 - [x] Add timeout behavior for blocked child runs.
 - [x] Add structured interview UI for JSON `questions` payloads, with freeform fallback.
-- [ ] Optionally route parent-agent responses, not only human responses, back to the child.
+- [x] Route parent-agent responses, not only human responses, back to the child via native supervisor tools.
 
 ## Chains and parallel run graphs
 
@@ -176,12 +176,12 @@ Manual app validation is intentionally deferred until Pi Manager can be launched
 
 ## Documentation
 
-- [ ] Update `pi-documentation/` to describe Pi Manager native app-managed subagents.
-- [ ] Document that native subagents are visible in Pi Manager, not first-class CLI/TUI `/run` features.
-- [ ] Document the distinction between old package-managed `pi-subagents` and app-managed native subagents.
-- [ ] Document artifact locations and cleanup policy.
-- [ ] Document private skill resolution from `~/.pi/agent/skill-library`.
-- [ ] Document current limitations and future CLI/TUI parity options.
+- [x] Update `pi-documentation/` to describe Pi Manager native app-managed subagents.
+- [x] Document that native subagents are visible in Pi Manager, not first-class CLI/TUI `/run` features.
+- [x] Document the distinction between old package-managed `pi-subagents` and app-managed native subagents.
+- [x] Document artifact locations and cleanup policy.
+- [x] Document private skill resolution from `~/.pi/agent/skill-library`.
+- [x] Document current limitations and future CLI/TUI parity options.
 
 ## Later CLI/TUI parity options
 

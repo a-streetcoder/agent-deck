@@ -2157,6 +2157,8 @@ private struct PiNativeSubagentGraphSheet: View {
 private struct PiNativeSubagentTranscriptSheet: View {
     let run: PiSubagentRunRecord
     let entries: [PiAgentTranscriptEntry]
+    @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
+    @State private var query = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2174,15 +2176,25 @@ private struct PiNativeSubagentTranscriptSheet: View {
                 }
                 .disabled(run.artifactDirectory.isEmpty)
             }
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search child transcript", text: $query)
+                    .textFieldStyle(.roundedBorder)
+            }
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if entries.isEmpty {
+                    if transcriptCache.threads.isEmpty {
                         Text("No child transcript entries captured yet.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(entries) { entry in
-                            PiAgentCompactTranscriptCard(entry: entry)
+                        ForEach(filteredThreads) { thread in
+                            PiAgentTranscriptThreadCard(
+                                thread: thread,
+                                thinkingDisplayMode: .compact,
+                                visibility: .init(showThinking: true, showWebActivity: true, showToolCalls: true, showErrors: true)
+                            )
                         }
                     }
                 }
@@ -2190,7 +2202,30 @@ private struct PiNativeSubagentTranscriptSheet: View {
             }
         }
         .padding(22)
-        .frame(width: 760, height: 620)
+        .frame(width: 860, height: 680)
+        .onAppear { refreshCache() }
+        .onChange(of: entries) { _, _ in refreshCache() }
+    }
+
+    private var filteredThreads: [PiAgentTranscriptThread] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return transcriptCache.threads }
+        return transcriptCache.threads.filter { threadText($0).lowercased().contains(needle) }
+    }
+
+    private func refreshCache() {
+        transcriptCache.scheduleUpdate(sessionID: run.id, revision: entries.count, rawEntries: entries)
+    }
+
+    private func threadText(_ thread: PiAgentTranscriptThread) -> String {
+        var entries: [PiAgentTranscriptEntry] = []
+        if let question = thread.question { entries.append(question) }
+        entries.append(contentsOf: thread.steeringMessages)
+        if let thinking = thread.thinking { entries.append(thinking) }
+        entries.append(contentsOf: thread.assistantMessages)
+        entries.append(contentsOf: thread.statuses)
+        entries.append(contentsOf: thread.errors)
+        return entries.map(\.text).joined(separator: "\n")
     }
 }
 

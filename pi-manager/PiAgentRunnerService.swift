@@ -17,6 +17,8 @@ final class PiAgentRunnerService {
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedChainRequest: ((UUID, PiManagedChainBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
+    var onSupervisorRequestsList: ((UUID) -> String)?
+    var onSupervisorRequestAnswer: ((UUID, String, String) -> String)?
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
 
     init(store: PiAgentSessionStore) {
@@ -750,6 +752,15 @@ final class PiAgentRunnerService {
             handleManagedParallelBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             return
         }
+        if title == "PI_MANAGER_BRIDGE list_supervisor_requests", let requestID = event.id {
+            let result = onSupervisorRequestsList?(sessionID) ?? "[]"
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+            return
+        }
+        if title == "PI_MANAGER_BRIDGE answer_supervisor_request", let requestID = event.id {
+            handleAnswerSupervisorBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            return
+        }
 
         if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
             if requestMethod == .input, let pendingFreeform = pendingFreeformResponsesBySessionID.removeValue(forKey: sessionID) {
@@ -832,6 +843,17 @@ final class PiAgentRunnerService {
                 self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
             }
         }
+    }
+
+    private func handleAnswerSupervisorBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiSupervisorAnswerBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the supervisor response request.")
+            return
+        }
+        let result = onSupervisorRequestAnswer?(sessionID, request.requestID, request.response) ?? "Pi Manager supervisor routing is not available."
+        store.append(.init(sessionID: sessionID, role: .status, title: "Supervisor Response Routed", text: request.requestID, rawJSON: rawLine))
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
     private func bridgePayload(from event: PiAgentRPCEvent) -> String? {

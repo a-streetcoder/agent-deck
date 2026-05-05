@@ -152,6 +152,12 @@ final class AppViewModel: NSObject, ObservableObject {
                 self?.runManagedNativeParallel(parentSessionID: sessionID, request: request, completion: completion)
             }
         }
+        piAgentRunner.onSupervisorRequestsList = { [weak self] sessionID in
+            self?.pendingSupervisorRequestsJSON(parentSessionID: sessionID) ?? "[]"
+        }
+        piAgentRunner.onSupervisorRequestAnswer = { [weak self] sessionID, requestID, response in
+            self?.answerSupervisorRequestFromParentAgent(parentSessionID: sessionID, requestID: requestID, response: response) ?? "Pi Manager could not route the supervisor response."
+        }
         piAgentRunner.nativeSubagentCatalogProvider = { [weak self] session in
             self?.nativeSubagentCatalogPrompt(for: session)
         }
@@ -1722,12 +1728,39 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    private func pendingSupervisorRequestsJSON(parentSessionID: UUID) -> String {
+        let rows = piAgentSessionStore.supervisorRequests(for: parentSessionID)
+            .filter { $0.status == .pending }
+            .map { request -> [String: String] in
+                [
+                    "requestID": request.id,
+                    "kind": request.kind.rawValue,
+                    "title": request.title,
+                    "message": request.message,
+                    "runID": request.runID.uuidString
+                ]
+            }
+        guard let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return "[]" }
+        return text
+    }
+
+    private func answerSupervisorRequestFromParentAgent(parentSessionID: UUID, requestID: String, response: String) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Supervisor response is empty." }
+        guard piAgentSessionStore.supervisorRequests(for: parentSessionID).contains(where: { $0.id == requestID && $0.status == .pending }) else {
+            return "No pending supervisor request found for id `\(requestID)`."
+        }
+        nativeSubagentRunner.respondToSupervisorRequest(requestID, parentSessionID: parentSessionID, response: trimmed)
+        return "Supervisor response sent to child request `\(requestID)`."
+    }
+
     private func nativeSubagentCatalogPrompt(for session: PiAgentSessionRecord) -> String? {
         let agents = startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
             .filter { $0.resolved.disabled != true }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         guard !agents.isEmpty else { return nil }
-        let lines = agents.prefix(40).map { agent in
+        let lines = agents.prefix(25).map { agent in
             let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
             let context = agent.resolved.defaultContext ?? "fresh"
             let model = agent.resolved.model ?? "default"
@@ -1735,15 +1768,15 @@ final class AppViewModel: NSObject, ObservableObject {
             let skills = agent.resolved.skills.isEmpty ? "no private skills" : "skills: \(agent.resolved.skills.joined(separator: ", "))"
             return "- \(agent.name): \(description.isEmpty ? "No description" : description) [context: \(context), model: \(model), \(tools), \(skills)]"
         }
-        let suffix = agents.count > 40 ? "\n- …\(agents.count - 40) more agents available in Pi Manager." : ""
+        let suffix = agents.count > 25 ? "\n- …\(agents.count - 25) more agents available in Pi Manager." : ""
         let chains = allVisibleChainRecords
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .prefix(20)
+            .prefix(12)
             .map { "- \($0.name): \($0.description.isEmpty ? "\($0.steps.count) step(s)" : $0.description)" }
             .joined(separator: "\n")
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native Pi Manager subagents are available through `managed_subagent`, `managed_chain`, and `managed_parallel`. Prefer these for bounded specialist work; keep tasks narrow and include the expected output. Use `managed_parallel` only for independent tasks; set `worktree: true` for writer tasks. Available native subagents for this project:
+        Native Pi Manager tools: `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use them for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
         \(lines.joined(separator: "\n"))\(suffix)\(chainSection)
         """
     }

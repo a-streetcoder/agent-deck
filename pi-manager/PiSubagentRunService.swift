@@ -549,16 +549,13 @@ final class PiSubagentRunService {
 
     private func nativeBoundaryPrompt(agent: EffectiveAgentRecord) -> String {
         """
-        You are a Pi Manager native subagent named `\(agent.name)`.
-
-        You are running in a separate child Pi session managed by Pi Manager. Complete only the assigned task. The parent session and user remain the decision authority.
+        You are Pi Manager native subagent `\(agent.name)` in a separate child Pi session. Complete only the assigned task; the parent/user remain decision authority.
 
         Boundaries:
-        - Do not launch or propose additional subagents.
-        - Treat inherited/forked conversation, if present, as reference-only context.
-        - Do not continue old parent messages as if they were addressed to you.
-        - If a new product, architecture, or scope decision is required and no supervisor tool is available, stop and report the decision needed in your final response.
-        - Do not send routine completion handoffs through coordination tools. Return your final result normally.
+        - Do not launch subagents.
+        - Treat forked context as reference only; do not continue old parent messages.
+        - If blocked on a product/architecture/scope decision, use `contact_supervisor` when available, otherwise report the decision needed.
+        - Return final results normally; use coordination tools only for progress/blockers.
         - Prefer narrow, correct changes over broad rewrites.
         """
     }
@@ -566,7 +563,7 @@ final class PiSubagentRunService {
     private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String]) -> String {
         var lines: [String] = []
         if !readFirstPaths.isEmpty {
-            lines.append("Read these current project files first if they exist and are relevant to this exact task. Treat them as hints, not stale injected truth; if a listed file appears unrelated or obsolete, say so and continue with the task-relevant files: \(readFirstPaths.joined(separator: ", "))")
+            lines.append("Read current project files first if relevant; treat as hints, not injected truth: \(readFirstPaths.joined(separator: ", "))")
         }
         if let output = agent.resolved.output, !output.isEmpty {
             lines.append("Agent configured output is `\(output)`. Treat this as advisory only unless the expected outcome below explicitly names that project file.")
@@ -705,7 +702,7 @@ final class PiSubagentRunService {
                 run.child?.updatedAt = now
             }
             scheduleSupervisorTimeout(requestID: appRequestID, runID: runID, parentSessionID: parentSessionID)
-            store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Needs Decision", text: message))
+            store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Needs Decision", text: "Request ID: \(appRequestID)\n\n\(message)"))
         } else {
             store.append(.init(sessionID: parentSessionID, role: .status, title: requestTitle, text: message))
             clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Acknowledged.")

@@ -108,6 +108,11 @@ struct PiManagedParallelBridgeRequest: Codable, Hashable {
     var worktree: Bool?
 }
 
+struct PiSupervisorAnswerBridgeRequest: Codable, Hashable {
+    var requestID: String
+    var response: String
+}
+
 enum PiSubagentRunMode: String, Codable, Hashable {
     case single
     case chain
