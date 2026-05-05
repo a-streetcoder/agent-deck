@@ -283,20 +283,20 @@ Parent agents can launch native workflows with:
 
 For large agent catalogs, Pi Manager advertises the full discovered native catalog to the parent agent so user-created agents are not silently hidden.
 
-## Builtin package agents
+## Pi Manager bundled starter agents
 
-The current `pi-subagents` package starter agents are compatible in shape:
+Pi Manager ships its own small native starter pack in the app bundle:
 
-- `reviewer`
-- `oracle`
-- `researcher`
-- `worker`
-- `planner`
-- `delegate`
 - `scout`
-- `context-builder`
+- `planner`
+- `worker`
+- `reviewer`
 
-Pi Manager native execution can use them when they are discovered, but Pi Manager's runtime behavior is app-managed rather than package-managed.
+They are intentionally inspired by common `pi-subagents` roles, but rewritten for Pi Manager-native execution, native supervisor routing, app artifacts, and worktree/direct-write policy.
+
+These bundled agents are global builtins. They can be disabled with Pi Manager's builtin override controls, or replaced by same-name global/project custom agents.
+
+The broader `pi-subagents` package starter set is compatible in shape, but package execution semantics are different. To use an old package agent as a native agent, copy or adapt it into a Pi Manager-scanned global/project/library location and review the checklist above.
 
 ## Related docs
 

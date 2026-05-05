@@ -16,6 +16,19 @@ For migrating existing package-style agents, see `pi-documentation/convert-pi-su
 
 General arbitrary terminal session messaging is not part of native subagents. If Pi Manager later needs that, use the separate Session Relay plan.
 
+## Bundled starter agents
+
+Pi Manager includes a small native starter pack in the app bundle. These are global builtins: they are available to projects by default, can be replaced by same-name global/project custom agents, and can be disabled with Pi Manager's builtin override controls.
+
+| Agent | Purpose |
+|---|---|
+| `scout` | Fast codebase reconnaissance and compact handoff context. |
+| `planner` | Turns requirements and context into an implementation plan without editing files. |
+| `worker` | Makes approved, scoped implementation changes with native worktree/direct-write policy. |
+| `reviewer` | Reviews diffs/plans/implementations and reports evidence-backed findings. |
+
+The bundled agents use Pi Manager-native jargon and `contact_supervisor(kind, message, title?)` instead of package-specific coordination wording.
+
 ## Run model
 
 Every native run has:

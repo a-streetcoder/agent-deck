@@ -2,7 +2,6 @@ import Foundation
 
 struct PiScanner {
     private let fileManager = FileManager.default
-    private let builtinAgentsDirectory = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/pi-subagents/agents", isDirectory: true)
 
     func scan(projectRoot: URL?) -> ScanSnapshot {
         let globalAgentDirectory = homeDirectory().appendingPathComponent(".pi/agent/agents", isDirectory: true)
@@ -27,7 +26,7 @@ struct PiScanner {
         let projectSkills = projectRoot?.appendingPathComponent(".pi/skills", isDirectory: true)
         let projectPrompts = projectRoot?.appendingPathComponent(".pi/prompts", isDirectory: true)
 
-        let builtinAgents = scanAgents(at: builtinAgentsDirectory, scope: .builtin)
+        let builtinAgents = scanAgents(at: bundledAgentsDirectory(), scope: .builtin)
         let legacyGlobalAgents = scanAgents(at: legacyGlobalAgentDirectory, scope: .global)
         let globalAgents = scanAgents(at: globalAgentDirectory, scope: .global)
         let projectAgents = scanAgents(at: projectAgentDirectory, scope: .project)
@@ -96,7 +95,7 @@ struct PiScanner {
             promptTemplates: promptScan.templates,
             envKeys: envKeys,
             malformedWarnings: malformedResourceWarnings(
-                agentDirectories: [builtinAgentsDirectory, legacyGlobalAgentDirectory, globalAgentDirectory, globalChainDirectory, legacyProjectAgentDirectory, projectAgentDirectory, projectChainDirectory, agentLibraryDirectory, chainLibraryDirectory].compactMap { $0 },
+                agentDirectories: [bundledAgentsDirectory(), legacyGlobalAgentDirectory, globalAgentDirectory, globalChainDirectory, legacyProjectAgentDirectory, projectAgentDirectory, projectChainDirectory, agentLibraryDirectory, chainLibraryDirectory].compactMap { $0 },
                 skillDirectories: [globalSkills, extraGlobalSkills, projectSkills].compactMap { $0 } + packageSkillScan.skillDirectories
             ) + packageSkillScan.warnings + promptScan.warnings
         )
@@ -125,6 +124,17 @@ struct PiScanner {
 
     private func homeDirectory() -> URL {
         fileManager.homeDirectoryForCurrentUser
+    }
+
+    private func bundledAgentsDirectory() -> URL? {
+        let bundleURL = Bundle.main.resourceURL?.appendingPathComponent("bundled-agents", isDirectory: true)
+        if let bundleURL, fileManager.fileExists(atPath: bundleURL.path) { return bundleURL }
+
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("bundled-agents", isDirectory: true)
+        if fileManager.fileExists(atPath: sourceURL.path) { return sourceURL }
+        return nil
     }
 
     private func scanAgents(at directory: URL?, scope: ResourceScopeKind) -> [AgentRecord] {

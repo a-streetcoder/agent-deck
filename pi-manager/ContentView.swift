@@ -2577,7 +2577,7 @@ private struct AgentLibraryPane: View {
 
                 AppCard(title: "Builtin Agents") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Builtins are package-managed and customized through settings overrides or replacement files.")
+                        Text("Builtins are bundled with Pi Manager and customized through settings overrides or replacement files.")
                             .foregroundStyle(AppTheme.mutedText)
                         agentGrid(builtinAgents, emptyText: "No builtin agents discovered.")
                     }
@@ -4311,7 +4311,7 @@ private struct SubagentsInfoPopover: View {
                 infoRow("Chain Library", "Central storage in ~/.pi/agent/agent-library/chains. Pi does not load these until linked.")
                 infoRow("Global", "Agent links are created where pi-subagents would create user agents (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
                 infoRow("Project", "Links are created in PROJECT/.pi/agents and PROJECT/.pi/chains.")
-                infoRow("Builtins", "Package-provided builtins stay read-only. Customize them with pi-subagents settings overrides.")
+                infoRow("Builtins", "Pi Manager bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
             }
         }
         .padding(16)
@@ -4348,7 +4348,7 @@ private struct SubagentsProjectRecapPanel: View {
             Divider()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the agents and chains Pi Manager expects pi-subagents to discover for this project, after global/project precedence and builtin overrides.")
+                    Text("These are the native agents and chains Pi Manager discovers for this project, after global/project precedence and builtin overrides.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -6415,7 +6415,7 @@ private struct AgentEditorSheet: View {
                             Section("Builtin") {
                                 TextField("Name", text: .constant(draft.originalName))
                                     .disabled(true)
-                                Text("Builtin overrides only patch the supported fields from pi-subagents settings.")
+                                Text("Builtin overrides only patch the supported subagent settings fields.")
                                     .foregroundStyle(AppTheme.mutedText)
                             }
                         }
@@ -6660,7 +6660,7 @@ private struct AgentEditorSheet: View {
     private var promptSectionSummary: String {
         switch draft.target {
         case .builtinOverride:
-            return "This prompt is saved as the builtin override’s `systemPrompt` patch in settings, matching pi-subagents builtin override behavior."
+            return "This prompt is saved as the builtin override’s `systemPrompt` patch in settings."
         case .custom:
             return "This prompt is saved in the markdown body of the agent file."
         }
