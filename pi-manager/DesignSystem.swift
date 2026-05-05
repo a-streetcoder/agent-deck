@@ -117,7 +117,7 @@ struct AppSidebarPane<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(AppTheme.subtleFill)

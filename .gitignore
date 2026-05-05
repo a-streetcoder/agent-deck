@@ -16,9 +16,8 @@ DerivedData/
 xcuserdata/
 *.xccheckout
 
-# Swift Package Manager
+# Swift Package Manager local build/config
 .swiftpm/
-Package.resolved
 
 # Local logs and temporary files
 *.log

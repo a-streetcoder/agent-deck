@@ -1291,8 +1291,25 @@ final class AppViewModel: NSObject, ObservableObject {
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pi-manager-resume-\(session.id.uuidString)")
             .appendingPathExtension("command")
+        let resumeCommand = terminalResumeCommand(workingDirectory: workingDirectory, sessionFile: sessionFile)
         let script = """
         #!/bin/zsh
+        \(resumeCommand)
+        """
+
+        do {
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            openTerminalScript(scriptURL, command: resumeCommand, for: session.id)
+        } catch {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    private func terminalResumeCommand(workingDirectory: String, sessionFile: String) -> String {
+        """
         cd \(shellQuoted(workingDirectory)) || exit 1
         export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
         if command -v pi >/dev/null 2>&1; then
@@ -1308,29 +1325,22 @@ final class AppViewModel: NSObject, ObservableObject {
           read -k 1 "?Press any key to close."
         fi
         """
-
-        do {
-            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-            openTerminalScript(scriptURL, for: session.id)
-        } catch {
-            piAgentSessionStore.updateSession(session.id) { record in
-                record.lastError = error.localizedDescription
-            }
-        }
     }
 
-    private func openTerminalScript(_ scriptURL: URL, for sessionID: UUID) {
-        guard let terminalPath = appSettings.piAgentTerminalApplicationPath, !terminalPath.isEmpty else {
-            guard NSWorkspace.shared.open(scriptURL) else {
-                piAgentSessionStore.updateSession(sessionID) { record in
-                    record.lastError = "Could not open the default terminal app."
-                }
-                return
-            }
+    private func openTerminalScript(_ scriptURL: URL, command: String, for sessionID: UUID) {
+        let selectedTerminalPath = appSettings.piAgentTerminalApplicationPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedTerminalName = selectedTerminalPath.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() }
+
+        if selectedTerminalPath == nil || selectedTerminalName == "terminal.app" {
+            openInAppleTerminal(command: command, sessionID: sessionID)
+            return
+        }
+        if selectedTerminalName == "iterm.app" {
+            openInITerm(command: command, sessionID: sessionID)
             return
         }
 
+        guard let terminalPath = selectedTerminalPath, !terminalPath.isEmpty else { return }
         let terminalURL = URL(fileURLWithPath: terminalPath)
         guard FileManager.default.fileExists(atPath: terminalURL.path) else {
             piAgentSessionStore.updateSession(sessionID) { record in
@@ -1350,6 +1360,49 @@ final class AppViewModel: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    private func openInAppleTerminal(command: String, sessionID: UUID) {
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(appleScriptEscaped(command))"
+        end tell
+        """
+        runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open Terminal.")
+    }
+
+    private func openInITerm(command: String, sessionID: UUID) {
+        let script = """
+        tell application "iTerm"
+            activate
+            create window with default profile command "\(appleScriptEscaped(command))"
+        end tell
+        """
+        runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open iTerm.")
+    }
+
+    private func runAppleScript(_ source: String, sessionID: UUID, fallbackMessage: String) {
+        var errorInfo: NSDictionary?
+        guard let script = NSAppleScript(source: source) else {
+            piAgentSessionStore.updateSession(sessionID) { $0.lastError = fallbackMessage }
+            return
+        }
+        _ = script.executeAndReturnError(&errorInfo)
+        if let errorInfo {
+            let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? fallbackMessage
+            piAgentSessionStore.updateSession(sessionID) { record in
+                record.lastError = message
+            }
+        }
+    }
+
+    private func appleScriptEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
     private func shellQuoted(_ value: String) -> String {

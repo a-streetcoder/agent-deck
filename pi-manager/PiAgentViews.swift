@@ -201,6 +201,7 @@ private final class PiAgentTranscriptRenderCache: ObservableObject {
 struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
+    var isSidePanelPresented: Bool = false
     @State private var composerText = ""
     @State private var composerTextBySessionID: [UUID: String] = [:]
     @State private var composerImagesBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
@@ -226,12 +227,13 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var composerScrollRequest = 0
+    @State private var isSessionsColumnCompact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 sessionsColumn
-                    .frame(width: 360)
+                    .frame(width: isSessionsColumnCompact ? 88 : 360)
 
                 Divider()
 
@@ -264,6 +266,11 @@ struct PiAgentScreen: View {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
+        .onChange(of: isSidePanelPresented) { _, isPresented in
+            if isPresented {
+                withAnimation(.snappy(duration: 0.22)) { isSessionsColumnCompact = true }
+            }
+        }
         .sheet(item: selectedSubagentTranscriptBinding) { run in
             PiNativeSubagentTranscriptSheet(run: run, entries: store.subagentTranscript(for: run.id))
         }
@@ -321,7 +328,11 @@ struct PiAgentScreen: View {
     }
 
     private var sessionsColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Group {
+            if isSessionsColumnCompact {
+                compactSessionsColumn
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Sessions")
@@ -332,6 +343,17 @@ struct PiAgentScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
+                Button {
+                    withAnimation(.snappy(duration: 0.22)) { isSessionsColumnCompact = true }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Slim sessions column")
                 Button {
                     viewModel.showPiAgentAttentionOnly.toggle()
                 } label: {
@@ -430,7 +452,92 @@ struct PiAgentScreen: View {
                 }
             }
         }
+                .background(AppTheme.subtleFill)
+            }
+        }
+    }
+
+    private var compactSessionsColumn: some View {
+        VStack(spacing: 12) {
+            Button {
+                withAnimation(.snappy(duration: 0.22)) { isSessionsColumnCompact = false }
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Expand sessions")
+
+            PiAgentAddSessionButton {
+                viewModel.createPiAgentDraftForSelectedProject()
+            }
+            .help(viewModel.selectedDiscoveredProject == nil ? "New Pi Agent session in \(viewModel.configuredProjectsRootPath)" : "New Pi Agent session")
+
+            Button {
+                viewModel.showPiAgentAttentionOnly.toggle()
+            } label: {
+                Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(viewModel.showPiAgentAttentionOnly ? .white : Color.accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(viewModel.showPiAgentAttentionOnly ? Color.accentColor : Color.accentColor.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.showPiAgentAttentionOnly ? "Show all sessions" : "Show unread Pi Agent updates")
+
+            Divider()
+                .padding(.vertical, 2)
+
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 10) {
+                    ForEach(visibleSessions) { session in
+                        Button {
+                            renamingSessionID = nil
+                            withAnimation(.snappy(duration: 0.22)) {
+                                viewModel.selectPiAgentSession(session.id)
+                            }
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                PiAgentProjectIcon(
+                                    project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
+                                    session: session
+                                )
+                                Circle()
+                                    .fill(session.needsAttention ? Color.accentColor : (viewModel.isPiAgentSessionRunning(session.id) ? .green : sessionStatusColor(session)))
+                                    .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
+                                    .offset(x: 3, y: -3)
+                            }
+                            .padding(7)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(store.selectedSession?.id == session.id ? Color.accentColor.opacity(0.14) : AppTheme.cardFill)
+                                    .stroke(store.selectedSession?.id == session.id ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(session.displayTitle)
+                    }
+                }
+                .padding(.bottom, 18)
+            }
+        }
+        .padding(.top, 16)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.subtleFill)
+    }
+
+    private func sessionStatusColor(_ session: PiAgentSessionRecord) -> Color {
+        switch session.status {
+        case .running, .starting: return .green
+        case .idle, .completed: return .blue
+        case .failed: return .red
+        case .stopped: return .orange
+        case .draft: return .secondary
+        }
     }
 
     private var activeSessionColumn: some View {
@@ -1223,13 +1330,17 @@ private struct PiAgentStartupResourcesCard: View {
         HStack(spacing: 4) {
             Text(key)
                 .font(.caption.monospaced().weight(.bold))
+                .lineLimit(1)
                 .foregroundStyle(.primary)
             Text(label)
                 .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .foregroundStyle(AppTheme.mutedText)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .frame(minHeight: 26)
         .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
     }
 
@@ -1934,10 +2045,25 @@ private struct PiNativeSubagentRunCard: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(AppTheme.mutedText)
         } else {
-            MarkdownTextView(source: text)
-                .lineLimit(5)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Answer", systemImage: "sparkles")
+                    .font(.caption.weight(.semibold))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.purple)
+
+                MarkdownTextView(source: text)
+                    .lineLimit(5)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.purple.opacity(0.06))
+                    .stroke(Color.purple.opacity(0.18), lineWidth: 1)
+            )
         }
     }
 
@@ -5418,36 +5544,76 @@ struct PiAgentActivityPanel: View {
 
     var body: some View {
         AppSidebarPane(title: "Activity", subtitle: subtitle) {
-            VStack(alignment: .leading, spacing: 12) {
-                if store.selectedSession == nil {
-                    ContentUnavailableView("No session selected", systemImage: "wrench.and.screwdriver", description: Text("Select a Pi Agent session to inspect tool activity."))
-                } else {
-                    stickyContext
-                    filterBar
-                    if items.isEmpty {
-                        ContentUnavailableView("No activity", systemImage: "wrench.and.screwdriver", description: Text(filter.emptyMessage))
+            VStack(alignment: .leading, spacing: 0) {
+                activityHeader
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    if store.selectedSession == nil {
+                        compactEmptyState(title: "No session selected", message: "Select a Pi Agent session to inspect tool activity.", icon: "wrench.and.screwdriver")
                     } else {
-                        ScrollView(showsIndicators: false) {
-                            LazyVStack(alignment: .leading, spacing: 10) {
-                                ForEach(items) { item in
-                                    PiAgentActivityRow(
-                                        item: item,
-                                        isSelected: selectedItem?.id == item.id,
-                                        rootPath: selectedRootPath,
-                                        onSelect: { selectedID = item.id }
-                                    )
+                        stickyContext
+                        filterBar
+                        if items.isEmpty {
+                            compactEmptyState(title: "No activity", message: filter.emptyMessage, icon: filter.emptyIcon)
+                        } else {
+                            ScrollView(showsIndicators: false) {
+                                LazyVStack(alignment: .leading, spacing: 10) {
+                                    ForEach(items) { item in
+                                        PiAgentActivityRow(
+                                            item: item,
+                                            isSelected: selectedItem?.id == item.id,
+                                            rootPath: selectedRootPath,
+                                            onSelect: { selectedID = item.id }
+                                        )
+                                    }
                                 }
+                                .padding(.bottom, 18)
                             }
-                            .padding(.bottom, 18)
                         }
                     }
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .onChange(of: store.selectedSession?.id) { _, _ in selectedID = nil }
         .onChange(of: items.map(\.id)) { _, ids in
             guard let selectedID, !ids.contains(selectedID) else { return }
             self.selectedID = nil
+        }
+    }
+
+    private var activityHeader: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "wrench.and.screwdriver")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Activity")
+                    .font(.headline.weight(.semibold))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+            Spacer(minLength: 0)
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppTheme.mutedText)
+            .help("Close activity sidebar")
         }
     }
 
@@ -5481,21 +5647,30 @@ struct PiAgentActivityPanel: View {
     }
 
     private var filterBar: some View {
-        HStack(spacing: 8) {
-            Picker("Activity filter", selection: $filter) {
-                ForEach(PiAgentActivityFilter.allCases) { filter in
-                    Text(filter.label).tag(filter)
-                }
+        Picker("Activity filter", selection: $filter) {
+            ForEach(PiAgentActivityFilter.allCases) { filter in
+                Text(filter.label).tag(filter)
             }
-            .pickerStyle(.segmented)
-            Button {
-                isPresented = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .help("Close activity sidebar")
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    private func compactEmptyState(title: String, message: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            Text(title)
+                .font(.headline.weight(.semibold))
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
     }
 }
 
@@ -5675,6 +5850,16 @@ private enum PiAgentActivityFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    var emptyIcon: String {
+        switch self {
+        case .all: return "wrench.and.screwdriver"
+        case .files: return "doc.text.magnifyingglass"
+        case .shell: return "terminal"
+        case .web: return "globe"
+        case .errors: return "exclamationmark.triangle"
+        }
+    }
+
     func includes(_ item: PiAgentActivityItem) -> Bool {
         switch self {
         case .all: return true
@@ -5763,6 +5948,7 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
     let diff: String?
     let detailText: String
 
+    @MainActor
     static func items(from entries: [PiAgentTranscriptEntry]) -> [PiAgentActivityItem] {
         entries.compactMap(PiAgentActivityItem.init(entry:)).reversed()
     }

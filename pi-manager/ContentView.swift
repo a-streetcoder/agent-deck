@@ -105,7 +105,7 @@ struct ContentView: View {
                 if viewModel.selectedSidebarItem == .agent && isPiAgentActivityPresented {
                     Divider()
                     PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
-                        .frame(width: 420)
+                        .frame(width: 360)
                 } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
                     Divider()
                     PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
@@ -591,7 +591,11 @@ struct ContentView: View {
         case .github:
             GitHubScreen(viewModel: viewModel)
         case .agent:
-            PiAgentScreen(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+            PiAgentScreen(
+                viewModel: viewModel,
+                store: viewModel.piAgentSessionStore,
+                isSidePanelPresented: isPiAgentActivityPresented || isPiAgentRepoChangesPresented || viewModel.isPiAgentInspectorPresented
+            )
         case .extensions:
             ExtensionsScreen(viewModel: viewModel)
         case .models:
