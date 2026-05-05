@@ -57,6 +57,24 @@ struct PiNativeSubagentBridgeExtensions {
             response: Type.String({ description: "Decision or answer to send to the blocked child." })
         }, { additionalProperties: false });
 
+        const PlanStatus = StringEnum(["todo", "in_progress", "done", "blocked", "skipped"] as const, { description: "Plan item status." });
+        const SessionPlanItem = Type.Object({
+            id: Type.Optional(Type.String({ description: "Stable short id, e.g. inspect-ui or validate-build." })),
+            title: Type.String({ description: "Short human-readable plan item." }),
+            status: Type.Optional(PlanStatus)
+        }, { additionalProperties: false });
+        const SetSessionPlanParams = Type.Object({
+            items: Type.Array(SessionPlanItem, { minItems: 0, maxItems: 12, description: "Short plan items for the current task. Empty clears the plan." })
+        }, { additionalProperties: false });
+        const SessionPlanUpdate = Type.Object({
+            id: Type.String({ description: "Existing plan item id." }),
+            title: Type.Optional(Type.String({ description: "Optional revised title." })),
+            status: Type.Optional(PlanStatus)
+        }, { additionalProperties: false });
+        const UpdateSessionPlanParams = Type.Object({
+            updates: Type.Array(SessionPlanUpdate, { minItems: 1, maxItems: 12, description: "Meaningful status/title transitions for existing plan items." })
+        }, { additionalProperties: false });
+
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "managed_subagent",
@@ -135,6 +153,53 @@ struct PiNativeSubagentBridgeExtensions {
                 async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
                     const result = await ctx.ui.editor("PI_MANAGER_BRIDGE list_supervisor_requests", JSON.stringify({ kind: "list_supervisor_requests" }));
                     return { content: [{ type: "text", text: result || "[]" }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "set_session_plan",
+                description: "Set or replace the short Pi Manager current plan for this parent session.",
+                parameters: SetSessionPlanParams,
+                promptSnippet: "set_session_plan(items): show a short current-plan checklist in Pi Manager.",
+                promptGuidelines: [
+                    "Use set_session_plan for multi-step implementation/debugging work, not trivial one-shot answers.",
+                    "Keep plans short: 3-8 items when possible; use stable ids and update only on meaningful transitions."
+                ],
+                async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+                    const rawItems = Array.isArray((params as any).items) ? (params as any).items : [];
+                    const payload = JSON.stringify({
+                        kind: "set_session_plan",
+                        toolCallId,
+                        items: rawItems.map((item: any) => ({
+                            id: item.id ? String(item.id) : undefined,
+                            title: String(item.title ?? ""),
+                            status: item.status ? String(item.status) : undefined
+                        }))
+                    });
+                    const result = await ctx.ui.editor("PI_MANAGER_BRIDGE set_session_plan", payload);
+                    return { content: [{ type: "text", text: result || "Session plan updated." }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "update_session_plan",
+                description: "Update statuses/titles for existing Pi Manager current-plan items.",
+                parameters: UpdateSessionPlanParams,
+                promptSnippet: "update_session_plan(updates): update current-plan checklist statuses in Pi Manager.",
+                promptGuidelines: ["Update only when a step starts, completes, blocks, skips, or materially changes."],
+                async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+                    const rawUpdates = Array.isArray((params as any).updates) ? (params as any).updates : [];
+                    const payload = JSON.stringify({
+                        kind: "update_session_plan",
+                        toolCallId,
+                        updates: rawUpdates.map((item: any) => ({
+                            id: String(item.id ?? ""),
+                            title: item.title ? String(item.title) : undefined,
+                            status: item.status ? String(item.status) : undefined
+                        }))
+                    });
+                    const result = await ctx.ui.editor("PI_MANAGER_BRIDGE update_session_plan", payload);
+                    return { content: [{ type: "text", text: result || "Session plan updated." }] };
                 }
             });
 

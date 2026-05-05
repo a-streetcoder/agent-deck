@@ -10,6 +10,7 @@ final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:]
     @Published private(set) var subagentTranscriptsByRunID: [UUID: [PiAgentTranscriptEntry]] = [:]
     @Published private(set) var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]] = [:]
+    @Published private(set) var sessionPlansBySessionID: [UUID: PiSessionPlanRecord] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
     var newSessionSubagentsEnabled = true
@@ -100,6 +101,7 @@ final class PiAgentSessionStore: ObservableObject {
         uiRequestsBySessionID[record.id] = nil
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
+        sessionPlansBySessionID[record.id] = nil
         selectedSessionID = record.id
         save()
         return record
@@ -174,6 +176,74 @@ final class PiAgentSessionStore: ObservableObject {
     var selectedSupervisorRequests: [PiSubagentSupervisorRequest] {
         guard let session = selectedSession else { return [] }
         return supervisorRequests(for: session.id)
+    }
+
+    func sessionPlan(for sessionID: UUID) -> PiSessionPlanRecord? {
+        sessionPlansBySessionID[sessionID]
+    }
+
+    func setSessionPlan(sessionID: UUID, items: [PiSessionPlanBridgeItem]) -> PiSessionPlanRecord {
+        let now = Date()
+        let existing = sessionPlansBySessionID[sessionID]
+        var seen = Set<String>()
+        let records = items.prefix(12).enumerated().compactMap { index, item -> PiSessionPlanItemRecord? in
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return nil }
+            let trimmedID = item.id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let baseID = trimmedID.isEmpty ? slugID(for: title, fallback: "step-\(index + 1)") : trimmedID
+            let id = uniquePlanItemID(baseID, seen: &seen)
+            return PiSessionPlanItemRecord(id: id, title: title, status: item.status ?? (index == 0 ? .inProgress : .todo), updatedAt: now)
+        }
+        let record = PiSessionPlanRecord(sessionID: sessionID, items: records, createdAt: existing?.createdAt ?? now, updatedAt: now)
+        if records.isEmpty {
+            sessionPlansBySessionID[sessionID] = nil
+        } else {
+            sessionPlansBySessionID[sessionID] = record
+        }
+        touchSession(sessionID, bumpUpdatedAt: true)
+        return record
+    }
+
+    func updateSessionPlan(sessionID: UUID, updates: [PiSessionPlanBridgeUpdate]) -> PiSessionPlanRecord? {
+        guard var plan = sessionPlansBySessionID[sessionID] else { return nil }
+        let now = Date()
+        for update in updates.prefix(12) {
+            guard let index = plan.items.firstIndex(where: { $0.id == update.id }) else { continue }
+            if let title = update.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+                plan.items[index].title = title
+            }
+            if let status = update.status {
+                plan.items[index].status = status
+            }
+            plan.items[index].updatedAt = now
+        }
+        plan.updatedAt = now
+        sessionPlansBySessionID[sessionID] = plan
+        touchSession(sessionID, bumpUpdatedAt: false)
+        return plan
+    }
+
+    func clearSessionPlan(sessionID: UUID) {
+        sessionPlansBySessionID[sessionID] = nil
+        save()
+    }
+
+    private func slugID(for title: String, fallback: String) -> String {
+        let slug = title.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? fallback : String(slug.prefix(48))
+    }
+
+    private func uniquePlanItemID(_ raw: String, seen: inout Set<String>) -> String {
+        var candidate = raw
+        var suffix = 2
+        while seen.contains(candidate) {
+            candidate = "\(raw)-\(suffix)"
+            suffix += 1
+        }
+        seen.insert(candidate)
+        return candidate
     }
 
     func upsertSubagentRun(_ run: PiSubagentRunRecord) {
@@ -297,6 +367,7 @@ final class PiAgentSessionStore: ObservableObject {
         }
         subagentRunsBySessionID[sessionID] = nil
         supervisorRequestsBySessionID[sessionID] = nil
+        sessionPlansBySessionID[sessionID] = nil
         if selectedSessionID == sessionID {
             selectedSessionID = sessions.first?.id
         }
@@ -375,6 +446,7 @@ final class PiAgentSessionStore: ObservableObject {
                 }
                 return (persistedRequests.sessionID, recovered)
             })
+            sessionPlansBySessionID = Dictionary(uniqueKeysWithValues: (persisted.sessionPlans ?? []).map { ($0.sessionID, $0) })
             selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
@@ -426,7 +498,8 @@ final class PiAgentSessionStore: ObservableObject {
                 selectedSessionID: selectedSessionID,
                 subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
                 subagentTranscripts: subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
-                supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) }
+                supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
+                sessionPlans: Array(sessionPlansBySessionID.values)
             )
             let data = try JSONEncoder.piAgent.encode(persisted)
             try data.write(to: fileURL, options: .atomic)
@@ -443,6 +516,7 @@ private struct PersistedState: Codable {
     var subagentRuns: [PersistedSubagentRuns]?
     var subagentTranscripts: [PersistedSubagentTranscript]?
     var supervisorRequests: [PersistedSupervisorRequests]?
+    var sessionPlans: [PiSessionPlanRecord]?
 }
 
 private struct PersistedTranscript: Codable {

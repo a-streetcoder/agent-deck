@@ -158,6 +158,12 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.onSupervisorRequestAnswer = { [weak self] sessionID, requestID, response in
             self?.answerSupervisorRequestFromParentAgent(parentSessionID: sessionID, requestID: requestID, response: response) ?? "Pi Manager could not route the supervisor response."
         }
+        piAgentRunner.onSessionPlanSet = { [weak self] sessionID, request in
+            self?.setSessionPlanFromParentAgent(sessionID: sessionID, request: request) ?? "Pi Manager could not update the session plan."
+        }
+        piAgentRunner.onSessionPlanUpdate = { [weak self] sessionID, request in
+            self?.updateSessionPlanFromParentAgent(sessionID: sessionID, request: request) ?? "Pi Manager could not update the session plan."
+        }
         piAgentRunner.nativeSubagentCatalogProvider = { [weak self] session in
             self?.nativeSubagentCatalogPrompt(for: session)
         }
@@ -1755,6 +1761,28 @@ final class AppViewModel: NSObject, ObservableObject {
         return "Supervisor response sent to child request `\(requestID)`."
     }
 
+    private func setSessionPlanFromParentAgent(sessionID: UUID, request: PiSessionPlanSetBridgeRequest) -> String {
+        let plan = piAgentSessionStore.setSessionPlan(sessionID: sessionID, items: request.items)
+        let rows = plan.items.map { ["id": $0.id, "title": $0.title, "status": $0.status.rawValue] }
+        guard let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "Session plan set with \(plan.items.count) item(s)."
+        }
+        return "Session plan set. Use these ids for updates:\n\(text)"
+    }
+
+    private func updateSessionPlanFromParentAgent(sessionID: UUID, request: PiSessionPlanUpdateBridgeRequest) -> String {
+        guard let plan = piAgentSessionStore.updateSessionPlan(sessionID: sessionID, updates: request.updates) else {
+            return "No current session plan exists. Call set_session_plan first."
+        }
+        let rows = plan.items.map { ["id": $0.id, "title": $0.title, "status": $0.status.rawValue] }
+        guard let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "Session plan updated."
+        }
+        return "Session plan updated:\n\(text)"
+    }
+
     private func nativeSubagentCatalogPrompt(for session: PiAgentSessionRecord) -> String? {
         let agents = startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
             .filter { $0.resolved.disabled != true }
@@ -1774,7 +1802,7 @@ final class AppViewModel: NSObject, ObservableObject {
             .joined(separator: "\n")
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native Pi Manager tools: `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use them for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
+        Native Pi Manager tools: `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. For multi-step work, keep a short session plan updated on meaningful transitions. Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
         \(lines.joined(separator: "\n"))\(chainSection)
         """
     }

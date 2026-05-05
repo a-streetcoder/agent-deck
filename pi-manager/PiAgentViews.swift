@@ -5099,23 +5099,25 @@ struct PiAgentActivityPanel: View {
             VStack(alignment: .leading, spacing: 12) {
                 if store.selectedSession == nil {
                     ContentUnavailableView("No session selected", systemImage: "wrench.and.screwdriver", description: Text("Select a Pi Agent session to inspect tool activity."))
-                } else if items.isEmpty {
-                    filterBar
-                    ContentUnavailableView("No activity", systemImage: "wrench.and.screwdriver", description: Text(filter.emptyMessage))
                 } else {
+                    stickyContext
                     filterBar
-                    ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 10) {
-                            ForEach(items) { item in
-                                PiAgentActivityRow(
-                                    item: item,
-                                    isSelected: selectedItem?.id == item.id,
-                                    rootPath: selectedRootPath,
-                                    onSelect: { selectedID = item.id }
-                                )
+                    if items.isEmpty {
+                        ContentUnavailableView("No activity", systemImage: "wrench.and.screwdriver", description: Text(filter.emptyMessage))
+                    } else {
+                        ScrollView(showsIndicators: false) {
+                            LazyVStack(alignment: .leading, spacing: 10) {
+                                ForEach(items) { item in
+                                    PiAgentActivityRow(
+                                        item: item,
+                                        isSelected: selectedItem?.id == item.id,
+                                        rootPath: selectedRootPath,
+                                        onSelect: { selectedID = item.id }
+                                    )
+                                }
                             }
+                            .padding(.bottom, 18)
                         }
-                        .padding(.bottom, 18)
                     }
                 }
             }
@@ -5137,6 +5139,26 @@ struct PiAgentActivityPanel: View {
         store.selectedSession.map { $0.worktreePath ?? $0.projectPath }
     }
 
+    @ViewBuilder
+    private var stickyContext: some View {
+        if let session = store.selectedSession {
+            if let plan = store.sessionPlan(for: session.id), !plan.items.isEmpty {
+                PiAgentCurrentPlanCard(plan: plan)
+            }
+            let runs = stickySubagentRuns(for: session.id)
+            if !runs.isEmpty {
+                PiAgentActivitySubagentsCard(runs: runs)
+            }
+        }
+    }
+
+    private func stickySubagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {
+        let runs = store.subagentRuns(for: sessionID)
+        let active = runs.filter { $0.status.isActive || $0.status == .blocked }
+        let recent = runs.filter { !($0.status.isActive || $0.status == .blocked) }.prefix(max(0, 4 - active.count))
+        return Array((active + recent).prefix(4))
+    }
+
     private var filterBar: some View {
         HStack(spacing: 8) {
             Picker("Activity filter", selection: $filter) {
@@ -5152,6 +5174,153 @@ struct PiAgentActivityPanel: View {
             }
             .buttonStyle(.plain)
             .help("Close activity sidebar")
+        }
+    }
+}
+
+private struct PiAgentCurrentPlanCard: View {
+    let plan: PiSessionPlanRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "checklist")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text("Current Plan")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+                Text(progressText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(plan.items) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: icon(for: item.status))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(color(for: item.status))
+                            .frame(width: 16)
+                        Text(item.title)
+                            .font(.caption)
+                            .foregroundStyle(item.status == .done || item.status == .skipped ? AppTheme.mutedText : .primary)
+                            .strikethrough(item.status == .skipped, color: AppTheme.mutedText)
+                            .lineLimit(2)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.82)).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+
+    private var progressText: String {
+        let done = plan.items.filter { $0.status == .done || $0.status == .skipped }.count
+        return "\(done)/\(plan.items.count)"
+    }
+
+    private func icon(for status: PiSessionPlanItemStatus) -> String {
+        switch status {
+        case .todo: return "circle"
+        case .inProgress: return "smallcircle.filled.circle"
+        case .done: return "checkmark.circle.fill"
+        case .blocked: return "exclamationmark.circle.fill"
+        case .skipped: return "minus.circle"
+        }
+    }
+
+    private func color(for status: PiSessionPlanItemStatus) -> Color {
+        switch status {
+        case .todo: return AppTheme.mutedText
+        case .inProgress: return .blue
+        case .done: return .green
+        case .blocked: return .orange
+        case .skipped: return AppTheme.mutedText
+        }
+    }
+}
+
+private struct PiAgentActivitySubagentsCard: View {
+    let runs: [PiSubagentRunRecord]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "rectangle.connected.to.line.below")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text("Native Subagents")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+                Text("\(runs.count)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(runs) { run in
+                    PiAgentActivitySubagentRow(run: run)
+                    if run.id != runs.last?.id { Divider().opacity(0.5) }
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.82)).stroke(AppTheme.cardStroke, lineWidth: 1))
+    }
+}
+
+private struct PiAgentActivitySubagentRow: View {
+    let run: PiSubagentRunRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(color(for: run.status))
+                    .frame(width: 7, height: 7)
+                Text(run.agentName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(run.status.rawValue)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(color(for: run.status))
+                Spacer(minLength: 0)
+                if run.isWorktreeIsolated == true {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .help("Isolated worktree")
+                }
+            }
+            Text(run.task)
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(2)
+            if let children = run.children, !children.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(children.sorted { $0.index < $1.index }.prefix(4)) { child in
+                        HStack(spacing: 5) {
+                            Circle().fill(color(for: child.status)).frame(width: 5, height: 5)
+                            Text("\(child.index + 1). \(child.agentName)")
+                                .font(.caption2.weight(.semibold))
+                                .lineLimit(1)
+                            Text(child.status.rawValue)
+                                .font(.caption2)
+                                .foregroundStyle(AppTheme.mutedText)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+            }
+        }
+    }
+
+    private func color(for status: PiSubagentRunStatus) -> Color {
+        switch status {
+        case .queued, .starting, .running: return .blue
+        case .blocked: return .orange
+        case .completed: return .green
+        case .failed: return .red
+        case .stopped, .disconnected: return AppTheme.mutedText
         }
     }
 }

@@ -89,6 +89,16 @@ Pi Manager follows that model:
 
 Keep system instructions compact. Do not put run-specific file contents or stale plans into the system prompt.
 
+## Activity sidebar visibility
+
+The Pi Agent Activity sidebar is a summary-first execution view. It keeps the noisy tool log out of the main chat while making current work inspectable:
+
+- **Current Plan**: parent agents can set a short checklist with `set_session_plan(items)` and update it with `update_session_plan(updates)`. Plan item ids are stable and updates should happen only on meaningful transitions.
+- **Native Subagents**: active/blocked/recent native child runs are shown from Pi Manager's structured run state, including agent, task, status, and worktree indicator.
+- **Activity Feed**: focused tool evidence such as edit diffs, bounded write previews, shell output, compact web/source summaries, and errors.
+
+The plan is explicit bridge state, not parsed from markdown chat text. This keeps updates stable and avoids jumpy UI or expensive transcript scraping.
+
 ## Supervisor routing
 
 Children that explicitly include `contact_supervisor` can send:

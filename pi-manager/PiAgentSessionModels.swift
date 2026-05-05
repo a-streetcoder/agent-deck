@@ -113,6 +113,58 @@ struct PiSupervisorAnswerBridgeRequest: Codable, Hashable {
     var response: String
 }
 
+struct PiSessionPlanSetBridgeRequest: Codable, Hashable {
+    var items: [PiSessionPlanBridgeItem]
+}
+
+struct PiSessionPlanUpdateBridgeRequest: Codable, Hashable {
+    var updates: [PiSessionPlanBridgeUpdate]
+}
+
+struct PiSessionPlanBridgeItem: Codable, Hashable {
+    var id: String?
+    var title: String
+    var status: PiSessionPlanItemStatus?
+}
+
+struct PiSessionPlanBridgeUpdate: Codable, Hashable {
+    var id: String
+    var title: String?
+    var status: PiSessionPlanItemStatus?
+}
+
+enum PiSessionPlanItemStatus: String, Codable, Hashable, CaseIterable {
+    case todo
+    case inProgress = "in_progress"
+    case done
+    case blocked
+    case skipped
+
+    var displayName: String {
+        switch self {
+        case .todo: return "Todo"
+        case .inProgress: return "In Progress"
+        case .done: return "Done"
+        case .blocked: return "Blocked"
+        case .skipped: return "Skipped"
+        }
+    }
+}
+
+struct PiSessionPlanItemRecord: Identifiable, Codable, Hashable {
+    var id: String
+    var title: String
+    var status: PiSessionPlanItemStatus
+    var updatedAt: Date
+}
+
+struct PiSessionPlanRecord: Codable, Hashable {
+    var sessionID: UUID
+    var items: [PiSessionPlanItemRecord]
+    var createdAt: Date
+    var updatedAt: Date
+}
+
 enum PiSubagentRunMode: String, Codable, Hashable {
     case single
     case chain

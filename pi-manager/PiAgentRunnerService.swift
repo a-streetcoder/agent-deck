@@ -19,6 +19,8 @@ final class PiAgentRunnerService {
     var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onSupervisorRequestsList: ((UUID) -> String)?
     var onSupervisorRequestAnswer: ((UUID, String, String) -> String)?
+    var onSessionPlanSet: ((UUID, PiSessionPlanSetBridgeRequest) -> String)?
+    var onSessionPlanUpdate: ((UUID, PiSessionPlanUpdateBridgeRequest) -> String)?
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
 
     init(store: PiAgentSessionStore) {
@@ -761,6 +763,14 @@ final class PiAgentRunnerService {
             handleAnswerSupervisorBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             return
         }
+        if title == "PI_MANAGER_BRIDGE set_session_plan", let requestID = event.id {
+            handleSetSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            return
+        }
+        if title == "PI_MANAGER_BRIDGE update_session_plan", let requestID = event.id {
+            handleUpdateSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            return
+        }
 
         if let requestMethod = PiAgentUIRequest.Method(rawValue: method), let requestID = event.id {
             if requestMethod == .input, let pendingFreeform = pendingFreeformResponsesBySessionID.removeValue(forKey: sessionID) {
@@ -853,6 +863,27 @@ final class PiAgentRunnerService {
         }
         let result = onSupervisorRequestAnswer?(sessionID, request.requestID, request.response) ?? "Pi Manager supervisor routing is not available."
         store.append(.init(sessionID: sessionID, role: .status, title: "Supervisor Response Routed", text: request.requestID, rawJSON: rawLine))
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+    }
+
+    private func handleSetSessionPlanBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiSessionPlanSetBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the session plan request.")
+            return
+        }
+        let result = onSessionPlanSet?(sessionID, request) ?? "Pi Manager session plan routing is not available."
+        store.append(.init(sessionID: sessionID, role: .status, title: "Session Plan Updated", text: "Set \(request.items.count) item(s).", rawJSON: rawLine))
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+    }
+
+    private func handleUpdateSessionPlanBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiSessionPlanUpdateBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the session plan update.")
+            return
+        }
+        let result = onSessionPlanUpdate?(sessionID, request) ?? "Pi Manager session plan routing is not available."
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
