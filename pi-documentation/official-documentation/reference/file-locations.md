@@ -1,0 +1,68 @@
+# File Locations Reference
+
+This page lists the important paths Pi Manager scans or writes.
+
+`PROJECT` means the selected project root.
+
+## Pi and app data
+
+| Purpose | Path |
+|---|---|
+| Pi global config | `~/.pi/agent/` |
+| Pi global settings | `~/.pi/agent/settings.json` |
+| Pi project settings | `PROJECT/.pi/settings.json` |
+| Pi global env | `~/.pi/agent/.env` |
+| Pi project env | `PROJECT/.pi/.env` |
+| Pi Manager app data | `~/Library/Application Support/Pi Manager/` |
+| Native subagent artifacts | `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/` |
+
+## Agents
+
+| Scope | Path |
+|---|---|
+| App-bundled native builtins | app bundle `bundled-agents/` |
+| Global active | `~/.pi/agent/agents/*.md` |
+| Legacy global | `~/.agents/*.md` |
+| Global write/link target | `~/.agents/<name>.md` if `~/.agents` exists, otherwise `~/.pi/agent/agents/<name>.md` |
+| Library | `~/.pi/agent/agent-library/agents/*.md` |
+| Project active | `PROJECT/.pi/agents/*.md` |
+| Legacy project | `PROJECT/.agents/*.md` |
+| Builtin overrides | `settings.json -> subagents.agentOverrides` |
+
+## Chains
+
+| Scope | Path |
+|---|---|
+| Global active | `~/.pi/agent/chains/*.chain.md` |
+| Library | `~/.pi/agent/agent-library/chains/*.chain.md` |
+| Project active | `PROJECT/.pi/chains/*.chain.md` |
+
+## Skills
+
+| Scope | Path |
+|---|---|
+| Global active | `~/.pi/agent/skills/<skill>/SKILL.md` or root `.md` |
+| Legacy global | recursive `~/.agents/skills/**/SKILL.md`; root `.md` files are ignored |
+| Library | `~/.pi/agent/skill-library/<skill>/SKILL.md` |
+| Project active | `PROJECT/.pi/skills/<skill>/SKILL.md` or root `.md` |
+| Legacy project | recursive `PROJECT/.agents/skills/**/SKILL.md` from cwd/ancestors; root `.md` files are ignored |
+| Package/settings | package manifest/conventional paths and `settings.json -> skills` |
+
+## Prompt templates
+
+| Scope | Path |
+|---|---|
+| Global active | `~/.pi/agent/prompts/*.md` |
+| Library | `~/.pi/agent/prompt-library/*.md` |
+| Project active | `PROJECT/.pi/prompts/*.md` |
+| Package/settings | package prompt folders and `settings.json -> prompts` |
+
+## Extensions and packages
+
+| Purpose | Path / setting |
+|---|---|
+| Global auto extensions | `~/.pi/agent/extensions/*.ts`, `~/.pi/agent/extensions/*/index.ts` |
+| Project auto extensions | `PROJECT/.pi/extensions/*.ts`, `PROJECT/.pi/extensions/*/index.ts` |
+| Settings extensions | `settings.json -> extensions` |
+| Packages | `settings.json -> packages` |
+| Native bridge extensions | `~/Library/Application Support/Pi Manager/Native Subagent Extensions/managed-subagent-bridge.ts` and `contact-supervisor-bridge.ts` |
