@@ -200,6 +200,50 @@ final class PiSubagentLaunchPlannerRegressionTests: XCTestCase {
         )
     }
 
+    func testForkedRunUsesSanitizedReferenceSessionInArtifactDirectory() throws {
+        let fakePi = try makeFakePiExecutable()
+        let oldPiPath = getenv("PI_MANAGER_PI_PATH").map { String(cString: $0) }
+        setenv("PI_MANAGER_PI_PATH", fakePi.path, 1)
+        defer {
+            if let oldPiPath {
+                setenv("PI_MANAGER_PI_PATH", oldPiPath, 1)
+            } else {
+                unsetenv("PI_MANAGER_PI_PATH")
+            }
+        }
+
+        let parentSessionFile = try makeParentSessionFileWithActiveManagedSubagentCall()
+        let store = PiAgentSessionStore(fileURL: temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = makeParentSession(piSessionFile: parentSessionFile.path)
+        try FileManager.default.createDirectory(atPath: parent.projectPath, withIntermediateDirectories: true)
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: makeAgent(model: nil, thinking: nil),
+            snapshot: .empty,
+            task: "Say whether you were launched with forked context. Then answer fork context smoke completed.",
+            requestedContext: .fork
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        let artifactPath = try XCTUnwrap(run.artifactDirectory)
+        let artifactDirectory = URL(fileURLWithPath: artifactPath)
+        let forkContextURL = artifactDirectory.appendingPathComponent("fork-context.jsonl")
+        let forkContext = try String(contentsOf: forkContextURL, encoding: .utf8)
+
+        XCTAssertEqual(run.resolvedContext, .fork)
+        XCTAssertTrue(run.launchCommand?.contains("--fork") == true)
+        XCTAssertTrue(run.launchCommand?.contains("fork-context.jsonl") == true)
+        XCTAssertTrue(run.launchCommand?.contains("--session-dir") == true)
+        XCTAssertTrue(run.launchCommand?.contains("/sessions") == true)
+        XCTAssertFalse(run.launchCommand?.contains(parentSessionFile.path) == true)
+        XCTAssertTrue(forkContext.contains("Earlier useful context"))
+        XCTAssertTrue(forkContext.contains("Pi Manager native subagent boundary"))
+        XCTAssertFalse(forkContext.contains("Use managed_subagent with agent scout"))
+        XCTAssertFalse(forkContext.contains("\"name\":\"managed_subagent\""))
+    }
+
     private func makeAgent(model: String?, thinking: String?, defaultContext: String? = nil) -> EffectiveAgentRecord {
         var config = AgentConfig.empty
         config.name = "scout"
@@ -219,6 +263,21 @@ final class PiSubagentLaunchPlannerRegressionTests: XCTestCase {
             resolved: config,
             resolutionKind: .builtin
         )
+    }
+
+    private func makeParentSessionFileWithActiveManagedSubagentCall() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pi-manager-parent-session-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("parent.jsonl")
+        let lines = [
+            #"{"type":"session","version":3,"id":"019dfa20-a8c3-7659-829e-078c2e704c1b","timestamp":"2026-05-05T21:52:17.603Z","cwd":"/tmp/pi-manager-test-project"}"#,
+            #"{"type":"message","id":"old-user","parentId":null,"timestamp":"2026-05-05T21:53:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Earlier useful context"}]}}"#,
+            #"{"type":"message","id":"old-assistant","parentId":"old-user","timestamp":"2026-05-05T21:53:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Earlier assistant answer"}],"provider":"zai","model":"glm-5.1"}}"#,
+            #"{"type":"message","id":"active-user","parentId":"old-assistant","timestamp":"2026-05-05T23:50:42.964Z","message":{"role":"user","content":[{"type":"text","text":"Use managed_subagent with agent scout, context fork, and task:\nSay whether you were launched with forked context."}]}}"#,
+            #"{"type":"message","id":"active-assistant","parentId":"active-user","timestamp":"2026-05-05T23:50:47.657Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_active","name":"managed_subagent","arguments":{"agent":"scout","context":"fork","task":"Say whether you were launched with forked context."}}],"provider":"zai","model":"glm-5.1","stopReason":"toolUse"}}"#
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
     }
 
     private func makeParentSession(model: String? = nil, provider: String? = nil, thinking: String? = nil, piSessionFile: String? = nil) -> PiAgentSessionRecord {

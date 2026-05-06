@@ -41,12 +41,14 @@ final class PiSubagentRunService {
 
         let requestedContext = contextOverride ?? .agentDefault
         let resolvedContext = PiSubagentLaunchPlanner.resolvedContextMode(for: agent, parentSession: parentSession, requestedContext: requestedContext)
+        let childSessionDirectory = artifactDirectory.appendingPathComponent("sessions", isDirectory: true)
         var extraArguments: [String] = []
         var contextWarnings: [String] = []
         if resolvedContext == .fork, let parentSessionFile = parentSession.piSessionFile {
-            extraArguments.append(contentsOf: ["--fork", parentSessionFile])
+            let forkSource = try sanitizedForkContextFile(from: parentSessionFile, artifactDirectory: artifactDirectory)
+            extraArguments.append(contentsOf: ["--fork", forkSource.path, "--session-dir", childSessionDirectory.path])
         } else {
-            extraArguments.append(contentsOf: ["--session-dir", artifactDirectory.appendingPathComponent("sessions", isDirectory: true).path])
+            extraArguments.append(contentsOf: ["--session-dir", childSessionDirectory.path])
             if requestedContext == .fork, parentSession.piSessionFile == nil {
                 contextWarnings.append("Requested fork context, but the parent Pi session file is not available; launched fresh instead.")
             }
@@ -187,7 +189,7 @@ final class PiSubagentRunService {
         run.child?.launchCommand = client.launchCommand
         store.upsertSubagentRun(run)
         client.getState()
-        client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, useWorktreeIsolation: useWorktreeIsolation, readFirstPaths: resolvedReadFirstPaths))
+        client.prompt(initialTaskPrompt(agent: agent, task: trimmedTask, artifactDirectory: artifactDirectory, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, useWorktreeIsolation: useWorktreeIsolation, readFirstPaths: resolvedReadFirstPaths, resolvedContext: resolvedContext))
         return run
     }
 
@@ -517,6 +519,119 @@ final class PiSubagentRunService {
         return URL(fileURLWithPath: outputPath)
     }
 
+    private func sanitizedForkContextFile(from parentSessionFile: String, artifactDirectory: URL) throws -> URL {
+        let sourceURL = URL(fileURLWithPath: parentSessionFile)
+        let raw = try String(contentsOf: sourceURL, encoding: .utf8)
+        var lines = raw.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        lines = removeActiveManagedSubagentInvocation(from: lines)
+        if let boundaryLine = forkBoundaryLine(parentId: lastSessionEntryID(in: lines)) {
+            lines.append(boundaryLine)
+        }
+
+        let outputURL = artifactDirectory.appendingPathComponent("fork-context.jsonl")
+        try (lines.joined(separator: "\n") + "\n").write(to: outputURL, atomically: true, encoding: .utf8)
+        return outputURL
+    }
+
+    private func removeActiveManagedSubagentInvocation(from lines: [String]) -> [String] {
+        guard let assistantIndex = lastUnansweredManagedSubagentToolCallIndex(in: lines),
+              let userIndex = previousUserMessageIndex(before: assistantIndex, in: lines) else {
+            return lines
+        }
+        var result = lines
+        result.removeSubrange(userIndex...assistantIndex)
+        return result
+    }
+
+    private func lastUnansweredManagedSubagentToolCallIndex(in lines: [String]) -> Int? {
+        let parsed = lines.map(jsonObject)
+        for index in parsed.indices.reversed() {
+            let callIDs = managedSubagentToolCallIDs(in: parsed[index])
+            guard !callIDs.isEmpty else { continue }
+            let hasResult = parsed[(index + 1)...].contains { object in
+                guard messageRole(in: object) == "toolResult",
+                      let toolCallID = object?["message"].flatMap({ dictionaryValue($0)?["toolCallId"] as? String }) else {
+                    return false
+                }
+                return callIDs.contains(toolCallID)
+            }
+            if !hasResult { return index }
+        }
+        return nil
+    }
+
+    private func managedSubagentToolCallIDs(in object: [String: Any]?) -> Set<String> {
+        guard messageRole(in: object) == "assistant",
+              let message = object?["message"].flatMap(dictionaryValue),
+              let content = message["content"] as? [[String: Any]] else {
+            return []
+        }
+        let managedToolNames: Set<String> = ["managed_subagent", "managed_chain", "managed_parallel"]
+        return Set(content.compactMap { item in
+            guard item["type"] as? String == "toolCall",
+                  let name = item["name"] as? String,
+                  managedToolNames.contains(name),
+                  let id = item["id"] as? String else {
+                return nil
+            }
+            return id
+        })
+    }
+
+    private func previousUserMessageIndex(before index: Int, in lines: [String]) -> Int? {
+        guard index > 0 else { return nil }
+        for candidate in stride(from: index - 1, through: 0, by: -1) {
+            if messageRole(in: jsonObject(from: lines[candidate])) == "user" {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func forkBoundaryLine(parentId: String?) -> String? {
+        var entry: [String: Any] = [
+            "type": "custom_message",
+            "customType": "pi-manager-native-subagent-boundary",
+            "content": "Pi Manager native subagent boundary: all previous forked messages are read-only reference. Do not continue a previous parent tool request or launch another managed_subagent. The next user message is the child subagent's authoritative task.",
+            "display": false,
+            "id": UUID().uuidString.prefix(8).lowercased(),
+            "timestamp": ISO8601DateFormatter().string(from: Date())
+        ]
+        entry["parentId"] = parentId ?? NSNull()
+        guard JSONSerialization.isValidJSONObject(entry),
+              let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]),
+              let line = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return line
+    }
+
+    private func lastSessionEntryID(in lines: [String]) -> String? {
+        for line in lines.reversed() {
+            if let id = jsonObject(from: line)?["id"] as? String {
+                return id
+            }
+        }
+        return nil
+    }
+
+    private func messageRole(in object: [String: Any]?) -> String? {
+        guard let message = object?["message"].flatMap(dictionaryValue) else { return nil }
+        return message["role"] as? String
+    }
+
+    private func jsonObject(from line: String) -> [String: Any]? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
+    }
+
+    private func dictionaryValue(_ value: Any) -> [String: Any]? {
+        value as? [String: Any]
+    }
+
     private func durationMilliseconds(from start: Date, to end: Date) -> Int {
         max(0, Int((end.timeIntervalSince(start) * 1000).rounded()))
     }
@@ -572,8 +687,12 @@ final class PiSubagentRunService {
         """
     }
 
-    private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String]) -> String {
+    private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String], resolvedContext: PiSubagentContextMode) -> String {
         var lines: [String] = []
+        lines.append("Native subagent assignment: you are already running as Pi Manager native subagent `\(agent.name)`. The task below is the only active assignment. Do not call `managed_subagent` or continue a previous parent tool request.")
+        if resolvedContext == .fork {
+            lines.append("Forked context rule: previous messages are read-only background. Ignore earlier requests to launch, retry, inspect, or summarize a subagent unless repeated in the Task section below.")
+        }
         if !readFirstPaths.isEmpty {
             lines.append("Read current project files first if relevant; treat as hints, not injected truth: \(readFirstPaths.joined(separator: ", "))")
         }
