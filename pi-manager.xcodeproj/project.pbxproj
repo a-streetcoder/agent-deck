@@ -14,6 +14,7 @@
 /* Begin PBXFileReference section */
 		4E1F0B28C6D84725B47F2D75 /* bundled-agents */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-agents"; path = "pi-manager/bundled-agents"; sourceTree = SOURCE_ROOT; };
 		6572B16B2FA2391500596CE4 /* pi-manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pi-manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		65D42820A977472FA42C1BD2 /* pi-managerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "pi-managerTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D56D4791AF03075B76911187 /* subagents-toggle.ts */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.typescript; name = "subagents-toggle.ts"; path = "pi-manager/bundled-extensions/subagents-toggle.ts"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -23,10 +24,22 @@
 			path = "pi-manager";
 			sourceTree = "<group>";
 		};
+		36943FFE1BA2412B83564832 /* pi-managerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "pi-managerTests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		6572B1682FA2391500596CE4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D07AE7FB939047078309D780 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -40,6 +53,7 @@
 			isa = PBXGroup;
 			children = (
 				6572B16D2FA2391500596CE4 /* pi-manager */,
+				36943FFE1BA2412B83564832 /* pi-managerTests */,
 				6572B16C2FA2391500596CE4 /* Products */,
 				D56D4791AF03075B76911187 /* subagents-toggle.ts */,
 				4E1F0B28C6D84725B47F2D75 /* bundled-agents */,
@@ -50,11 +64,22 @@
 			isa = PBXGroup;
 			children = (
 				6572B16B2FA2391500596CE4 /* pi-manager.app */,
+				65D42820A977472FA42C1BD2 /* pi-managerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		9D9CD227F9DD4248A985E71F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6572B1632FA2391500596CE4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6572B16A2FA2391500596CE4;
+			remoteInfo = "pi-manager";
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXNativeTarget section */
 		6572B16A2FA2391500596CE4 /* pi-manager */ = {
@@ -79,6 +104,29 @@
 			productReference = 6572B16B2FA2391500596CE4 /* pi-manager.app */;
 			productType = "com.apple.product-type.application";
 		};
+		268653C9B0D045759FD96250 /* pi-managerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28FBD2A7013741D5A4B18FBB /* Build configuration list for PBXNativeTarget "pi-managerTests" */;
+			buildPhases = (
+				F8A42C25172D4E8892C62375 /* Sources */,
+				D07AE7FB939047078309D780 /* Frameworks */,
+				FF64F4477BF14A21A7306DBC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9C6D5623542C4A638C3CBE82 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				36943FFE1BA2412B83564832 /* pi-managerTests */,
+			);
+			name = "pi-managerTests";
+			packageProductDependencies = (
+			);
+			productName = "pi-managerTests";
+			productReference = 65D42820A977472FA42C1BD2 /* pi-managerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -91,6 +139,10 @@
 				TargetAttributes = {
 					6572B16A2FA2391500596CE4 = {
 						CreatedOnToolsVersion = 26.4;
+					};
+					268653C9B0D045759FD96250 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = 6572B16A2FA2391500596CE4;
 					};
 				};
 			};
@@ -109,6 +161,7 @@
 			projectRoot = "";
 			targets = (
 				6572B16A2FA2391500596CE4 /* pi-manager */,
+				268653C9B0D045759FD96250 /* pi-managerTests */,
 			);
 		};
 /* End PBXProject section */
@@ -123,6 +176,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FF64F4477BF14A21A7306DBC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -133,7 +193,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F8A42C25172D4E8892C62375 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9C6D5623542C4A638C3CBE82 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6572B16A2FA2391500596CE4 /* pi-manager */;
+			targetProxy = 9D9CD227F9DD4248A985E71F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		6572B1742FA2391600596CE4 /* Debug */ = {
@@ -326,6 +401,52 @@
 			};
 			name = Release;
 		};
+		72AC207BE96347EAA4FBAC08 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D37Z4S3883;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.pi-managerTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pi-manager.app/Contents/MacOS/pi-manager";
+			};
+			name = Debug;
+		};
+		73431BC7F6E14D53A246AEEB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D37Z4S3883;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.pi-managerTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pi-manager.app/Contents/MacOS/pi-manager";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -343,6 +464,15 @@
 			buildConfigurations = (
 				6572B1772FA2391600596CE4 /* Debug */,
 				6572B1782FA2391600596CE4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		28FBD2A7013741D5A4B18FBB /* Build configuration list for PBXNativeTarget "pi-managerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				72AC207BE96347EAA4FBAC08 /* Debug */,
+				73431BC7F6E14D53A246AEEB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

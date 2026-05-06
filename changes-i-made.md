@@ -1,0 +1,36 @@
+# Changes I Made
+
+Started: 2026-05-05 23:47 BST
+
+| Time | Change | Rationale |
+|---|---|---|
+| 2026-05-05 23:47 BST | Created `validation-screenshots/` root folder. | Required location for per-validation screenshots. |
+| 2026-05-05 23:47 BST | Created this running validation/change log. | Gives a concise audit trail of any filesystem or code changes made during validation. |
+| 2026-05-05 23:47 BST | Built `pi-manager` successfully through Xcode MCP (`BuildProject`). | Establishes that validation is against a build Xcode considers clean. |
+| 2026-05-05 23:48 BST | Replaced `/tmp/pi-manager-build/pi-manager.app` with the fresh DerivedData Debug build. | The manual checklist explicitly targets `/tmp/pi-manager-build/pi-manager.app`; this keeps the target app current. |
+| 2026-05-05 23:49 BST | Backed up `~/Library/Application Support/Pi Manager/agent-sessions.json` to `agent-sessions.json.validation-backup-20260505-2349` and set the `claude-code-meter` Pi Agent session to `zai/glm-5.1` with low thinking. | Keeps validation runs on the requested cheaper model while preserving a restore point for app state. |
+| 2026-05-05 23:49 BST | Created `validation-results.md`. | Provides a concise item-by-item validation report alongside the screenshot folders. |
+| 2026-05-06 00:00 BST | Added `validation-tools/` helper scripts. | Reduces manual clicks/screenshots by using repeatable UI probing, targeted window capture, and structured result logging without changing app source. |
+| 2026-05-06 00:24 BST | Backed up `~/.pi/agent/settings.json` to `settings.json.validation-backup-20260506-0024` and changed Pi defaults to `zai/glm-5.1` with low thinking. | Native child subagents with `model: default` were verified to use Pi CLI defaults, not the parent session override; this keeps remaining validation on the requested cheaper model. |
+| 2026-05-06 00:53 BST | Appended MV-D1, MV-D3, and MV-D4 evidence to `validation-results.md`. | Captures verified parent-bridge outcomes and the fork-context bug while the app/log state is fresh. |
+| 2026-05-06 07:32 BST | Appended MV-C2 through MV-C7 evidence to `validation-results.md`. | Used source, persisted app state, artifacts, and minimal screenshots to avoid extra GLM runs/clicks while preserving direct evidence; marked C7 partial to avoid running a GPT-5.5-configured agent. |
+| 2026-05-06 07:35 BST | Appended MV-D2 evidence to `validation-results.md`. | Avoided re-running the already-checked footer toggle and verified the parent-bridge disabled guard directly in code. |
+| 2026-05-06 07:37 BST | Appended MV-E1 evidence to `validation-results.md`. | Verified real `contact_supervisor` progress-update behavior via parent bridge, child JSONL, persisted supervisor request state, and output artifact. |
+| 2026-05-06 07:51 BST | Appended MV-E2 evidence to `validation-results.md`. | Verified blocking supervisor request, visible human-response card, response gating, child resume, and final output via UI screenshots plus child/parent JSONL. |
+| 2026-05-06 08:03 BST | Appended MV-E3 evidence to `validation-results.md`. | Verified a manually launched blocked `scout` child was answered by the parent agent through `list_supervisor_requests` and `answer_supervisor_request`, with matching parent JSONL, child JSONL, persisted app state, and screenshots. |
+| 2026-05-06 08:35 BST | Appended MV-E4 evidence to `validation-results.md`. | Verified structured `interview_request` UI rendering, required-field gating, JSON response persistence, and child resume via screenshots, AX state, app state, and child JSONL. |
+| 2026-05-06 08:50 BST | Appended MV-E5 evidence to `validation-results.md`. | Verified stopping a blocked native `scout` run clears pending supervisor state and leaves the run in a clear stopped state, with screenshots and child JSONL evidence. |
+| 2026-05-06 09:08 BST | Updated `validation-tools/capture_pi_window.sh` to stop hiding `iTerm2` and to target the accessible `Pi Manager` process name. | The helper was the reason Terminal/iTerm was being hidden during screenshots; screenshots should not disturb the user's terminal window. |
+| 2026-05-06 09:10 BST | Corrected the screenshot helper activation target from `pi-manager` to `Pi Manager`. | Prevents AppleScript from hanging while capturing validation screenshots. |
+| 2026-05-06 09:11 BST | Removed app activation from `validation-tools/capture_pi_window.sh`; it now reads the visible `Pi Manager` window rectangle directly. | Avoids AppleScript launch-name ambiguity while preserving the current desktop/window arrangement. |
+| 2026-05-06 09:12 BST | Switched the screenshot helper back to the running process name `pi-manager` while keeping Terminal non-hidden. | Matches the actual accessibility process name and restores reliable screenshot capture. |
+| 2026-05-06 09:13 BST | Restarted `/tmp/pi-manager-build/pi-manager.app` after MV-F1 left Pi Manager at 100% CPU with no accessible windows. | Required to recover the validation UI after the `set_session_plan` tool call failed to return or persist state. |
+| 2026-05-06 09:13 BST | Appended MV-F1 failure evidence to `validation-results.md`. | Captures the missing plan state, unresolved parent tool call, screenshot, and process sample while fresh. |
+| 2026-05-06 09:20 BST | Created a fresh Pi Agent session `56F48474-B295-4D46-864C-5F462A6F8205` for post-failure validation attempts. | Avoids mutating the original parent session, which is preserved with the unresolved `set_session_plan` tool call as MV-F1 evidence. |
+| 2026-05-06 09:20 BST | Appended MV-F2 through MV-F6 evidence to `validation-results.md`. | Records which Activity sidebar checks passed by UI/source and which runtime checks were blocked by the verified plan/session instability. |
+| 2026-05-06 09:24 BST | Appended MV-G1 through MV-H8 evidence to `validation-results.md`. | Continued validation conservatively using source and persisted state where live parent/manual UI paths were blocked by the MV-F1/session-selection issues. |
+| 2026-05-06 09:25 BST | Appended MV-I1 through MV-M3 evidence to `validation-results.md`. | Completed the checklist pass with explicit skipped/blocked/source-verified statuses for remaining commit, restart, transcript, git-noise, and acceptance items. |
+| 2026-05-06 19:24 BST | Created GitHub issues #16, #17, #18, and #19 for the verified validation failures. | Tracks MV-C1, MV-D4, MV-F1, and the MV-F6 follow-up session-selection/focus regression with evidence, suspected fixes, and regression-test guidance. |
+| 2026-05-06 19:30 BST | Added an XCTest target and regression tests for session-plan state, session selection persistence, native subagent model inheritance, thinking suffixes, and fork context resolution. | Keeps the validated failure modes under automated coverage where unit-level coverage is appropriate. |
+| 2026-05-06 19:30 BST | Added `PiSubagentLaunchPlanner` and changed default-model native subagents to inherit the parent provider/model/thinking when no agent model is configured. | Fixes the verified MV-C1 cost/model regression while preserving explicit agent model behavior. |
+| 2026-05-06 19:33 BST | Commented on GitHub issues #16-#19 with the local regression-test/fix status. | Connects the issue tracker to the tests and local code changes made in this workspace. |

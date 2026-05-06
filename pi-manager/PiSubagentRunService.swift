@@ -40,7 +40,7 @@ final class PiSubagentRunService {
         )
 
         let requestedContext = contextOverride ?? .agentDefault
-        let resolvedContext = resolvedContextMode(for: agent, parentSession: parentSession, requestedContext: requestedContext)
+        let resolvedContext = PiSubagentLaunchPlanner.resolvedContextMode(for: agent, parentSession: parentSession, requestedContext: requestedContext)
         var extraArguments: [String] = []
         var contextWarnings: [String] = []
         if resolvedContext == .fork, let parentSessionFile = parentSession.piSessionFile {
@@ -70,7 +70,8 @@ final class PiSubagentRunService {
             extraArguments.append("--no-skills")
         }
 
-        let modelArgument = modelArgument(for: agent)
+        let modelSelection = PiSubagentLaunchPlanner.modelSelection(for: agent, parentSession: parentSession)
+        let modelArgument = modelSelection.modelArgument
         let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
         let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
         let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings + contextWarnings
@@ -154,6 +155,7 @@ final class PiSubagentRunService {
         let childSessionID = UUID()
         let client = try PiRPCClient(
             cwd: worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath),
+            provider: modelSelection.provider,
             modelArgument: modelArgument,
             extraArguments: extraArguments,
             environment: [
@@ -515,27 +517,6 @@ final class PiSubagentRunService {
 
     private func durationMilliseconds(from start: Date, to end: Date) -> Int {
         max(0, Int((end.timeIntervalSince(start) * 1000).rounded()))
-    }
-
-    private func resolvedContextMode(for agent: EffectiveAgentRecord, parentSession: PiAgentSessionRecord, requestedContext: PiSubagentContextMode) -> PiSubagentContextMode {
-        switch requestedContext {
-        case .fresh:
-            return .fresh
-        case .fork:
-            return parentSession.piSessionFile == nil ? .fresh : .fork
-        case .agentDefault:
-            if agent.resolved.defaultContext == "fork", parentSession.piSessionFile != nil { return .fork }
-            if agent.resolved.defaultContext == "fresh" { return .fresh }
-            return .fresh
-        }
-    }
-
-    private func modelArgument(for agent: EffectiveAgentRecord) -> String? {
-        guard let model = agent.resolved.model, !model.isEmpty else { return nil }
-        guard let thinking = agent.resolved.thinking, !thinking.isEmpty, thinking != "off" else { return model }
-        let suffixes = ["off", "minimal", "low", "medium", "high", "xhigh"]
-        if let suffix = model.split(separator: ":").last, suffixes.contains(String(suffix)) { return model }
-        return "\(model):\(thinking)"
     }
 
     private func systemPromptArguments(for agent: EffectiveAgentRecord, prompt: String) -> [String] {

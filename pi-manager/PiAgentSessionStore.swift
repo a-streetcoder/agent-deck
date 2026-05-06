@@ -28,6 +28,12 @@ final class PiAgentSessionStore: ObservableObject {
         load()
     }
 
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        load()
+    }
+
     var selectedSession: PiAgentSessionRecord? {
         guard let selectedSessionID else { return nil }
         return sessions.first(where: { $0.id == selectedSessionID })
@@ -226,6 +232,11 @@ final class PiAgentSessionStore: ObservableObject {
     func clearSessionPlan(sessionID: UUID) {
         sessionPlansBySessionID[sessionID] = nil
         save()
+    }
+
+    func flushForTesting() {
+        pendingSaveTask?.cancel()
+        saveNow()
     }
 
     private func slugID(for title: String, fallback: String) -> String {
