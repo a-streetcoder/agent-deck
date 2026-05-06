@@ -52,6 +52,7 @@ private struct PiAgentOpenTerminalToolbarButton: View {
 }
 
 struct ContentView: View {
+    @Environment(\.openSettings) private var openSettings
     @StateObject private var viewModel = AppViewModel()
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
@@ -594,9 +595,7 @@ struct ContentView: View {
             canToggleSelectedAgentDisabled: selectedAgent != nil,
             selectedAgentIsDisabled: selectedAgent?.resolved.disabled == true,
             openSettings: {
-                if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
-                    viewModel.selectedSidebarItem = .settings
-                }
+                openSettings()
             },
             refresh: { viewModel.refreshEverything() },
             createAgent: {
