@@ -3222,6 +3222,7 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, DropSafeNSTextViewDropHandler, DropSafeNSTextViewKeyHandler {
         var parent: PiAgentDropSafeTextEditor
 
@@ -3264,11 +3265,13 @@ private struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     }
 }
 
+@MainActor
 private protocol DropSafeNSTextViewDropHandler: AnyObject {
     func setDropTargeted(_ targeted: Bool)
     func handleDrop(_ pasteboard: NSPasteboard) -> Bool
 }
 
+@MainActor
 private protocol DropSafeNSTextViewKeyHandler: AnyObject {
     func send()
     func clear()
@@ -3501,19 +3504,7 @@ private enum PiAgentComposerImageLoader {
 
     nonisolated static func loadDropItems(from providers: [NSItemProvider], completion: @escaping ([PiAgentImageAttachment], [URL]) -> Void) {
         let group = DispatchGroup()
-        let lock = NSLock()
-        var attachments: [PiAgentImageAttachment] = []
-        var files: [URL] = []
-
-        func appendImage(_ attachment: PiAgentImageAttachment?) {
-            guard let attachment else { return }
-            lock.lock(); attachments.append(attachment); lock.unlock()
-        }
-
-        func appendFile(_ url: URL?) {
-            guard let url, !url.hasDirectoryPath else { return }
-            lock.lock(); files.append(url); lock.unlock()
-        }
+        let accumulator = DropItemAccumulator()
 
         for provider in providers {
             var didScheduleFile = false
@@ -3529,9 +3520,9 @@ private enum PiAgentComposerImageLoader {
                         url = item as? URL
                     }
                     if let url, let image = imageAttachment(fromFileURL: url) {
-                        appendImage(image)
+                        accumulator.appendImage(image)
                     } else {
-                        appendFile(url)
+                        accumulator.appendFile(url)
                     }
                 }
             }
@@ -3541,14 +3532,44 @@ private enum PiAgentComposerImageLoader {
                     defer { group.leave() }
                     guard let data else { return }
                     let png = pngData(fromImageData: data) ?? data
-                    appendImage(imageAttachment(data: png, name: "dropped-image.png", mimeType: "image/png", fileReference: "dropped-image.png"))
+                    accumulator.appendImage(imageAttachment(data: png, name: "dropped-image.png", mimeType: "image/png", fileReference: "dropped-image.png"))
                 }
             }
         }
 
         group.notify(queue: .main) {
+            let result = accumulator.result()
+            completion(result.attachments, result.files)
+        }
+    }
+
+    private final class DropItemAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var attachments: [PiAgentImageAttachment] = []
+        private var files: [URL] = []
+
+        func appendImage(_ attachment: PiAgentImageAttachment?) {
+            guard let attachment else { return }
+            lock.lock()
+            attachments.append(attachment)
+            lock.unlock()
+        }
+
+        func appendFile(_ url: URL?) {
+            guard let url, !url.hasDirectoryPath else { return }
+            lock.lock()
+            files.append(url)
+            lock.unlock()
+        }
+
+        func result() -> (attachments: [PiAgentImageAttachment], files: [URL]) {
+            lock.lock()
+            let attachments = attachments
+            let files = files
+            lock.unlock()
+
             var seen = Set<String>()
-            completion(attachments, files.filter { seen.insert($0.path).inserted })
+            return (attachments, files.filter { seen.insert($0.path).inserted })
         }
     }
 

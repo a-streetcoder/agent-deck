@@ -211,6 +211,7 @@ final class PiAgentRunnerService {
                     extraArguments.append(contentsOf: ["--append-system-prompt", catalog])
                 }
             }
+            let sessionID = session.id
             let client = try PiRPCClient(
                 cwd: projectURL,
                 sessionFile: resumeExisting ? session.piSessionFile : nil,
@@ -219,13 +220,13 @@ final class PiAgentRunnerService {
                 extraArguments: extraArguments,
                 environment: ["PI_MANAGER_PARENT_SESSION_ID": session.id.uuidString],
                 onEvent: { [weak self] rawLine, event in
-                    DispatchQueue.main.async { self?.handle(rawLine: rawLine, event: event, sessionID: session.id) }
+                    Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, sessionID: sessionID) }
                 },
                 onStderr: { [weak self] line in
-                    DispatchQueue.main.async { self?.handle(stderr: line, sessionID: session.id) }
+                    Task { @MainActor [weak self] in self?.handle(stderr: line, sessionID: sessionID) }
                 },
                 onTermination: { [weak self] exitCode in
-                    DispatchQueue.main.async { self?.handleTermination(exitCode: exitCode, sessionID: session.id) }
+                    Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, sessionID: sessionID) }
                 }
             )
             clientsBySessionID[session.id] = client

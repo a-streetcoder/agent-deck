@@ -100,11 +100,12 @@ struct MarkdownTextView: View {
     }
 }
 
-private struct CachedMarkdownDocument {
+private struct CachedMarkdownDocument: Sendable {
     let frontmatter: String?
     let blocks: [MarkdownBlock]
 }
 
+@MainActor
 private enum MarkdownRenderCache {
     private static var cache: [String: CachedMarkdownDocument] = [:]
     private static var order: [String] = []
@@ -418,7 +419,7 @@ private struct MarkdownWebView: NSViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             if navigationAction.navigationType == .linkActivated,
                let url = navigationAction.request.url {
                 NSWorkspace.shared.open(url)

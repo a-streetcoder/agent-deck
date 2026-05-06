@@ -353,34 +353,22 @@ struct PiScanner {
         inputPipe.fileHandleForWriting.write(Data(request.utf8))
         inputPipe.fileHandleForWriting.closeFile()
 
-        let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var buffer = ""
-        var responseLine: String?
+        let responseState = RuntimeCommandResponseState()
 
         outputPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else {
-                semaphore.signal()
+                responseState.finish()
                 return
             }
 
-            lock.lock()
-            buffer += chunk
-            let lines = buffer.split(whereSeparator: \.isNewline).map(String.init)
-            if let match = lines.first(where: { $0.contains("\"command\":\"get_commands\"") }) {
-                responseLine = match
-                lock.unlock()
-                semaphore.signal()
-                return
-            }
-            lock.unlock()
+            responseState.append(chunk)
         }
 
-        _ = semaphore.wait(timeout: .now() + 5)
+        responseState.wait(timeout: 5)
         outputPipe.fileHandleForReading.readabilityHandler = nil
 
-        guard let responseLine,
+        guard let responseLine = responseState.responseLine,
               let data = responseLine.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let payload = root["data"] as? [String: Any],
@@ -413,6 +401,54 @@ struct PiScanner {
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private final class RuntimeCommandResponseState: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var buffer = ""
+        private var didFinish = false
+        private var matchedLine: String?
+
+        var responseLine: String? {
+            lock.lock()
+            let line = matchedLine
+            lock.unlock()
+            return line
+        }
+
+        func append(_ chunk: String) {
+            lock.lock()
+            guard !didFinish else {
+                lock.unlock()
+                return
+            }
+            buffer += chunk
+            let lines = buffer.split(whereSeparator: \.isNewline).map(String.init)
+            if let match = lines.first(where: { $0.contains("\"command\":\"get_commands\"") }) {
+                matchedLine = match
+                didFinish = true
+                lock.unlock()
+                semaphore.signal()
+                return
+            }
+            lock.unlock()
+        }
+
+        func finish() {
+            lock.lock()
+            let shouldSignal = !didFinish
+            didFinish = true
+            lock.unlock()
+            if shouldSignal {
+                semaphore.signal()
+            }
+        }
+
+        func wait(timeout: TimeInterval) {
+            _ = semaphore.wait(timeout: .now() + timeout)
+            finish()
+        }
     }
 
     private func scanPromptTemplates(
