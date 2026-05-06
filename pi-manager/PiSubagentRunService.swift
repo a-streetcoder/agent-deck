@@ -72,6 +72,7 @@ final class PiSubagentRunService {
 
         let modelSelection = PiSubagentLaunchPlanner.modelSelection(for: agent, parentSession: parentSession)
         let modelArgument = modelSelection.modelArgument
+        let modelDisplayName = modelSelection.displayName
         let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
         let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
         let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings + contextWarnings
@@ -84,7 +85,7 @@ final class PiSubagentRunService {
             task: trimmedTask,
             requestedContext: requestedContext,
             resolvedContext: resolvedContext,
-            model: modelArgument,
+            model: modelDisplayName,
             thinking: agent.resolved.thinking,
             expectedOutcome: expectedOutcome,
             requestedOutputPath: requestedOutputPath,
@@ -118,7 +119,7 @@ final class PiSubagentRunService {
                 status: .starting,
                 requestedContext: requestedContext,
                 resolvedContext: resolvedContext,
-                model: modelArgument,
+                model: modelDisplayName,
                 expectedOutcome: expectedOutcome,
                 requestedOutputPath: requestedOutputPath,
                 allowOverwrite: allowOverwrite,

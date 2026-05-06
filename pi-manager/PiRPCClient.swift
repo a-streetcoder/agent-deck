@@ -25,6 +25,33 @@ final class PiRPCClient: @unchecked Sendable {
         onStderr: @escaping StderrHandler,
         onTermination: @escaping TerminationHandler
     ) throws {
+        let args = Self.launchArguments(
+            sessionFile: sessionFile,
+            provider: provider,
+            model: model,
+            modelArgument: modelArgument,
+            extraArguments: extraArguments
+        )
+
+        process = try PiAgentProcess(
+            configuration: .init(arguments: args, currentDirectoryURL: cwd, environment: environment),
+            onStdoutLine: { line in
+                let data = Data(line.utf8)
+                let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
+                onEvent(line, event)
+            },
+            onStderrLine: onStderr,
+            onTermination: onTermination
+        )
+    }
+
+    static func launchArguments(
+        sessionFile: String? = nil,
+        provider: String? = nil,
+        model: String? = nil,
+        modelArgument: String? = nil,
+        extraArguments: [String] = []
+    ) -> [String] {
         var args = ["--mode", "rpc"]
         args.append(contentsOf: extraArguments)
         if let sessionFile, !sessionFile.isEmpty {
@@ -38,17 +65,7 @@ final class PiRPCClient: @unchecked Sendable {
         } else if let model, !model.isEmpty {
             args.append(contentsOf: ["--model", model])
         }
-
-        process = try PiAgentProcess(
-            configuration: .init(arguments: args, currentDirectoryURL: cwd, environment: environment),
-            onStdoutLine: { line in
-                let data = Data(line.utf8)
-                let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
-                onEvent(line, event)
-            },
-            onStderrLine: onStderr,
-            onTermination: onTermination
-        )
+        return args
     }
 
     func getState() { send(type: "get_state") }

@@ -3,6 +3,12 @@ import Foundation
 struct PiSubagentLaunchModelSelection: Equatable {
     var provider: String?
     var modelArgument: String?
+
+    var displayName: String? {
+        guard let modelArgument, !modelArgument.isEmpty else { return nil }
+        guard let provider, !provider.isEmpty, !modelArgument.contains("/") else { return modelArgument }
+        return "\(provider)/\(modelArgument)"
+    }
 }
 
 enum PiSubagentLaunchPlanner {
