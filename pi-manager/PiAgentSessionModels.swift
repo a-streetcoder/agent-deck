@@ -386,6 +386,24 @@ struct PiAgentModelOption: Identifiable, Codable, Hashable {
     var selectionID: String { "\(provider)/\(id)" }
 }
 
+struct PiAgentContextBreakdownItem: Identifiable, Codable, Hashable {
+    var id: String { key }
+
+    var key: String
+    var title: String
+    var tokens: Int?
+    var percent: Double?
+    var detail: String?
+
+    init(key: String, title: String, tokens: Int?, percent: Double?, detail: String? = nil) {
+        self.key = key
+        self.title = title
+        self.tokens = tokens
+        self.percent = percent
+        self.detail = detail
+    }
+}
+
 struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     let id: UUID
     var kind: PiAgentSessionKind
@@ -422,6 +440,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var contextTokens: Int?
     var contextWindow: Int?
     var contextPercent: Double?
+    var contextBreakdown: [PiAgentContextBreakdownItem]
     var cost: Double?
     var pendingSteeringMessages: [String]
     var pendingFollowUpMessages: [String]
@@ -442,7 +461,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
         case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, thinkingLevel, launchCommand, branchName, worktreePath
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
-        case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, cost
+        case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
         case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, isCompacting, isTitleUserEdited, createdAt, updatedAt
     }
 
@@ -482,6 +501,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         contextTokens: Int?,
         contextWindow: Int?,
         contextPercent: Double?,
+        contextBreakdown: [PiAgentContextBreakdownItem] = [],
         cost: Double?,
         pendingSteeringMessages: [String],
         pendingFollowUpMessages: [String],
@@ -526,6 +546,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
         self.contextPercent = contextPercent
+        self.contextBreakdown = contextBreakdown
         self.cost = cost
         self.pendingSteeringMessages = pendingSteeringMessages
         self.pendingFollowUpMessages = pendingFollowUpMessages
@@ -574,6 +595,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             contextTokens: try container.decodeIfPresent(Int.self, forKey: .contextTokens),
             contextWindow: try container.decodeIfPresent(Int.self, forKey: .contextWindow),
             contextPercent: try container.decodeIfPresent(Double.self, forKey: .contextPercent),
+            contextBreakdown: try container.decodeIfPresent([PiAgentContextBreakdownItem].self, forKey: .contextBreakdown) ?? [],
             cost: try container.decodeIfPresent(Double.self, forKey: .cost),
             pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
             pendingFollowUpMessages: try container.decodeIfPresent([String].self, forKey: .pendingFollowUpMessages) ?? [],

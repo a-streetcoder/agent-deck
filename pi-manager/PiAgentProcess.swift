@@ -27,9 +27,12 @@ final class PiAgentProcess: @unchecked Sendable {
     let launchCommand: String
     private let process: Process
     private let stdin: FileHandle
+    private let stdoutReader: LineStreamReader
+    private let stderrReader: LineStreamReader
     private let writeQueue = DispatchQueue(label: "pi-manager.agent.stdin")
     private let lock = NSLock()
     private var didTerminate = false
+    private var didCleanupIO = false
 
     init(configuration: Configuration, onStdoutLine: @escaping @Sendable (String) -> Void, onStderrLine: @escaping @Sendable (String) -> Void, onTermination: @escaping @Sendable (Int32) -> Void) throws {
         let executable = try Self.resolvePiExecutable()
@@ -46,13 +49,16 @@ final class PiAgentProcess: @unchecked Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         self.stdin = stdinPipe.fileHandleForWriting
+        self.stdoutReader = LineStreamReader(handle: stdoutPipe.fileHandleForReading, callback: onStdoutLine)
+        self.stderrReader = LineStreamReader(handle: stderrPipe.fileHandleForReading, callback: onStderrLine)
         self.process = process
         self.launchCommand = ([executable.path] + configuration.arguments).map(Self.shellEscape).joined(separator: " ")
 
-        Self.streamLines(from: stdoutPipe.fileHandleForReading, callback: onStdoutLine)
-        Self.streamLines(from: stderrPipe.fileHandleForReading, callback: onStderrLine)
+        stdoutReader.start()
+        stderrReader.start()
 
-        process.terminationHandler = { process in
+        process.terminationHandler = { [weak self] process in
+            self?.cleanupIO()
             onTermination(process.terminationStatus)
         }
 
@@ -94,33 +100,18 @@ final class PiAgentProcess: @unchecked Sendable {
                 }
             }
         }
+        cleanupIO()
     }
 
-    private static func streamLines(from handle: FileHandle, callback: @escaping @Sendable (String) -> Void) {
-        DispatchQueue.global(qos: .utility).async {
-            var buffer = Data()
-            while true {
-                let data = handle.availableData
-                if data.isEmpty { break }
-                buffer.append(data)
-                while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
-                    let lineData = buffer[..<newlineRange.lowerBound]
-                    buffer.removeSubrange(..<newlineRange.upperBound)
-                    var line = String(data: lineData, encoding: .utf8) ?? ""
-                    if line.hasSuffix("\r") { line.removeLast() }
-                    if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        callback(line)
-                    }
-                }
-            }
-            if !buffer.isEmpty {
-                var line = String(data: buffer, encoding: .utf8) ?? ""
-                if line.hasSuffix("\r") { line.removeLast() }
-                if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    callback(line)
-                }
-            }
-        }
+    private func cleanupIO() {
+        lock.lock()
+        let shouldCleanup = !didCleanupIO
+        didCleanupIO = true
+        lock.unlock()
+        guard shouldCleanup else { return }
+
+        stdoutReader.stop()
+        stderrReader.stop()
     }
 
     private static func resolvePiExecutable() throws -> URL {
@@ -208,5 +199,78 @@ final class PiAgentProcess: @unchecked Sendable {
             return value
         }
         return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+}
+
+private final class LineStreamReader: @unchecked Sendable {
+    private let handle: FileHandle
+    private let callback: @Sendable (String) -> Void
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var isStopped = false
+
+    init(handle: FileHandle, callback: @escaping @Sendable (String) -> Void) {
+        self.handle = handle
+        self.callback = callback
+    }
+
+    func start() {
+        handle.readabilityHandler = { [weak self] handle in
+            self?.append(handle.availableData)
+        }
+    }
+
+    func stop() {
+        lock.lock()
+        guard !isStopped else {
+            lock.unlock()
+            return
+        }
+        isStopped = true
+        lock.unlock()
+
+        handle.readabilityHandler = nil
+        append(handle.availableData)
+        flushBufferedLine()
+        try? handle.close()
+    }
+
+    private func append(_ data: Data) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        guard !isStopped || !data.isEmpty else {
+            lock.unlock()
+            return
+        }
+        buffer.append(data)
+        var lines: [String] = []
+        while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
+            let lineData = buffer[..<newlineRange.lowerBound]
+            buffer.removeSubrange(..<newlineRange.upperBound)
+            if let line = Self.normalizedLine(from: lineData) {
+                lines.append(line)
+            }
+        }
+        lock.unlock()
+
+        for line in lines {
+            callback(line)
+        }
+    }
+
+    private func flushBufferedLine() {
+        lock.lock()
+        let line = buffer.isEmpty ? nil : Self.normalizedLine(from: buffer)
+        buffer.removeAll()
+        lock.unlock()
+        if let line {
+            callback(line)
+        }
+    }
+
+    private static func normalizedLine(from data: Data) -> String? {
+        var line = String(data: data, encoding: .utf8) ?? ""
+        if line.hasSuffix("\r") { line.removeLast() }
+        return line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : line
     }
 }

@@ -78,7 +78,7 @@ struct GitHubConnectionCard: View {
                     Circle()
                         .fill(statusColor)
                         .frame(width: 10, height: 10)
-                        .overlay(Circle().stroke(AppTheme.cardFill, lineWidth: 2))
+                        .overlay(Circle().stroke(AppTheme.contentFill, lineWidth: 2))
                 }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -103,6 +103,7 @@ struct GitHubConnectionCard: View {
                 }
                 .buttonStyle(.plain)
                 .help("Refresh GitHub status, project scans, and repo data")
+                .accessibilityLabel("Refresh GitHub and projects")
                 .disabled(viewModel.githubIsRefreshingEverything)
 
                 if let lastCheckedAt = viewModel.githubLastStatusCheckAt {
@@ -117,8 +118,8 @@ struct GitHubConnectionCard: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
+                .fill(AppTheme.contentFill)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
     }
 
@@ -182,7 +183,7 @@ private struct GitHubAvatarView: View {
                 .scaledToFill()
         } placeholder: {
             Circle()
-                .fill(AppTheme.subtleFill)
+                .fill(AppTheme.contentSubtleFill)
                 .overlay {
                     Image(systemName: "person.crop.circle.fill")
                         .foregroundStyle(AppTheme.mutedText)
@@ -225,7 +226,7 @@ private struct GitHubIssueListRow: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
                 }
 
                 Text(item.title)
@@ -262,7 +263,7 @@ private struct GitHubIssueListRow: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -329,7 +330,7 @@ private struct GitHubIssueDetailCard: View {
                                     .foregroundStyle(AppTheme.mutedText)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                                    .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(viewModel.githubIsClosingIssue)
@@ -468,7 +469,7 @@ private struct GitHubIssueDetailCard: View {
                                 .fontWidth(.expanded)
                             TextEditor(text: $viewModel.githubCommentDraft)
                                 .frame(minHeight: 110)
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.cardStroke, lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.contentStroke, lineWidth: 1))
 
                             HStack {
                                 Spacer()
@@ -865,7 +866,7 @@ private struct GitHubDesktopChangesView: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
                     Spacer()
                 }
 
@@ -918,8 +919,8 @@ private struct GitHubDesktopChangesView: View {
                 .font(.body)
                 .frame(minHeight: 86)
                 .padding(6)
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.cardFill))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentFill))
 
             HStack {
                 Button("Commit \(includedCount) file\(includedCount == 1 ? "" : "s")") {
@@ -935,8 +936,8 @@ private struct GitHubDesktopChangesView: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.subtleFill.opacity(0.55)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private var includedCount: Int { snapshot.staged.count }
@@ -1091,24 +1092,36 @@ private struct GitDiffPreviewPane: View {
 
 private struct GitUnifiedDiffView: View {
     let diffText: String
+    @State private var cachedLines: [String] = []
+
+    init(diffText: String) {
+        self.diffText = diffText
+        _cachedLines = State(initialValue: Self.lines(for: diffText))
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        GitDiffLineView(lineNumber: index + 1, text: line, minWidth: geometry.size.width)
+                    ForEach(cachedLines.indices, id: \.self) { index in
+                        GitDiffLineView(lineNumber: index + 1, text: cachedLines[index], minWidth: geometry.size.width)
                     }
                 }
                 .padding(.vertical, 8)
                 .frame(minWidth: geometry.size.width, alignment: .leading)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.subtleFill.opacity(0.45)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.45)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+        .onAppear(perform: rebuildLines)
+        .onChange(of: diffText) { _, _ in rebuildLines() }
     }
 
-    private var lines: [String] {
+    private func rebuildLines() {
+        cachedLines = Self.lines(for: diffText)
+    }
+
+    private static func lines(for diffText: String) -> [String] {
         let split = diffText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         return split.isEmpty ? ["No diff for this file."] : split
     }

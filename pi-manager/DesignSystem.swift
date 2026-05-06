@@ -2,15 +2,89 @@ import SwiftUI
 
 enum AppTheme {
     static let pagePadding: CGFloat = 24
-    static let cardCornerRadius: CGFloat = 18
+    static let cardCornerRadius: CGFloat = 12
     static let cardPadding: CGFloat = 18
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
 
-    static let cardFill = Color(nsColor: .controlBackgroundColor)
-    static let cardStroke = Color.primary.opacity(0.06)
-    static let subtleFill = Color.primary.opacity(0.04)
+    static let contentFill = Color(nsColor: .controlBackgroundColor)
+    static let contentStroke = Color.primary.opacity(0.08)
+    static let contentSubtleFill = Color.primary.opacity(0.035)
+    static let selectionFill = Color.accentColor.opacity(0.12)
+    static let selectionStroke = Color.accentColor.opacity(0.35)
     static let mutedText = Color.secondary
+
+    @available(*, deprecated, message: "Use contentFill, contentSubtleFill, or Liquid Glass surface helpers based on role.")
+    static let cardFill = contentFill
+    @available(*, deprecated, message: "Use contentStroke or selectionStroke based on role.")
+    static let cardStroke = contentStroke
+    @available(*, deprecated, message: "Use contentSubtleFill or Liquid Glass surface helpers based on role.")
+    static let subtleFill = contentSubtleFill
+}
+
+struct AppContentSurface: ViewModifier {
+    var cornerRadius: CGFloat = AppTheme.cardCornerRadius
+    var isSelected = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill)
+                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
+            )
+    }
+}
+
+struct AppGlassPanelSurface: ViewModifier {
+    var cornerRadius: CGFloat = 14
+
+    func body(content: Content) -> some View {
+        content
+            .background(.clear)
+            .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+struct AppGlassControlSurface: ViewModifier {
+    var cornerRadius: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content
+            .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+struct AppGlassControlGroup<Content: View>: View {
+    var spacing: CGFloat = AppTheme.contentSpacing
+    @ViewBuilder let content: Content
+
+    init(spacing: CGFloat = AppTheme.contentSpacing, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        GlassEffectContainer(spacing: spacing) {
+            HStack(spacing: spacing) {
+                content
+            }
+        }
+    }
+}
+
+extension View {
+    func appContentSurface(cornerRadius: CGFloat = AppTheme.cardCornerRadius, isSelected: Bool = false) -> some View {
+        modifier(AppContentSurface(cornerRadius: cornerRadius, isSelected: isSelected))
+    }
+
+    func appGlassPanel(cornerRadius: CGFloat = 14) -> some View {
+        modifier(AppGlassPanelSurface(cornerRadius: cornerRadius))
+    }
+
+    func appGlassControl(cornerRadius: CGFloat = 12) -> some View {
+        modifier(AppGlassControlSurface(cornerRadius: cornerRadius))
+    }
 }
 
 struct AppPage<Content: View>: View {
@@ -73,11 +147,7 @@ struct AppCard<Content: View, Trailing: View>: View {
             }
         }
         .padding(AppTheme.cardPadding)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
-        )
+        .appContentSurface()
     }
 }
 
@@ -95,11 +165,7 @@ struct AppMetricTile: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppTheme.cardPadding)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
-        )
+        .appContentSurface()
     }
 }
 
@@ -120,7 +186,7 @@ struct AppSidebarPane<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.regularMaterial)
+        .appGlassPanel(cornerRadius: 0)
     }
 }
 
@@ -202,25 +268,19 @@ struct AppStepper: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.subtleFill)
-        )
+        .appContentSurface(cornerRadius: 12)
     }
 
     private func stepButton(icon: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(disabled ? Color.secondary.opacity(0.3) : .white)
                 .frame(width: 24, height: 24)
-                .background(
-                    Circle()
-                        .fill(disabled ? Color.secondary.opacity(0.15) : Color.accentColor)
-                )
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(disabled ? Color.secondary : Color.accentColor)
         .disabled(disabled)
     }
 }
@@ -232,10 +292,6 @@ struct AppRowCard<Content: View>: View {
         content
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(AppTheme.cardFill)
-                    .stroke(AppTheme.cardStroke, lineWidth: 1)
-            )
+            .appContentSurface(cornerRadius: 14)
     }
 }

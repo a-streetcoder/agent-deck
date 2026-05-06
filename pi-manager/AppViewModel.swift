@@ -46,6 +46,7 @@ private final class NativeParallelGraphScheduler {
 
 @MainActor
 final class AppViewModel: NSObject, ObservableObject {
+    let windowID = UUID()
     @Published var snapshot: ScanSnapshot = .empty
     @Published var selectedSidebarItem: SidebarItem = .agent
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
@@ -92,12 +93,9 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
 
-    private let scanner = PiScanner()
-    private let projectDiscovery = ProjectDiscovery()
     private let agentPersistence = AgentPersistence()
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
-    private let subagentConfigPersistence = SubagentConfigPersistence()
     private let extensionManagementService = PiExtensionManagementService()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsStore = AppSettingsStore.shared
@@ -110,7 +108,10 @@ final class AppViewModel: NSObject, ObservableObject {
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
+    private var watchFingerprintTask: Task<Void, Never>?
     private var lastWatchFingerprint: String = ""
+    private var refreshTask: Task<Void, Never>?
+    private var refreshRequestID = 0
     private var isRefreshingModels = false
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
@@ -121,6 +122,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
+    private weak var window: NSWindow?
 
     private var piAgentNotificationDelay: TimeInterval {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
@@ -133,7 +135,6 @@ final class AppViewModel: NSObject, ObservableObject {
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         refresh(includeModels: true)
-        lastWatchFingerprint = watchFingerprint()
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -180,7 +181,12 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     deinit {
+        watchFingerprintTask?.cancel()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    func setWindow(_ window: NSWindow?) {
+        self.window = window
     }
 
     private func cleanupOrphanedNativeSubagentArtifacts(retentionDays: Int = 30) {
@@ -204,32 +210,68 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func refresh(includeModels: Bool = false) {
+    func refresh(includeModels: Bool = false, scanAllProjects: Bool = true) {
         let previousAgentID = selectedAgentID
         let previousChainID = selectedChainID
         let previousSkillID = selectedSkillID
         let previousCommandItemID = selectedCommandItemID
         let previousExtensionID = selectedExtensionID
+        let selectedProjectPath = selectedProjectPath
+        let preferencesByPath = projectPreferencesStore.preferencesByPath
+        let rootURL = configuredProjectsRootURL
+        refreshRequestID += 1
+        let requestID = refreshRequestID
 
-        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
-        discoveredProjects = projectDiscovery.discoverProjects(
-            rootDirectoryURL: configuredProjectsRootURL,
-            additionalProjectPaths: Array(projectPreferencesByPath.keys),
-            preferencesByPath: projectPreferencesByPath
-        )
-        let enabledProjects = discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
-        globalSnapshot = scanner.scan(projectRoot: nil)
-        allProjectSnapshots = Dictionary(uniqueKeysWithValues: enabledProjects.map { project in
-            (project.path, scanner.scan(projectRoot: project.url))
-        })
+        refreshTask?.cancel()
+        let viewModel = self
+        refreshTask = Task.detached(priority: .userInitiated) {
+            let result = AppRefreshService().loadSnapshot(
+                rootURL: rootURL,
+                selectedProjectPath: selectedProjectPath,
+                preferencesByPath: preferencesByPath,
+                scanAllProjects: scanAllProjects
+            )
 
-        if let selectedProjectPath,
-           let matchingProject = discoveredProjects.first(where: { $0.path == selectedProjectPath && projectPreference(for: $0.path).isEnabled }) {
+            await MainActor.run {
+                guard !Task.isCancelled, requestID == viewModel.refreshRequestID else { return }
+                viewModel.applyRefreshSnapshot(
+                    result,
+                    previousAgentID: previousAgentID,
+                    previousChainID: previousChainID,
+                    previousSkillID: previousSkillID,
+                    previousCommandItemID: previousCommandItemID,
+                    previousExtensionID: previousExtensionID,
+                    includeModels: includeModels
+                )
+            }
+        }
+    }
+
+    private func applyRefreshSnapshot(
+        _ result: AppRefreshSnapshot,
+        previousAgentID: EffectiveAgentRecord.ID?,
+        previousChainID: ChainRecord.ID?,
+        previousSkillID: SkillRecord.ID?,
+        previousCommandItemID: String?,
+        previousExtensionID: PiExtensionRecord.ID?,
+        includeModels: Bool
+    ) {
+        projectPreferencesByPath = result.projectPreferencesByPath
+        discoveredProjects = result.discoveredProjects
+        globalSnapshot = result.globalSnapshot
+        if result.includesAllProjectSnapshots {
+            allProjectSnapshots = result.projectSnapshots
+        } else {
+            allProjectSnapshots.merge(result.projectSnapshots) { _, fresh in fresh }
+        }
+        lastWatchFingerprint = result.watchFingerprint
+
+        if let matchingProject = result.selectedProject {
             projectRootURL = matchingProject.url
-            snapshot = allProjectSnapshots[selectedProjectPath] ?? scanner.scan(projectRoot: matchingProject.url)
+            snapshot = result.selectedProjectSnapshot ?? result.projectSnapshots[matchingProject.path] ?? result.globalSnapshot
         } else {
             projectRootURL = nil
-            selectedProjectPath = nil
+            self.selectedProjectPath = nil
             persistSelectedProjectPath(nil)
             snapshot = makeAggregateSnapshot()
         }
@@ -240,8 +282,6 @@ final class AppViewModel: NSObject, ObservableObject {
         selectedExtensionID = visibleExtensions.contains(where: { $0.id == previousExtensionID }) ? previousExtensionID : visibleExtensions.first?.id
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
-        lastWatchFingerprint = watchFingerprint()
-
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
         if includeModels {
@@ -1248,7 +1288,10 @@ final class AppViewModel: NSObject, ObservableObject {
                 let content = UNMutableNotificationContent()
                 content.title = "Pi Agent needs review"
                 content.body = session.displayTitle
-                content.userInfo = ["sessionID": session.id.uuidString]
+                content.userInfo = [
+                    "sessionID": session.id.uuidString,
+                    "windowID": windowID.uuidString
+                ]
 
                 let request = UNNotificationRequest(
                     identifier: "pi-agent-\(session.id.uuidString)",
@@ -2490,16 +2533,27 @@ final class AppViewModel: NSObject, ObservableObject {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handlePiAgentNotificationResponse(_:)), name: .piAgentNotificationResponse, object: nil)
         center.addObserver(self, selector: #selector(handleAppDidBecomeActiveNotification(_:)), name: NSApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppWillTerminateNotification(_:)), name: NSApplication.willTerminateNotification, object: nil)
     }
 
     @objc private func handlePiAgentNotificationResponse(_ notification: Notification) {
         guard let rawSessionID = notification.userInfo?["sessionID"] as? String,
               let sessionID = UUID(uuidString: rawSessionID) else { return }
+        if let rawWindowID = notification.userInfo?["windowID"] as? String,
+           let notificationWindowID = UUID(uuidString: rawWindowID),
+           notificationWindowID != windowID {
+            return
+        }
 
         Task { @MainActor [weak self] in
-            self?.selectPiAgentSession(sessionID)
+            guard let self else { return }
+            self.selectPiAgentSession(sessionID)
             NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            if let window = self.window {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                NSApp.mainWindow?.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
@@ -2507,6 +2561,10 @@ final class AppViewModel: NSObject, ObservableObject {
         Task { @MainActor [weak self] in
             self?.acknowledgeVisibleSelectedPiAgentSession()
         }
+    }
+
+    @objc private func handleAppWillTerminateNotification(_ notification: Notification) {
+        piAgentSessionStore.flushPendingSave()
     }
 
     var visibleExtensions: [PiExtensionRecord] {
@@ -2733,7 +2791,6 @@ final class AppViewModel: NSObject, ObservableObject {
     func availableSkillNames(for target: AgentEditingTarget) -> [String] {
         let snapshot = scopeSnapshot(for: target)
         return Array(Set((snapshot.skills + snapshot.librarySkills).map(\.name)))
-            .filter { $0 != "pi-subagents" }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -2746,12 +2803,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
         if isPackageInstalled("pi-web-access") {
             tools += ["web_search", "fetch_content", "get_search_content", "code_search"]
-        }
-        if isPackageInstalled("pi-subagents") {
-            tools.append("subagent")
-        }
-        if isPackageInstalled("pi-intercom") {
-            tools.append("intercom")
         }
 
         let explicitTools = scopeSnapshot.effectiveAgents.flatMap { $0.resolved.tools ?? [] }
@@ -2991,7 +3042,7 @@ final class AppViewModel: NSObject, ObservableObject {
         guard !agent.resolved.skills.isEmpty else { return [] }
         let explicitSkills = agent.resolved.skills
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != "pi-subagents" }
+            .filter { !$0.isEmpty }
         guard !explicitSkills.isEmpty else { return [] }
 
         let managedRecord = snapshot.libraryAgents.first { $0.name == agent.name }
@@ -3426,24 +3477,6 @@ final class AppViewModel: NSObject, ObservableObject {
         refresh(includeModels: false)
     }
 
-    func makeSubagentConfigDraft() -> SubagentConfigDraft {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-        return subagentConfigPersistence.makeDraft(path: path, config: snapshot.subagentConfig?.config ?? .packageDefaults)
-    }
-
-    func saveSubagentConfigDraft(_ draft: SubagentConfigDraft) throws {
-        try subagentConfigPersistence.save(draft)
-        refresh(includeModels: false)
-    }
-
-    func restoreDefaultSubagentConfig() {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-        try? FileManager.default.removeItem(atPath: path)
-        refresh(includeModels: false)
-    }
-
     var userDisableBuiltins: Bool {
         settingsSummary(for: .global)?.disableBuiltins ?? false
     }
@@ -3552,7 +3585,6 @@ final class AppViewModel: NSObject, ObservableObject {
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
-            subagentConfig: globalSnapshot.subagentConfig,
             warnings: warnings
         )
     }
@@ -3578,129 +3610,13 @@ final class AppViewModel: NSObject, ObservableObject {
         isRefreshingModels = true
 
         Task.detached(priority: .utility) {
-            let models = Self.loadAvailableModels()
+            let models = await PiModelDiscoveryService().loadAvailableModels()
             await MainActor.run {
                 self.availableModels = models
                 self.modelsLastUpdatedAt = Date()
                 self.isRefreshingModels = false
             }
         }
-    }
-
-    nonisolated private static func loadAvailableModels() -> [AvailableModel] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [
-            "-lc",
-            "if command -v pi >/dev/null 2>&1; then pi --list-models; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --list-models; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --list-models; else exit 127; fi"
-        ]
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [] }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let text = String(data: data, encoding: .utf8) else { return [] }
-            let exactThinkingLevels = loadModelThinkingLevels()
-            return parseAvailableModels(from: text, exactThinkingLevels: exactThinkingLevels)
-        } catch {
-            return []
-        }
-    }
-
-    nonisolated private static func loadModelThinkingLevels() -> [String: [String]] {
-        let script = #"""
-import { getModel, supportsXhigh } from '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js';
-const input = JSON.parse(process.env.PI_MANAGER_MODEL_INPUT ?? '[]');
-const result = {};
-for (const item of input) {
-  const model = getModel(item.provider, item.model);
-  if (!model || !model.reasoning) {
-    result[`${item.provider}/${item.model}`] = ['off'];
-    continue;
-  }
-  result[`${item.provider}/${item.model}`] = supportsXhigh(model)
-    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-    : ['off', 'minimal', 'low', 'medium', 'high'];
-}
-process.stdout.write(JSON.stringify(result));
-"""#
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", "--input-type=module", "--eval", script]
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        let knownModels = availableModelIdentifiersFromPiList().map { ["provider": $0.provider, "model": $0.model] }
-
-        do {
-            let inputData = try JSONSerialization.data(withJSONObject: knownModels)
-            guard let inputText = String(data: inputData, encoding: .utf8) else { return [:] }
-            var environment = ProcessInfo.processInfo.environment
-            environment["PI_MANAGER_MODEL_INPUT"] = inputText
-            process.environment = environment
-
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [:] }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: [String]] else { return [:] }
-            return object
-        } catch {
-            return [:]
-        }
-    }
-
-    nonisolated private static func availableModelIdentifiersFromPiList() -> [(provider: String, model: String)] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [
-            "-lc",
-            "if command -v pi >/dev/null 2>&1; then pi --list-models; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --list-models; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --list-models; else exit 127; fi"
-        ]
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [] }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let text = String(data: data, encoding: .utf8) else { return [] }
-            return text.split(whereSeparator: \.isNewline).dropFirst().compactMap { line in
-                let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
-                guard parts.count >= 2 else { return nil }
-                return (provider: parts[0], model: parts[1])
-            }
-        } catch {
-            return []
-        }
-    }
-
-    nonisolated private static func parseAvailableModels(from text: String, exactThinkingLevels: [String: [String]]) -> [AvailableModel] {
-        text
-            .split(whereSeparator: \.isNewline)
-            .dropFirst()
-            .compactMap { line in
-                let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
-                guard parts.count >= 6 else { return nil }
-                let identifier = "\(parts[0])/\(parts[1])"
-                let supportsThinking = parts[4].lowercased() == "yes"
-                return AvailableModel(
-                    provider: parts[0],
-                    model: parts[1],
-                    contextWindow: parts[2],
-                    maxOutput: parts[3],
-                    supportsThinking: supportsThinking,
-                    supportsImages: parts[5].lowercased() == "yes",
-                    supportedThinkingLevels: exactThinkingLevels[identifier] ?? (supportsThinking ? ["off", "minimal", "low", "medium", "high"] : ["off"])
-                )
-            }
     }
 
     private func skillVisible(to agent: EffectiveAgentRecord, skill: SkillRecord) -> Bool {
@@ -3751,7 +3667,7 @@ process.stdout.write(JSON.stringify(result));
     }
 
     private func startAutoRefresh() {
-        autoRefreshCancellable = Timer.publish(every: 2, on: .main, in: .common)
+        autoRefreshCancellable = Timer.publish(every: 2, tolerance: 0.5, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refreshIfWatchedFilesChanged()
@@ -3759,52 +3675,19 @@ process.stdout.write(JSON.stringify(result));
     }
 
     private func refreshIfWatchedFilesChanged() {
-        let fingerprint = watchFingerprint()
-        guard fingerprint != lastWatchFingerprint else { return }
-        refresh(includeModels: false)
-    }
-
-    private func watchFingerprint() -> String {
-        let fileManager = FileManager.default
-        let urls = watchedURLs()
-        let entries: [String] = urls.flatMap { url in
-            if let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey]),
-               values.isDirectory == true {
-                let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey])
-                var children: [String] = []
-                while let child = enumerator?.nextObject() as? URL {
-                    guard watchedFileName(child.lastPathComponent) else { continue }
-                    let date = (try? child.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
-                    children.append("\(child.path)::\(date)")
-                }
-                return children
+        guard watchFingerprintTask == nil else { return }
+        let previousFingerprint = lastWatchFingerprint
+        let urls = AppRefreshService.watchedURLs(enabledProjects: enabledProjects, snapshot: snapshot)
+        let shouldScanAllProjects = selectedProjectPath == nil
+        watchFingerprintTask = Task.detached(priority: .utility) {
+            let fingerprint = FileWatchFingerprint.make(urls: urls)
+            await MainActor.run {
+                self.watchFingerprintTask = nil
+                guard fingerprint != previousFingerprint else { return }
+                self.lastWatchFingerprint = fingerprint
+                self.refresh(includeModels: false, scanAllProjects: shouldScanAllProjects)
             }
-            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
-            return ["\(url.path)::\(date)"]
         }
-        return entries.sorted().joined(separator: "|")
-    }
-
-    private func watchedURLs() -> [URL] {
-        var urls: [URL] = [
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent", isDirectory: true),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
-        ]
-
-        for project in enabledProjects {
-            urls.append(project.url.appendingPathComponent(".pi", isDirectory: true))
-            urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))
-        }
-
-        urls += snapshot.promptTemplates.map { URL(fileURLWithPath: $0.filePath) }
-        urls += snapshot.settings.flatMap(\.prompts).map { URL(fileURLWithPath: $0) }
-
-        var seen: Set<String> = []
-        return urls.filter { seen.insert($0.path).inserted }
-    }
-
-    private func watchedFileName(_ name: String) -> Bool {
-        name.hasSuffix(".md") || name.hasSuffix(".json") || name == ".env" || name == "SKILL.md"
     }
 
     private func isPackageInstalled(_ name: String) -> Bool {
@@ -3817,38 +3700,6 @@ process.stdout.write(JSON.stringify(result));
         return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    private func loadJSONSettings(at url: URL) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return [:] }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    }
-
-    private func saveJSONSettings(_ settings: [String: Any], to url: URL) {
-        let directory = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard JSONSerialization.isValidJSONObject(settings),
-              let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    private func subagentsPackageEntries() -> [Any] {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/settings.json")
-        return subagentsPackageEntries(from: loadJSONSettings(at: settingsURL) ?? [:])
-    }
-
-    private func subagentsPackageEntries(from settings: [String: Any]) -> [Any] {
-        settings["packages"] as? [Any] ?? []
-    }
-
-    private func isSubagentsPackageEntry(_ entry: Any) -> Bool {
-        if let value = entry as? String {
-            return value == "npm:pi-subagents"
-        }
-        if let value = entry as? [String: Any], let source = value["source"] as? String {
-            return source == "npm:pi-subagents"
-        }
-        return false
-    }
 }
 
 enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
@@ -3952,6 +3803,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case environment = "Environment"
     case diagnostics = "Diagnostics"
     case piDocs = "Docs"
+    case credits = "Credits"
 
     var id: String { rawValue }
 
@@ -3971,6 +3823,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .environment: return "key"
         case .diagnostics: return "stethoscope"
         case .piDocs: return "book"
+        case .credits: return "info.circle"
         }
     }
 }
@@ -3992,7 +3845,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .runtime:
             return [.extensions, .models, .settings, .environment, .diagnostics]
         case .reference:
-            return [.piDocs]
+            return [.piDocs, .credits]
         }
     }
 }

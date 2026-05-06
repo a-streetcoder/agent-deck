@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+private struct PiManagerWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
 private struct PiAgentOpenTerminalToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
@@ -38,12 +52,13 @@ private struct PiAgentOpenTerminalToolbarButton: View {
 }
 
 struct ContentView: View {
+    @Environment(\.openSettings) private var openSettings
+    @AppStorage("piManagerWelcomeTourCompleted.v1") private var welcomeTourCompleted = false
     @StateObject private var viewModel = AppViewModel()
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
     @State private var chainDraft: ChainEditorDraft?
     @State private var envDraft: EnvEditorDraft?
-    @State private var subagentConfigDraft: SubagentConfigDraft?
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
     @State private var agentDetailEditCommand = 0
@@ -59,6 +74,7 @@ struct ContentView: View {
     @State private var isPiAgentRepoChangesPresented = false
     @State private var isPiAgentActivityPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
+    @State private var isWelcomeTourPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -134,7 +150,7 @@ struct ContentView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
-            .background(.regularMaterial, ignoresSafeAreaEdges: .all)
+            .background(Color.clear, ignoresSafeAreaEdges: .all)
             .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
         } detail: {
             HSplitView {
@@ -147,14 +163,25 @@ struct ContentView: View {
                 } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
                     PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
                         .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
-                } else if viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent {
-                    PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
-                        .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
                 }
+            }
+            .inspector(isPresented: Binding(
+                get: { viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent },
+                set: { viewModel.isPiAgentInspectorPresented = $0 }
+            )) {
+                PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+                    .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
             }
         }
         .frame(minWidth: 1040, minHeight: 700)
         .navigationTitle(toolbarTitle)
+        .background(PiManagerWindowAccessor { viewModel.setWindow($0) })
+        .focusedSceneValue(\.piManagerCommands, commandContext)
+        .onAppear {
+            if !welcomeTourCompleted {
+                isWelcomeTourPresented = true
+            }
+        }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             if newValue == .agent {
                 viewModel.acknowledgeVisibleSelectedPiAgentSession()
@@ -455,6 +482,7 @@ struct ContentView: View {
                             .frame(width: 16, height: 16)
                     }
                     .help("Open repo changes sidebar")
+                    .accessibilityLabel("Open repo changes")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
                     PiAgentOpenTerminalToolbarButton(
@@ -469,6 +497,12 @@ struct ContentView: View {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             debouncedProjectFilterText = trimmed.lowercased()
+        }
+        .sheet(isPresented: $isWelcomeTourPresented) {
+            WelcomeOnboardingSheet(viewModel: viewModel) {
+                welcomeTourCompleted = true
+                isWelcomeTourPresented = false
+            }
         }
         .sheet(item: $agentDraft) { draft in
             AgentEditorSheet(
@@ -525,16 +559,111 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(item: $subagentConfigDraft) { draft in
-            SubagentConfigEditorSheet(
-                draft: draft,
-                onCancel: { subagentConfigDraft = nil },
-                onSave: { updated in
-                    try viewModel.saveSubagentConfigDraft(updated)
-                    subagentConfigDraft = nil
+    }
+
+    private var commandContext: PiManagerCommandContext {
+        let selectedSession = viewModel.piAgentSessionStore.selectedSession
+        let selectedSessionID = selectedSession?.id
+        let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
+        let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
+        let selectedPrompt = viewModel.selectedPromptTemplate
+        let selectedCommand = viewModel.selectedCommand
+        let selectedAgent = viewModel.selectedAgent
+        let selectedAgentPath = selectedAgentFilePath
+
+        return PiManagerCommandContext(
+            canCreateAgent: true,
+            canDeletePiAgentSession: selectedSession != nil,
+            canStopPiAgentSession: selectedSessionIsRunning,
+            canOpenPiAgentActivity: selectedSession != nil,
+            canOpenPiAgentRepoChanges: selectedSession != nil,
+            canTogglePiAgentInspector: viewModel.selectedSidebarItem != .agent,
+            canOpenPiAgentInTerminal: viewModel.canOpenSelectedPiAgentSessionInTerminal,
+            canCommitGitHubChanges: hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting,
+            canPushGitHubBranch: hasGitProject && !viewModel.githubIsPushing,
+            canEnableAllProjects: !viewModel.discoveredProjects.isEmpty,
+            canDisableAllProjects: !viewModel.discoveredProjects.isEmpty,
+            canAddProject: true,
+            canImportSkills: true,
+            canCreatePrompt: true,
+            canCopyPromptInvocation: selectedPrompt != nil,
+            canOpenPromptFile: selectedPrompt != nil,
+            canRevealPromptFile: selectedPrompt != nil,
+            canCopyCommandInvocation: selectedCommand != nil,
+            canOpenSelectedAgentFile: selectedAgentPath != nil,
+            canRevealSelectedAgentFile: selectedAgentPath != nil,
+            canEditSelectedAgent: selectedAgent != nil,
+            canToggleSelectedAgentDisabled: selectedAgent != nil,
+            selectedAgentIsDisabled: selectedAgent?.resolved.disabled == true,
+            openSettings: {
+                openSettings()
+            },
+            refresh: { viewModel.refreshEverything() },
+            createAgent: {
+                editingAgent = nil
+                agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .library : .project)
+            },
+            deletePiAgentSession: { showingPiAgentDeleteAlert = true },
+            stopPiAgentSession: { viewModel.stopSelectedPiAgentSession() },
+            showPiAgentActivity: {
+                viewModel.openPiAgentScreen()
+                isPiAgentActivityPresented.toggle()
+                if isPiAgentActivityPresented { isPiAgentRepoChangesPresented = false }
+            },
+            showPiAgentRepoChanges: {
+                viewModel.openPiAgentScreen()
+                isPiAgentRepoChangesPresented.toggle()
+                if isPiAgentRepoChangesPresented {
+                    isPiAgentActivityPresented = false
+                    viewModel.prepareRepoChangesForSelectedPiAgentSession()
                 }
-            )
-        }
+            },
+            togglePiAgentInspector: {
+                if viewModel.selectedSidebarItem != .agent {
+                    viewModel.isPiAgentInspectorPresented.toggle()
+                }
+            },
+            resumePiAgentInTerminal: { viewModel.openSelectedPiAgentSessionInTerminal() },
+            refreshGitHub: { viewModel.refreshEverything() },
+            commitGitHubChanges: { viewModel.commitChanges() },
+            pushGitHubBranch: { viewModel.pushCurrentBranch() },
+            enableAllProjects: { showingEnableAllProjectsAlert = true },
+            disableAllProjects: { showingDisableAllProjectsAlert = true },
+            addProject: { viewModel.chooseProjectRoot() },
+            importSkills: {
+                NotificationCenter.default.post(name: .piManagerImportSkillsRequested, object: nil)
+            },
+            createPrompt: {
+                do { try viewModel.createLibraryPromptTemplate() }
+                catch { NSSound.beep() }
+            },
+            copyPromptInvocation: {
+                guard let selectedPrompt else { return }
+                copyCommandValue(selectedPrompt.invocation)
+            },
+            openPromptFile: {
+                guard let selectedPrompt else { return }
+                openPromptFile(selectedPrompt.filePath)
+            },
+            revealPromptFile: {
+                guard let selectedPrompt else { return }
+                revealPromptFile(selectedPrompt.filePath)
+            },
+            copyCommandInvocation: {
+                guard let selectedCommand else { return }
+                copyCommandValue(selectedCommand.invocation)
+            },
+            openSelectedAgentFile: { openSelectedAgentFile() },
+            revealSelectedAgentFile: { revealSelectedAgentFile() },
+            editSelectedAgent: {
+                guard selectedAgent != nil else { return }
+                agentDetailEditCommand += 1
+            },
+            toggleSelectedAgentDisabled: {
+                setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
+            }
+        )
     }
 
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {
@@ -633,15 +762,7 @@ struct ContentView: View {
         case .settings:
             SettingsScreen(viewModel: viewModel)
         case .subagents:
-            SubagentsScreen(
-                viewModel: viewModel,
-                onEditConfig: {
-                    subagentConfigDraft = viewModel.makeSubagentConfigDraft()
-                },
-                onRestoreDefaults: {
-                    viewModel.restoreDefaultSubagentConfig()
-                }
-            )
+            SubagentsScreen(viewModel: viewModel)
         case .environment:
             EnvironmentScreen(
                 snapshot: viewModel.snapshot,
@@ -653,6 +774,8 @@ struct ContentView: View {
             DiagnosticsScreen(snapshot: viewModel.snapshot)
         case .piDocs:
             PiDocsScreen()
+        case .credits:
+            CreditsScreen()
         }
     }
 
@@ -817,7 +940,7 @@ private struct PiAgentTranscriptDisplayOptionsPopover: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isOn ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
+            .appContentSurface(cornerRadius: 9, isSelected: isOn)
         }
         .buttonStyle(.plain)
     }
@@ -852,10 +975,10 @@ private struct PiAgentSidebarButton: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
+            .appGlassControl(cornerRadius: 16)
+            .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.selectionStroke : Color.clear, lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
                 if needsAttentionCount > 0 {
@@ -873,6 +996,8 @@ private struct PiAgentSidebarButton: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Pi Agent")
+        .accessibilityHint(needsAttentionCount > 0 ? "\(needsAttentionCount) session\(needsAttentionCount == 1 ? "" : "s") need review" : "Open Pi Agent sessions")
     }
 
     private var badgeText: String {
@@ -881,6 +1006,7 @@ private struct PiAgentSidebarButton: View {
 }
 
 private struct SidebarProjectGitHubCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var viewModel: AppViewModel
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
@@ -929,10 +1055,12 @@ private struct SidebarProjectGitHubCard: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
-                        .background(Circle().fill(AppTheme.subtleFill))
+                        .appGlassControl(cornerRadius: 14)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Choose project")
+                .accessibilityHint("Opens the project picker")
                 .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
                     ProjectPickerPopover(
                         projects: orderedProjects,
@@ -962,7 +1090,7 @@ private struct SidebarProjectGitHubCard: View {
                         Circle()
                             .fill(statusColor)
                             .frame(width: 10, height: 10)
-                            .overlay(Circle().stroke(AppTheme.cardFill, lineWidth: 2))
+                            .overlay(Circle().stroke(AppTheme.contentFill, lineWidth: 2))
                     }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -986,22 +1114,19 @@ private struct SidebarProjectGitHubCard: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(width: 28, height: 28)
-                        .background(Circle().fill(AppTheme.subtleFill))
+                        .appGlassControl(cornerRadius: 14)
                         .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
                 }
                 .buttonStyle(.plain)
                 .help("Refresh GitHub status, project scans, and repo data")
+                .accessibilityLabel("Refresh GitHub and projects")
                 .disabled(viewModel.githubIsRefreshingEverything)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .animation(.easeInOut(duration: 0.16), value: isExpanded)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
-        )
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isExpanded)
+        .appGlassPanel(cornerRadius: 16)
     }
 
     private var favoriteProjects: [DiscoveredProject] {
@@ -1219,11 +1344,11 @@ private struct ProjectSidebarRow: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.12) : AppTheme.subtleFill.opacity(0.22))
+                        .fill(isSelected ? Color.accentColor.opacity(0.12) : AppTheme.contentSubtleFill.opacity(0.22))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -1234,7 +1359,7 @@ private struct ProjectSidebarRow: View {
                         .font(.caption)
                         .foregroundStyle(isFavorite ? Color.yellow : AppTheme.mutedText)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(AppTheme.subtleFill.opacity(0.8)))
+                        .background(Circle().fill(AppTheme.contentSubtleFill.opacity(0.8)))
                 }
                 .buttonStyle(.plain)
                 .help(isFavorite ? "Remove favorite" : "Add favorite")
@@ -1277,7 +1402,7 @@ private struct SidebarGitHubAvatarView: View {
         .frame(width: size, height: size)
         .background(
             Circle()
-                .fill(AppTheme.subtleFill)
+                .fill(AppTheme.contentSubtleFill)
         )
         .clipShape(Circle())
     }
@@ -1301,7 +1426,7 @@ private struct ProjectIconEditorButton: View {
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(isHovering ? Color.accentColor.opacity(0.9) : AppTheme.cardStroke, lineWidth: isHovering ? 2 : 1)
+                            .stroke(isHovering ? Color.accentColor.opacity(0.9) : AppTheme.contentStroke, lineWidth: isHovering ? 2 : 1)
                     }
                     .overlay {
                         if isHovering {
@@ -1349,7 +1474,7 @@ struct ProjectIconView: View {
         .frame(width: size, height: size)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(AppTheme.subtleFill)
+                .fill(AppTheme.contentSubtleFill)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .task(id: imageURL?.path) {
@@ -1570,8 +1695,8 @@ private struct ProjectsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.28) : AppTheme.cardStroke, lineWidth: 1)
+                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.contentFill)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.28) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity(preference.isEnabled ? 1 : 0.58)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -1583,865 +1708,6 @@ private struct ProjectsScreen: View {
                 viewModel.setSelectedProject(project.url)
             }
         }
-    }
-}
-
-private struct SettingsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
-
-    var body: some View {
-        AppPage("Settings", subtitle: "App-level preferences for Pi Manager") {
-            AppCard(title: "Projects") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose the root folder Pi Manager scans for projects. When no project is selected, Pi Agent starts here too.")
-                        .foregroundStyle(AppTheme.mutedText)
-
-                    TextField("Projects root folder", text: projectsRootPathBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.callout.monospaced())
-                        .textSelection(.enabled)
-
-                    HStack(spacing: 10) {
-                        Button("Choose Folder") {
-                            viewModel.chooseProjectsRootDirectory()
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Use Default") {
-                            viewModel.resetProjectsRootPathToDefault()
-                        }
-                        .buttonStyle(.bordered)
-
-                        Spacer()
-
-                        Button("Reveal in Finder") {
-                            revealInFinder(viewModel.configuredProjectsRootPath)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    Text("Default: \(ProjectDiscovery.defaultRootDirectoryURL().path)")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }
-
-            AppCard(title: "Skill Imports") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Optionally choose a default folder Pi Manager should open first when importing skills. If unset, Pi Manager falls back to the last used folder, then Documents.")
-                        .foregroundStyle(AppTheme.mutedText)
-
-                    TextField("Default skills import folder", text: defaultSkillsImportRootPathBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.callout.monospaced())
-                        .textSelection(.enabled)
-
-                    HStack(spacing: 10) {
-                        Button("Choose Folder") {
-                            viewModel.chooseDefaultSkillsImportDirectory()
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Clear") {
-                            viewModel.resetDefaultSkillsImportRootPath()
-                        }
-                        .buttonStyle(.bordered)
-
-                        Spacer()
-
-                        Button("Reveal in Finder") {
-                            if let path = viewModel.appSettings.defaultSkillsImportRootPath, !path.isEmpty {
-                                revealInFinder(path)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled((viewModel.appSettings.defaultSkillsImportRootPath ?? "").isEmpty)
-                    }
-                }
-            }
-
-            AppCard(title: "GitHub") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Tune how long GitHub issue data stays fresh before Pi Manager reloads it.")
-                        .foregroundStyle(AppTheme.mutedText)
-
-                    AppStepper("Issue cache lifetime",
-                               value: cacheLifetimeBinding,
-                               in: 1...240,
-                               unit: "minutes")
-
-                    Text("Applies to the issue lists on the GitHub page. Use Refresh to bypass the cache at any time.")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }
-
-            AppCard(title: "Pi Agent") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Picker("Reasoning", selection: piAgentThinkingDisplayBinding) {
-                        ForEach(PiAgentThinkingDisplayMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Text("Matches Pi's thinking visibility behavior: show full reasoning, show a compact preview, or hide thinking blocks from the transcript.")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        AppStepper("Notification delay",
-                                   value: piAgentNotificationDelayBinding,
-                                   in: 1...60,
-                                   unit: "minutes")
-
-                        Text("Pi Manager marks sessions as needing attention immediately, then waits this long before sending a macOS notification if the session is still unread and the app is not active.")
-                            .font(.footnote)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Picker("Terminal app", selection: piAgentTerminalApplicationSelectionBinding) {
-                            ForEach(viewModel.piAgentTerminalApplicationOptions) { option in
-                                Text(option.name).tag(option.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-
-                        Text(viewModel.appSettings.piAgentTerminalApplicationPath ?? "Use macOS' default app for .command files")
-                            .font(.callout.monospaced())
-                            .textSelection(.enabled)
-                            .foregroundStyle(AppTheme.mutedText)
-
-                        HStack(spacing: 10) {
-                            Button("Choose Other…") {
-                                viewModel.choosePiAgentTerminalApplication()
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Button("Use macOS Default") {
-                                viewModel.resetPiAgentTerminalApplicationToDefault()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-
-                    Text("Used by the Pi Agent toolbar terminal button when opening a CLI resume session.")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }
-
-            AppCard(title: "Subagents") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Toggle("Disable all builtins globally", isOn: userDisableBuiltinsBinding)
-
-                    Text("Per-agent quick controls in the Agents screen also apply globally for now.")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }
-
-            AppCard(title: "Future Settings") {
-                Text("This page is for app-wide settings so we have one clear place to grow preferences over time.")
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-        }
-    }
-
-    private var projectsRootPathBinding: Binding<String> {
-        Binding(
-            get: { viewModel.appSettings.projectsRootPath },
-            set: { viewModel.setProjectsRootPath($0) }
-        )
-    }
-
-    private var defaultSkillsImportRootPathBinding: Binding<String> {
-        Binding(
-            get: { viewModel.appSettings.defaultSkillsImportRootPath ?? "" },
-            set: { viewModel.setDefaultSkillsImportRootPath($0) }
-        )
-    }
-
-    private var cacheLifetimeBinding: Binding<Int> {
-        Binding(
-            get: { viewModel.gitHubBoardCacheLifetimeMinutes },
-            set: { viewModel.setGitHubBoardCacheLifetimeMinutes($0) }
-        )
-    }
-
-    private var piAgentThinkingDisplayBinding: Binding<PiAgentThinkingDisplayMode> {
-        Binding(
-            get: { viewModel.appSettings.piAgentThinkingDisplayMode },
-            set: { viewModel.setPiAgentThinkingDisplayMode($0) }
-        )
-    }
-
-    private var piAgentNotificationDelayBinding: Binding<Int> {
-        Binding(
-            get: { viewModel.piAgentNotificationDelayMinutes },
-            set: { viewModel.setPiAgentNotificationDelayMinutes($0) }
-        )
-    }
-
-    private var piAgentTerminalApplicationSelectionBinding: Binding<String> {
-        Binding(
-            get: { viewModel.piAgentTerminalApplicationSelectionID },
-            set: { viewModel.setPiAgentTerminalApplicationSelection($0) }
-        )
-    }
-
-    private var userDisableBuiltinsBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.userDisableBuiltins },
-            set: { viewModel.setDisableBuiltins($0, scope: .global) }
-        )
-    }
-
-}
-
-private struct ExtensionsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
-
-    var body: some View {
-        AppPage("Extensions", subtitle: "Enable or disable Pi extensions without deleting extension files") {
-            AppCard(title: "Safety") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Pi Manager only writes explicit + / - entries to Pi settings. It does not delete extension files, package folders, or unrelated settings keys.")
-                    Text("Changes affect new Pi sessions in Pi Manager and the CLI/TUI. Existing TUI sessions can pick them up with `/reload`; existing app sessions need a new session.")
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            let extensions = viewModel.visibleExtensions
-            if extensions.isEmpty {
-                ContentUnavailableView("No Extensions Found", systemImage: "puzzlepiece.extension", description: Text("Pi Manager did not find auto-discovered, settings, or package extensions for the current scope."))
-            } else {
-                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                    let packageExtensions = extensions.filter { $0.origin == .package }
-                    let localExtensions = extensions.filter { $0.origin != .package }
-
-                    if !localExtensions.isEmpty {
-                        extensionGroup(title: "Custom Local Extensions", subtitle: "Files loaded from global or project extension folders/settings.", records: localExtensions)
-                    }
-
-                    if !packageExtensions.isEmpty {
-                        extensionGroup(title: "Package Extensions", subtitle: "Extensions provided by installed Pi packages.", records: packageExtensions)
-                    }
-                }
-            }
-        }
-    }
-
-    private func extensionGroup(title: String, subtitle: String, records: [PiExtensionRecord]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.title3.weight(.bold))
-                        .fontWidth(.expanded)
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 2)
-
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(records.enumerated()), id: \.element.id) { index, record in
-                    extensionRow(record)
-                    if index < records.count - 1 { Divider() }
-                }
-            }
-            .padding(.horizontal, AppTheme.cardPadding)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                    .fill(AppTheme.cardFill)
-                    .stroke(AppTheme.cardStroke, lineWidth: 1)
-            )
-        }
-    }
-
-    private func extensionRow(_ record: PiExtensionRecord) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: "puzzlepiece.extension")
-                        .foregroundStyle(record.enabled ? .orange : AppTheme.mutedText)
-                        .frame(width: 22)
-
-                    Text(record.displayName)
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    if let description = record.packageDescription, !description.isEmpty {
-                        Text(description)
-                            .font(.footnote)
-                            .foregroundStyle(.primary.opacity(0.82))
-                    }
-
-                    Text(record.path)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .textSelection(.enabled)
-
-                    if let repositoryURL = record.repositoryURL,
-                       let linkURL = normalizedRepositoryURL(repositoryURL) {
-                        Button {
-                            NSWorkspace.shared.open(linkURL)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image("github")
-                                    .resizable()
-                                    .renderingMode(.template)
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 12, height: 12)
-                                Text(repositoryDisplayText(for: linkURL))
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.caption2)
-                            }
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                        }
-                        .buttonStyle(.plain)
-                        .help(linkURL.absoluteString)
-                    }
-
-                    Text(extensionDetails(for: record))
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .textSelection(.enabled)
-                }
-                .padding(.leading, 32)
-            }
-
-            Spacer()
-
-            Toggle("", isOn: Binding(
-                get: { record.enabled },
-                set: { viewModel.setExtension(record, enabled: $0) }
-            ))
-            .labelsHidden()
-            .help(record.enabled ? "Disable this extension in settings" : "Enable this extension in settings")
-        }
-        .padding(.vertical, 10)
-    }
-
-    private func extensionDetails(for record: PiExtensionRecord) -> String {
-        var parts = [record.scope.rawValue, record.origin.rawValue]
-        if let packageName = record.packageName, !packageName.isEmpty, record.origin == .package {
-            parts.append(packageName)
-        }
-        parts.append("writes to \(record.settingsPath)")
-        return parts.joined(separator: " · ")
-    }
-
-    private func normalizedRepositoryURL(_ value: String) -> URL? {
-        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("git+") { text.removeFirst(4) }
-        if text.hasSuffix(".git") { text.removeLast(4) }
-        if text.hasPrefix("git@github.com:") {
-            text = "https://github.com/" + text.dropFirst("git@github.com:".count)
-        }
-        return URL(string: text)
-    }
-
-    private func repositoryDisplayText(for url: URL) -> String {
-        if url.host?.localizedCaseInsensitiveContains("github.com") == true {
-            let parts = url.path.split(separator: "/").map(String.init)
-            if parts.count >= 2 { return parts.prefix(2).joined(separator: "/") }
-        }
-        return url.absoluteString
-    }
-}
-
-private struct ModelsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
-
-    var body: some View {
-        AppPage("Models", subtitle: "Available models from `pi --list-models`") {
-            if viewModel.availableModels.isEmpty {
-                AppCard(title: "Catalog", trailing: catalogUpdatedLabel) {
-                    Text("No models loaded yet. Use Refresh to query Pi.")
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            } else {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Pi’s model catalog, grouped by provider. Thinking, image input, context, and output limits come directly from `pi --list-models`.")
-                        .foregroundStyle(AppTheme.mutedText)
-                    Spacer()
-                    catalogUpdatedLabel()
-                }
-
-                VStack(alignment: .leading, spacing: 20) {
-                    ForEach(groupedModels, id: \.provider) { group in
-                        providerSection(group)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func catalogUpdatedLabel() -> some View {
-        if let date = viewModel.modelsLastUpdatedAt {
-            Text(RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date()))
-                .foregroundStyle(AppTheme.mutedText)
-        }
-    }
-
-    private func providerSection(_ group: (provider: String, models: [AvailableModel])) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(group.provider)
-                    .font(.title3.weight(.bold))
-                    .fontWidth(.expanded)
-                    .foregroundStyle(.primary)
-                Spacer()
-            }
-            .padding(.horizontal, 2)
-
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(group.models.enumerated()), id: \.element.id) { index, model in
-                    modelRow(model)
-                    if index < group.models.count - 1 {
-                        Divider()
-                    }
-                }
-            }
-            .padding(.horizontal, AppTheme.cardPadding)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                    .fill(AppTheme.cardFill)
-                    .stroke(AppTheme.cardStroke, lineWidth: 1)
-            )
-        }
-    }
-
-    private func modelRow(_ model: AvailableModel) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.model)
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                Text(model.identifier)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-                    .textSelection(.enabled)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 8) {
-                HStack(spacing: 8) {
-                    AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
-                    AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
-                }
-                Text("ctx \(model.contextWindow) · out \(model.maxOutput)")
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-        }
-        .padding(.vertical, 10)
-    }
-
-    private var groupedModels: [(provider: String, models: [AvailableModel])] {
-        Dictionary(grouping: viewModel.availableModels, by: \.provider)
-            .map { provider, models in
-                (provider, models.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending })
-            }
-            .sorted { $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending }
-    }
-}
-
-private struct SubagentsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
-    let onEditConfig: () -> Void
-    let onRestoreDefaults: () -> Void
-    @State private var showingRestoreDefaultsConfirmation = false
-
-    var body: some View {
-        AppPage("Subagents", subtitle: "Global pi-subagents runtime defaults and package behavior") {
-            AppCard(title: "What You Can Edit Here") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• These settings control default runtime behavior for pi-subagents on this machine.")
-                    Text("• This is the package config file, not an agent markdown file.")
-                    Text("• Things like async defaults, intercom bridge behavior, control notices, parallel limits, and worktree hooks live here.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Config File", trailing: {
-                HStack(spacing: 10) {
-                    if let config = viewModel.snapshot.subagentConfig {
-                        Button("Open") { openFile(config.path) }
-                        Button("Reveal") { revealInFinder(config.path) }
-                    }
-                    Button("Restore Defaults") { showingRestoreDefaultsConfirmation = true }
-                        .disabled(viewModel.snapshot.subagentConfig == nil)
-                    Button("Edit Config") { onEditConfig() }
-                }
-            }) {
-                if viewModel.snapshot.subagentConfig == nil {
-                    Text("No `~/.pi/agent/extensions/subagent/config.json` file exists right now. Pi Subagents falls back to its built-in package defaults until you create one.")
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, 8)
-                }
-
-                AppKeyValueList(rows: [
-                    ("Path", configPath),
-                    ("Source", viewModel.snapshot.subagentConfig == nil ? "Package defaults" : "User config file"),
-                    ("Async By Default", boolLabel(displayedConfig.asyncByDefault)),
-                    ("Force Top-Level Async", boolLabel(displayedConfig.forceTopLevelAsync)),
-                    ("Default Session Dir", displayedConfig.defaultSessionDir ?? "Derived from parent session"),
-                    ("Max Subagent Depth", displayedConfig.maxSubagentDepth.map(String.init) ?? "No package limit"),
-                    ("Control Enabled", boolLabel(displayedConfig.control.enabled)),
-                    ("Needs Attention After", displayedConfig.control.needsAttentionAfterMs.map { "\($0) ms" } ?? "—"),
-                    ("Notify Channels", displayedConfig.control.notifyChannels.isEmpty ? "—" : displayedConfig.control.notifyChannels.joined(separator: ", ")),
-                    ("Parallel Max Tasks", displayedConfig.parallel.maxTasks.map(String.init) ?? "8"),
-                    ("Parallel Concurrency", displayedConfig.parallel.concurrency.map(String.init) ?? "4"),
-                    ("Worktree Setup Hook", displayedConfig.worktreeSetupHook ?? "—"),
-                    ("Worktree Hook Timeout", displayedConfig.worktreeSetupHookTimeoutMs.map { "\($0) ms" } ?? "30000 ms"),
-                    ("Intercom Bridge Mode", displayedConfig.intercomBridge.mode ?? "always"),
-                    ("Intercom Instruction File", displayedConfig.intercomBridge.instructionFile ?? "Default packaged instructions")
-                ])
-            }
-
-            AppCard(title: "Package Defaults When Config Is Missing") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("When `~/.pi/agent/extensions/subagent/config.json` is missing, pi-subagents uses these built-in defaults:")
-                    Text("• `asyncByDefault`: `false`")
-                    Text("• `forceTopLevelAsync`: `false`")
-                    Text("• `defaultSessionDir`: derived from the parent session")
-                    Text("• `maxSubagentDepth`: no package-level limit")
-                    Text("• `control.enabled`: `true`")
-                    Text("• `control.needsAttentionAfterMs`: `60000`")
-                    Text("• `control.notifyChannels`: `event, async, intercom`")
-                    Text("• `parallel.maxTasks`: `8`")
-                    Text("• `parallel.concurrency`: `4`")
-                    Text("• `intercomBridge.mode`: `always`")
-                    Text("• `intercomBridge.instructionFile`: packaged default instructions")
-                    Text("• `worktreeSetupHook`: unset")
-                    Text("• `worktreeSetupHookTimeoutMs`: `30000`")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "How These Settings Affect Runs") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• `asyncByDefault` makes runs go to the background unless a request says otherwise.")
-                    Text("• `forceTopLevelAsync` pushes top-level runs to background and skips clarify UI for them.")
-                    Text("• `control` decides whether long quiet runs raise needs-attention notices.")
-                    Text("• `parallel` sets default task limits for top-level parallel runs.")
-                    Text("• `intercomBridge` controls when child agents get automatic intercom coordination instructions.")
-                    Text("• `worktreeSetupHook` prepares each created worktree before a parallel isolated run starts.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .alert("Restore subagent defaults?", isPresented: $showingRestoreDefaultsConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Restore Defaults", role: .destructive) {
-                onRestoreDefaults()
-            }
-        } message: {
-            Text("This will delete ~/.pi/agent/extensions/subagent/config.json and fall back to the built-in pi-subagents defaults.")
-        }
-    }
-
-    private var configPath: String {
-        viewModel.snapshot.subagentConfig?.path ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-    }
-
-    private var displayedConfig: SubagentExtensionConfig {
-        viewModel.snapshot.subagentConfig?.config ?? .packageDefaults
-    }
-
-    private func openFile(_ path: String) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
-    }
-
-    private func revealInFinder(_ path: String) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-    }
-}
-
-private struct AgentModelQuickEditorContext: Identifiable {
-    let id = UUID()
-    let title: String
-    let subtitle: String
-    let sections: [AgentModelQuickEditorSection]
-    let preferredOverrideScope: AgentEditingTarget.OverrideScope
-}
-
-private struct AgentModelQuickEditorSection: Identifiable {
-    let title: String
-    let agents: [EffectiveAgentRecord]
-
-    var id: String { title }
-}
-
-private struct AgentModelQuickEditorSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let context: AgentModelQuickEditorContext
-    let availableModels: [AvailableModel]
-    let modelsLastUpdatedAt: Date?
-    let makeDraft: (EffectiveAgentRecord) -> AgentEditorDraft?
-    let onSave: (AgentEditorDraft, EffectiveAgentRecord) throws -> Void
-
-    @State private var drafts: [EffectiveAgentRecord.ID: AgentEditorDraft]
-    @State private var baselines: [EffectiveAgentRecord.ID: AgentEditorDraft]
-    @State private var saveMessage: String?
-
-    init(
-        context: AgentModelQuickEditorContext,
-        availableModels: [AvailableModel],
-        modelsLastUpdatedAt: Date?,
-        makeDraft: @escaping (EffectiveAgentRecord) -> AgentEditorDraft?,
-        onSave: @escaping (AgentEditorDraft, EffectiveAgentRecord) throws -> Void
-    ) {
-        self.context = context
-        self.availableModels = availableModels
-        self.modelsLastUpdatedAt = modelsLastUpdatedAt
-        self.makeDraft = makeDraft
-        self.onSave = onSave
-
-        let seeded = Dictionary(uniqueKeysWithValues: context.sections
-            .flatMap(\.agents)
-            .compactMap { agent in makeDraft(agent).map { (agent.id, $0) } })
-        _drafts = State(initialValue: seeded)
-        _baselines = State(initialValue: seeded)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(context.title)
-                        .font(.title2.bold())
-                        .fontWidth(.expanded)
-                    Text(context.subtitle)
-                        .foregroundStyle(AppTheme.mutedText)
-                    Text(modelSelectionSummary)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Model + thinking only")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(context.sections) { section in
-                        if !section.agents.isEmpty {
-                            AppCard(title: section.title) {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    ForEach(section.agents) { agent in
-                                        if let draftBinding = binding(for: agent.id) {
-                                            AgentModelQuickEditRow(
-                                                agent: agent,
-                                                draft: draftBinding,
-                                                availableModels: availableModels,
-                                                isDirty: isDirty(agent.id)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            HStack {
-                if let saveMessage {
-                    Text(saveMessage)
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
-                Spacer()
-                Button("Cancel") {
-                    dismiss()
-                }
-                Button("Save All") {
-                    saveAll()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(dirtyAgentIDs.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 860, minHeight: 640)
-    }
-
-    private var dirtyAgentIDs: [EffectiveAgentRecord.ID] {
-        drafts.keys.filter(isDirty)
-    }
-
-    private func isDirty(_ id: EffectiveAgentRecord.ID) -> Bool {
-        drafts[id] != baselines[id]
-    }
-
-    private func binding(for id: EffectiveAgentRecord.ID) -> Binding<AgentEditorDraft>? {
-        guard let initial = drafts[id] else { return nil }
-        return Binding(
-            get: { drafts[id] ?? initial },
-            set: { drafts[id] = $0 }
-        )
-    }
-
-    private var modelSelectionSummary: String {
-        let freshness = modelsLastUpdatedAt.map { date in
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .short
-            return " Refreshed \(formatter.localizedString(for: date, relativeTo: Date()))."
-        } ?? ""
-        return "Uses the same model list and thinking rules as the full editor. Thinking choices update automatically for the selected model.\(freshness)"
-    }
-
-    private func saveAll() {
-        var savedCount = 0
-        for section in context.sections {
-            for agent in section.agents where isDirty(agent.id) {
-                guard let draft = drafts[agent.id] else { continue }
-                do {
-                    try onSave(draft, agent)
-                    baselines[agent.id] = draft
-                    savedCount += 1
-                } catch {
-                    NSSound.beep()
-                    saveMessage = nil
-                    return
-                }
-            }
-        }
-
-        saveMessage = savedCount == 1 ? "Saved 1 agent." : "Saved \(savedCount) agents."
-    }
-}
-
-private struct AgentModelQuickEditRow: View {
-    let agent: EffectiveAgentRecord
-    @Binding var draft: AgentEditorDraft
-    let availableModels: [AvailableModel]
-    let isDirty: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text(agent.name)
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                if isDirty {
-                    AppLabelTag(text: "Unsaved", color: .orange)
-                }
-            }
-
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Model")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    Picker("Model", selection: modelSelectionBinding) {
-                        Text("Use Pi Default Model").tag("")
-                        ForEach(availableModels, id: \.identifier) { model in
-                            Text(model.identifier).tag(model.identifier)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if let summary = selectedModelMetadataSummary {
-                        Text(summary)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Thinking")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    Picker("Thinking", selection: thinkingSelectionBinding) {
-                        ForEach(availableThinkingLevels, id: \.self) { level in
-                            Text(level.capitalized).tag(level)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 180, alignment: .leading)
-                }
-                .frame(width: 220, alignment: .leading)
-                .padding(12)
-                .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.subtleFill.opacity(0.28), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private var selectedModel: AvailableModel? {
-        guard let identifier = draft.config.model else { return nil }
-        return availableModels.first { $0.identifier == identifier }
-    }
-
-    private var selectedModelMetadataSummary: String? {
-        guard let model = selectedModel else { return nil }
-        return "context: \(model.contextWindow)"
-    }
-
-    private var availableThinkingLevels: [String] {
-        selectedModel?.supportedThinkingLevels ?? ["off", "minimal", "low", "medium", "high", "xhigh"]
-    }
-
-    private var modelSelectionBinding: Binding<String> {
-        Binding(
-            get: { draft.config.model ?? "" },
-            set: { newValue in
-                draft.config.model = newValue.isEmpty ? nil : newValue
-                clampThinkingSelection()
-            }
-        )
-    }
-
-    private var thinkingSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let current = draft.config.thinking ?? "off"
-                return availableThinkingLevels.contains(current) ? current : (availableThinkingLevels.first ?? "off")
-            },
-            set: { newValue in
-                draft.config.thinking = newValue == "off" ? nil : newValue
-            }
-        )
-    }
-
-    private func clampThinkingSelection() {
-        let current = draft.config.thinking ?? "off"
-        guard !availableThinkingLevels.contains(current) else { return }
-        let fallback = availableThinkingLevels.first ?? "off"
-        draft.config.thinking = fallback == "off" ? nil : fallback
     }
 }
 
@@ -2713,8 +1979,8 @@ private struct AgentLibraryPane: View {
         .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+                .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
         )
         .opacity(agent.resolved.disabled == true ? 0.62 : 1)
         .saturation(agent.resolved.disabled == true ? 0.25 : 1)
@@ -2784,7 +2050,7 @@ private struct AgentLibraryPane: View {
 private func libraryManagedAgentRecord(for agent: EffectiveAgentRecord, libraryAgents: [AgentRecord]) -> AgentRecord? {
     guard let winningRecord = agent.winningRecord else { return nil }
     guard winningRecord.source.kind != .builtin else { return nil }
-    // Same-name custom agents that replace builtins are intentional pi-subagents overrides.
+    // Same-name custom agents that replace builtins are intentional overrides.
     // Keep them in their chosen scope instead of offering reusable library assignment.
     if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) { return nil }
     return libraryAgents.first { $0.name == agent.name } ?? winningRecord
@@ -2848,7 +2114,7 @@ private struct AgentDetailView: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.subtleFill)
+                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -3282,7 +2548,7 @@ private struct AgentDetailView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Skill Selection") {
                             configEditorRow("Skill Catalog") {
-                                Text("Only skills visible in this agent’s scope are selectable here. The parent-only pi-subagents orchestration skill is intentionally excluded.")
+                                Text("Only skills visible in this agent’s scope are selectable here.")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             }
@@ -3309,19 +2575,6 @@ private struct AgentDetailView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills), isLast: true)
-                        }
-
-                        if agent.resolved.skills.contains("pi-subagents") {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                Text("pi-subagents is parent/orchestrator-only and should not be injected into spawned agents. Remove it from this agent’s explicit skills.")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(10)
-                            .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
                         if !skillVisibilityIssues(agent).isEmpty {
@@ -3627,7 +2880,7 @@ private struct AgentDetailView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -3703,7 +2956,7 @@ private struct AgentDetailView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
         }
@@ -3832,7 +3085,6 @@ private struct AgentDetailView: View {
     }
 
     private func addInlineSkill(_ skill: String) {
-        guard skill != "pi-subagents" else { return }
         guard inlineDraft?.config.skills.contains(skill) == false else { return }
         inlineDraft?.config.skills.append(skill)
     }
@@ -3924,7 +3176,7 @@ private struct AgentDetailView: View {
         case "Default Progress", "Progress":
             return "When enabled, managed workflows maintain progress.md for this agent."
         case "Interactive", "Interaction":
-            return "Compatibility frontmatter field for interactive behavior. Parsed and preserved, but not strongly enforced by pi-subagents v1."
+            return "Compatibility frontmatter field for interactive behavior. Parsed and preserved."
         case "Max Subagent Depth", "Max Depth":
             return "Limits how many more nested subagent launches this agent can create below itself."
         case "Extensions":
@@ -4332,7 +3584,7 @@ private struct SubagentsInfoPopover: View {
             VStack(alignment: .leading, spacing: 10) {
                 infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until linked.")
                 infoRow("Chain Library", "Central storage in ~/.pi/agent/agent-library/chains. Pi does not load these until linked.")
-                infoRow("Global", "Agent links are created where pi-subagents would create user agents (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
+                infoRow("Global", "Agent links are created in the standard global agent locations (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
                 infoRow("Project", "Links are created in PROJECT/.pi/agents and PROJECT/.pi/chains.")
                 infoRow("Builtins", "Pi Manager bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
             }
@@ -4365,7 +3617,9 @@ private struct SubagentsProjectRecapPanel: View {
                     Text(project.name).font(.caption).foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain)
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close recap")
             }
             .padding(16)
             Divider()
@@ -4383,7 +3637,7 @@ private struct SubagentsProjectRecapPanel: View {
                 .padding(16)
             }
         }
-        .background(AppTheme.subtleFill)
+        .background(AppTheme.contentSubtleFill)
     }
 
     private func agentRecapSection(_ title: String, agents: [EffectiveAgentRecord], color: Color) -> some View {
@@ -4431,7 +3685,7 @@ private struct SubagentsProjectRecapPanel: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -4496,6 +3750,7 @@ private struct SkillsProjectRecapPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("Close recap")
+                .accessibilityLabel("Close recap")
             }
             .padding(16)
 
@@ -4515,7 +3770,7 @@ private struct SkillsProjectRecapPanel: View {
                 .padding(16)
             }
         }
-        .background(AppTheme.subtleFill)
+        .background(AppTheme.contentSubtleFill)
     }
 
     private func recapSection(_ title: String, skills: [SkillRecord], color: Color, emptyText: String) -> some View {
@@ -4550,7 +3805,7 @@ private struct SkillsProjectRecapPanel: View {
                         }
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
             }
@@ -4837,8 +4092,8 @@ private struct SkillsScreen: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                    .stroke(selectedSkillName == skill.name ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+                    .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                    .stroke(selectedSkillName == skill.name ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
             .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)
@@ -5323,7 +4578,6 @@ private struct PiDocsScreen: View {
         case prompts = "Prompts & Commands"
         case agents = "Agents & Chains"
         case architecture = "Architecture"
-        case intercom = "Intercom"
 
         var id: String { rawValue }
     }
@@ -5346,7 +4600,7 @@ private struct PiDocsScreen: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.subtleFill)
+                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -5361,7 +4615,6 @@ private struct PiDocsScreen: View {
             case .prompts: promptsTab
             case .agents: agentsTab
             case .architecture: architectureTab
-            case .intercom: intercomTab
             }
         }
     }
@@ -5385,21 +4638,20 @@ private struct PiDocsScreen: View {
                         ("Project settings", ".pi/settings.json"),
                         ("User agents", "~/.pi/agent/agents/*.md"),
                         ("Project agents", ".pi/agents/*.md"),
-                        ("Builtin agents", "<pi-subagents package>/agents/*.md"),
+                        ("Bundled agents", "App bundle bundled-agents/*.md"),
                         ("User skills", "~/.pi/agent/skills/"),
                         ("Project skills", ".pi/skills/"),
                         ("User prompts", "~/.pi/agent/prompts/*.md"),
                         ("Project prompts", ".pi/prompts/*.md"),
                         ("User env", "~/.pi/agent/.env"),
-                        ("Project env", ".pi/.env"),
-                        ("Extension config", "~/.pi/agent/extensions/subagent/config.json")
+                        ("Project env", ".pi/.env")
                     ])
                 }
             }
 
             AppCard(title: "Agent Resolution") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("1. Builtin agents are discovered from the installed pi-subagents package.")
+                    Text("1. Bundled agents are discovered from Pi Manager's app resources.")
                     Text("2. Global custom agents in `~/.pi/agent/agents/` or `~/.agents/` override builtins by name.")
                     Text("3. Project agents in `.pi/agents/` override both global and builtin.")
                     Text("4. Settings overrides (`subagents.agentOverrides`) patch any agent's fields without creating a file.")
@@ -5575,10 +4827,10 @@ private struct PiDocsScreen: View {
             AppCard(title: "Entry Points") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Four entry points can trigger a subagent:")
-                    Text("• **Tool call** — LLM calls `subagent({ agent, task, ... })` as a tool")
-                    Text("• **Slash commands** — `/run`, `/chain`, `/parallel`, `/agents` routed through slash-bridge")
-                    Text("• **Prompt templates** — packaged workflows bridge through prompt-template-bridge")
-                    Text("• **Extension events** — `pi.events` emit/subscribe pattern for async jobs")
+                    Text("• **Managed tools** — parent sessions call Pi Manager bridge tools for single, chain, and parallel delegation")
+                    Text("• **Manual run picker** — users start native child sessions from the composer or inspector")
+                    Text("• **Chains** — app-managed sequential workflows where each step receives previous output")
+                    Text("• **Parallel runs** — app-managed concurrent child sessions with optional worktree isolation")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -5595,8 +4847,9 @@ private struct PiDocsScreen: View {
 
             AppCard(title: "Foreground vs Background") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• **Foreground (sync)**: spawns a child `pi` process in `--mode json`, parses JSON-lines events from stdout for real-time progress.")
-                    Text("• **Background (async)**: same spawn but detached. Status written to `status.json`, events to `events.jsonl`. Parent tracks async jobs via file watcher.")
+                    Text("• **Single**: one app-owned child Pi RPC session for a bounded task.")
+                    Text("• **Chain**: sequential native child runs where each step receives the previous result.")
+                    Text("• **Parallel**: independent native child runs with app-owned status, stop, retry, and worktree controls.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -5606,51 +4859,7 @@ private struct PiDocsScreen: View {
                     Text("• `needs_attention` — fired when a child has had no activity for a configured window")
                     Text("• `active_long_running` — fired when a child has been running beyond a threshold")
                     Text("• `failed_tool_attempts` — consecutive mutating-tool failures trigger escalation")
-                    Text("• These events route through intercom when available, otherwise appear as in-conversation notifications")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: - Intercom
-
-    private var intercomTab: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "What Intercom Does") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Intercom is the optional coordination layer between child subagents and the parent orchestrator. It requires `pi-intercom` installed; without it everything still works, you just lose bidirectional communication.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Without Intercom") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Communication is one-way: parent fires task, blocks until child finishes")
-                    Text("• Children can't ask questions back or send mid-run updates")
-                    Text("• Simple scout → planner → worker → reviewer workflows work fine without it")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "With Intercom") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Children can `ask` the parent a question mid-task and wait for an answer")
-                    Text("• Children can `send` status updates without blocking")
-                    Text("• Control events (`needs_attention`, `active_long_running`) route through the intercom channel")
-                    Text("• Enables extended coordination patterns like oracle advisor loops")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Activation") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Install `pi-intercom` — no config needed on the pi-subagents side. Detection is automatic:")
-                    Text("1. Bridge mode is not `off` (defaults to `always`)")
-                    Text("2. Orchestrator target exists (auto-generated from session name/ID)")
-                    Text("3. `pi-intercom` extension directory exists")
-                    Text("4. Intercom config is not disabled")
-                    Text("Once active, `intercom` tool and bridge instructions are injected into every child agent automatically.")
+                    Text("• These events appear as native transcript and activity cards scoped to the owning parent session.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -5699,18 +4908,6 @@ private struct DiagnosticsScreen: View {
         let installed = Set(detectInstalledPackageNames())
         return [
             PackageInfo(
-                name: "pi-subagents",
-                displayName: "pi-subagents",
-                description: "Delegate work to subagents with chains, parallel execution, and interactive coordination.",
-                repoURL: "https://github.com/nicobailon/pi-subagents",
-                homepageURL: "https://github.com/nicobailon/pi-subagents#readme",
-                author: "Nico Bailon",
-                installCommand: "pi install npm:pi-subagents",
-                category: .essential,
-                isInstalled: installed.contains("pi-subagents"),
-                installedVersion: installedPackageVersion("pi-subagents")
-            ),
-            PackageInfo(
                 name: "pi-web-access",
                 displayName: "pi-web-access",
                 description: "Web search, URL fetching, GitHub repo cloning, PDF extraction, and YouTube/local video analysis.",
@@ -5721,18 +4918,6 @@ private struct DiagnosticsScreen: View {
                 category: .essential,
                 isInstalled: installed.contains("pi-web-access"),
                 installedVersion: installedPackageVersion("pi-web-access")
-            ),
-            PackageInfo(
-                name: "pi-intercom",
-                displayName: "pi-intercom",
-                description: "Direct 1:1 messaging between Pi sessions on the same machine.",
-                repoURL: "https://github.com/nicobailon/pi-intercom",
-                homepageURL: "https://github.com/nicobailon/pi-intercom#readme",
-                author: "Nico Bailon",
-                installCommand: "pi install npm:pi-intercom",
-                category: .recommended,
-                isInstalled: installed.contains("pi-intercom"),
-                installedVersion: installedPackageVersion("pi-intercom")
             ),
             PackageInfo(
                 name: "pi-ask-user",
@@ -5752,7 +4937,6 @@ private struct DiagnosticsScreen: View {
     var body: some View {
         AppPage("Doctor", subtitle: "Check what Pi Manager is missing and fix the essentials faster") {
             packageSection
-            helperSection
             settingsSection
             warningsSection
         }
@@ -5828,7 +5012,7 @@ private struct DiagnosticsScreen: View {
                                 .textSelection(.enabled)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+                                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
 
                             Button("Copy") {
                                 copyToPasteboard(pkg.installCommand)
@@ -5864,7 +5048,7 @@ private struct DiagnosticsScreen: View {
         .font(.caption)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
     }
 
     private func doctorLinkChip(_ title: String, url: String) -> some View {
@@ -5879,78 +5063,10 @@ private struct DiagnosticsScreen: View {
             .font(.caption)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
         }
         .buttonStyle(.plain)
         .help(url)
-    }
-
-    private var helperSection: some View {
-        AppCard(title: "Helper Extension") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Pi Manager only suggests one bundled helper here: `subagents-toggle`. The rest should stay external to the app.")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: extensionIsInstalled("subagents-toggle") ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(extensionIsInstalled("subagents-toggle") ? .green : AppTheme.mutedText)
-                        .frame(width: 20)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("subagents-toggle")
-                            .font(.body.weight(.semibold))
-                            .fontWidth(.expanded)
-                        Text("Lets Pi quickly enable, disable, or inspect the `pi-subagents` package from inside Pi.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                        Text("Useful in the Pi TUI today. For Pi Manager's RPC sessions, a live input-bar toggle is not fully reliable yet without a dedicated RPC reload hook.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    if extensionIsInstalled("subagents-toggle") {
-                        AppLabelTag(text: "Installed", color: .green)
-                    } else {
-                        Button("Install") {
-                            installExtension("subagents-toggle")
-                        }
-                        .controlSize(.small)
-                    }
-                }
-            }
-        }
-    }
-
-    private func extensionIsInstalled(_ name: String) -> Bool {
-        let extDir = NSHomeDirectory() + "/.pi/agent/extensions"
-        return FileManager.default.fileExists(atPath: "\(extDir)/\(name).ts") ||
-               FileManager.default.fileExists(atPath: "\(extDir)/\(name)/index.ts")
-    }
-
-    private func installExtension(_ name: String) {
-        let extDir = NSHomeDirectory() + "/.pi/agent/extensions"
-        let bundleDir = Bundle.main.resourcePath ?? ""
-
-        // Try .ts file first, then directory
-        let srcFile = bundleDir + "/\(name).ts"
-        let srcDir = bundleDir + "/\(name)"
-        let dstFile = extDir + "/\(name).ts"
-        let dstDir = extDir + "/\(name)"
-
-        do {
-            if FileManager.default.fileExists(atPath: srcFile) {
-                try? FileManager.default.createDirectory(atPath: extDir, withIntermediateDirectories: true)
-                try FileManager.default.copyItem(atPath: srcFile, toPath: dstFile)
-            } else if FileManager.default.fileExists(atPath: srcDir) {
-                try? FileManager.default.createDirectory(atPath: extDir, withIntermediateDirectories: true)
-                try FileManager.default.copyItem(atPath: srcDir, toPath: dstDir)
-            }
-        } catch {
-            NSSound.beep()
-        }
     }
 
     // MARK: - Settings
@@ -6281,135 +5397,6 @@ private struct EnvEditorSheet: View {
     }
 }
 
-private struct SubagentConfigEditorSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State var draft: SubagentConfigDraft
-    let onCancel: () -> Void
-    let onSave: (SubagentConfigDraft) throws -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Edit Subagents Config")
-                .font(.title2.bold())
-                .fontWidth(.expanded)
-
-            ScrollView(showsIndicators: false) {
-                Form {
-                    Section("Runtime Defaults") {
-                        Toggle("Async By Default", isOn: optionalBoolBinding(\ .asyncByDefault))
-                        Toggle("Force Top-Level Async", isOn: optionalBoolBinding(\ .forceTopLevelAsync))
-                        TextField("Default Session Dir", text: optionalStringBinding(\ .defaultSessionDir))
-                        Stepper("Max Subagent Depth: \(draft.config.maxSubagentDepth ?? 0)", value: optionalIntBinding(\ .maxSubagentDepth), in: 0...10)
-                    }
-
-                    Section("Control Notices") {
-                        Toggle("Control Enabled", isOn: optionalControlBoolBinding(\ .enabled))
-                        Stepper("Needs Attention After: \(draft.config.control.needsAttentionAfterMs ?? 60000) ms", value: optionalControlIntBinding(\ .needsAttentionAfterMs, defaultValue: 60000), in: 1000...600000, step: 1000)
-                        TextField("Notify Channels", text: notifyChannelsBinding)
-                    }
-
-                    Section("Parallel Defaults") {
-                        Stepper("Max Tasks: \(draft.config.parallel.maxTasks ?? 8)", value: optionalParallelIntBinding(\ .maxTasks, defaultValue: 8), in: 1...32)
-                        Stepper("Concurrency: \(draft.config.parallel.concurrency ?? 4)", value: optionalParallelIntBinding(\ .concurrency, defaultValue: 4), in: 1...32)
-                    }
-
-                    Section("Intercom Bridge") {
-                        TextField("Mode", text: optionalIntercomStringBinding(\ .mode))
-                        TextField("Instruction File", text: optionalIntercomStringBinding(\ .instructionFile))
-                    }
-
-                    Section("Worktree Hook") {
-                        TextField("Setup Hook", text: optionalStringBinding(\ .worktreeSetupHook))
-                        Stepper("Hook Timeout: \(draft.config.worktreeSetupHookTimeoutMs ?? 30000) ms", value: optionalIntBinding(\ .worktreeSetupHookTimeoutMs, defaultValue: 30000), in: 1000...300000, step: 1000)
-                    }
-
-                    Section("Notes") {
-                        Text("Use `always`, `fork-only`, or `off` for intercom bridge mode. Notify channels are comma-separated, for example `event, async, intercom`.")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                }
-                .formStyle(.grouped)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    onCancel()
-                    dismiss()
-                }
-                Button("Save") {
-                    do {
-                        draft.config.control.notifyChannels = draft.config.control.notifyChannels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                        try onSave(draft)
-                        dismiss()
-                    } catch {
-                        NSSound.beep()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 720, minHeight: 620)
-    }
-
-    private var notifyChannelsBinding: Binding<String> {
-        Binding(
-            get: { draft.config.control.notifyChannels.joined(separator: ", ") },
-            set: { draft.config.control.notifyChannels = $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
-        )
-    }
-
-    private func optionalBoolBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, Bool?>) -> Binding<Bool> {
-        Binding(
-            get: { draft.config[keyPath: keyPath] ?? false },
-            set: { draft.config[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalIntBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, Int?>, defaultValue: Int = 0) -> Binding<Int> {
-        Binding(
-            get: { draft.config[keyPath: keyPath] ?? defaultValue },
-            set: { draft.config[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalStringBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, String?>) -> Binding<String> {
-        Binding(
-            get: { draft.config[keyPath: keyPath] ?? "" },
-            set: { draft.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
-        )
-    }
-
-    private func optionalControlBoolBinding(_ keyPath: WritableKeyPath<SubagentControlConfig, Bool?>) -> Binding<Bool> {
-        Binding(
-            get: { draft.config.control[keyPath: keyPath] ?? false },
-            set: { draft.config.control[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalControlIntBinding(_ keyPath: WritableKeyPath<SubagentControlConfig, Int?>, defaultValue: Int) -> Binding<Int> {
-        Binding(
-            get: { draft.config.control[keyPath: keyPath] ?? defaultValue },
-            set: { draft.config.control[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalParallelIntBinding(_ keyPath: WritableKeyPath<SubagentParallelConfig, Int?>, defaultValue: Int) -> Binding<Int> {
-        Binding(
-            get: { draft.config.parallel[keyPath: keyPath] ?? defaultValue },
-            set: { draft.config.parallel[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalIntercomStringBinding(_ keyPath: WritableKeyPath<SubagentIntercomBridgeConfig, String?>) -> Binding<String> {
-        Binding(
-            get: { draft.config.intercomBridge[keyPath: keyPath] ?? "" },
-            set: { draft.config.intercomBridge[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
-        )
-    }
-}
-
 private struct AgentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State var draft: AgentEditorDraft
@@ -6517,7 +5504,7 @@ private struct AgentEditorSheet: View {
                             }
 
                             Toggle(isOn: optionalBoolBinding(for: \ .disabled)) {
-                                editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal subagent discovery and launch flows. In pi-subagents, this is the standard way to keep an agent installed but unavailable.")
+                                editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal native subagent discovery and launch flows while keeping the agent installed.")
                             }
                         }
 

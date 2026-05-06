@@ -234,9 +234,14 @@ final class PiAgentSessionStore: ObservableObject {
         save()
     }
 
-    func flushForTesting() {
+    func flushPendingSave() {
         pendingSaveTask?.cancel()
+        pendingSaveTask = nil
         saveNow()
+    }
+
+    func flushForTesting() {
+        flushPendingSave()
     }
 
     private func slugID(for title: String, fallback: String) -> String {
@@ -334,7 +339,7 @@ final class PiAgentSessionStore: ObservableObject {
         touchSession(entry.sessionID, bumpUpdatedAt: true)
     }
 
-    func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil) {
+    func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil, persist: Bool = true) {
         var entries = transcriptsBySessionID[entry.sessionID] ?? []
         let isNewEntry: Bool
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
@@ -352,6 +357,7 @@ final class PiAgentSessionStore: ObservableObject {
         }
         transcriptsBySessionID[entry.sessionID] = entries
         bumpTranscriptRevision(entry.sessionID)
+        guard persist else { return }
         if isNewEntry {
             touchSession(entry.sessionID, bumpUpdatedAt: true)
         } else {
@@ -359,13 +365,15 @@ final class PiAgentSessionStore: ObservableObject {
         }
     }
 
-    func updateEntry(_ entryID: UUID, in sessionID: UUID, mutate: (inout PiAgentTranscriptEntry) -> Void) {
+    func updateEntry(_ entryID: UUID, in sessionID: UUID, persist: Bool = true, mutate: (inout PiAgentTranscriptEntry) -> Void) {
         var entries = transcriptsBySessionID[sessionID] ?? []
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         mutate(&entries[index])
         transcriptsBySessionID[sessionID] = entries
         bumpTranscriptRevision(sessionID)
-        save()
+        if persist {
+            save()
+        }
     }
 
     func deleteSession(_ sessionID: UUID) {

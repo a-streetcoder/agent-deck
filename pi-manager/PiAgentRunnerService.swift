@@ -211,6 +211,7 @@ final class PiAgentRunnerService {
                     extraArguments.append(contentsOf: ["--append-system-prompt", catalog])
                 }
             }
+            let sessionID = session.id
             let client = try PiRPCClient(
                 cwd: projectURL,
                 sessionFile: resumeExisting ? session.piSessionFile : nil,
@@ -219,13 +220,13 @@ final class PiAgentRunnerService {
                 extraArguments: extraArguments,
                 environment: ["PI_MANAGER_PARENT_SESSION_ID": session.id.uuidString],
                 onEvent: { [weak self] rawLine, event in
-                    DispatchQueue.main.async { self?.handle(rawLine: rawLine, event: event, sessionID: session.id) }
+                    Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, sessionID: sessionID) }
                 },
                 onStderr: { [weak self] line in
-                    DispatchQueue.main.async { self?.handle(stderr: line, sessionID: session.id) }
+                    Task { @MainActor [weak self] in self?.handle(stderr: line, sessionID: sessionID) }
                 },
                 onTermination: { [weak self] exitCode in
-                    DispatchQueue.main.async { self?.handleTermination(exitCode: exitCode, sessionID: session.id) }
+                    Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, sessionID: sessionID) }
                 }
             )
             clientsBySessionID[session.id] = client
@@ -474,6 +475,7 @@ final class PiAgentRunnerService {
                 $0.contextTokens = nil
                 $0.contextWindow = nil
                 $0.contextPercent = nil
+                $0.contextBreakdown = []
             }
             clientsBySessionID[sessionID]?.getState()
             clientsBySessionID[sessionID]?.getSessionStats()
@@ -495,13 +497,143 @@ final class PiAgentRunnerService {
                     record.contextTokens = contextUsage["tokens"]?.numberValue.map(Int.init)
                     record.contextWindow = contextUsage["contextWindow"]?.numberValue.map(Int.init)
                     record.contextPercent = contextUsage["percent"]?.numberValue
+                    record.contextBreakdown = Self.parseContextBreakdown(from: contextUsage)
                 } else {
                     record.contextTokens = nil
                     record.contextWindow = nil
                     record.contextPercent = nil
+                    record.contextBreakdown = []
                 }
             }
         }
+    }
+
+    private static func parseContextBreakdown(from contextUsage: JSONValue) -> [PiAgentContextBreakdownItem] {
+        let contextWindow = contextUsage["contextWindow"]?.numberValue
+        let candidates = [
+            contextUsage["breakdown"],
+            contextUsage["categories"],
+            contextUsage["segments"],
+            contextUsage["details"]
+        ].compactMap { $0 }
+
+        for candidate in candidates {
+            let parsed = parseContextBreakdownCandidate(candidate, contextWindow: contextWindow)
+            if parsed.isEmpty == false {
+                return parsed
+            }
+        }
+        return []
+    }
+
+    private static func parseContextBreakdownCandidate(_ value: JSONValue, contextWindow: Double?) -> [PiAgentContextBreakdownItem] {
+        switch value {
+        case let .array(items):
+            return items.compactMap { parseContextBreakdownItem($0, fallbackKey: nil, contextWindow: contextWindow) }
+        case let .object(object):
+            return contextBreakdownKeys(Array(object.keys)).compactMap { key in
+                parseContextBreakdownItem(object[key], fallbackKey: key, contextWindow: contextWindow)
+            }
+        default:
+            return []
+        }
+    }
+
+    private static func parseContextBreakdownItem(_ value: JSONValue?, fallbackKey: String?, contextWindow: Double?) -> PiAgentContextBreakdownItem? {
+        guard let value else { return nil }
+        guard case let .object(object) = value else {
+            if let tokens = value.numberValue.map(Int.init), let fallbackKey {
+                let percent = contextWindow.flatMap { $0 > 0 ? (Double(tokens) / $0) * 100 : nil }
+                return .init(key: fallbackKey, title: contextBreakdownTitle(for: fallbackKey), tokens: tokens, percent: percent)
+            }
+            return nil
+        }
+
+        let key = object["key"]?.stringValue
+            ?? object["id"]?.stringValue
+            ?? object["name"]?.stringValue
+            ?? object["type"]?.stringValue
+            ?? fallbackKey
+            ?? UUID().uuidString
+        let title = object["title"]?.stringValue
+            ?? object["label"]?.stringValue
+            ?? contextBreakdownTitle(for: key)
+        let tokens = firstNumber(in: object, keys: ["tokens", "tokenCount", "count", "usedTokens"]).map(Int.init)
+        let reportedPercent = firstNumber(in: object, keys: ["percent", "percentage", "pct", "ratio"]).map { value in
+            value <= 1 ? value * 100 : value
+        }
+        let percent = reportedPercent ?? tokens.flatMap { tokens in
+            contextWindow.flatMap { $0 > 0 ? (Double(tokens) / $0) * 100 : nil }
+        }
+        let detail = object["detail"]?.stringValue ?? object["description"]?.stringValue
+
+        if tokens == nil, percent == nil, detail == nil {
+            return nil
+        }
+        return .init(key: key, title: title, tokens: tokens, percent: percent, detail: detail)
+    }
+
+    private static func firstNumber(in object: [String: JSONValue], keys: [String]) -> Double? {
+        for key in keys {
+            if let value = object[key]?.numberValue {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func contextBreakdownKeys(_ keys: [String]) -> [String] {
+        let order = [
+            "systemPrompt", "system_prompt",
+            "systemTools", "system_tools",
+            "messages",
+            "toolCalls", "tool_calls",
+            "toolResults", "tool_results",
+            "subagentResults", "subagent_results",
+            "freeSpace", "free_space",
+            "autocompactBuffer", "autocompact_buffer",
+            "slashCommandTool", "slash_command_tool"
+        ]
+        return keys.sorted { lhs, rhs in
+            let lhsIndex = order.firstIndex(of: lhs) ?? Int.max
+            let rhsIndex = order.firstIndex(of: rhs) ?? Int.max
+            if lhsIndex == rhsIndex {
+                return lhs < rhs
+            }
+            return lhsIndex < rhsIndex
+        }
+    }
+
+    private static func contextBreakdownTitle(for key: String) -> String {
+        let knownTitles = [
+            "systemPrompt": "System prompt",
+            "system_prompt": "System prompt",
+            "systemTools": "System tools",
+            "system_tools": "System tools",
+            "messages": "Messages",
+            "toolCalls": "Tool calls",
+            "tool_calls": "Tool calls",
+            "toolResults": "Tool results",
+            "tool_results": "Tool results",
+            "subagentResults": "Subagent results",
+            "subagent_results": "Subagent results",
+            "freeSpace": "Free space",
+            "free_space": "Free space",
+            "autocompactBuffer": "Autocompact buffer",
+            "autocompact_buffer": "Autocompact buffer",
+            "slashCommandTool": "SlashCommand Tool",
+            "slash_command_tool": "SlashCommand Tool"
+        ]
+        if let title = knownTitles[key] {
+            return title
+        }
+
+        let spaced = key
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: #"([a-z0-9])([A-Z])"#, with: "$1 $2", options: .regularExpression)
+        guard let first = spaced.first else { return "Context" }
+        return String(first).uppercased() + String(spaced.dropFirst())
     }
 
     private func applyState(_ data: JSONValue, to sessionID: UUID) {
@@ -622,7 +754,7 @@ final class PiAgentRunnerService {
                 title: "Thinking",
                 text: thinkingText,
                 rawJSON: nil
-            ), before: assistantEntryIDsBySessionID[sessionID])
+            ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
         }
 
         if let assistantEntryID = assistantEntryIDsBySessionID[sessionID],
@@ -634,7 +766,7 @@ final class PiAgentRunnerService {
                 title: "Assistant",
                 text: assistantText,
                 rawJSON: nil
-            ))
+            ), persist: false)
         }
     }
 
@@ -706,6 +838,7 @@ final class PiAgentRunnerService {
                 $0.contextTokens = nil
                 $0.contextWindow = nil
                 $0.contextPercent = nil
+                $0.contextBreakdown = []
             }
             compactionEntryIDsBySessionID[sessionID] = nil
             let retry = event.willRetry == true ? " · retrying turn" : ""

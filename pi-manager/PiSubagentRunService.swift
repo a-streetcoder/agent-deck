@@ -153,6 +153,7 @@ final class PiSubagentRunService {
         store.append(.init(sessionID: parentSession.id, role: .status, title: "Subagent Started", text: "\(agent.name) is running.\n\nTask: \(trimmedTask)"))
 
         let childSessionID = UUID()
+        let parentSessionID = parentSession.id
         let client = try PiRPCClient(
             cwd: worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath),
             provider: modelSelection.provider,
@@ -165,13 +166,13 @@ final class PiSubagentRunService {
                 "MCP_DIRECT_TOOLS": mcpDirectTools(for: agent).isEmpty ? "__none__" : mcpDirectTools(for: agent).joined(separator: ",")
             ],
             onEvent: { [weak self] rawLine, event in
-                DispatchQueue.main.async { self?.handle(rawLine: rawLine, event: event, runID: runID, parentSessionID: parentSession.id) }
+                Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, runID: runID, parentSessionID: parentSessionID) }
             },
             onStderr: { [weak self] line in
-                DispatchQueue.main.async { self?.handle(stderr: line, runID: runID, parentSessionID: parentSession.id) }
+                Task { @MainActor [weak self] in self?.handle(stderr: line, runID: runID, parentSessionID: parentSessionID) }
             },
             onTermination: { [weak self] exitCode in
-                DispatchQueue.main.async { self?.handleTermination(exitCode: exitCode, runID: runID, parentSessionID: parentSession.id) }
+                Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, runID: runID, parentSessionID: parentSessionID) }
             }
         )
         clientsByRunID[runID] = client

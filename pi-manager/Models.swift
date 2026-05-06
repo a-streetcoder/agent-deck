@@ -1,58 +1,6 @@
 import Foundation
 
-struct SubagentControlConfig: Hashable {
-    var enabled: Bool?
-    var needsAttentionAfterMs: Int?
-    var notifyChannels: [String]
-}
-
-struct SubagentParallelConfig: Hashable {
-    var maxTasks: Int?
-    var concurrency: Int?
-}
-
-struct SubagentIntercomBridgeConfig: Hashable {
-    var mode: String?
-    var instructionFile: String?
-}
-
-struct SubagentExtensionConfig: Hashable {
-    var asyncByDefault: Bool?
-    var forceTopLevelAsync: Bool?
-    var defaultSessionDir: String?
-    var maxSubagentDepth: Int?
-    var control: SubagentControlConfig
-    var parallel: SubagentParallelConfig
-    var worktreeSetupHook: String?
-    var worktreeSetupHookTimeoutMs: Int?
-    var intercomBridge: SubagentIntercomBridgeConfig
-
-    static let empty = SubagentExtensionConfig(
-        asyncByDefault: nil,
-        forceTopLevelAsync: nil,
-        defaultSessionDir: nil,
-        maxSubagentDepth: nil,
-        control: SubagentControlConfig(enabled: nil, needsAttentionAfterMs: nil, notifyChannels: []),
-        parallel: SubagentParallelConfig(maxTasks: nil, concurrency: nil),
-        worktreeSetupHook: nil,
-        worktreeSetupHookTimeoutMs: nil,
-        intercomBridge: SubagentIntercomBridgeConfig(mode: nil, instructionFile: nil)
-    )
-
-    static let packageDefaults = SubagentExtensionConfig(
-        asyncByDefault: false,
-        forceTopLevelAsync: false,
-        defaultSessionDir: nil,
-        maxSubagentDepth: nil,
-        control: SubagentControlConfig(enabled: true, needsAttentionAfterMs: 60000, notifyChannels: ["event", "async", "intercom"]),
-        parallel: SubagentParallelConfig(maxTasks: 8, concurrency: 4),
-        worktreeSetupHook: nil,
-        worktreeSetupHookTimeoutMs: 30000,
-        intercomBridge: SubagentIntercomBridgeConfig(mode: "always", instructionFile: nil)
-    )
-}
-
-enum ResourceScopeKind: String, CaseIterable, Codable {
+enum ResourceScopeKind: String, CaseIterable, Codable, Sendable {
     case builtin = "Builtin"
     case global = "Global"
     case project = "Project"
@@ -62,7 +10,7 @@ enum ResourceScopeKind: String, CaseIterable, Codable {
     case library = "Library"
 }
 
-struct ScopeID: Hashable, Identifiable {
+struct ScopeID: Hashable, Identifiable, Sendable {
     let kind: ResourceScopeKind
     let path: String
 
@@ -70,7 +18,7 @@ struct ScopeID: Hashable, Identifiable {
     var displayName: String { kind.rawValue }
 }
 
-struct AgentConfig: Hashable {
+struct AgentConfig: Hashable, Sendable {
     var name: String
     var description: String
     var model: String?
@@ -118,7 +66,7 @@ struct AgentConfig: Hashable {
     )
 }
 
-struct AgentRecord: Identifiable, Hashable {
+struct AgentRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -129,7 +77,7 @@ struct AgentRecord: Identifiable, Hashable {
     let parsed: AgentConfig
 }
 
-struct BuiltinOverrideRecord: Hashable {
+struct BuiltinOverrideRecord: Hashable, @unchecked Sendable {
     let agentName: String
     let scope: ScopeID
     let settingsPath: String
@@ -153,7 +101,7 @@ struct BuiltinOverrideRecord: Hashable {
     }
 }
 
-enum ResolutionKind: String {
+enum ResolutionKind: String, Sendable {
     case builtin = "Builtin"
     case builtinWithOverride = "Builtin + Override"
     case globalCustom = "Global"
@@ -163,7 +111,7 @@ enum ResolutionKind: String {
     case library = "Library"
 }
 
-struct EffectiveAgentRecord: Identifiable, Hashable {
+struct EffectiveAgentRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let projectRoot: String?
@@ -184,7 +132,7 @@ struct EffectiveAgentRecord: Identifiable, Hashable {
     }
 }
 
-struct ChainStepRecord: Identifiable, Hashable {
+struct ChainStepRecord: Identifiable, Hashable, Sendable {
     let id: String
     var agent: String
     var title: String
@@ -199,7 +147,7 @@ struct ChainStepRecord: Identifiable, Hashable {
     var body: String
 }
 
-struct ChainRecord: Identifiable, Hashable {
+struct ChainRecord: Identifiable, Hashable, Sendable {
     let id: String
     var name: String
     let source: ScopeID
@@ -209,7 +157,7 @@ struct ChainRecord: Identifiable, Hashable {
     var extraFields: [String: String]
 }
 
-struct SkillRecord: Identifiable, Hashable {
+struct SkillRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String?
@@ -218,7 +166,7 @@ struct SkillRecord: Identifiable, Hashable {
     let body: String
 }
 
-enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable {
+enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable, Sendable {
     case symlink
     case copy
 
@@ -239,7 +187,7 @@ enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable {
     }
 }
 
-struct ExternalSkillCandidate: Identifiable, Hashable {
+struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {
     let name: String
     let description: String?
     let sourceRootPath: String
@@ -248,18 +196,18 @@ struct ExternalSkillCandidate: Identifiable, Hashable {
     var id: String { sourceRootPath }
 }
 
-struct SkillImportResult: Hashable {
+struct SkillImportResult: Hashable, Sendable {
     let importedNames: [String]
     let skippedNames: [String]
 }
 
-enum PromptTemplateDiscoveryKind: String, Hashable {
+enum PromptTemplateDiscoveryKind: String, Hashable, Sendable {
     case standardDirectory = "Standard Directory"
     case settings = "Settings"
     case package = "Package"
 }
 
-struct PromptTemplateRecord: Identifiable, Hashable {
+struct PromptTemplateRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -273,12 +221,12 @@ struct PromptTemplateRecord: Identifiable, Hashable {
     var invocation: String { "/\(name)" }
 }
 
-enum CommandRecordKind: String, Hashable {
+enum CommandRecordKind: String, Hashable, Sendable {
     case builtIn = "Built-in Command"
     case `extension` = "Extension Command"
 }
 
-struct CommandRecord: Identifiable, Hashable {
+struct CommandRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -292,19 +240,19 @@ struct CommandRecord: Identifiable, Hashable {
     var invocation: String { "/\(name)" }
 }
 
-struct DiagnosticWarning: Identifiable, Hashable {
+struct DiagnosticWarning: Identifiable, Hashable, Sendable {
     let id: String
     let message: String
 }
 
-struct AgentSkillVisibilityIssue: Identifiable, Hashable {
+struct AgentSkillVisibilityIssue: Identifiable, Hashable, Sendable {
     let project: DiscoveredProject
     let missingSkills: [String]
 
     var id: String { "\(project.id):\(missingSkills.joined(separator: ","))" }
 }
 
-struct SettingsSummary: Hashable {
+struct SettingsSummary: Hashable, Sendable {
     let path: String
     let packages: [String]
     let prompts: [String]
@@ -312,20 +260,14 @@ struct SettingsSummary: Hashable {
     let agentOverrides: [BuiltinOverrideRecord]
 }
 
-struct EnvKeyRecord: Identifiable, Hashable {
+struct EnvKeyRecord: Identifiable, Hashable, Sendable {
     let id: String
     let key: String
     let value: String?
     let source: ScopeID
 }
 
-struct SubagentConfigRecord: Identifiable, Hashable {
-    let id: String
-    let path: String
-    let config: SubagentExtensionConfig
-}
-
-struct AvailableModel: Identifiable, Hashable {
+struct AvailableModel: Identifiable, Hashable, Sendable {
     let provider: String
     let model: String
     let contextWindow: String
@@ -341,7 +283,7 @@ struct AvailableModel: Identifiable, Hashable {
     }
 }
 
-struct ScanSnapshot: Hashable {
+struct ScanSnapshot: Hashable, Sendable {
     let projectRoot: String?
     let builtinAgents: [AgentRecord]
     let globalAgents: [AgentRecord]
@@ -358,7 +300,6 @@ struct ScanSnapshot: Hashable {
     let libraryPromptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
     let envKeys: [EnvKeyRecord]
-    let subagentConfig: SubagentConfigRecord?
     let warnings: [DiagnosticWarning]
 
     static let empty = ScanSnapshot(
@@ -378,7 +319,6 @@ struct ScanSnapshot: Hashable {
         libraryPromptTemplates: [],
         settings: [],
         envKeys: [],
-        subagentConfig: nil,
         warnings: []
     )
 }
