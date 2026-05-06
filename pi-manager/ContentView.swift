@@ -64,7 +64,10 @@ struct ContentView: View {
     var body: some View {
         mainContent
             .sheet(isPresented: $isOnboardingPresented, onDismiss: completeOnboarding) {
-                WelcomeOnboardingSheet(viewModel: viewModel) {
+                WelcomeOnboardingSheet(viewModel: viewModel) { openDoctor in
+                    if openDoctor {
+                        viewModel.selectedSidebarItem = .diagnostics
+                    }
                     completeOnboarding()
                 }
             }
@@ -776,7 +779,7 @@ struct ContentView: View {
                 }
             )
         case .diagnostics:
-            DiagnosticsScreen(snapshot: viewModel.snapshot)
+            DiagnosticsScreen(viewModel: viewModel)
         case .piDocs:
             PiDocsScreen()
         case .credits:
@@ -4875,7 +4878,13 @@ private struct PiDocsScreen: View {
 }
 
 private struct DiagnosticsScreen: View {
-    let snapshot: ScanSnapshot
+    @ObservedObject var viewModel: AppViewModel
+    @State private var setupItems: [SetupCheckItem] = []
+    @State private var isRefreshingSetup = true
+
+    private var snapshot: ScanSnapshot {
+        viewModel.snapshot
+    }
 
     private struct PackageInfo {
         let name: String
@@ -4895,7 +4904,6 @@ private struct DiagnosticsScreen: View {
     }
 
     private var packages: [PackageInfo] {
-        let installed = Set(detectInstalledPackageNames())
         return [
             PackageInfo(
                 name: "pi-web-access",
@@ -4906,7 +4914,7 @@ private struct DiagnosticsScreen: View {
                 author: "Nico Bailon",
                 installCommand: "pi install npm:pi-web-access",
                 category: .essential,
-                isInstalled: installed.contains("pi-web-access"),
+                isInstalled: isPackageInstalled("pi-web-access"),
                 installedVersion: installedPackageVersion("pi-web-access")
             ),
             PackageInfo(
@@ -4918,7 +4926,7 @@ private struct DiagnosticsScreen: View {
                 author: "Enzo Lucchesi",
                 installCommand: "pi install npm:pi-ask-user",
                 category: .niceToHave,
-                isInstalled: installed.contains("pi-ask-user") || FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.pi/agent/extensions/ask-user/index.ts"),
+                isInstalled: isPackageInstalled("pi-ask-user") || FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.pi/agent/extensions/ask-user/index.ts"),
                 installedVersion: installedPackageVersion("pi-ask-user")
             )
         ]
@@ -4926,10 +4934,102 @@ private struct DiagnosticsScreen: View {
 
     var body: some View {
         AppPage("Doctor", subtitle: "Check what Pi Manager is missing and fix the essentials faster") {
+            setupChecksSection
             packageSection
             settingsSection
             warningsSection
         }
+        .task {
+            if setupItems.isEmpty {
+                await refreshSetupChecks()
+            }
+        }
+    }
+
+    // MARK: - Setup Checks
+
+    private var setupChecksSection: some View {
+        AppCard(title: "Setup Checks") {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Same checks shown during onboarding.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                    Spacer()
+                    Button {
+                        Task { await refreshSetupChecks() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(isRefreshingSetup)
+                    .help("Refresh setup checks")
+                }
+
+                if isRefreshingSetup && setupItems.isEmpty {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking Pi Manager setup...")
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    .padding(.vertical, 8)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(setupItems.enumerated()), id: \.element.id) { index, item in
+                            setupCheckRow(item)
+                            if index < setupItems.count - 1 {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func setupCheckRow(_ item: SetupCheckItem) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: item.status.systemImage)
+                .font(.title3)
+                .foregroundStyle(item.status.color)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text(item.title)
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+
+                Text(item.detail)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let recovery = item.recovery, item.status != .passed {
+                    Text(recovery)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            AppLabelTag(text: item.status.label, color: item.status.color)
+        }
+        .padding(.vertical, 12)
+    }
+
+    @MainActor
+    private func refreshSetupChecks() async {
+        isRefreshingSetup = true
+        defer { isRefreshingSetup = false }
+        setupItems = await SetupDependencyService().loadItems(
+            projectRootPath: viewModel.appSettings.projectsRootPath,
+            githubAccount: viewModel.currentGitHubAccount
+        )
     }
 
     // MARK: - Packages
@@ -5200,22 +5300,14 @@ private struct DiagnosticsScreen: View {
         return nil
     }
 
-    private func detectInstalledPackageNames() -> [String] {
+    private func isPackageInstalled(_ name: String) -> Bool {
         let candidates = [
-            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules"),
-            URL(fileURLWithPath: "/usr/local/lib/node_modules")
+            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(name)"),
+            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(name)"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/lib/node_modules/\(name)"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("node_modules/\(name)")
         ]
-        var names: [String] = []
-        for dir in candidates {
-            guard let contents = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
-            for url in contents {
-                let name = url.lastPathComponent
-                if name.hasPrefix("pi-") || name.contains("pi-") {
-                    names.append(name)
-                }
-            }
-        }
-        return names
+        return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 }
 

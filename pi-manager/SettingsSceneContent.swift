@@ -4,121 +4,24 @@ struct SettingsSceneContent: View {
     @StateObject private var viewModel = AppViewModel()
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
+        TabView {
+            Tab("General", systemImage: "gearshape") {
                 GeneralSettingsTab(viewModel: viewModel)
-                NativeSettingsDivider()
+            }
+
+            Tab("Agent", systemImage: "sparkles.rectangle.stack") {
                 AgentSettingsTab(viewModel: viewModel)
-                NativeSettingsDivider()
+            }
+
+            Tab("GitHub", systemImage: "chevron.left.forwardslash.chevron.right") {
                 GitHubSettingsTab(viewModel: viewModel)
-                NativeSettingsDivider()
+            }
+
+            Tab("Subagents", systemImage: "slider.horizontal.3") {
                 SubagentsSettingsTab(viewModel: viewModel)
             }
-            .padding(.horizontal, 40)
-            .padding(.top, 30)
-            .padding(.bottom, 24)
-            .frame(maxWidth: 920, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .frame(minWidth: 760, idealWidth: 860, minHeight: 540)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
-
-private struct NativeSettingsDivider: View {
-    var body: some View {
-        Divider()
-            .padding(.vertical, 22)
-    }
-}
-
-private struct NativeSettingsRow<Control: View>: View {
-    let title: String
-    @ViewBuilder let control: Control
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 18) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.trailing)
-                .lineLimit(2)
-                .frame(width: 240, alignment: .trailing)
-
-            control
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 7)
-    }
-}
-
-private struct NativePathField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        TextField(placeholder, text: $text)
-            .textFieldStyle(.roundedBorder)
-            .font(.system(.body, design: .monospaced))
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity)
-    }
-}
-
-private struct NativeSettingsNote: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-private struct NativeCheckboxRow: View {
-    let title: String
-    let note: String?
-    @Binding var isOn: Bool
-
-    init(_ title: String, note: String? = nil, isOn: Binding<Bool>) {
-        self.title = title
-        self.note = note
-        self._isOn = isOn
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            Spacer()
-                .frame(width: 240)
-
-            Toggle(isOn: $isOn) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 15, weight: .semibold))
-                    if let note {
-                        NativeSettingsNote(text: note)
-                    }
-                }
-            }
-            .toggleStyle(.checkbox)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 8)
-    }
-}
-
-private struct NativeButtonRow<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        HStack(spacing: 8) {
-            content
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
+        .frame(minWidth: 660, idealWidth: 760, minHeight: 440, idealHeight: 520)
     }
 }
 
@@ -128,42 +31,59 @@ private struct GeneralSettingsTab: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            NativeSettingsRow(title: "Project root:") {
-                VStack(alignment: .leading, spacing: 7) {
-                    NativePathField(placeholder: "Root folder", text: projectsRootPathBinding)
-                    NativeSettingsNote(text: "Default: \(ProjectDiscovery.defaultRootDirectoryURL().path)")
-                }
-            }
+        Form {
+            Section {
+                LabeledContent("Project root:") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("Root folder", text: projectsRootPathBinding)
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
 
-            NativeSettingsRow(title: "") {
-                NativeButtonRow {
-                    Button("Choose Folder...") { viewModel.chooseProjectsRootDirectory() }
-                    Button("Use Default") { viewModel.resetProjectsRootPathToDefault() }
-                    Button("Reveal in Finder") { revealInFinder(viewModel.configuredProjectsRootPath) }
-                }
-            }
-
-            NativeSettingsRow(title: "Skill import folder:") {
-                VStack(alignment: .leading, spacing: 7) {
-                    NativePathField(placeholder: "Default import folder", text: defaultSkillsImportRootPathBinding)
-                    NativeSettingsNote(text: "Pi Manager falls back to the last used folder, then Documents.")
-                }
-            }
-
-            NativeSettingsRow(title: "") {
-                NativeButtonRow {
-                    Button("Choose Folder...") { viewModel.chooseDefaultSkillsImportDirectory() }
-                    Button("Clear") { viewModel.resetDefaultSkillsImportRootPath() }
-                    Button("Reveal in Finder") {
-                        if let path = viewModel.appSettings.defaultSkillsImportRootPath, !path.isEmpty {
-                            revealInFinder(path)
-                        }
+                        Text("Default: \(ProjectDiscovery.defaultRootDirectoryURL().path)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    .disabled((viewModel.appSettings.defaultSkillsImportRootPath ?? "").isEmpty)
+                }
+
+                LabeledContent("") {
+                    HStack {
+                        Button("Choose Folder...") { viewModel.chooseProjectsRootDirectory() }
+                        Button("Use Default") { viewModel.resetProjectsRootPathToDefault() }
+                        Button("Reveal in Finder") { revealInFinder(viewModel.configuredProjectsRootPath) }
+                    }
+                }
+            }
+
+            Section {
+                LabeledContent("Skill import folder:") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("Default import folder", text: defaultSkillsImportRootPathBinding)
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
+
+                        Text("Pi Manager falls back to the last used folder, then Documents.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                LabeledContent("") {
+                    HStack {
+                        Button("Choose Folder...") { viewModel.chooseDefaultSkillsImportDirectory() }
+                        Button("Clear") { viewModel.resetDefaultSkillsImportRootPath() }
+                        Button("Reveal in Finder") {
+                            if let path = viewModel.appSettings.defaultSkillsImportRootPath, !path.isEmpty {
+                                revealInFinder(path)
+                            }
+                        }
+                        .disabled((viewModel.appSettings.defaultSkillsImportRootPath ?? "").isEmpty)
+                    }
                 }
             }
         }
+        .formStyle(.grouped)
+        .frame(maxWidth: 640)
+        .padding(24)
     }
 
     private var projectsRootPathBinding: Binding<String> {
@@ -187,56 +107,53 @@ private struct AgentSettingsTab: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            NativeSettingsRow(title: "Thinking display:") {
-                Picker("Thinking display", selection: piAgentThinkingDisplayBinding) {
+        Form {
+            Section {
+                Picker("Thinking display:", selection: piAgentThinkingDisplayBinding) {
                     ForEach(PiAgentThinkingDisplayMode.allCases) { mode in
                         Text(mode.rawValue).tag(mode)
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 520)
-            }
 
-            NativeSettingsRow(title: "") {
-                NativeSettingsNote(text: "Show full reasoning, compact previews, or hide thinking blocks from the transcript.")
-            }
-
-            NativeSettingsRow(title: "Notification delay:") {
-                HStack(spacing: 12) {
-                    Stepper(value: piAgentNotificationDelayBinding, in: 1...60) {
-                        Text("\(viewModel.piAgentNotificationDelayMinutes) minutes")
-                            .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                            .frame(minWidth: 92, alignment: .leading)
-                    }
-                    .labelsHidden()
-
-                    NativeSettingsNote(text: "Before notifying about unread sessions.")
+                LabeledContent("") {
+                    Text("Show full reasoning, compact previews, or hide thinking blocks from the transcript.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            NativeSettingsRow(title: "Terminal app:") {
-                Picker("Terminal app", selection: piAgentTerminalApplicationSelectionBinding) {
+            Section {
+                Stepper(value: piAgentNotificationDelayBinding, in: 1...60) {
+                    Text("Notification delay: \(viewModel.piAgentNotificationDelayMinutes) minutes")
+                }
+            } footer: {
+                Text("Before notifying about unread sessions.")
+            }
+
+            Section {
+                Picker("Terminal app:", selection: piAgentTerminalApplicationSelectionBinding) {
                     ForEach(viewModel.piAgentTerminalApplicationOptions) { option in
                         Text(option.name).tag(option.id)
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 520)
-            }
 
-            NativeSettingsRow(title: "Application:") {
-                VStack(alignment: .leading, spacing: 7) {
-                    NativeSettingsNote(text: selectedTerminalPathText)
-                    NativeButtonRow {
-                        Button("Choose Other...") { viewModel.choosePiAgentTerminalApplication() }
-                        Button("Use macOS Default") { viewModel.resetPiAgentTerminalApplicationToDefault() }
+                LabeledContent("Application:") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(selectedTerminalPathText)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+
+                        HStack {
+                            Button("Choose Other...") { viewModel.choosePiAgentTerminalApplication() }
+                            Button("Use macOS Default") { viewModel.resetPiAgentTerminalApplicationToDefault() }
+                        }
                     }
                 }
             }
         }
+        .formStyle(.grouped)
+        .frame(maxWidth: 640)
+        .padding(24)
     }
 
     private var piAgentThinkingDisplayBinding: Binding<PiAgentThinkingDisplayMode> {
@@ -271,20 +188,18 @@ private struct GitHubSettingsTab: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            NativeSettingsRow(title: "Issue cache lifetime:") {
-                HStack(spacing: 12) {
-                    Stepper(value: cacheLifetimeBinding, in: 1...240) {
-                        Text("\(viewModel.gitHubBoardCacheLifetimeMinutes) minutes")
-                            .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                            .frame(minWidth: 92, alignment: .leading)
-                    }
-                    .labelsHidden()
-
-                    NativeSettingsNote(text: "Refresh bypasses the cache.")
+        Form {
+            Section {
+                Stepper(value: cacheLifetimeBinding, in: 1...240) {
+                    Text("Issue cache lifetime: \(viewModel.gitHubBoardCacheLifetimeMinutes) minutes")
                 }
+            } footer: {
+                Text("Refresh bypasses the cache.")
             }
         }
+        .formStyle(.grouped)
+        .frame(maxWidth: 640)
+        .padding(24)
     }
 
     private var cacheLifetimeBinding: Binding<Int> {
@@ -301,13 +216,22 @@ private struct SubagentsSettingsTab: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            NativeCheckboxRow(
-                "Disable all builtins globally",
-                note: "Per-agent quick controls in the Agents screen also apply globally for now.",
-                isOn: userDisableBuiltinsBinding
-            )
+        Form {
+            Section {
+                Toggle(isOn: userDisableBuiltinsBinding) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Disable all builtins globally")
+                        Text("Per-agent quick controls in the Agents screen also apply globally for now.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
         }
+        .formStyle(.grouped)
+        .frame(maxWidth: 640)
+        .padding(24)
     }
 
     private var userDisableBuiltinsBinding: Binding<Bool> {

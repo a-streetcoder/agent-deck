@@ -30,7 +30,7 @@ private enum WelcomeTourContent {
 
 struct WelcomeOnboardingSheet: View {
     @ObservedObject var viewModel: AppViewModel
-    let onFinish: () -> Void
+    let onFinish: (Bool) -> Void
     @State private var phase: Phase = .tour
     @State private var setupItemsTask: Task<[SetupCheckItem], Never>?
 
@@ -60,7 +60,7 @@ struct WelcomeOnboardingSheet: View {
             continueButtonTitle: "Continue",
             finishButtonTitle: "Check Setup",
             onFinish: { phase = .setup },
-            onClose: onFinish
+            onClose: { onFinish(false) }
         )
         .frame(width: 660)
     }
@@ -78,14 +78,14 @@ struct WelcomeOnboardingSheet: View {
 struct SetupChecklistView: View {
     @ObservedObject var viewModel: AppViewModel
     fileprivate let preloadedItems: Task<[SetupCheckItem], Never>?
-    let onFinish: () -> Void
+    let onFinish: (Bool) -> Void
     @State private var items: [SetupCheckItem] = []
     @State private var isRefreshing = true
 
     fileprivate init(
         viewModel: AppViewModel,
         preloadedItems: Task<[SetupCheckItem], Never>? = nil,
-        onFinish: @escaping () -> Void
+        onFinish: @escaping (Bool) -> Void
     ) {
         self.viewModel = viewModel
         self.preloadedItems = preloadedItems
@@ -127,8 +127,8 @@ struct SetupChecklistView: View {
 
             HStack {
                 Spacer()
-                Button("Done") {
-                    onFinish()
+                Button(finishButtonTitle) {
+                    onFinish(needsDoctor)
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -141,6 +141,14 @@ struct SetupChecklistView: View {
                 await loadInitialItems()
             }
         }
+    }
+
+    private var needsDoctor: Bool {
+        items.contains { $0.status != .passed }
+    }
+
+    private var finishButtonTitle: String {
+        needsDoctor ? "Review Setup" : "Done"
     }
 
     private var loadingRow: some View {
@@ -197,6 +205,13 @@ struct SetupChecklistView: View {
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
+                if let recovery = item.recovery, item.status != .passed {
+                    Text(recovery)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 10)
@@ -212,14 +227,15 @@ struct SetupChecklistView: View {
     }
 }
 
-private struct SetupCheckItem: Identifiable, Hashable {
+struct SetupCheckItem: Identifiable, Hashable {
     let id: String
     let title: String
     let detail: String
     let status: SetupCheckStatus
+    let recovery: String?
 }
 
-private enum SetupCheckStatus: Hashable {
+enum SetupCheckStatus: Hashable {
     case passed
     case warning
     case failed
@@ -249,7 +265,7 @@ private enum SetupCheckStatus: Hashable {
     }
 }
 
-private struct SetupDependencyService {
+struct SetupDependencyService {
     private let commandRunner = CommandRunner()
 
     func loadItems(projectRootPath: String, githubAccount: GitHubHostAccount?) async -> [SetupCheckItem] {
@@ -272,14 +288,16 @@ private struct SetupDependencyService {
                 detail: result.exitCode == 0
                     ? "Pi is installed and available to Pi Manager."
                     : "`pi --help` exited with code \(result.exitCode).",
-                status: result.exitCode == 0 ? .passed : .failed
+                status: result.exitCode == 0 ? .passed : .failed,
+                recovery: result.exitCode == 0 ? nil : "Install Pi, then verify `pi --help` works in Terminal."
             )
         } catch {
             return SetupCheckItem(
                 id: "pi-cli",
                 title: "Pi CLI",
                 detail: "Install Pi and make sure `pi` is available from your login shell.",
-                status: .failed
+                status: .failed,
+                recovery: "Install Pi, then verify `pi --help` works in Terminal."
             )
         }
     }
@@ -291,7 +309,8 @@ private struct SetupDependencyService {
                 id: "pi-models",
                 title: "Pi Models",
                 detail: "\(models.count) models are available to Pi Manager.",
-                status: .passed
+                status: .passed,
+                recovery: nil
             )
         }
 
@@ -303,21 +322,24 @@ private struct SetupDependencyService {
                     id: "pi-models",
                     title: "Pi Models",
                     detail: "\(modelRowCount) model rows were returned by `pi --list-models`.",
-                    status: .passed
+                    status: .passed,
+                    recovery: nil
                 )
             }
             return SetupCheckItem(
                 id: "pi-models",
                 title: "Pi Models",
                 detail: "`pi --list-models` exited with code \(result.exitCode) and did not return usable models.",
-                status: .failed
+                status: .failed,
+                recovery: "Run `pi --list-models` in Terminal and complete any provider/model setup Pi reports."
             )
         } catch {
             return SetupCheckItem(
                 id: "pi-models",
                 title: "Pi Models",
                 detail: "`pi --list-models` did not return any usable models.",
-                status: .failed
+                status: .failed,
+                recovery: "Run `pi --list-models` in Terminal and complete any provider/model setup Pi reports."
             )
         }
     }
@@ -328,7 +350,8 @@ private struct SetupDependencyService {
             id: "project-root",
             title: "Projects Folder",
             detail: isDirectory ? path : "Choose a folder Pi Manager can scan for projects.",
-            status: isDirectory ? .passed : .failed
+            status: isDirectory ? .passed : .failed,
+            recovery: isDirectory ? nil : "Open Settings > Projects and choose an existing projects folder."
         )
     }
 
@@ -345,7 +368,8 @@ private struct SetupDependencyService {
                 id: "github",
                 title: "GitHub",
                 detail: "Connected as \(resolvedAccount.login) on \(resolvedAccount.host).",
-                status: .passed
+                status: .passed,
+                recovery: nil
             )
         }
 
@@ -353,7 +377,8 @@ private struct SetupDependencyService {
             id: "github",
             title: "GitHub",
             detail: "Optional. Install GitHub CLI and run `gh auth login` for issue, comment, commit, and push workflows.",
-            status: .warning
+            status: .warning,
+            recovery: "Install GitHub CLI, run `gh auth login`, then refresh this check."
         )
     }
 
@@ -363,7 +388,8 @@ private struct SetupDependencyService {
             id: name,
             title: title,
             detail: installed ? "\(name) is installed." : "Optional Pi extension. Install with `\(installCommand)` if you want this tool in Pi.",
-            status: installed ? .passed : .warning
+            status: installed ? .passed : .warning,
+            recovery: installed ? nil : installCommand
         )
     }
 
