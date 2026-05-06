@@ -18,7 +18,7 @@ struct CreditsScreen: View {
                 VStack(alignment: .leading, spacing: 10) {
                     creditRow(
                         title: "TourKit",
-                        detail: "SwiftUI/AppKit onboarding slideshow package by Ram Patra. MIT License.",
+                        detail: "SwiftUI onboarding slideshow package by Ram Patra. MIT License.",
                         url: "https://github.com/rampatra/TourKit"
                     )
                     Divider()

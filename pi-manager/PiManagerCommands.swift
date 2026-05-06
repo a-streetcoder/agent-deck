@@ -64,6 +64,7 @@ extension FocusedValues {
 }
 
 struct PiManagerCommands: Commands {
+    @Environment(\.openSettings) private var openSettings
     @FocusedValue(\.piManagerCommands) private var context
 
     var body: some Commands {
@@ -72,10 +73,9 @@ struct PiManagerCommands: Commands {
 
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
-                context?.openSettings()
+                openSettings()
             }
             .keyboardShortcut(",", modifiers: [.command])
-            .disabled(context == nil)
         }
 
         CommandGroup(replacing: .newItem) {

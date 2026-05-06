@@ -219,7 +219,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
         refreshTask?.cancel()
         let viewModel = self
-        refreshTask = Task.detached(priority: .userInitiated) {
+        refreshTask = Task.detached {
             let result = AppRefreshService().loadSnapshot(
                 rootURL: rootURL,
                 selectedProjectPath: selectedProjectPath,
@@ -3790,7 +3790,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case subagents = "Subagents"
     case extensions = "Extensions"
     case models = "Models"
-    case settings = "Settings"
     case environment = "Environment"
     case diagnostics = "Diagnostics"
     case piDocs = "Docs"
@@ -3810,7 +3809,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .subagents: return "slider.horizontal.3"
         case .extensions: return "puzzlepiece.extension"
         case .models: return "cpu"
-        case .settings: return "gearshape"
         case .environment: return "key"
         case .diagnostics: return "stethoscope"
         case .piDocs: return "book"
@@ -3834,7 +3832,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .piResources:
             return [.agents, .chains, .skills, .commandsAndPrompts]
         case .runtime:
-            return [.extensions, .models, .settings, .environment, .diagnostics]
+            return [.extensions, .models, .environment, .diagnostics]
         case .reference:
             return [.piDocs, .credits]
         }

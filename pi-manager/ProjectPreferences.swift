@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-struct ProjectPreference: Codable, Hashable, Identifiable {
+struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
     let path: String
     var isEnabled: Bool
     var isFavorite: Bool

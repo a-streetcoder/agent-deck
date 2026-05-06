@@ -1,11 +1,11 @@
 import Foundation
 
-enum GitHubHostKind: String, Hashable {
+nonisolated enum GitHubHostKind: String, Hashable, Sendable {
     case github
     case other
 }
 
-struct GitHubRemote: Hashable {
+nonisolated struct GitHubRemote: Hashable, Sendable {
     let host: String
     let owner: String
     let repo: String
@@ -24,7 +24,7 @@ struct GitHubRemote: Hashable {
     }
 }
 
-struct GitHubHostAccount: Hashable {
+nonisolated struct GitHubHostAccount: Hashable, Sendable {
     let host: String
     let login: String
     let scopes: [String]
@@ -33,18 +33,18 @@ struct GitHubHostAccount: Hashable {
     let isActive: Bool
 }
 
-struct GitHubSession: Hashable {
+nonisolated struct GitHubSession: Hashable, Sendable {
     let source: GitHubSessionSource
     let account: GitHubHostAccount
     let token: String
 }
 
-enum GitHubSessionSource: String, Hashable {
+nonisolated enum GitHubSessionSource: String, Hashable, Sendable {
     case ghCLI = "GitHub CLI"
     case nativeOAuth = "GitHub Sign-In"
 }
 
-enum GitHubConnectionState: Hashable {
+nonisolated enum GitHubConnectionState: Hashable, Sendable {
     case unavailable(reason: String)
     case disconnected
     case checking
@@ -86,7 +86,7 @@ enum GitHubConnectionState: Hashable {
     }
 }
 
-enum GitHubSection: String, CaseIterable, Identifiable {
+nonisolated enum GitHubSection: String, CaseIterable, Identifiable {
     case projectBoard = "Project Board"
     case repoChanges = "Repo Changes"
     case connection = "Connection"
@@ -94,7 +94,7 @@ enum GitHubSection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
+nonisolated enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
     case open = "Open"
     case closed = "Closed"
     case all = "All"
@@ -110,7 +110,7 @@ enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct GitHubIssueRelationshipSummary: Hashable {
+nonisolated struct GitHubIssueRelationshipSummary: Hashable {
     let blockedBy: Int
     let totalBlockedBy: Int
     let blocking: Int
@@ -121,7 +121,7 @@ struct GitHubIssueRelationshipSummary: Hashable {
     }
 }
 
-struct GitHubSubIssuesSummary: Hashable {
+nonisolated struct GitHubSubIssuesSummary: Hashable {
     let total: Int
     let completed: Int
     let percentCompleted: Int
@@ -129,7 +129,7 @@ struct GitHubSubIssuesSummary: Hashable {
     var hasSubIssues: Bool { total > 0 }
 }
 
-struct GitHubIssueReference: Identifiable, Hashable {
+nonisolated struct GitHubIssueReference: Identifiable, Hashable {
     let id: Int
     let number: Int
     let title: String
@@ -139,7 +139,7 @@ struct GitHubIssueReference: Identifiable, Hashable {
     let type: String?
 }
 
-struct GitHubWorkItem: Identifiable, Hashable {
+nonisolated struct GitHubWorkItem: Identifiable, Hashable {
     let id: String
     let number: Int
     let title: String
@@ -161,14 +161,14 @@ struct GitHubWorkItem: Identifiable, Hashable {
     let issueDependenciesSummary: GitHubIssueRelationshipSummary?
 }
 
-struct GitHubBoardColumn: Identifiable, Hashable {
+nonisolated struct GitHubBoardColumn: Identifiable, Hashable {
     let title: String
     let items: [GitHubWorkItem]
 
     var id: String { title }
 }
 
-struct GitHubBoardSnapshot: Hashable {
+nonisolated struct GitHubBoardSnapshot: Hashable {
     let columns: [GitHubBoardColumn]
     let totalCount: Int
     let shownCount: Int
@@ -184,14 +184,14 @@ struct GitHubBoardSnapshot: Hashable {
     }
 }
 
-enum GitDiffKind: String, Hashable {
+nonisolated enum GitDiffKind: String, Hashable {
     case staged = "Staged"
     case unstaged = "Unstaged"
     case untracked = "Untracked"
     case conflicted = "Conflicted"
 }
 
-struct RepositoryFileChange: Identifiable, Hashable {
+nonisolated struct RepositoryFileChange: Identifiable, Hashable {
     let path: String
     let indexStatus: Character
     let worktreeStatus: Character
@@ -208,7 +208,7 @@ struct RepositoryFileChange: Identifiable, Hashable {
     var statusSummary: String { "\(indexStatus)\(worktreeStatus)" }
 }
 
-struct RepositoryChangesSnapshot: Hashable {
+nonisolated struct RepositoryChangesSnapshot: Hashable {
     let branchName: String
     let upstreamBranch: String?
     let aheadCount: Int
@@ -239,7 +239,7 @@ struct RepositoryChangesSnapshot: Hashable {
     }
 }
 
-struct GitHubIssueComment: Identifiable, Hashable {
+nonisolated struct GitHubIssueComment: Identifiable, Hashable {
     let id: Int
     let author: String
     let body: String
@@ -248,7 +248,7 @@ struct GitHubIssueComment: Identifiable, Hashable {
     let url: URL
 }
 
-struct GitHubIssueDetail: Hashable {
+nonisolated struct GitHubIssueDetail: Hashable {
     let item: GitHubWorkItem
     let body: String
     let state: String

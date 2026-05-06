@@ -1331,7 +1331,7 @@ private struct PiAgentStartupResourcesCard: View {
             viewModel.selectedCommandItemID = id
             viewModel.selectedSidebarItem = .commandsAndPrompts
         case .extensions:
-            viewModel.selectedSidebarItem = .settings
+            viewModel.selectedSidebarItem = .extensions
         case .environment:
             viewModel.selectedSidebarItem = .environment
         case .file(let url):

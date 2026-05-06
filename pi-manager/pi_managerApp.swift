@@ -50,8 +50,9 @@ struct pi_managerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
-                .frame(minWidth: 900, minHeight: 600)
         }
+        .defaultSize(width: 1180, height: 760)
+        .windowResizability(.contentMinSize)
         Settings {
             SettingsSceneContent()
         }

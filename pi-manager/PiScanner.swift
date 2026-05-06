@@ -1,6 +1,6 @@
 import Foundation
 
-struct PiScanner {
+nonisolated struct PiScanner {
     private let fileManager = FileManager.default
 
     func scan(projectRoot: URL?) -> ScanSnapshot {
@@ -1175,14 +1175,14 @@ struct PiScanner {
     }
 }
 
-private extension Optional where Wrapped == String {
+nonisolated private extension Optional where Wrapped == String {
     var nonEmpty: String? {
         guard let self, !self.isEmpty else { return nil }
         return self
     }
 }
 
-private extension String {
+nonisolated private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
     }

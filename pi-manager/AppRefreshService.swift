@@ -12,7 +12,7 @@ struct AppRefreshSnapshot: Sendable {
     let watchFingerprint: String
 }
 
-struct AppRefreshService: Sendable {
+nonisolated struct AppRefreshService: Sendable {
     func loadSnapshot(
         rootURL: URL,
         selectedProjectPath: String?,
@@ -76,7 +76,7 @@ struct AppRefreshService: Sendable {
     }
 }
 
-struct FileWatchFingerprint: Sendable {
+nonisolated struct FileWatchFingerprint: Sendable {
     static func make(urls: [URL]) -> String {
         let fileManager = FileManager.default
         let entries: [String] = urls.flatMap { url in

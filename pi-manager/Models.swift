@@ -1,6 +1,6 @@
 import Foundation
 
-enum ResourceScopeKind: String, CaseIterable, Codable, Sendable {
+nonisolated enum ResourceScopeKind: String, CaseIterable, Codable, Sendable {
     case builtin = "Builtin"
     case global = "Global"
     case project = "Project"
@@ -10,7 +10,7 @@ enum ResourceScopeKind: String, CaseIterable, Codable, Sendable {
     case library = "Library"
 }
 
-struct ScopeID: Hashable, Identifiable, Sendable {
+nonisolated struct ScopeID: Hashable, Identifiable, Sendable {
     let kind: ResourceScopeKind
     let path: String
 
@@ -18,7 +18,7 @@ struct ScopeID: Hashable, Identifiable, Sendable {
     var displayName: String { kind.rawValue }
 }
 
-struct AgentConfig: Hashable, Sendable {
+nonisolated struct AgentConfig: Hashable, Sendable {
     var name: String
     var description: String
     var model: String?
@@ -66,7 +66,7 @@ struct AgentConfig: Hashable, Sendable {
     )
 }
 
-struct AgentRecord: Identifiable, Hashable, Sendable {
+nonisolated struct AgentRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -77,7 +77,7 @@ struct AgentRecord: Identifiable, Hashable, Sendable {
     let parsed: AgentConfig
 }
 
-struct BuiltinOverrideRecord: Hashable, @unchecked Sendable {
+nonisolated struct BuiltinOverrideRecord: Hashable, @unchecked Sendable {
     let agentName: String
     let scope: ScopeID
     let settingsPath: String
@@ -101,7 +101,7 @@ struct BuiltinOverrideRecord: Hashable, @unchecked Sendable {
     }
 }
 
-enum ResolutionKind: String, Sendable {
+nonisolated enum ResolutionKind: String, Sendable {
     case builtin = "Builtin"
     case builtinWithOverride = "Builtin + Override"
     case globalCustom = "Global"
@@ -111,7 +111,7 @@ enum ResolutionKind: String, Sendable {
     case library = "Library"
 }
 
-struct EffectiveAgentRecord: Identifiable, Hashable, Sendable {
+nonisolated struct EffectiveAgentRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let projectRoot: String?
@@ -132,7 +132,7 @@ struct EffectiveAgentRecord: Identifiable, Hashable, Sendable {
     }
 }
 
-struct ChainStepRecord: Identifiable, Hashable, Sendable {
+nonisolated struct ChainStepRecord: Identifiable, Hashable, Sendable {
     let id: String
     var agent: String
     var title: String
@@ -147,7 +147,7 @@ struct ChainStepRecord: Identifiable, Hashable, Sendable {
     var body: String
 }
 
-struct ChainRecord: Identifiable, Hashable, Sendable {
+nonisolated struct ChainRecord: Identifiable, Hashable, Sendable {
     let id: String
     var name: String
     let source: ScopeID
@@ -157,7 +157,7 @@ struct ChainRecord: Identifiable, Hashable, Sendable {
     var extraFields: [String: String]
 }
 
-struct SkillRecord: Identifiable, Hashable, Sendable {
+nonisolated struct SkillRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String?
@@ -166,7 +166,7 @@ struct SkillRecord: Identifiable, Hashable, Sendable {
     let body: String
 }
 
-enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable, Sendable {
+nonisolated enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable, Sendable {
     case symlink
     case copy
 
@@ -187,7 +187,7 @@ enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable, Senda
     }
 }
 
-struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {
+nonisolated struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {
     let name: String
     let description: String?
     let sourceRootPath: String
@@ -196,18 +196,18 @@ struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {
     var id: String { sourceRootPath }
 }
 
-struct SkillImportResult: Hashable, Sendable {
+nonisolated struct SkillImportResult: Hashable, Sendable {
     let importedNames: [String]
     let skippedNames: [String]
 }
 
-enum PromptTemplateDiscoveryKind: String, Hashable, Sendable {
+nonisolated enum PromptTemplateDiscoveryKind: String, Hashable, Sendable {
     case standardDirectory = "Standard Directory"
     case settings = "Settings"
     case package = "Package"
 }
 
-struct PromptTemplateRecord: Identifiable, Hashable, Sendable {
+nonisolated struct PromptTemplateRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -221,12 +221,12 @@ struct PromptTemplateRecord: Identifiable, Hashable, Sendable {
     var invocation: String { "/\(name)" }
 }
 
-enum CommandRecordKind: String, Hashable, Sendable {
+nonisolated enum CommandRecordKind: String, Hashable, Sendable {
     case builtIn = "Built-in Command"
     case `extension` = "Extension Command"
 }
 
-struct CommandRecord: Identifiable, Hashable, Sendable {
+nonisolated struct CommandRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -240,19 +240,19 @@ struct CommandRecord: Identifiable, Hashable, Sendable {
     var invocation: String { "/\(name)" }
 }
 
-struct DiagnosticWarning: Identifiable, Hashable, Sendable {
+nonisolated struct DiagnosticWarning: Identifiable, Hashable, Sendable {
     let id: String
     let message: String
 }
 
-struct AgentSkillVisibilityIssue: Identifiable, Hashable, Sendable {
+nonisolated struct AgentSkillVisibilityIssue: Identifiable, Hashable, Sendable {
     let project: DiscoveredProject
     let missingSkills: [String]
 
     var id: String { "\(project.id):\(missingSkills.joined(separator: ","))" }
 }
 
-struct SettingsSummary: Hashable, Sendable {
+nonisolated struct SettingsSummary: Hashable, Sendable {
     let path: String
     let packages: [String]
     let prompts: [String]
@@ -260,14 +260,14 @@ struct SettingsSummary: Hashable, Sendable {
     let agentOverrides: [BuiltinOverrideRecord]
 }
 
-struct EnvKeyRecord: Identifiable, Hashable, Sendable {
+nonisolated struct EnvKeyRecord: Identifiable, Hashable, Sendable {
     let id: String
     let key: String
     let value: String?
     let source: ScopeID
 }
 
-struct AvailableModel: Identifiable, Hashable, Sendable {
+nonisolated struct AvailableModel: Identifiable, Hashable, Sendable {
     let provider: String
     let model: String
     let contextWindow: String
@@ -283,7 +283,7 @@ struct AvailableModel: Identifiable, Hashable, Sendable {
     }
 }
 
-struct ScanSnapshot: Hashable, Sendable {
+nonisolated struct ScanSnapshot: Hashable, Sendable {
     let projectRoot: String?
     let builtinAgents: [AgentRecord]
     let globalAgents: [AgentRecord]

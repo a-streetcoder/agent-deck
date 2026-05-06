@@ -62,6 +62,15 @@ struct ContentView: View {
     @State private var isOnboardingPresented = !UserDefaults.standard.bool(forKey: "piManagerWelcomeTourCompleted.v1")
 
     var body: some View {
+        mainContent
+            .sheet(isPresented: $isOnboardingPresented, onDismiss: completeOnboarding) {
+                WelcomeOnboardingSheet(viewModel: viewModel) {
+                    completeOnboarding()
+                }
+            }
+    }
+
+    private var mainContent: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
@@ -148,7 +157,7 @@ struct ContentView: View {
                     .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 1180, minHeight: 700)
         .toolbar(removing: .title)
         .focusedSceneValue(\.piManagerCommands, commandContext)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
@@ -522,13 +531,14 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(isPresented: $isOnboardingPresented, onDismiss: {
-            UserDefaults.standard.set(true, forKey: "piManagerWelcomeTourCompleted.v1")
-        }) {
-            WelcomeOnboardingSheet(viewModel: viewModel) {
-                isOnboardingPresented = false
-            }
+    }
+
+    private func completeOnboarding() {
+        guard isOnboardingPresented || !UserDefaults.standard.bool(forKey: "piManagerWelcomeTourCompleted.v1") else {
+            return
         }
+        UserDefaults.standard.set(true, forKey: "piManagerWelcomeTourCompleted.v1")
+        isOnboardingPresented = false
     }
 
     @ViewBuilder
@@ -756,8 +766,6 @@ struct ContentView: View {
             ExtensionsScreen(viewModel: viewModel)
         case .models:
             ModelsScreen(viewModel: viewModel)
-        case .settings:
-            SettingsScreen(viewModel: viewModel)
         case .subagents:
             SubagentsScreen(viewModel: viewModel)
         case .environment:

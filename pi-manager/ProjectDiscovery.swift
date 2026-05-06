@@ -1,6 +1,6 @@
 import Foundation
 
-struct DiscoveredProject: Identifiable, Hashable {
+nonisolated struct DiscoveredProject: Identifiable, Hashable, Sendable {
     let url: URL
     let gitHubRemote: GitHubRemote?
     let isGitRepository: Bool
@@ -16,7 +16,7 @@ struct DiscoveredProject: Identifiable, Hashable {
     var isGitHubRepository: Bool { gitHubRemote?.isGitHubDotCom == true }
 }
 
-struct ProjectDiscovery {
+nonisolated struct ProjectDiscovery {
     private let fileManager = FileManager.default
 
     static func defaultRootDirectoryURL(fileManager: FileManager = .default) -> URL {

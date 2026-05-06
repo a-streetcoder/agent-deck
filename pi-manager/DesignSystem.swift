@@ -7,9 +7,9 @@ enum AppTheme {
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
 
-    static let contentFill = Color(nsColor: .controlBackgroundColor)
-    static let contentStroke = Color.primary.opacity(0.08)
-    static let contentSubtleFill = Color.primary.opacity(0.035)
+    static let contentFill = Color.primary.opacity(0.035)
+    static let contentStroke = Color.primary.opacity(0.10)
+    static let contentSubtleFill = Color.primary.opacity(0.055)
     static let selectionFill = Color.accentColor.opacity(0.12)
     static let selectionStroke = Color.accentColor.opacity(0.35)
     static let mutedText = Color.secondary
@@ -27,11 +27,13 @@ struct AppContentSurface: ViewModifier {
     var isSelected = false
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill)
-                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                shape
+                    .fill(.regularMaterial)
+                    .overlay(shape.fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill))
+                    .overlay(shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
             )
     }
 }
@@ -40,9 +42,13 @@ struct AppGlassPanelSurface: ViewModifier {
     var cornerRadius: CGFloat = 14
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .background(.clear)
-            .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(
+                shape
+                    .fill(.regularMaterial)
+                    .overlay(shape.stroke(AppTheme.contentStroke, lineWidth: 1))
+            )
     }
 }
 
@@ -50,8 +56,13 @@ struct AppGlassControlSurface: ViewModifier {
     var cornerRadius: CGFloat = 12
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
-            .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(
+                shape
+                    .fill(.thinMaterial)
+                    .overlay(shape.stroke(AppTheme.contentStroke, lineWidth: 1))
+            )
     }
 }
 
@@ -65,10 +76,8 @@ struct AppGlassControlGroup<Content: View>: View {
     }
 
     var body: some View {
-        GlassEffectContainer(spacing: spacing) {
-            HStack(spacing: spacing) {
-                content
-            }
+        HStack(spacing: spacing) {
+            content
         }
     }
 }
