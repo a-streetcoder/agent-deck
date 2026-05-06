@@ -38,6 +38,32 @@ final class PiAgentSessionStoreRegressionTests: XCTestCase {
         XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
     }
 
+    func testReloadWithNilPersistedSelectionSelectsFirstSession() throws {
+        let fileURL = temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Selected", project: makeProject(), repository: nil)
+        firstStore.flushForTesting()
+        try rewritePersistedSelection(in: fileURL, selectedSessionID: NSNull())
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+
+        XCTAssertEqual(reloadedStore.selectedSessionID, session.id)
+        XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
+    }
+
+    func testReloadWithInvalidPersistedSelectionSelectsFirstSession() throws {
+        let fileURL = temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Selected", project: makeProject(), repository: nil)
+        firstStore.flushForTesting()
+        try rewritePersistedSelection(in: fileURL, selectedSessionID: UUID().uuidString)
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+
+        XCTAssertEqual(reloadedStore.selectedSessionID, session.id)
+        XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
+    }
+
     private func makeStore() -> PiAgentSessionStore {
         PiAgentSessionStore(fileURL: temporaryStateFile())
     }
@@ -57,6 +83,17 @@ final class PiAgentSessionStoreRegressionTests: XCTestCase {
             fallbackSymbolName: "folder",
             searchIndex: "pi-manager-test-project"
         )
+    }
+
+    private func rewritePersistedSelection(in fileURL: URL, selectedSessionID: Any) throws {
+        let data = try Data(contentsOf: fileURL)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Expected persisted Pi Agent state dictionary.")
+            return
+        }
+        object["selectedSessionID"] = selectedSessionID
+        let rewritten = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try rewritten.write(to: fileURL, options: .atomic)
     }
 }
 

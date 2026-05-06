@@ -466,7 +466,12 @@ final class PiAgentSessionStore: ObservableObject {
                 return (persistedRequests.sessionID, recovered)
             })
             sessionPlansBySessionID = Dictionary(uniqueKeysWithValues: (persisted.sessionPlans ?? []).map { ($0.sessionID, $0) })
-            selectedSessionID = persisted.selectedSessionID ?? sessions.first?.id
+            if let persistedSelectedSessionID = persisted.selectedSessionID,
+               sessions.contains(where: { $0.id == persistedSelectedSessionID }) {
+                selectedSessionID = persistedSelectedSessionID
+            } else {
+                selectedSessionID = sessions.first?.id
+            }
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
             sessions = []
