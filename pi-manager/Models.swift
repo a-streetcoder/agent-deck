@@ -1,57 +1,5 @@
 import Foundation
 
-struct SubagentControlConfig: Hashable, Sendable {
-    var enabled: Bool?
-    var needsAttentionAfterMs: Int?
-    var notifyChannels: [String]
-}
-
-struct SubagentParallelConfig: Hashable, Sendable {
-    var maxTasks: Int?
-    var concurrency: Int?
-}
-
-struct SubagentIntercomBridgeConfig: Hashable, Sendable {
-    var mode: String?
-    var instructionFile: String?
-}
-
-struct SubagentExtensionConfig: Hashable, Sendable {
-    var asyncByDefault: Bool?
-    var forceTopLevelAsync: Bool?
-    var defaultSessionDir: String?
-    var maxSubagentDepth: Int?
-    var control: SubagentControlConfig
-    var parallel: SubagentParallelConfig
-    var worktreeSetupHook: String?
-    var worktreeSetupHookTimeoutMs: Int?
-    var intercomBridge: SubagentIntercomBridgeConfig
-
-    static let empty = SubagentExtensionConfig(
-        asyncByDefault: nil,
-        forceTopLevelAsync: nil,
-        defaultSessionDir: nil,
-        maxSubagentDepth: nil,
-        control: SubagentControlConfig(enabled: nil, needsAttentionAfterMs: nil, notifyChannels: []),
-        parallel: SubagentParallelConfig(maxTasks: nil, concurrency: nil),
-        worktreeSetupHook: nil,
-        worktreeSetupHookTimeoutMs: nil,
-        intercomBridge: SubagentIntercomBridgeConfig(mode: nil, instructionFile: nil)
-    )
-
-    static let packageDefaults = SubagentExtensionConfig(
-        asyncByDefault: false,
-        forceTopLevelAsync: false,
-        defaultSessionDir: nil,
-        maxSubagentDepth: nil,
-        control: SubagentControlConfig(enabled: true, needsAttentionAfterMs: 60000, notifyChannels: ["event", "async", "intercom"]),
-        parallel: SubagentParallelConfig(maxTasks: 8, concurrency: 4),
-        worktreeSetupHook: nil,
-        worktreeSetupHookTimeoutMs: 30000,
-        intercomBridge: SubagentIntercomBridgeConfig(mode: "always", instructionFile: nil)
-    )
-}
-
 enum ResourceScopeKind: String, CaseIterable, Codable, Sendable {
     case builtin = "Builtin"
     case global = "Global"
@@ -319,12 +267,6 @@ struct EnvKeyRecord: Identifiable, Hashable, Sendable {
     let source: ScopeID
 }
 
-struct SubagentConfigRecord: Identifiable, Hashable, Sendable {
-    let id: String
-    let path: String
-    let config: SubagentExtensionConfig
-}
-
 struct AvailableModel: Identifiable, Hashable, Sendable {
     let provider: String
     let model: String
@@ -358,7 +300,6 @@ struct ScanSnapshot: Hashable, Sendable {
     let libraryPromptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
     let envKeys: [EnvKeyRecord]
-    let subagentConfig: SubagentConfigRecord?
     let warnings: [DiagnosticWarning]
 
     static let empty = ScanSnapshot(
@@ -378,7 +319,6 @@ struct ScanSnapshot: Hashable, Sendable {
         libraryPromptTemplates: [],
         settings: [],
         envKeys: [],
-        subagentConfig: nil,
         warnings: []
     )
 }

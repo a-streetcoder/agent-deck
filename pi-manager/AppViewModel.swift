@@ -96,7 +96,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private let agentPersistence = AgentPersistence()
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
-    private let subagentConfigPersistence = SubagentConfigPersistence()
     private let extensionManagementService = PiExtensionManagementService()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsStore = AppSettingsStore.shared
@@ -2792,7 +2791,6 @@ final class AppViewModel: NSObject, ObservableObject {
     func availableSkillNames(for target: AgentEditingTarget) -> [String] {
         let snapshot = scopeSnapshot(for: target)
         return Array(Set((snapshot.skills + snapshot.librarySkills).map(\.name)))
-            .filter { $0 != "pi-subagents" }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -2805,12 +2803,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
         if isPackageInstalled("pi-web-access") {
             tools += ["web_search", "fetch_content", "get_search_content", "code_search"]
-        }
-        if isPackageInstalled("pi-subagents") {
-            tools.append("subagent")
-        }
-        if isPackageInstalled("pi-intercom") {
-            tools.append("intercom")
         }
 
         let explicitTools = scopeSnapshot.effectiveAgents.flatMap { $0.resolved.tools ?? [] }
@@ -3050,7 +3042,7 @@ final class AppViewModel: NSObject, ObservableObject {
         guard !agent.resolved.skills.isEmpty else { return [] }
         let explicitSkills = agent.resolved.skills
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != "pi-subagents" }
+            .filter { !$0.isEmpty }
         guard !explicitSkills.isEmpty else { return [] }
 
         let managedRecord = snapshot.libraryAgents.first { $0.name == agent.name }
@@ -3485,24 +3477,6 @@ final class AppViewModel: NSObject, ObservableObject {
         refresh(includeModels: false)
     }
 
-    func makeSubagentConfigDraft() -> SubagentConfigDraft {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-        return subagentConfigPersistence.makeDraft(path: path, config: snapshot.subagentConfig?.config ?? .packageDefaults)
-    }
-
-    func saveSubagentConfigDraft(_ draft: SubagentConfigDraft) throws {
-        try subagentConfigPersistence.save(draft)
-        refresh(includeModels: false)
-    }
-
-    func restoreDefaultSubagentConfig() {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-        try? FileManager.default.removeItem(atPath: path)
-        refresh(includeModels: false)
-    }
-
     var userDisableBuiltins: Bool {
         settingsSummary(for: .global)?.disableBuiltins ?? false
     }
@@ -3611,7 +3585,6 @@ final class AppViewModel: NSObject, ObservableObject {
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
-            subagentConfig: globalSnapshot.subagentConfig,
             warnings: warnings
         )
     }
@@ -3727,38 +3700,6 @@ final class AppViewModel: NSObject, ObservableObject {
         return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    private func loadJSONSettings(at url: URL) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return [:] }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    }
-
-    private func saveJSONSettings(_ settings: [String: Any], to url: URL) {
-        let directory = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard JSONSerialization.isValidJSONObject(settings),
-              let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    private func subagentsPackageEntries() -> [Any] {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".pi/agent/settings.json")
-        return subagentsPackageEntries(from: loadJSONSettings(at: settingsURL) ?? [:])
-    }
-
-    private func subagentsPackageEntries(from settings: [String: Any]) -> [Any] {
-        settings["packages"] as? [Any] ?? []
-    }
-
-    private func isSubagentsPackageEntry(_ entry: Any) -> Bool {
-        if let value = entry as? String {
-            return value == "npm:pi-subagents"
-        }
-        if let value = entry as? [String: Any], let source = value["source"] as? String {
-            return source == "npm:pi-subagents"
-        }
-        return false
-    }
 }
 
 enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
@@ -3862,6 +3803,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case environment = "Environment"
     case diagnostics = "Diagnostics"
     case piDocs = "Docs"
+    case credits = "Credits"
 
     var id: String { rawValue }
 
@@ -3881,6 +3823,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .environment: return "key"
         case .diagnostics: return "stethoscope"
         case .piDocs: return "book"
+        case .credits: return "info.circle"
         }
     }
 }
@@ -3902,7 +3845,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .runtime:
             return [.extensions, .models, .settings, .environment, .diagnostics]
         case .reference:
-            return [.piDocs]
+            return [.piDocs, .credits]
         }
     }
 }

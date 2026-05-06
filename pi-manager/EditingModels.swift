@@ -49,13 +49,6 @@ struct ChainEditorDraft: Identifiable, Hashable {
     }
 }
 
-struct SubagentConfigDraft: Identifiable, Hashable {
-    let path: String
-    var config: SubagentExtensionConfig
-
-    var id: String { "subagent-config::\(path)" }
-}
-
 struct EnvEditorDraft: Identifiable, Hashable {
     let originalKey: String?
     var key: String

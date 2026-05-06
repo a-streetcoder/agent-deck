@@ -5243,7 +5243,6 @@ private struct PiAgentActivitySummaryView: View {
         case "web_search": return "Web search"
         case "fetch_content", "get_search_content": return "Web content"
         case "code_search": return "Code search"
-        case "intercom": return "Intercom"
         default:
             return name
                 .replacingOccurrences(of: "_", with: " ")
@@ -5262,7 +5261,6 @@ private struct PiAgentActivitySummaryView: View {
         case "subagent": return "person.2.wave.2"
         case "web_search", "fetch_content", "get_search_content": return "globe"
         case "code_search": return "curlybraces.square"
-        case "intercom": return "bubble.left.and.bubble.right"
         default: return "wrench.and.screwdriver"
         }
     }

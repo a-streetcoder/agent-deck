@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1A90433A8BD204FD61E7FE46 /* subagents-toggle.ts in Resources */ = {isa = PBXBuildFile; fileRef = D56D4791AF03075B76911187 /* subagents-toggle.ts */; };
+		24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */ = {isa = PBXBuildFile; productRef = 24B3A7709E2E4A2A89175011 /* TourKit */; };
 		8F5A2A6925B14789B7C0D431 /* bundled-agents in Resources */ = {isa = PBXBuildFile; fileRef = 4E1F0B28C6D84725B47F2D75 /* bundled-agents */; };
 /* End PBXBuildFile section */
 
@@ -15,7 +15,6 @@
 		4E1F0B28C6D84725B47F2D75 /* bundled-agents */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-agents"; path = "pi-manager/bundled-agents"; sourceTree = SOURCE_ROOT; };
 		6572B16B2FA2391500596CE4 /* pi-manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pi-manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B7E7C862FA60178000A7C01 /* pi-managerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "pi-managerTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		D56D4791AF03075B76911187 /* subagents-toggle.ts */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.typescript; name = "subagents-toggle.ts"; path = "pi-manager/bundled-extensions/subagents-toggle.ts"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -36,6 +35,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -55,7 +55,6 @@
 				6572B16D2FA2391500596CE4 /* pi-manager */,
 				7B7E7C872FA60178000A7C01 /* pi-managerTests */,
 				6572B16C2FA2391500596CE4 /* Products */,
-				D56D4791AF03075B76911187 /* subagents-toggle.ts */,
 				4E1F0B28C6D84725B47F2D75 /* bundled-agents */,
 			);
 			sourceTree = "<group>";
@@ -89,6 +88,7 @@
 			);
 			name = "pi-manager";
 			packageProductDependencies = (
+				24B3A7709E2E4A2A89175011 /* TourKit */,
 			);
 			productName = "pi-manager";
 			productReference = 6572B16B2FA2391500596CE4 /* pi-manager.app */;
@@ -145,6 +145,9 @@
 			);
 			mainGroup = 6572B1622FA2391500596CE4;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6572B16C2FA2391500596CE4 /* Products */;
 			projectDirPath = "";
@@ -161,7 +164,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1A90433A8BD204FD61E7FE46 /* subagents-toggle.ts in Resources */,
 				8F5A2A6925B14789B7C0D431 /* bundled-agents in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -199,6 +201,25 @@
 			targetProxy = 7B7E7C8E2FA60178000A7C01 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rampatra/TourKit.git";
+			requirement = {
+				kind = revision;
+				revision = 1a2aa23e38befe67f04f563bb9d324394cab442c;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		24B3A7709E2E4A2A89175011 /* TourKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */;
+			productName = TourKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXContainerItemProxy section */
 		7B7E7C8E2FA60178000A7C01 /* PBXContainerItemProxy */ = {

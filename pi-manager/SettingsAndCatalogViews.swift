@@ -1,11 +1,6 @@
 import AppKit
 import SwiftUI
 
-private func boolLabel(_ value: Bool?) -> String {
-    guard let value else { return "—" }
-    return value ? "true" : "false"
-}
-
 private func revealInFinder(_ path: String?) {
     guard let path, !path.isEmpty else { return }
     revealInFinder(path)
@@ -497,127 +492,86 @@ struct ModelsScreen: View {
 
 struct SubagentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
-    let onEditConfig: () -> Void
-    let onRestoreDefaults: () -> Void
-    @State private var showingRestoreDefaultsConfirmation = false
 
     var body: some View {
-        AppPage("Subagents", subtitle: "Global pi-subagents runtime defaults and package behavior") {
-            editableScopeCard
-            configFileCard
-            packageDefaultsCard
-            runtimeEffectsCard
-        }
-        .alert("Restore subagent defaults?", isPresented: $showingRestoreDefaultsConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Restore Defaults", role: .destructive) {
-                onRestoreDefaults()
-            }
-        } message: {
-            Text("This will delete ~/.pi/agent/extensions/subagent/config.json and fall back to the built-in pi-subagents defaults.")
+        AppPage("Subagents", subtitle: "Native app-managed delegation and supervision") {
+            nativeRuntimeCard
+            sessionDefaultsCard
+            availableAgentsCard
+            safetyCard
         }
     }
 
-    private var editableScopeCard: some View {
-        AppCard(title: "What You Can Edit Here") {
+    private var nativeRuntimeCard: some View {
+        AppCard(title: "Native Runtime") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("• These settings control default runtime behavior for pi-subagents on this machine.")
-                Text("• This is the package config file, not an agent markdown file.")
-                Text("• Things like async defaults, intercom bridge behavior, control notices, parallel limits, and worktree hooks live here.")
+                Text("• Pi Manager launches child Pi sessions itself and keeps parent, child, transcript, artifact, and supervisor state in the app.")
+                Text("• Parent sessions receive app-provided managed tools for single, chain, and parallel delegation.")
+                Text("• Child sessions can contact the supervisor through Pi Manager's native request cards.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var configFileCard: some View {
-        AppCard(title: "Config File", trailing: {
-            HStack(spacing: 10) {
-                if let config = viewModel.snapshot.subagentConfig {
-                    Button("Open") { openFile(config.path) }
-                    Button("Reveal") { revealInFinder(config.path) }
-                }
-                Button("Restore Defaults") { showingRestoreDefaultsConfirmation = true }
-                    .disabled(viewModel.snapshot.subagentConfig == nil)
-                Button("Edit Config") { onEditConfig() }
-            }
-        }) {
-            if viewModel.snapshot.subagentConfig == nil {
-                Text("No `~/.pi/agent/extensions/subagent/config.json` file exists right now. Pi Subagents falls back to its built-in package defaults until you create one.")
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 8)
-            }
-
+    private var sessionDefaultsCard: some View {
+        AppCard(title: "Session Defaults") {
             AppKeyValueList(rows: [
-                ("Path", configPath),
-                ("Source", viewModel.snapshot.subagentConfig == nil ? "Package defaults" : "User config file"),
-                ("Async By Default", boolLabel(displayedConfig.asyncByDefault)),
-                ("Force Top-Level Async", boolLabel(displayedConfig.forceTopLevelAsync)),
-                ("Default Session Dir", displayedConfig.defaultSessionDir ?? "Derived from parent session"),
-                ("Max Subagent Depth", displayedConfig.maxSubagentDepth.map(String.init) ?? "No package limit"),
-                ("Control Enabled", boolLabel(displayedConfig.control.enabled)),
-                ("Needs Attention After", displayedConfig.control.needsAttentionAfterMs.map { "\($0) ms" } ?? "—"),
-                ("Notify Channels", displayedConfig.control.notifyChannels.isEmpty ? "—" : displayedConfig.control.notifyChannels.joined(separator: ", ")),
-                ("Parallel Max Tasks", displayedConfig.parallel.maxTasks.map(String.init) ?? "8"),
-                ("Parallel Concurrency", displayedConfig.parallel.concurrency.map(String.init) ?? "4"),
-                ("Worktree Setup Hook", displayedConfig.worktreeSetupHook ?? "—"),
-                ("Worktree Hook Timeout", displayedConfig.worktreeSetupHookTimeoutMs.map { "\($0) ms" } ?? "30000 ms"),
-                ("Intercom Bridge Mode", displayedConfig.intercomBridge.mode ?? "always"),
-                ("Intercom Instruction File", displayedConfig.intercomBridge.instructionFile ?? "Default packaged instructions")
+                ("New Sessions", viewModel.areSubagentsEnabledForNewSessions ? "Native subagents enabled" : "Native subagents disabled"),
+                ("Selected Session", selectedSessionStatus),
+                ("Available Agents", "\(viewModel.snapshot.effectiveAgents.filter { $0.resolved.disabled != true }.count)"),
+                ("Available Chains", "\(viewModel.snapshot.chains.count)")
             ])
         }
     }
 
-    private var packageDefaultsCard: some View {
-        AppCard(title: "Package Defaults When Config Is Missing") {
+    private var availableAgentsCard: some View {
+        AppCard(title: "Available Native Agents") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("When `~/.pi/agent/extensions/subagent/config.json` is missing, pi-subagents uses these built-in defaults:")
-                Text("• `asyncByDefault`: `false`")
-                Text("• `forceTopLevelAsync`: `false`")
-                Text("• `defaultSessionDir`: derived from the parent session")
-                Text("• `maxSubagentDepth`: no package-level limit")
-                Text("• `control.enabled`: `true`")
-                Text("• `control.needsAttentionAfterMs`: `60000`")
-                Text("• `control.notifyChannels`: `event, async, intercom`")
-                Text("• `parallel.maxTasks`: `8`")
-                Text("• `parallel.concurrency`: `4`")
-                Text("• `intercomBridge.mode`: `always`")
-                Text("• `intercomBridge.instructionFile`: packaged default instructions")
-                Text("• `worktreeSetupHook`: unset")
-                Text("• `worktreeSetupHookTimeoutMs`: `30000`")
+                let agents = viewModel.snapshot.effectiveAgents
+                    .filter { $0.resolved.disabled != true }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                if agents.isEmpty {
+                    Text("No enabled agents are available in the current scope.")
+                        .foregroundStyle(AppTheme.mutedText)
+                } else {
+                    ForEach(agents.prefix(12)) { agent in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: "rectangle.connected.to.line.below")
+                                .foregroundStyle(AppTheme.mutedText)
+                                .frame(width: 18)
+                            Text(agent.name)
+                                .font(.body.weight(.semibold))
+                            Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
+                                .foregroundStyle(AppTheme.mutedText)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    if agents.count > 12 {
+                        Text("\(agents.count - 12) more agents are available from the run picker.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var runtimeEffectsCard: some View {
-        AppCard(title: "How These Settings Affect Runs") {
+    private var safetyCard: some View {
+        AppCard(title: "Safety") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("• `asyncByDefault` makes runs go to the background unless a request says otherwise.")
-                Text("• `forceTopLevelAsync` pushes top-level runs to background and skips clarify UI for them.")
-                Text("• `control` decides whether long quiet runs raise needs-attention notices.")
-                Text("• `parallel` sets default task limits for top-level parallel runs.")
-                Text("• `intercomBridge` controls when child agents get automatic intercom coordination instructions.")
-                Text("• `worktreeSetupHook` prepares each created worktree before a parallel isolated run starts.")
+                Text("• Writer-like native runs use isolated worktrees unless direct project writes are explicitly allowed.")
+                Text("• Parent and child transcript state is persisted by Pi Manager.")
+                Text("• Supervisor questions stay scoped to the owning parent session and window.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var configPath: String {
-        viewModel.snapshot.subagentConfig?.path ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/extensions/subagent/config.json").path
-    }
-
-    private var displayedConfig: SubagentExtensionConfig {
-        viewModel.snapshot.subagentConfig?.config ?? .packageDefaults
-    }
-
-    private func openFile(_ path: String) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
-    }
-
-    private func revealInFinder(_ path: String) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    private var selectedSessionStatus: String {
+        guard let session = viewModel.piAgentSessionStore.selectedSession else { return "No session selected" }
+        return session.subagentsEnabled ? "Native subagents enabled" : "Native subagents disabled"
     }
 }
 

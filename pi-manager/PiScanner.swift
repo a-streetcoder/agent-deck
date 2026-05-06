@@ -16,7 +16,6 @@ struct PiScanner {
         let globalPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompts", isDirectory: true)
         let libraryPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
-        let subagentConfig = homeDirectory().appendingPathComponent(".pi/agent/extensions/subagent/config.json")
 
         let projectAgentDirectory = projectRoot?.appendingPathComponent(".pi/agents", isDirectory: true)
         let projectChainDirectory = projectRoot?.appendingPathComponent(".pi/chains", isDirectory: true)
@@ -59,8 +58,6 @@ struct PiScanner {
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +
             scanEnv(at: projectEnv, scope: .project)
-
-        let parsedSubagentConfig = scanSubagentConfig(at: subagentConfig)
 
         let globalSettingsSummary = settings.first(where: { $0.path == globalSettings.path })
         let projectSettingsSummary = settings.first(where: { $0.path == projectSettings?.path })
@@ -117,7 +114,6 @@ struct PiScanner {
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
             envKeys: envKeys,
-            subagentConfig: parsedSubagentConfig,
             warnings: warnings
         )
     }
@@ -745,43 +741,6 @@ struct PiScanner {
             }
     }
 
-    private func scanSubagentConfig(at file: URL) -> SubagentConfigRecord? {
-        guard let data = try? Data(contentsOf: file),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-
-        let control = (json["control"] as? [String: Any]) ?? [:]
-        let parallel = (json["parallel"] as? [String: Any]) ?? [:]
-        let intercomBridge = (json["intercomBridge"] as? [String: Any]) ?? [:]
-
-        return SubagentConfigRecord(
-            id: file.path,
-            path: file.path,
-            config: SubagentExtensionConfig(
-                asyncByDefault: json["asyncByDefault"] as? Bool,
-                forceTopLevelAsync: json["forceTopLevelAsync"] as? Bool,
-                defaultSessionDir: json["defaultSessionDir"] as? String,
-                maxSubagentDepth: json["maxSubagentDepth"] as? Int,
-                control: SubagentControlConfig(
-                    enabled: control["enabled"] as? Bool,
-                    needsAttentionAfterMs: control["needsAttentionAfterMs"] as? Int,
-                    notifyChannels: control["notifyChannels"] as? [String] ?? []
-                ),
-                parallel: SubagentParallelConfig(
-                    maxTasks: parallel["maxTasks"] as? Int,
-                    concurrency: parallel["concurrency"] as? Int
-                ),
-                worktreeSetupHook: json["worktreeSetupHook"] as? String,
-                worktreeSetupHookTimeoutMs: json["worktreeSetupHookTimeoutMs"] as? Int,
-                intercomBridge: SubagentIntercomBridgeConfig(
-                    mode: intercomBridge["mode"] as? String,
-                    instructionFile: intercomBridge["instructionFile"] as? String
-                )
-            )
-        )
-    }
-
     private func resolveAgents(
         projectRoot: String?,
         builtin: [AgentRecord],
@@ -927,9 +886,6 @@ struct PiScanner {
         for agent in effectiveAgents {
             for skill in agent.resolved.skills where !skillNames.contains(skill) {
                 warnings.append(.init(id: "skill:\(agent.name):\(skill)", message: "Agent \(agent.name) references missing skill \(skill)."))
-            }
-            if agent.resolved.skills.contains("pi-subagents") {
-                warnings.append(.init(id: "parent-only-skill:\(agent.name):pi-subagents", message: "Agent \(agent.name) explicitly injects pi-subagents, but that skill is parent/orchestrator-only and should not be assigned to spawned agents."))
             }
             if let tools = agent.resolved.tools, tools.contains("web_search") && !envNames.contains("EXA_API_KEY") && !envNames.contains("GEMINI_API_KEY") && !envNames.contains("PERPLEXITY_API_KEY") {
                 warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses web search tools but no known web provider API key was found."))

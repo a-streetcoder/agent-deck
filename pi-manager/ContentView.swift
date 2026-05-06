@@ -53,12 +53,12 @@ private struct PiAgentOpenTerminalToolbarButton: View {
 
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
+    @AppStorage("piManagerWelcomeTourCompleted.v1") private var welcomeTourCompleted = false
     @StateObject private var viewModel = AppViewModel()
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
     @State private var chainDraft: ChainEditorDraft?
     @State private var envDraft: EnvEditorDraft?
-    @State private var subagentConfigDraft: SubagentConfigDraft?
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
     @State private var agentDetailEditCommand = 0
@@ -74,6 +74,7 @@ struct ContentView: View {
     @State private var isPiAgentRepoChangesPresented = false
     @State private var isPiAgentActivityPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
+    @State private var isWelcomeTourPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -176,6 +177,11 @@ struct ContentView: View {
         .navigationTitle(toolbarTitle)
         .background(PiManagerWindowAccessor { viewModel.setWindow($0) })
         .focusedSceneValue(\.piManagerCommands, commandContext)
+        .onAppear {
+            if !welcomeTourCompleted {
+                isWelcomeTourPresented = true
+            }
+        }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             if newValue == .agent {
                 viewModel.acknowledgeVisibleSelectedPiAgentSession()
@@ -492,6 +498,12 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
             debouncedProjectFilterText = trimmed.lowercased()
         }
+        .sheet(isPresented: $isWelcomeTourPresented) {
+            WelcomeOnboardingSheet(viewModel: viewModel) {
+                welcomeTourCompleted = true
+                isWelcomeTourPresented = false
+            }
+        }
         .sheet(item: $agentDraft) { draft in
             AgentEditorSheet(
                 draft: draft,
@@ -544,16 +556,6 @@ struct ContentView: View {
                 onSave: { updated in
                     try viewModel.saveEnvDraft(updated)
                     envDraft = nil
-                }
-            )
-        }
-        .sheet(item: $subagentConfigDraft) { draft in
-            SubagentConfigEditorSheet(
-                draft: draft,
-                onCancel: { subagentConfigDraft = nil },
-                onSave: { updated in
-                    try viewModel.saveSubagentConfigDraft(updated)
-                    subagentConfigDraft = nil
                 }
             )
         }
@@ -760,15 +762,7 @@ struct ContentView: View {
         case .settings:
             SettingsScreen(viewModel: viewModel)
         case .subagents:
-            SubagentsScreen(
-                viewModel: viewModel,
-                onEditConfig: {
-                    subagentConfigDraft = viewModel.makeSubagentConfigDraft()
-                },
-                onRestoreDefaults: {
-                    viewModel.restoreDefaultSubagentConfig()
-                }
-            )
+            SubagentsScreen(viewModel: viewModel)
         case .environment:
             EnvironmentScreen(
                 snapshot: viewModel.snapshot,
@@ -780,6 +774,8 @@ struct ContentView: View {
             DiagnosticsScreen(snapshot: viewModel.snapshot)
         case .piDocs:
             PiDocsScreen()
+        case .credits:
+            CreditsScreen()
         }
     }
 
@@ -2054,7 +2050,7 @@ private struct AgentLibraryPane: View {
 private func libraryManagedAgentRecord(for agent: EffectiveAgentRecord, libraryAgents: [AgentRecord]) -> AgentRecord? {
     guard let winningRecord = agent.winningRecord else { return nil }
     guard winningRecord.source.kind != .builtin else { return nil }
-    // Same-name custom agents that replace builtins are intentional pi-subagents overrides.
+    // Same-name custom agents that replace builtins are intentional overrides.
     // Keep them in their chosen scope instead of offering reusable library assignment.
     if agent.builtin != nil && (agent.globalCustom != nil || agent.projectCustom != nil) { return nil }
     return libraryAgents.first { $0.name == agent.name } ?? winningRecord
@@ -2552,7 +2548,7 @@ private struct AgentDetailView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         settingsSection("Skill Selection") {
                             configEditorRow("Skill Catalog") {
-                                Text("Only skills visible in this agent’s scope are selectable here. The parent-only pi-subagents orchestration skill is intentionally excluded.")
+                                Text("Only skills visible in this agent’s scope are selectable here.")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.mutedText)
                             }
@@ -2579,19 +2575,6 @@ private struct AgentDetailView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills), isLast: true)
-                        }
-
-                        if agent.resolved.skills.contains("pi-subagents") {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                Text("pi-subagents is parent/orchestrator-only and should not be injected into spawned agents. Remove it from this agent’s explicit skills.")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(10)
-                            .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
                         if !skillVisibilityIssues(agent).isEmpty {
@@ -3102,7 +3085,6 @@ private struct AgentDetailView: View {
     }
 
     private func addInlineSkill(_ skill: String) {
-        guard skill != "pi-subagents" else { return }
         guard inlineDraft?.config.skills.contains(skill) == false else { return }
         inlineDraft?.config.skills.append(skill)
     }
@@ -3194,7 +3176,7 @@ private struct AgentDetailView: View {
         case "Default Progress", "Progress":
             return "When enabled, managed workflows maintain progress.md for this agent."
         case "Interactive", "Interaction":
-            return "Compatibility frontmatter field for interactive behavior. Parsed and preserved, but not strongly enforced by pi-subagents v1."
+            return "Compatibility frontmatter field for interactive behavior. Parsed and preserved."
         case "Max Subagent Depth", "Max Depth":
             return "Limits how many more nested subagent launches this agent can create below itself."
         case "Extensions":
@@ -3602,7 +3584,7 @@ private struct SubagentsInfoPopover: View {
             VStack(alignment: .leading, spacing: 10) {
                 infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until linked.")
                 infoRow("Chain Library", "Central storage in ~/.pi/agent/agent-library/chains. Pi does not load these until linked.")
-                infoRow("Global", "Agent links are created where pi-subagents would create user agents (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
+                infoRow("Global", "Agent links are created in the standard global agent locations (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
                 infoRow("Project", "Links are created in PROJECT/.pi/agents and PROJECT/.pi/chains.")
                 infoRow("Builtins", "Pi Manager bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
             }
@@ -4596,7 +4578,6 @@ private struct PiDocsScreen: View {
         case prompts = "Prompts & Commands"
         case agents = "Agents & Chains"
         case architecture = "Architecture"
-        case intercom = "Intercom"
 
         var id: String { rawValue }
     }
@@ -4634,7 +4615,6 @@ private struct PiDocsScreen: View {
             case .prompts: promptsTab
             case .agents: agentsTab
             case .architecture: architectureTab
-            case .intercom: intercomTab
             }
         }
     }
@@ -4658,21 +4638,20 @@ private struct PiDocsScreen: View {
                         ("Project settings", ".pi/settings.json"),
                         ("User agents", "~/.pi/agent/agents/*.md"),
                         ("Project agents", ".pi/agents/*.md"),
-                        ("Builtin agents", "<pi-subagents package>/agents/*.md"),
+                        ("Bundled agents", "App bundle bundled-agents/*.md"),
                         ("User skills", "~/.pi/agent/skills/"),
                         ("Project skills", ".pi/skills/"),
                         ("User prompts", "~/.pi/agent/prompts/*.md"),
                         ("Project prompts", ".pi/prompts/*.md"),
                         ("User env", "~/.pi/agent/.env"),
-                        ("Project env", ".pi/.env"),
-                        ("Extension config", "~/.pi/agent/extensions/subagent/config.json")
+                        ("Project env", ".pi/.env")
                     ])
                 }
             }
 
             AppCard(title: "Agent Resolution") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("1. Builtin agents are discovered from the installed pi-subagents package.")
+                    Text("1. Bundled agents are discovered from Pi Manager's app resources.")
                     Text("2. Global custom agents in `~/.pi/agent/agents/` or `~/.agents/` override builtins by name.")
                     Text("3. Project agents in `.pi/agents/` override both global and builtin.")
                     Text("4. Settings overrides (`subagents.agentOverrides`) patch any agent's fields without creating a file.")
@@ -4848,10 +4827,10 @@ private struct PiDocsScreen: View {
             AppCard(title: "Entry Points") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Four entry points can trigger a subagent:")
-                    Text("• **Tool call** — LLM calls `subagent({ agent, task, ... })` as a tool")
-                    Text("• **Slash commands** — `/run`, `/chain`, `/parallel`, `/agents` routed through slash-bridge")
-                    Text("• **Prompt templates** — packaged workflows bridge through prompt-template-bridge")
-                    Text("• **Extension events** — `pi.events` emit/subscribe pattern for async jobs")
+                    Text("• **Managed tools** — parent sessions call Pi Manager bridge tools for single, chain, and parallel delegation")
+                    Text("• **Manual run picker** — users start native child sessions from the composer or inspector")
+                    Text("• **Chains** — app-managed sequential workflows where each step receives previous output")
+                    Text("• **Parallel runs** — app-managed concurrent child sessions with optional worktree isolation")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -4868,8 +4847,9 @@ private struct PiDocsScreen: View {
 
             AppCard(title: "Foreground vs Background") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• **Foreground (sync)**: spawns a child `pi` process in `--mode json`, parses JSON-lines events from stdout for real-time progress.")
-                    Text("• **Background (async)**: same spawn but detached. Status written to `status.json`, events to `events.jsonl`. Parent tracks async jobs via file watcher.")
+                    Text("• **Single**: one app-owned child Pi RPC session for a bounded task.")
+                    Text("• **Chain**: sequential native child runs where each step receives the previous result.")
+                    Text("• **Parallel**: independent native child runs with app-owned status, stop, retry, and worktree controls.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -4879,51 +4859,7 @@ private struct PiDocsScreen: View {
                     Text("• `needs_attention` — fired when a child has had no activity for a configured window")
                     Text("• `active_long_running` — fired when a child has been running beyond a threshold")
                     Text("• `failed_tool_attempts` — consecutive mutating-tool failures trigger escalation")
-                    Text("• These events route through intercom when available, otherwise appear as in-conversation notifications")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: - Intercom
-
-    private var intercomTab: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "What Intercom Does") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Intercom is the optional coordination layer between child subagents and the parent orchestrator. It requires `pi-intercom` installed; without it everything still works, you just lose bidirectional communication.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Without Intercom") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Communication is one-way: parent fires task, blocks until child finishes")
-                    Text("• Children can't ask questions back or send mid-run updates")
-                    Text("• Simple scout → planner → worker → reviewer workflows work fine without it")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "With Intercom") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Children can `ask` the parent a question mid-task and wait for an answer")
-                    Text("• Children can `send` status updates without blocking")
-                    Text("• Control events (`needs_attention`, `active_long_running`) route through the intercom channel")
-                    Text("• Enables extended coordination patterns like oracle advisor loops")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            AppCard(title: "Activation") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Install `pi-intercom` — no config needed on the pi-subagents side. Detection is automatic:")
-                    Text("1. Bridge mode is not `off` (defaults to `always`)")
-                    Text("2. Orchestrator target exists (auto-generated from session name/ID)")
-                    Text("3. `pi-intercom` extension directory exists")
-                    Text("4. Intercom config is not disabled")
-                    Text("Once active, `intercom` tool and bridge instructions are injected into every child agent automatically.")
+                    Text("• These events appear as native transcript and activity cards scoped to the owning parent session.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -4972,18 +4908,6 @@ private struct DiagnosticsScreen: View {
         let installed = Set(detectInstalledPackageNames())
         return [
             PackageInfo(
-                name: "pi-subagents",
-                displayName: "pi-subagents",
-                description: "Delegate work to subagents with chains, parallel execution, and interactive coordination.",
-                repoURL: "https://github.com/nicobailon/pi-subagents",
-                homepageURL: "https://github.com/nicobailon/pi-subagents#readme",
-                author: "Nico Bailon",
-                installCommand: "pi install npm:pi-subagents",
-                category: .essential,
-                isInstalled: installed.contains("pi-subagents"),
-                installedVersion: installedPackageVersion("pi-subagents")
-            ),
-            PackageInfo(
                 name: "pi-web-access",
                 displayName: "pi-web-access",
                 description: "Web search, URL fetching, GitHub repo cloning, PDF extraction, and YouTube/local video analysis.",
@@ -4994,18 +4918,6 @@ private struct DiagnosticsScreen: View {
                 category: .essential,
                 isInstalled: installed.contains("pi-web-access"),
                 installedVersion: installedPackageVersion("pi-web-access")
-            ),
-            PackageInfo(
-                name: "pi-intercom",
-                displayName: "pi-intercom",
-                description: "Direct 1:1 messaging between Pi sessions on the same machine.",
-                repoURL: "https://github.com/nicobailon/pi-intercom",
-                homepageURL: "https://github.com/nicobailon/pi-intercom#readme",
-                author: "Nico Bailon",
-                installCommand: "pi install npm:pi-intercom",
-                category: .recommended,
-                isInstalled: installed.contains("pi-intercom"),
-                installedVersion: installedPackageVersion("pi-intercom")
             ),
             PackageInfo(
                 name: "pi-ask-user",
@@ -5025,7 +4937,6 @@ private struct DiagnosticsScreen: View {
     var body: some View {
         AppPage("Doctor", subtitle: "Check what Pi Manager is missing and fix the essentials faster") {
             packageSection
-            helperSection
             settingsSection
             warningsSection
         }
@@ -5156,74 +5067,6 @@ private struct DiagnosticsScreen: View {
         }
         .buttonStyle(.plain)
         .help(url)
-    }
-
-    private var helperSection: some View {
-        AppCard(title: "Helper Extension") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Pi Manager only suggests one bundled helper here: `subagents-toggle`. The rest should stay external to the app.")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: extensionIsInstalled("subagents-toggle") ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(extensionIsInstalled("subagents-toggle") ? .green : AppTheme.mutedText)
-                        .frame(width: 20)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("subagents-toggle")
-                            .font(.body.weight(.semibold))
-                            .fontWidth(.expanded)
-                        Text("Lets Pi quickly enable, disable, or inspect the `pi-subagents` package from inside Pi.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                        Text("Useful in the Pi TUI today. For Pi Manager's RPC sessions, a live input-bar toggle is not fully reliable yet without a dedicated RPC reload hook.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    if extensionIsInstalled("subagents-toggle") {
-                        AppLabelTag(text: "Installed", color: .green)
-                    } else {
-                        Button("Install") {
-                            installExtension("subagents-toggle")
-                        }
-                        .controlSize(.small)
-                    }
-                }
-            }
-        }
-    }
-
-    private func extensionIsInstalled(_ name: String) -> Bool {
-        let extDir = NSHomeDirectory() + "/.pi/agent/extensions"
-        return FileManager.default.fileExists(atPath: "\(extDir)/\(name).ts") ||
-               FileManager.default.fileExists(atPath: "\(extDir)/\(name)/index.ts")
-    }
-
-    private func installExtension(_ name: String) {
-        let extDir = NSHomeDirectory() + "/.pi/agent/extensions"
-        let bundleDir = Bundle.main.resourcePath ?? ""
-
-        // Try .ts file first, then directory
-        let srcFile = bundleDir + "/\(name).ts"
-        let srcDir = bundleDir + "/\(name)"
-        let dstFile = extDir + "/\(name).ts"
-        let dstDir = extDir + "/\(name)"
-
-        do {
-            if FileManager.default.fileExists(atPath: srcFile) {
-                try? FileManager.default.createDirectory(atPath: extDir, withIntermediateDirectories: true)
-                try FileManager.default.copyItem(atPath: srcFile, toPath: dstFile)
-            } else if FileManager.default.fileExists(atPath: srcDir) {
-                try? FileManager.default.createDirectory(atPath: extDir, withIntermediateDirectories: true)
-                try FileManager.default.copyItem(atPath: srcDir, toPath: dstDir)
-            }
-        } catch {
-            NSSound.beep()
-        }
     }
 
     // MARK: - Settings
@@ -5554,135 +5397,6 @@ private struct EnvEditorSheet: View {
     }
 }
 
-private struct SubagentConfigEditorSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State var draft: SubagentConfigDraft
-    let onCancel: () -> Void
-    let onSave: (SubagentConfigDraft) throws -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Edit Subagents Config")
-                .font(.title2.bold())
-                .fontWidth(.expanded)
-
-            ScrollView(showsIndicators: false) {
-                Form {
-                    Section("Runtime Defaults") {
-                        Toggle("Async By Default", isOn: optionalBoolBinding(\ .asyncByDefault))
-                        Toggle("Force Top-Level Async", isOn: optionalBoolBinding(\ .forceTopLevelAsync))
-                        TextField("Default Session Dir", text: optionalStringBinding(\ .defaultSessionDir))
-                        Stepper("Max Subagent Depth: \(draft.config.maxSubagentDepth ?? 0)", value: optionalIntBinding(\ .maxSubagentDepth), in: 0...10)
-                    }
-
-                    Section("Control Notices") {
-                        Toggle("Control Enabled", isOn: optionalControlBoolBinding(\ .enabled))
-                        Stepper("Needs Attention After: \(draft.config.control.needsAttentionAfterMs ?? 60000) ms", value: optionalControlIntBinding(\ .needsAttentionAfterMs, defaultValue: 60000), in: 1000...600000, step: 1000)
-                        TextField("Notify Channels", text: notifyChannelsBinding)
-                    }
-
-                    Section("Parallel Defaults") {
-                        Stepper("Max Tasks: \(draft.config.parallel.maxTasks ?? 8)", value: optionalParallelIntBinding(\ .maxTasks, defaultValue: 8), in: 1...32)
-                        Stepper("Concurrency: \(draft.config.parallel.concurrency ?? 4)", value: optionalParallelIntBinding(\ .concurrency, defaultValue: 4), in: 1...32)
-                    }
-
-                    Section("Intercom Bridge") {
-                        TextField("Mode", text: optionalIntercomStringBinding(\ .mode))
-                        TextField("Instruction File", text: optionalIntercomStringBinding(\ .instructionFile))
-                    }
-
-                    Section("Worktree Hook") {
-                        TextField("Setup Hook", text: optionalStringBinding(\ .worktreeSetupHook))
-                        Stepper("Hook Timeout: \(draft.config.worktreeSetupHookTimeoutMs ?? 30000) ms", value: optionalIntBinding(\ .worktreeSetupHookTimeoutMs, defaultValue: 30000), in: 1000...300000, step: 1000)
-                    }
-
-                    Section("Notes") {
-                        Text("Use `always`, `fork-only`, or `off` for intercom bridge mode. Notify channels are comma-separated, for example `event, async, intercom`.")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                }
-                .formStyle(.grouped)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    onCancel()
-                    dismiss()
-                }
-                Button("Save") {
-                    do {
-                        draft.config.control.notifyChannels = draft.config.control.notifyChannels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                        try onSave(draft)
-                        dismiss()
-                    } catch {
-                        NSSound.beep()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 720, minHeight: 620)
-    }
-
-    private var notifyChannelsBinding: Binding<String> {
-        Binding(
-            get: { draft.config.control.notifyChannels.joined(separator: ", ") },
-            set: { draft.config.control.notifyChannels = $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
-        )
-    }
-
-    private func optionalBoolBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, Bool?>) -> Binding<Bool> {
-        Binding(
-            get: { draft.config[keyPath: keyPath] ?? false },
-            set: { draft.config[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalIntBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, Int?>, defaultValue: Int = 0) -> Binding<Int> {
-        Binding(
-            get: { draft.config[keyPath: keyPath] ?? defaultValue },
-            set: { draft.config[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalStringBinding(_ keyPath: WritableKeyPath<SubagentExtensionConfig, String?>) -> Binding<String> {
-        Binding(
-            get: { draft.config[keyPath: keyPath] ?? "" },
-            set: { draft.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
-        )
-    }
-
-    private func optionalControlBoolBinding(_ keyPath: WritableKeyPath<SubagentControlConfig, Bool?>) -> Binding<Bool> {
-        Binding(
-            get: { draft.config.control[keyPath: keyPath] ?? false },
-            set: { draft.config.control[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalControlIntBinding(_ keyPath: WritableKeyPath<SubagentControlConfig, Int?>, defaultValue: Int) -> Binding<Int> {
-        Binding(
-            get: { draft.config.control[keyPath: keyPath] ?? defaultValue },
-            set: { draft.config.control[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalParallelIntBinding(_ keyPath: WritableKeyPath<SubagentParallelConfig, Int?>, defaultValue: Int) -> Binding<Int> {
-        Binding(
-            get: { draft.config.parallel[keyPath: keyPath] ?? defaultValue },
-            set: { draft.config.parallel[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func optionalIntercomStringBinding(_ keyPath: WritableKeyPath<SubagentIntercomBridgeConfig, String?>) -> Binding<String> {
-        Binding(
-            get: { draft.config.intercomBridge[keyPath: keyPath] ?? "" },
-            set: { draft.config.intercomBridge[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
-        )
-    }
-}
-
 private struct AgentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State var draft: AgentEditorDraft
@@ -5790,7 +5504,7 @@ private struct AgentEditorSheet: View {
                             }
 
                             Toggle(isOn: optionalBoolBinding(for: \ .disabled)) {
-                                editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal subagent discovery and launch flows. In pi-subagents, this is the standard way to keep an agent installed but unavailable.")
+                                editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal native subagent discovery and launch flows while keeping the agent installed.")
                             }
                         }
 
