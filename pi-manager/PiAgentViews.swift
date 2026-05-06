@@ -2720,6 +2720,7 @@ private struct PiNativeSubagentRunSheet: View {
                         Image(systemName: "paperclip")
                     }
                     .help("Add project files to read first")
+                    .accessibilityLabel("Add project files to read first")
                     .disabled(projectRootPath == nil)
                 }
                 if !readFirstFileSuggestions.isEmpty {
@@ -3471,6 +3472,7 @@ private struct PiAgentImageAttachmentThumbnail: View {
                     .background(Circle().fill(.black.opacity(0.7)))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove image attachment")
             .offset(x: 6, y: -6)
         }
         .help("\(image.name) · \(ByteCountFormatter.string(fromByteCount: Int64(image.sizeBytes), countStyle: .file))")
@@ -3982,6 +3984,7 @@ private struct PiAgentModelPicker: View {
                     }
                     .buttonStyle(.plain)
                     .help("Refresh models")
+                    .accessibilityLabel("Refresh models")
                 }
 
                 Button {
@@ -4187,6 +4190,7 @@ private struct PiAgentAddSessionButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("New Pi Agent session")
     }
 }
 
@@ -5738,6 +5742,7 @@ struct PiAgentActivityPanel: View {
             .buttonStyle(.plain)
             .foregroundStyle(AppTheme.mutedText)
             .help("Close activity sidebar")
+            .accessibilityLabel("Close activity sidebar")
         }
     }
 
@@ -6580,6 +6585,7 @@ struct PiAgentRepoChangesPanel: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh changes")
+                .accessibilityLabel("Refresh changes")
 
                 Button {
                     isPresented = false
@@ -6589,6 +6595,7 @@ struct PiAgentRepoChangesPanel: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Close repo changes")
+                .accessibilityLabel("Close repo changes")
             }
         }
     }

@@ -47,8 +47,16 @@ struct pi_managerApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowStyle(.automatic)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1180, height: 760)
+        .defaultPosition(.center)
         .commands {
             PiManagerCommands()
+        }
+
+        Settings {
+            SettingsSceneContent()
         }
     }
 }

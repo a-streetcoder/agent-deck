@@ -161,10 +161,14 @@ struct ContentView: View {
                 } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
                     PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
                         .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
-                } else if viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent {
-                    PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
-                        .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
                 }
+            }
+            .inspector(isPresented: Binding(
+                get: { viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent },
+                set: { viewModel.isPiAgentInspectorPresented = $0 }
+            )) {
+                PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+                    .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
             }
         }
         .frame(minWidth: 1040, minHeight: 700)
@@ -590,7 +594,9 @@ struct ContentView: View {
             canToggleSelectedAgentDisabled: selectedAgent != nil,
             selectedAgentIsDisabled: selectedAgent?.resolved.disabled == true,
             openSettings: {
-                viewModel.selectedSidebarItem = .settings
+                if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+                    viewModel.selectedSidebarItem = .settings
+                }
             },
             refresh: { viewModel.refreshEverything() },
             createAgent: {
@@ -1710,7 +1716,7 @@ private struct ProjectsScreen: View {
     }
 }
 
-private struct SettingsScreen: View {
+struct SettingsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
@@ -4489,7 +4495,9 @@ private struct SubagentsProjectRecapPanel: View {
                     Text(project.name).font(.caption).foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain)
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close recap")
             }
             .padding(16)
             Divider()
@@ -4620,6 +4628,7 @@ private struct SkillsProjectRecapPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("Close recap")
+                .accessibilityLabel("Close recap")
             }
             .padding(16)
 
