@@ -148,21 +148,11 @@ struct ContentView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
+            .frame(minWidth: 240)
             .background(Color.clear, ignoresSafeAreaEdges: .all)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
+            .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 320)
         } detail: {
-            HSplitView {
-                detailView
-                    .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 580 : 500, maxWidth: .infinity, maxHeight: .infinity)
-
-                if viewModel.selectedSidebarItem == .agent && isPiAgentActivityPresented {
-                    PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
-                        .frame(minWidth: 280, idealWidth: 360, maxWidth: 520)
-                } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
-                    PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
-                        .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
-                }
-            }
+            detailSplitView
             .inspector(isPresented: Binding(
                 get: { viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent },
                 set: { viewModel.isPiAgentInspectorPresented = $0 }
@@ -171,7 +161,7 @@ struct ContentView: View {
                     .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
             }
         }
-        .frame(minWidth: 1040, minHeight: 700)
+        .frame(minWidth: contentMinimumWidth, minHeight: 700)
         .navigationTitle(toolbarTitle)
         .background(PiManagerWindowAccessor { viewModel.setWindow($0) })
         .focusedSceneValue(\.piManagerCommands, commandContext)
@@ -546,6 +536,46 @@ struct ContentView: View {
                 }
             )
         }
+    }
+
+    @ViewBuilder
+    private var detailSplitView: some View {
+        if viewModel.selectedSidebarItem == .agent && isPiAgentActivityPresented {
+            HStack(spacing: 0) {
+                detailView
+                    .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+                PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
+                    .frame(width: 380)
+            }
+        } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
+            HStack(spacing: 0) {
+                detailView
+                    .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+                PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
+                    .frame(width: 400)
+            }
+        } else {
+            detailView
+                .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var contentMinimumWidth: CGFloat {
+        let sidebarWidth: CGFloat = 240
+        guard viewModel.selectedSidebarItem == .agent else {
+            return 1040
+        }
+        if isPiAgentActivityPresented {
+            return sidebarWidth + 560 + 380
+        }
+        if isPiAgentRepoChangesPresented {
+            return sidebarWidth + 560 + 400
+        }
+        return 1040
     }
 
     private var commandContext: PiManagerCommandContext {

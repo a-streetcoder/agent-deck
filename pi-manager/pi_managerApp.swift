@@ -50,7 +50,7 @@ final class PiManagerAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
             defer: false
         )
         window.title = "Pi Manager"
-        window.minSize = NSSize(width: 1040, height: 700)
+        window.minSize = NSSize(width: 1120, height: 700)
         window.contentView = NSHostingView(rootView: ContentView())
         window.isReleasedWhenClosed = false
         window.center()
