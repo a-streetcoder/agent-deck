@@ -42,10 +42,15 @@ final class PiManagerAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
 @main
 struct pi_managerApp: App {
     @NSApplicationDelegateAdaptor(PiManagerAppDelegate.self) private var appDelegate
+    @AppStorage("piManagerWelcomeTourCompleted.v1") private var welcomeTourCompleted = false
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if welcomeTourCompleted {
+                ContentView()
+            } else {
+                FirstLaunchOnboardingView(isCompleted: $welcomeTourCompleted)
+            }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)

@@ -5,6 +5,190 @@ import SwiftUI
 import TourKit
 #endif
 
+struct WelcomeOnboardingBackdrop: View {
+    var body: some View {
+        Color(nsColor: .windowBackgroundColor)
+            .ignoresSafeArea()
+    }
+}
+
+private struct OnboardingWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
+private enum WelcomeTourContent {
+    #if canImport(TourKit)
+    static var pages: [TourPage] {
+        [
+            TourPage(
+                imageName: "pi",
+                title: "Welcome to Pi Manager",
+                description: "A native macOS workspace for Pi Agent sessions, projects, agents, prompts, skills, models, and GitHub work."
+            ),
+            TourPage(
+                imageName: "pi",
+                title: "Native Pi Agent",
+                description: "Start and resume Pi sessions in the app with transcript rendering, activity tracking, repo changes, and inspector controls."
+            ),
+            TourPage(
+                imageName: "pi",
+                title: "Native Subagents",
+                description: "Delegate single, chain, or parallel work through app-managed child Pi sessions with supervisor cards and worktree safety."
+            ),
+            TourPage(
+                imageName: "github",
+                title: "GitHub When You Need It",
+                description: "Connect the GitHub CLI for issue boards, comments, repo changes, commits, and pushes from selected projects."
+            )
+        ]
+    }
+    #endif
+}
+
+#if canImport(TourKit)
+struct WelcomeTourWindowPresenter: View {
+    @Binding var isPresented: Bool
+    let onFinish: () -> Void
+    let onClose: () -> Void
+    @State private var controller: TourKitWindowController?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear(perform: presentIfNeeded)
+            .onChange(of: isPresented) { _, _ in
+                presentIfNeeded()
+            }
+            .onDisappear {
+                controller?.close()
+                controller = nil
+            }
+    }
+
+    private func presentIfNeeded() {
+        if isPresented {
+            let controller = controller ?? TourKitWindowController()
+            self.controller = controller
+            controller.present(
+                pages: WelcomeTourContent.pages,
+                continueButtonTitle: "Continue",
+                finishButtonTitle: "Check Setup",
+                onFinish: {
+                    isPresented = false
+                    onFinish()
+                },
+                onClose: {
+                    isPresented = false
+                    onClose()
+                }
+            )
+        } else {
+            controller?.close()
+            controller = nil
+        }
+    }
+}
+#endif
+
+struct FirstLaunchOnboardingView: View {
+    @Binding var isCompleted: Bool
+    @StateObject private var viewModel = AppViewModel()
+    @State private var phase: Phase
+    @State private var window: NSWindow?
+
+    private enum Phase {
+        #if canImport(TourKit)
+        case tour
+        #endif
+        case setup
+    }
+
+    init(isCompleted: Binding<Bool>) {
+        _isCompleted = isCompleted
+        #if canImport(TourKit)
+        _phase = State(initialValue: .tour)
+        #else
+        _phase = State(initialValue: .setup)
+        #endif
+    }
+
+    var body: some View {
+        ZStack {
+            WelcomeOnboardingBackdrop()
+
+            switch phase {
+            #if canImport(TourKit)
+            case .tour:
+                WelcomeTourWindowPresenter(
+                    isPresented: tourBinding,
+                    onFinish: showSetup,
+                    onClose: complete
+                )
+            #endif
+            case .setup:
+                SetupChecklistView(viewModel: viewModel, onFinish: complete)
+                    .frame(width: 680, height: 620)
+            }
+        }
+        .background(OnboardingWindowAccessor { resolvedWindow in
+            guard let resolvedWindow else { return }
+            window = resolvedWindow
+            configureWindow(for: phase, window: resolvedWindow)
+        })
+        .onChange(of: phase) { _, newPhase in
+            if let window {
+                configureWindow(for: newPhase, window: window)
+            }
+        }
+    }
+
+    #if canImport(TourKit)
+    private var tourBinding: Binding<Bool> {
+        Binding(
+            get: { phase == .tour },
+            set: { isPresented in
+                if !isPresented, phase == .tour {
+                    phase = .setup
+                }
+            }
+        )
+    }
+    #endif
+
+    private func showSetup() {
+        phase = .setup
+    }
+
+    private func complete() {
+        isCompleted = true
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func configureWindow(for phase: Phase, window: NSWindow) {
+        switch phase {
+        #if canImport(TourKit)
+        case .tour:
+            window.orderOut(nil)
+        #endif
+        case .setup:
+            window.setContentSize(NSSize(width: 680, height: 620))
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+}
+
 struct WelcomeOnboardingSheet: View {
     @ObservedObject var viewModel: AppViewModel
     let onFinish: () -> Void
@@ -31,13 +215,12 @@ struct WelcomeOnboardingSheet: View {
     private var tourView: some View {
         #if canImport(TourKit)
         TourSlideshowView(
-            pages: tourPages,
+            pages: WelcomeTourContent.pages,
             continueButtonTitle: "Continue",
             finishButtonTitle: "Check Setup",
             onFinish: { phase = .setup },
             onClose: onFinish
         )
-        .padding(22)
         #else
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 12) {
@@ -71,33 +254,6 @@ struct WelcomeOnboardingSheet: View {
         #endif
     }
 
-    #if canImport(TourKit)
-    private var tourPages: [TourPage] {
-        [
-            TourPage(
-                imageName: "pi",
-                title: "Welcome to Pi Manager",
-                description: "A native macOS workspace for Pi Agent sessions, projects, agents, prompts, skills, models, and GitHub work."
-            ),
-            TourPage(
-                imageName: "pi",
-                title: "Native Pi Agent",
-                description: "Start and resume Pi sessions in the app with transcript rendering, activity tracking, repo changes, and inspector controls."
-            ),
-            TourPage(
-                imageName: "pi",
-                title: "Native Subagents",
-                description: "Delegate single, chain, or parallel work through app-managed child Pi sessions with supervisor cards and worktree safety."
-            ),
-            TourPage(
-                imageName: "github",
-                title: "GitHub When You Need It",
-                description: "Connect the GitHub CLI for issue boards, comments, repo changes, commits, and pushes from selected projects."
-            )
-        ]
-    }
-    #endif
-
     private func onboardingBullet(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
@@ -109,7 +265,7 @@ struct WelcomeOnboardingSheet: View {
     }
 }
 
-private struct SetupChecklistView: View {
+struct SetupChecklistView: View {
     @ObservedObject var viewModel: AppViewModel
     let onFinish: () -> Void
     @State private var items: [SetupCheckItem] = []

@@ -3592,24 +3592,26 @@ enum PiAgentComposerImageLoader {
 
     private final class DropItemAccumulator: @unchecked Sendable {
         private let lock = NSLock()
-        private var attachments: [PiAgentImageAttachment] = []
-        private var files: [URL] = []
+        nonisolated(unsafe) private var attachments: [PiAgentImageAttachment] = []
+        nonisolated(unsafe) private var files: [URL] = []
 
-        func appendImage(_ attachment: PiAgentImageAttachment?) {
+        nonisolated init() {}
+
+        nonisolated func appendImage(_ attachment: PiAgentImageAttachment?) {
             guard let attachment else { return }
             lock.lock()
             attachments.append(attachment)
             lock.unlock()
         }
 
-        func appendFile(_ url: URL?) {
+        nonisolated func appendFile(_ url: URL?) {
             guard let url, !url.hasDirectoryPath else { return }
             lock.lock()
             files.append(url)
             lock.unlock()
         }
 
-        func result() -> (attachments: [PiAgentImageAttachment], files: [URL]) {
+        nonisolated func result() -> (attachments: [PiAgentImageAttachment], files: [URL]) {
             lock.lock()
             let attachments = attachments
             let files = files

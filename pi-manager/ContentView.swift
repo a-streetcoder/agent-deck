@@ -53,7 +53,6 @@ private struct PiAgentOpenTerminalToolbarButton: View {
 
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
-    @AppStorage("piManagerWelcomeTourCompleted.v1") private var welcomeTourCompleted = false
     @StateObject private var viewModel = AppViewModel()
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
@@ -74,7 +73,6 @@ struct ContentView: View {
     @State private var isPiAgentRepoChangesPresented = false
     @State private var isPiAgentActivityPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
-    @State private var isWelcomeTourPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -177,11 +175,6 @@ struct ContentView: View {
         .navigationTitle(toolbarTitle)
         .background(PiManagerWindowAccessor { viewModel.setWindow($0) })
         .focusedSceneValue(\.piManagerCommands, commandContext)
-        .onAppear {
-            if !welcomeTourCompleted {
-                isWelcomeTourPresented = true
-            }
-        }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             if newValue == .agent {
                 viewModel.acknowledgeVisibleSelectedPiAgentSession()
@@ -497,12 +490,6 @@ struct ContentView: View {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             debouncedProjectFilterText = trimmed.lowercased()
-        }
-        .sheet(isPresented: $isWelcomeTourPresented) {
-            WelcomeOnboardingSheet(viewModel: viewModel) {
-                welcomeTourCompleted = true
-                isWelcomeTourPresented = false
-            }
         }
         .sheet(item: $agentDraft) { draft in
             AgentEditorSheet(
