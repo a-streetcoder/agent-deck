@@ -3046,7 +3046,7 @@ private struct PiAgentComposerBox: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
         }
-        .appGlassPanel(cornerRadius: 20)
+        .appContentSurface(cornerRadius: 20)
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(isDropTargeted ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: isDropTargeted ? 2 : 1)
@@ -4924,6 +4924,7 @@ private struct PiAgentTranscriptThreadCard: View {
 }
 
 private struct PiAgentWebActivitySummaryView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let activities: [PiAgentTranscriptActivity]
     @State private var expandedRows: Set<UUID> = []
 
@@ -4986,7 +4987,7 @@ private struct PiAgentWebActivitySummaryView: View {
                                 }
                                 if row.links.count > inlineLinkLimit {
                                     Button {
-                                        withAnimation(.snappy(duration: 0.18)) { toggleExpanded(row.id) }
+                                        withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) { toggleExpanded(row.id) }
                                     } label: {
                                         Text(expandedRows.contains(row.id) ? "Show fewer results" : "+\(row.links.count - inlineLinkLimit) more results")
                                             .font(.caption2.weight(.semibold))
@@ -5571,6 +5572,7 @@ private struct PiAgentTranscriptCard: View {
 }
 
 private struct PiAgentToolTranscriptView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let entry: PiAgentTranscriptEntry
     @State private var isExpanded: Bool
 
@@ -5594,7 +5596,7 @@ private struct PiAgentToolTranscriptView: View {
                 Spacer(minLength: 0)
                 if isLong {
                     Button(isExpanded ? "Show less" : "Show details") {
-                        withAnimation(.snappy(duration: 0.18)) { isExpanded.toggle() }
+                        withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) { isExpanded.toggle() }
                     }
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.plain)

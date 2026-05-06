@@ -10,7 +10,22 @@ struct PiManagerCommandContext {
     var canOpenPiAgentInTerminal = false
     var canCommitGitHubChanges = false
     var canPushGitHubBranch = false
+    var canEnableAllProjects = false
+    var canDisableAllProjects = false
+    var canAddProject = false
+    var canImportSkills = false
+    var canCreatePrompt = false
+    var canCopyPromptInvocation = false
+    var canOpenPromptFile = false
+    var canRevealPromptFile = false
+    var canCopyCommandInvocation = false
+    var canOpenSelectedAgentFile = false
+    var canRevealSelectedAgentFile = false
+    var canEditSelectedAgent = false
+    var canToggleSelectedAgentDisabled = false
+    var selectedAgentIsDisabled = false
 
+    var openSettings: () -> Void = {}
     var refresh: () -> Void = {}
     var createAgent: () -> Void = {}
     var deletePiAgentSession: () -> Void = {}
@@ -22,6 +37,19 @@ struct PiManagerCommandContext {
     var refreshGitHub: () -> Void = {}
     var commitGitHubChanges: () -> Void = {}
     var pushGitHubBranch: () -> Void = {}
+    var enableAllProjects: () -> Void = {}
+    var disableAllProjects: () -> Void = {}
+    var addProject: () -> Void = {}
+    var importSkills: () -> Void = {}
+    var createPrompt: () -> Void = {}
+    var copyPromptInvocation: () -> Void = {}
+    var openPromptFile: () -> Void = {}
+    var revealPromptFile: () -> Void = {}
+    var copyCommandInvocation: () -> Void = {}
+    var openSelectedAgentFile: () -> Void = {}
+    var revealSelectedAgentFile: () -> Void = {}
+    var editSelectedAgent: () -> Void = {}
+    var toggleSelectedAgentDisabled: () -> Void = {}
 }
 
 private struct PiManagerCommandContextKey: FocusedValueKey {
@@ -41,6 +69,14 @@ struct PiManagerCommands: Commands {
     var body: some Commands {
         SidebarCommands()
         InspectorCommands()
+
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                context?.openSettings()
+            }
+            .keyboardShortcut(",", modifiers: [.command])
+            .disabled(context == nil)
+        }
 
         CommandGroup(replacing: .newItem) {
             Button("New Agent") {
@@ -96,6 +132,29 @@ struct PiManagerCommands: Commands {
             }
             .keyboardShortcut("t", modifiers: [.command, .option])
             .disabled(context?.canOpenPiAgentInTerminal != true)
+
+            Divider()
+
+            Button("Edit Agent") {
+                context?.editSelectedAgent()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(context?.canEditSelectedAgent != true)
+
+            Button("Open Agent File") {
+                context?.openSelectedAgentFile()
+            }
+            .disabled(context?.canOpenSelectedAgentFile != true)
+
+            Button("Reveal Agent in Finder") {
+                context?.revealSelectedAgentFile()
+            }
+            .disabled(context?.canRevealSelectedAgentFile != true)
+
+            Button(context?.selectedAgentIsDisabled == true ? "Enable Agent" : "Disable Agent") {
+                context?.toggleSelectedAgentDisabled()
+            }
+            .disabled(context?.canToggleSelectedAgentDisabled != true)
         }
 
         CommandMenu("GitHub") {
@@ -116,6 +175,62 @@ struct PiManagerCommands: Commands {
             }
             .keyboardShortcut("p", modifiers: [.command, .option])
             .disabled(context?.canPushGitHubBranch != true)
+        }
+
+        CommandMenu("Projects") {
+            Button("Add Project…") {
+                context?.addProject()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .option])
+            .disabled(context?.canAddProject != true)
+
+            Divider()
+
+            Button("Enable All Projects") {
+                context?.enableAllProjects()
+            }
+            .disabled(context?.canEnableAllProjects != true)
+
+            Button("Disable All Projects") {
+                context?.disableAllProjects()
+            }
+            .disabled(context?.canDisableAllProjects != true)
+        }
+
+        CommandMenu("Resources") {
+            Button("Import Skills…") {
+                context?.importSkills()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(context?.canImportSkills != true)
+
+            Divider()
+
+            Button("New Prompt") {
+                context?.createPrompt()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+            .disabled(context?.canCreatePrompt != true)
+
+            Button("Copy Prompt Invocation") {
+                context?.copyPromptInvocation()
+            }
+            .disabled(context?.canCopyPromptInvocation != true)
+
+            Button("Open Prompt File") {
+                context?.openPromptFile()
+            }
+            .disabled(context?.canOpenPromptFile != true)
+
+            Button("Reveal Prompt in Finder") {
+                context?.revealPromptFile()
+            }
+            .disabled(context?.canRevealPromptFile != true)
+
+            Button("Copy Command Invocation") {
+                context?.copyCommandInvocation()
+            }
+            .disabled(context?.canCopyCommandInvocation != true)
         }
     }
 }

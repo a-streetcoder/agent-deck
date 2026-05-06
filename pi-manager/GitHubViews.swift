@@ -103,6 +103,7 @@ struct GitHubConnectionCard: View {
                 }
                 .buttonStyle(.plain)
                 .help("Refresh GitHub status, project scans, and repo data")
+                .accessibilityLabel("Refresh GitHub and projects")
                 .disabled(viewModel.githubIsRefreshingEverything)
 
                 if let lastCheckedAt = viewModel.githubLastStatusCheckAt {

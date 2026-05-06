@@ -471,6 +471,7 @@ struct ContentView: View {
                             .frame(width: 16, height: 16)
                     }
                     .help("Open repo changes sidebar")
+                    .accessibilityLabel("Open repo changes")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
                     PiAgentOpenTerminalToolbarButton(
@@ -559,6 +560,10 @@ struct ContentView: View {
         let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
         let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
+        let selectedPrompt = viewModel.selectedPromptTemplate
+        let selectedCommand = viewModel.selectedCommand
+        let selectedAgent = viewModel.selectedAgent
+        let selectedAgentPath = selectedAgentFilePath
 
         return PiManagerCommandContext(
             canCreateAgent: true,
@@ -570,6 +575,23 @@ struct ContentView: View {
             canOpenPiAgentInTerminal: viewModel.canOpenSelectedPiAgentSessionInTerminal,
             canCommitGitHubChanges: hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting,
             canPushGitHubBranch: hasGitProject && !viewModel.githubIsPushing,
+            canEnableAllProjects: !viewModel.discoveredProjects.isEmpty,
+            canDisableAllProjects: !viewModel.discoveredProjects.isEmpty,
+            canAddProject: true,
+            canImportSkills: true,
+            canCreatePrompt: true,
+            canCopyPromptInvocation: selectedPrompt != nil,
+            canOpenPromptFile: selectedPrompt != nil,
+            canRevealPromptFile: selectedPrompt != nil,
+            canCopyCommandInvocation: selectedCommand != nil,
+            canOpenSelectedAgentFile: selectedAgentPath != nil,
+            canRevealSelectedAgentFile: selectedAgentPath != nil,
+            canEditSelectedAgent: selectedAgent != nil,
+            canToggleSelectedAgentDisabled: selectedAgent != nil,
+            selectedAgentIsDisabled: selectedAgent?.resolved.disabled == true,
+            openSettings: {
+                viewModel.selectedSidebarItem = .settings
+            },
             refresh: { viewModel.refreshEverything() },
             createAgent: {
                 editingAgent = nil
@@ -598,7 +620,42 @@ struct ContentView: View {
             resumePiAgentInTerminal: { viewModel.openSelectedPiAgentSessionInTerminal() },
             refreshGitHub: { viewModel.refreshEverything() },
             commitGitHubChanges: { viewModel.commitChanges() },
-            pushGitHubBranch: { viewModel.pushCurrentBranch() }
+            pushGitHubBranch: { viewModel.pushCurrentBranch() },
+            enableAllProjects: { showingEnableAllProjectsAlert = true },
+            disableAllProjects: { showingDisableAllProjectsAlert = true },
+            addProject: { viewModel.chooseProjectRoot() },
+            importSkills: {
+                NotificationCenter.default.post(name: .piManagerImportSkillsRequested, object: nil)
+            },
+            createPrompt: {
+                do { try viewModel.createLibraryPromptTemplate() }
+                catch { NSSound.beep() }
+            },
+            copyPromptInvocation: {
+                guard let selectedPrompt else { return }
+                copyCommandValue(selectedPrompt.invocation)
+            },
+            openPromptFile: {
+                guard let selectedPrompt else { return }
+                openPromptFile(selectedPrompt.filePath)
+            },
+            revealPromptFile: {
+                guard let selectedPrompt else { return }
+                revealPromptFile(selectedPrompt.filePath)
+            },
+            copyCommandInvocation: {
+                guard let selectedCommand else { return }
+                copyCommandValue(selectedCommand.invocation)
+            },
+            openSelectedAgentFile: { openSelectedAgentFile() },
+            revealSelectedAgentFile: { revealSelectedAgentFile() },
+            editSelectedAgent: {
+                guard selectedAgent != nil else { return }
+                agentDetailEditCommand += 1
+            },
+            toggleSelectedAgentDisabled: {
+                setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
+            }
         )
     }
 
@@ -948,6 +1005,7 @@ private struct PiAgentSidebarButton: View {
 }
 
 private struct SidebarProjectGitHubCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var viewModel: AppViewModel
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
@@ -1066,7 +1124,7 @@ private struct SidebarProjectGitHubCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .animation(.easeInOut(duration: 0.16), value: isExpanded)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isExpanded)
         .appGlassPanel(cornerRadius: 16)
     }
 
