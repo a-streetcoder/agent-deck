@@ -3822,6 +3822,7 @@ struct PiAgentContextUsageMeter: View {
     let session: PiAgentSessionRecord
     let onCompact: () -> Void
     @State private var isConfirmingCompaction = false
+    @State private var isBreakdownPresented = false
 
     var body: some View {
         if session.isCompacting {
@@ -3870,6 +3871,17 @@ struct PiAgentContextUsageMeter: View {
                 .padding(.vertical, 5)
                 .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
                 .fixedSize(horizontal: true, vertical: false)
+                .contentShape(Capsule(style: .continuous))
+                .onHover { hovering in
+                    isBreakdownPresented = hovering
+                }
+                .onTapGesture {
+                    isBreakdownPresented = true
+                }
+                .popover(isPresented: $isBreakdownPresented, arrowEdge: .bottom) {
+                    PiAgentContextBreakdownPopover(session: session)
+                }
+                .help("Show context usage details")
 
                 Button {
                     isConfirmingCompaction = true
@@ -3898,6 +3910,197 @@ struct PiAgentContextUsageMeter: View {
         if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
         if value >= 1_000 { return "\(value / 1_000)k" }
         return "\(value)"
+    }
+}
+
+struct PiAgentContextBreakdownPopover: View {
+    let session: PiAgentSessionRecord
+
+    private var usedPercent: Double {
+        min(max(session.contextPercent ?? 0, 0), 100)
+    }
+
+    private var freeTokens: Int? {
+        guard let tokens = session.contextTokens, let window = session.contextWindow else { return nil }
+        return max(window - tokens, 0)
+    }
+
+    private var freePercent: Double? {
+        guard let percent = session.contextPercent else { return nil }
+        return max(100 - percent, 0)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Context usage")
+                    .font(.headline.weight(.semibold))
+                if let tokens = session.contextTokens, let window = session.contextWindow {
+                    Text("\(format(tokens)) of \(format(window)) tokens · \(formatPercent(usedPercent))")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                } else {
+                    Text("Exact usage will appear after Pi reports session stats.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if session.contextBreakdown.isEmpty == false {
+                    ForEach(session.contextBreakdown) { item in
+                        PiAgentContextBreakdownRow(
+                            title: item.title,
+                            tokens: item.tokens,
+                            percent: item.percent,
+                            detail: item.detail,
+                            tint: tint(for: item.key)
+                        )
+                    }
+                } else {
+                    PiAgentContextBreakdownRow(
+                        title: "Used context",
+                        tokens: session.contextTokens,
+                        percent: session.contextPercent,
+                        detail: nil,
+                        tint: usedPercent > 85 ? .orange : .accentColor
+                    )
+                    PiAgentContextBreakdownRow(
+                        title: "Free space",
+                        tokens: freeTokens,
+                        percent: freePercent,
+                        detail: nil,
+                        tint: .secondary
+                    )
+                    Text("Detailed category data is unavailable from Pi for this session.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let inputTokens = session.inputTokens,
+               let outputTokens = session.outputTokens,
+               let toolCalls = session.toolCalls {
+                Divider()
+                HStack(spacing: 12) {
+                    PiAgentContextStat(label: "Input", value: format(inputTokens))
+                    PiAgentContextStat(label: "Output", value: format(outputTokens))
+                    PiAgentContextStat(label: "Tools", value: "\(toolCalls)")
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 330, alignment: .leading)
+    }
+
+    private func tint(for key: String) -> Color {
+        switch key {
+        case "systemPrompt", "system_prompt":
+            return .purple
+        case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results":
+            return .blue
+        case "messages":
+            return .accentColor
+        case "freeSpace", "free_space":
+            return .secondary
+        case "autocompactBuffer", "autocompact_buffer":
+            return .gray
+        default:
+            return .accentColor
+        }
+    }
+
+    private func format(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 10_000 { return "\(value / 1_000)k" }
+        return value.formatted()
+    }
+
+    private func formatPercent(_ value: Double) -> String {
+        String(format: "%.1f%%", value)
+    }
+}
+
+private struct PiAgentContextBreakdownRow: View {
+    let title: String
+    let tokens: Int?
+    let percent: Double?
+    let detail: String?
+    let tint: Color
+
+    private var clampedPercent: Double {
+        min(max(percent ?? 0, 0), 100)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(summary)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(AppTheme.contentSubtleFill)
+                    Capsule(style: .continuous)
+                        .fill(tint)
+                        .frame(width: proxy.size.width * clampedPercent / 100)
+                }
+            }
+            .frame(height: 6)
+            if let detail, detail.isEmpty == false {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var summary: String {
+        switch (tokens, percent) {
+        case let (tokens?, percent?):
+            return "\(format(tokens)) · \(formatPercent(percent))"
+        case let (tokens?, nil):
+            return format(tokens)
+        case let (nil, percent?):
+            return formatPercent(percent)
+        default:
+            return "Unavailable"
+        }
+    }
+
+    private func format(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 10_000 { return "\(value / 1_000)k" }
+        return value.formatted()
+    }
+
+    private func formatPercent(_ value: Double) -> String {
+        String(format: "%.1f%%", min(max(value, 0), 100))
+    }
+}
+
+private struct PiAgentContextStat: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            Text(value)
+                .font(.caption.monospacedDigit().weight(.bold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
