@@ -27,7 +27,7 @@ enum CommandRunnerError: LocalizedError {
     }
 }
 
-protocol CommandRunning {
+protocol CommandRunning: Sendable {
     func run(
         _ command: String,
         arguments: [String],
@@ -63,20 +63,21 @@ struct CommandRunner: CommandRunning {
             process.standardError = stderrPipe
 
             let finishGate = LockedFinishGate()
+            let outputCollector = LockedProcessOutputCollector(stdout: stdoutPipe.fileHandleForReading, stderr: stderrPipe.fileHandleForReading)
             @Sendable func finish(_ result: Result<CommandResult, Error>) {
                 guard finishGate.tryFinish() else { return }
+                outputCollector.stop()
                 continuation.resume(with: result)
             }
 
             process.terminationHandler = { process in
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                finish(.success(CommandResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)))
+                outputCollector.drainRemainingData()
+                let output = outputCollector.output()
+                finish(.success(CommandResult(stdout: output.stdout, stderr: output.stderr, exitCode: process.terminationStatus)))
             }
 
             do {
+                outputCollector.start()
                 try process.run()
             } catch {
                 finish(.failure(CommandRunnerError.launchFailed(command: command, underlying: error)))
@@ -153,14 +154,16 @@ struct CommandRunner: CommandRunning {
             let stderrPipe = Pipe()
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
+            let outputCollector = LockedProcessOutputCollector(stdout: stdoutPipe.fileHandleForReading, stderr: stderrPipe.fileHandleForReading)
 
             process.terminationHandler = { process in
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stdout = String(data: stdoutData, encoding: .utf8)?
+                outputCollector.drainRemainingData()
+                let output = outputCollector.output()
+                outputCollector.stop()
+                let stdout = output.stdout
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                guard process.terminationStatus == 0, let stdout, !stdout.isEmpty else {
+                guard process.terminationStatus == 0, !stdout.isEmpty else {
                     continuation.resume(returning: nil)
                     return
                 }
@@ -169,11 +172,90 @@ struct CommandRunner: CommandRunning {
             }
 
             do {
+                outputCollector.start()
                 try process.run()
             } catch {
+                outputCollector.stop()
                 continuation.resume(throwing: CommandRunnerError.launchFailed(command: shell, underlying: error))
             }
         }
+    }
+}
+
+private final class LockedProcessOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private let stdoutHandle: FileHandle
+    private let stderrHandle: FileHandle
+    private var stdoutData = Data()
+    private var stderrData = Data()
+    private var didStop = false
+
+    init(stdout: FileHandle, stderr: FileHandle) {
+        self.stdoutHandle = stdout
+        self.stderrHandle = stderr
+    }
+
+    func start() {
+        stdoutHandle.readabilityHandler = { [weak self] handle in
+            self?.append(handle.availableData, toStdout: true)
+        }
+        stderrHandle.readabilityHandler = { [weak self] handle in
+            self?.append(handle.availableData, toStdout: false)
+        }
+    }
+
+    func drainRemainingData() {
+        guard !isStopped else { return }
+        append(stdoutHandle.availableData, toStdout: true)
+        append(stderrHandle.availableData, toStdout: false)
+    }
+
+    func stop() {
+        lock.lock()
+        guard !didStop else {
+            lock.unlock()
+            return
+        }
+        didStop = true
+        lock.unlock()
+
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
+        try? stdoutHandle.close()
+        try? stderrHandle.close()
+    }
+
+    func output() -> (stdout: String, stderr: String) {
+        lock.lock()
+        let stdout = stdoutData
+        let stderr = stderrData
+        lock.unlock()
+        return (
+            String(data: stdout, encoding: .utf8) ?? "",
+            String(data: stderr, encoding: .utf8) ?? ""
+        )
+    }
+
+    private func append(_ data: Data, toStdout: Bool) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        guard !didStop else {
+            lock.unlock()
+            return
+        }
+        if toStdout {
+            stdoutData.append(data)
+        } else {
+            stderrData.append(data)
+        }
+        lock.unlock()
+    }
+
+    private var isStopped: Bool {
+        lock.lock()
+        let value = didStop
+        lock.unlock()
+        return value
     }
 }
 

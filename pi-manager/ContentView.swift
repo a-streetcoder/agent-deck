@@ -938,6 +938,8 @@ private struct PiAgentSidebarButton: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Pi Agent")
+        .accessibilityHint(needsAttentionCount > 0 ? "\(needsAttentionCount) session\(needsAttentionCount == 1 ? "" : "s") need review" : "Open Pi Agent sessions")
     }
 
     private var badgeText: String {
@@ -998,6 +1000,8 @@ private struct SidebarProjectGitHubCard: View {
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Choose project")
+                .accessibilityHint("Opens the project picker")
                 .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
                     ProjectPickerPopover(
                         projects: orderedProjects,
@@ -1056,6 +1060,7 @@ private struct SidebarProjectGitHubCard: View {
                 }
                 .buttonStyle(.plain)
                 .help("Refresh GitHub status, project scans, and repo data")
+                .accessibilityLabel("Refresh GitHub and projects")
                 .disabled(viewModel.githubIsRefreshingEverything)
             }
         }

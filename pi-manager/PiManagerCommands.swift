@@ -108,13 +108,13 @@ struct PiManagerCommands: Commands {
             Button("Commit Changes") {
                 context?.commitGitHubChanges()
             }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
+            .keyboardShortcut("c", modifiers: [.command, .option])
             .disabled(context?.canCommitGitHubChanges != true)
 
             Button("Push Branch") {
                 context?.pushGitHubBranch()
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .keyboardShortcut("p", modifiers: [.command, .option])
             .disabled(context?.canPushGitHubBranch != true)
         }
     }

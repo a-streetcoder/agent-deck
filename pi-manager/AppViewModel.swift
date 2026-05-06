@@ -93,8 +93,6 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
 
-    private let scanner = PiScanner()
-    private let projectDiscovery = ProjectDiscovery()
     private let agentPersistence = AgentPersistence()
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
@@ -112,6 +110,8 @@ final class AppViewModel: NSObject, ObservableObject {
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
     private var lastWatchFingerprint: String = ""
+    private var refreshTask: Task<Void, Never>?
+    private var refreshRequestID = 0
     private var isRefreshingModels = false
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
@@ -216,26 +216,56 @@ final class AppViewModel: NSObject, ObservableObject {
         let previousSkillID = selectedSkillID
         let previousCommandItemID = selectedCommandItemID
         let previousExtensionID = selectedExtensionID
+        let selectedProjectPath = selectedProjectPath
+        let preferencesByPath = projectPreferencesStore.preferencesByPath
+        let rootURL = configuredProjectsRootURL
+        refreshRequestID += 1
+        let requestID = refreshRequestID
 
-        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
-        discoveredProjects = projectDiscovery.discoverProjects(
-            rootDirectoryURL: configuredProjectsRootURL,
-            additionalProjectPaths: Array(projectPreferencesByPath.keys),
-            preferencesByPath: projectPreferencesByPath
-        )
-        let enabledProjects = discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
-        globalSnapshot = scanner.scan(projectRoot: nil)
-        allProjectSnapshots = Dictionary(uniqueKeysWithValues: enabledProjects.map { project in
-            (project.path, scanner.scan(projectRoot: project.url))
-        })
+        refreshTask?.cancel()
+        let viewModel = self
+        refreshTask = Task.detached(priority: .userInitiated) {
+            let result = AppRefreshService().loadSnapshot(
+                rootURL: rootURL,
+                selectedProjectPath: selectedProjectPath,
+                preferencesByPath: preferencesByPath
+            )
 
-        if let selectedProjectPath,
-           let matchingProject = discoveredProjects.first(where: { $0.path == selectedProjectPath && projectPreference(for: $0.path).isEnabled }) {
+            await MainActor.run {
+                guard !Task.isCancelled, requestID == viewModel.refreshRequestID else { return }
+                viewModel.applyRefreshSnapshot(
+                    result,
+                    previousAgentID: previousAgentID,
+                    previousChainID: previousChainID,
+                    previousSkillID: previousSkillID,
+                    previousCommandItemID: previousCommandItemID,
+                    previousExtensionID: previousExtensionID,
+                    includeModels: includeModels
+                )
+            }
+        }
+    }
+
+    private func applyRefreshSnapshot(
+        _ result: AppRefreshSnapshot,
+        previousAgentID: EffectiveAgentRecord.ID?,
+        previousChainID: ChainRecord.ID?,
+        previousSkillID: SkillRecord.ID?,
+        previousCommandItemID: String?,
+        previousExtensionID: PiExtensionRecord.ID?,
+        includeModels: Bool
+    ) {
+        projectPreferencesByPath = result.projectPreferencesByPath
+        discoveredProjects = result.discoveredProjects
+        globalSnapshot = result.globalSnapshot
+        allProjectSnapshots = result.projectSnapshots
+
+        if let matchingProject = result.selectedProject {
             projectRootURL = matchingProject.url
-            snapshot = allProjectSnapshots[selectedProjectPath] ?? scanner.scan(projectRoot: matchingProject.url)
+            snapshot = result.selectedProjectSnapshot ?? result.projectSnapshots[matchingProject.path] ?? result.globalSnapshot
         } else {
             projectRootURL = nil
-            selectedProjectPath = nil
+            self.selectedProjectPath = nil
             persistSelectedProjectPath(nil)
             snapshot = makeAggregateSnapshot()
         }
@@ -3602,129 +3632,13 @@ final class AppViewModel: NSObject, ObservableObject {
         isRefreshingModels = true
 
         Task.detached(priority: .utility) {
-            let models = Self.loadAvailableModels()
+            let models = await PiModelDiscoveryService().loadAvailableModels()
             await MainActor.run {
                 self.availableModels = models
                 self.modelsLastUpdatedAt = Date()
                 self.isRefreshingModels = false
             }
         }
-    }
-
-    nonisolated private static func loadAvailableModels() -> [AvailableModel] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [
-            "-lc",
-            "if command -v pi >/dev/null 2>&1; then pi --list-models; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --list-models; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --list-models; else exit 127; fi"
-        ]
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [] }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let text = String(data: data, encoding: .utf8) else { return [] }
-            let exactThinkingLevels = loadModelThinkingLevels()
-            return parseAvailableModels(from: text, exactThinkingLevels: exactThinkingLevels)
-        } catch {
-            return []
-        }
-    }
-
-    nonisolated private static func loadModelThinkingLevels() -> [String: [String]] {
-        let script = #"""
-import { getModel, supportsXhigh } from '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js';
-const input = JSON.parse(process.env.PI_MANAGER_MODEL_INPUT ?? '[]');
-const result = {};
-for (const item of input) {
-  const model = getModel(item.provider, item.model);
-  if (!model || !model.reasoning) {
-    result[`${item.provider}/${item.model}`] = ['off'];
-    continue;
-  }
-  result[`${item.provider}/${item.model}`] = supportsXhigh(model)
-    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-    : ['off', 'minimal', 'low', 'medium', 'high'];
-}
-process.stdout.write(JSON.stringify(result));
-"""#
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", "--input-type=module", "--eval", script]
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        let knownModels = availableModelIdentifiersFromPiList().map { ["provider": $0.provider, "model": $0.model] }
-
-        do {
-            let inputData = try JSONSerialization.data(withJSONObject: knownModels)
-            guard let inputText = String(data: inputData, encoding: .utf8) else { return [:] }
-            var environment = ProcessInfo.processInfo.environment
-            environment["PI_MANAGER_MODEL_INPUT"] = inputText
-            process.environment = environment
-
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [:] }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: [String]] else { return [:] }
-            return object
-        } catch {
-            return [:]
-        }
-    }
-
-    nonisolated private static func availableModelIdentifiersFromPiList() -> [(provider: String, model: String)] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [
-            "-lc",
-            "if command -v pi >/dev/null 2>&1; then pi --list-models; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --list-models; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --list-models; else exit 127; fi"
-        ]
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return [] }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            guard let text = String(data: data, encoding: .utf8) else { return [] }
-            return text.split(whereSeparator: \.isNewline).dropFirst().compactMap { line in
-                let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
-                guard parts.count >= 2 else { return nil }
-                return (provider: parts[0], model: parts[1])
-            }
-        } catch {
-            return []
-        }
-    }
-
-    nonisolated private static func parseAvailableModels(from text: String, exactThinkingLevels: [String: [String]]) -> [AvailableModel] {
-        text
-            .split(whereSeparator: \.isNewline)
-            .dropFirst()
-            .compactMap { line in
-                let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
-                guard parts.count >= 6 else { return nil }
-                let identifier = "\(parts[0])/\(parts[1])"
-                let supportsThinking = parts[4].lowercased() == "yes"
-                return AvailableModel(
-                    provider: parts[0],
-                    model: parts[1],
-                    contextWindow: parts[2],
-                    maxOutput: parts[3],
-                    supportsThinking: supportsThinking,
-                    supportsImages: parts[5].lowercased() == "yes",
-                    supportedThinkingLevels: exactThinkingLevels[identifier] ?? (supportsThinking ? ["off", "minimal", "low", "medium", "high"] : ["off"])
-                )
-            }
     }
 
     private func skillVisible(to agent: EffectiveAgentRecord, skill: SkillRecord) -> Bool {

@@ -3015,43 +3015,7 @@ private struct PiAgentComposerBox: View {
                 if let footer {
                     HStack(spacing: 10) {
                         footer
-                        Button(action: attachImagesFromOpenPanel) {
-                            Image(systemName: "paperclip")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(AppTheme.mutedText)
-                                .frame(width: 30, height: 30)
-                                .background(Circle().fill(AppTheme.contentSubtleFill))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Attach images or UTF-8 text files")
-
-                        Button {
-                            isSubagentPopoverPresented.toggle()
-                        } label: {
-                            Image(systemName: "rectangle.connected.to.line.below")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(subagentsEnabled ? Color.accentColor : AppTheme.mutedText)
-                                .frame(width: 30, height: 30)
-                                .background(Circle().fill(subagentsEnabled ? Color.accentColor.opacity(0.12) : AppTheme.contentSubtleFill))
-                        }
-                        .buttonStyle(.plain)
-                        .help(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
-                        .popover(isPresented: $isSubagentPopoverPresented, arrowEdge: .bottom) {
-                            PiAgentSubagentPopover(
-                                agentNames: subagentNames,
-                                isEnabled: Binding(
-                                    get: { subagentsEnabled },
-                                    set: { isEnabled in
-                                        onSetSessionSubagentsEnabled(isEnabled)
-                                        onSetNewSessionSubagentsEnabled(isEnabled)
-                                    }
-                                ),
-                                onSelectAgent: { agentName in
-                                    isSubagentPopoverPresented = false
-                                    onSelectSubagent(agentName)
-                                }
-                            )
-                        }
+                        composerActionControls
 
                         Spacer(minLength: 18)
                         PiAgentSendButton(isRunning: isRunning, canSend: canSend && !isDisabled, sendAction: onSend, stopAction: onStop)
@@ -3115,6 +3079,52 @@ private struct PiAgentComposerBox: View {
             return true
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var composerActionControls: some View {
+        AppGlassControlGroup(spacing: 6) {
+            Button(action: attachImagesFromOpenPanel) {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .appGlassControl(cornerRadius: 15)
+            .help("Attach images or UTF-8 text files")
+            .accessibilityLabel("Attach files")
+            .accessibilityHint("Attach images or UTF-8 text files")
+
+            Button {
+                isSubagentPopoverPresented.toggle()
+            } label: {
+                Image(systemName: "rectangle.connected.to.line.below")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(subagentsEnabled ? Color.accentColor : AppTheme.mutedText)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .appGlassControl(cornerRadius: 15)
+            .help(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
+            .accessibilityLabel("Native subagents")
+            .accessibilityHint(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
+            .popover(isPresented: $isSubagentPopoverPresented, arrowEdge: .bottom) {
+                PiAgentSubagentPopover(
+                    agentNames: subagentNames,
+                    isEnabled: Binding(
+                        get: { subagentsEnabled },
+                        set: { isEnabled in
+                            onSetSessionSubagentsEnabled(isEnabled)
+                            onSetNewSessionSubagentsEnabled(isEnabled)
+                        }
+                    ),
+                    onSelectAgent: { agentName in
+                        isSubagentPopoverPresented = false
+                        onSelectSubagent(agentName)
+                    }
+                )
+            }
+        }
     }
 
     private func attachImagesFromOpenPanel() {
@@ -3684,6 +3694,7 @@ private struct PiAgentSendButton: View {
         .buttonStyle(.plain)
         .disabled(!isRunning && !canSend)
         .help(isRunning ? "Stop Pi Agent" : "Send message")
+        .accessibilityLabel(isRunning ? "Stop Pi Agent" : "Send message")
         .background {
             Button("Stop Pi Agent", action: stopAction)
                 .keyboardShortcut(.escape, modifiers: [])
