@@ -427,7 +427,7 @@ struct PiAgentScreen: View {
                 }
             }
         }
-        .background(.regularMaterial)
+        .appGlassPanel(cornerRadius: 0)
     }
 
     private var activeSessionColumn: some View {
@@ -1106,7 +1106,7 @@ private struct PiAgentStartupResourcesCard: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(AppTheme.mutedText)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(AppTheme.subtleFill))
+                .background(Circle().fill(AppTheme.contentSubtleFill))
                 .rotationEffect(.degrees(isExpanded ? 180 : 0))
         }
         .contentShape(Rectangle())
@@ -1213,8 +1213,8 @@ private struct PiAgentStartupResourcesCard: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(AppTheme.subtleFill.opacity(0.65))
-                .stroke(AppTheme.cardStroke.opacity(0.8), lineWidth: 1)
+                .fill(AppTheme.contentSubtleFill.opacity(0.65))
+                .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
         )
     }
 
@@ -1247,7 +1247,7 @@ private struct PiAgentStartupResourcesCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .frame(minHeight: 26)
-        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
     }
 
     private func resourceChip(_ item: PiStartupResourceItem, isOverflow: Bool = false, showsDetail: Bool = false) -> some View {
@@ -1274,7 +1274,7 @@ private struct PiAgentStartupResourcesCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.cardFill.opacity(0.75))
+                    .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.contentFill.opacity(0.75))
             )
         }
         .buttonStyle(.plain)
@@ -1528,8 +1528,8 @@ private struct PiAgentCommandSuggestions: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
+                .fill(AppTheme.contentFill)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
     }
 
@@ -1540,7 +1540,7 @@ private struct PiAgentCommandSuggestions: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.subtleFill))
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.contentSubtleFill))
         }
     }
 }
@@ -1564,7 +1564,7 @@ private struct PiAgentSkillUsePill: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(AppTheme.subtleFill))
+                    .background(Capsule().fill(AppTheme.contentSubtleFill))
                 Spacer(minLength: 0)
                 Image(systemName: "info.circle")
                     .foregroundStyle(AppTheme.mutedText)
@@ -1619,7 +1619,7 @@ private struct ShortcutComboHint: View {
         .foregroundStyle(AppTheme.mutedText)
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
     }
 }
 
@@ -1714,7 +1714,7 @@ private struct PiAgentUIRequestCard: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
-                            .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1751,7 +1751,7 @@ private struct PiAgentUIRequestCard: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -2250,7 +2250,7 @@ private struct PiNativeSubagentRunCard: View {
             }
         }
         .padding(8)
-        .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
     private func artifactURL(named fileName: String) -> URL {
@@ -2542,7 +2542,7 @@ private struct PiNativeSubagentTranscriptSheet: View {
             content()
         }
         .padding(14)
-        .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func executionRow(_ entry: PiAgentTranscriptEntry) -> some View {
@@ -2566,7 +2566,7 @@ private struct PiNativeSubagentTranscriptSheet: View {
             }
         }
         .padding(10)
-        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func label(for role: PiAgentTranscriptRole) -> String {
@@ -2695,7 +2695,7 @@ private struct PiNativeSubagentRunSheet: View {
                     }
                 }
                 .padding(10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .appContentSurface(cornerRadius: 12)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -2751,7 +2751,7 @@ private struct PiNativeSubagentRunSheet: View {
                     .foregroundStyle(.secondary)
             }
             .padding(10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .appContentSurface(cornerRadius: 12)
             .overlay {
                 if isReadFirstDropTargeted {
                     RoundedRectangle(cornerRadius: 12)
@@ -2797,7 +2797,7 @@ private struct PiNativeSubagentRunSheet: View {
                 }
             }
             .padding(10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .appContentSurface(cornerRadius: 12)
 
             HStack {
                 Spacer()
@@ -3020,7 +3020,7 @@ private struct PiAgentComposerBox: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(AppTheme.mutedText)
                                 .frame(width: 30, height: 30)
-                                .background(Circle().fill(AppTheme.subtleFill))
+                                .background(Circle().fill(AppTheme.contentSubtleFill))
                         }
                         .buttonStyle(.plain)
                         .help("Attach images or UTF-8 text files")
@@ -3032,7 +3032,7 @@ private struct PiAgentComposerBox: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(subagentsEnabled ? Color.accentColor : AppTheme.mutedText)
                                 .frame(width: 30, height: 30)
-                                .background(Circle().fill(subagentsEnabled ? Color.accentColor.opacity(0.12) : AppTheme.subtleFill))
+                                .background(Circle().fill(subagentsEnabled ? Color.accentColor.opacity(0.12) : AppTheme.contentSubtleFill))
                         }
                         .buttonStyle(.plain)
                         .help(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
@@ -3082,10 +3082,10 @@ private struct PiAgentComposerBox: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
         }
-        .background(
+        .appGlassPanel(cornerRadius: 20)
+        .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(isDropTargeted ? Color.accentColor.opacity(0.7) : AppTheme.cardStroke, lineWidth: isDropTargeted ? 2 : 1)
+                .stroke(isDropTargeted ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: isDropTargeted ? 2 : 1)
         )
         .overlay {
             if isDropTargeted {
@@ -3095,7 +3095,7 @@ private struct PiAgentComposerBox: View {
             }
             if isDisabled {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(AppTheme.cardFill.opacity(0.35))
+                    .fill(AppTheme.contentFill.opacity(0.35))
                     .allowsHitTesting(false)
             }
         }
@@ -3374,7 +3374,7 @@ private struct PiAgentSubagentPopover: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 8)
-                                .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         }
@@ -3424,7 +3424,7 @@ private struct PiAgentFileAttachmentChip: View {
         .font(.caption.weight(.medium))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
         .help(file.url.path)
     }
 }
@@ -3450,7 +3450,7 @@ private struct PiAgentImageAttachmentThumbnail: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(AppTheme.cardStroke, lineWidth: 1)
+                    .stroke(AppTheme.contentStroke, lineWidth: 1)
             )
 
             Button(action: onRemove) {
@@ -3758,7 +3758,7 @@ private struct PiAgentContextUsageMeter: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
             .fixedSize(horizontal: true, vertical: false)
             .help("Pi is compacting this conversation. Input is disabled until compaction finishes.")
         } else if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
@@ -3770,7 +3770,7 @@ private struct PiAgentContextUsageMeter: View {
                         .fixedSize()
                     ZStack(alignment: .leading) {
                         Capsule(style: .continuous)
-                            .fill(AppTheme.cardFill.opacity(0.75))
+                            .fill(AppTheme.contentFill.opacity(0.75))
                         Capsule(style: .continuous)
                             .fill(percent > 85 ? Color.orange : Color.accentColor)
                             .frame(width: 92 * min(max(percent, 0), 100) / 100)
@@ -3787,7 +3787,7 @@ private struct PiAgentContextUsageMeter: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
                 .fixedSize(horizontal: true, vertical: false)
 
                 Button {
@@ -3797,7 +3797,7 @@ private struct PiAgentContextUsageMeter: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                        .background(Circle().fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .help("Compact context")
@@ -3830,7 +3830,7 @@ private struct PiAgentModelStatus: View {
             .truncationMode(.middle)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private var modelLabel: String {
@@ -3851,7 +3851,7 @@ private struct PiAgentThinkingStatus: View {
             .lineLimit(1)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private var displayLevel: String {
@@ -3877,7 +3877,7 @@ private struct PiAgentShortcutChip: View {
         .foregroundStyle(AppTheme.mutedText)
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
-        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
     }
 }
 
@@ -3954,7 +3954,7 @@ private struct PiAgentModelPicker: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .frame(maxWidth: 220, alignment: .leading)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -4027,7 +4027,7 @@ private struct PiAgentModelPicker: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill))
     }
 
     private var modelOptions: [PiAgentModelOption] {
@@ -4084,7 +4084,7 @@ private struct PiAgentThinkingPicker: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -4108,7 +4108,7 @@ private struct PiAgentThinkingPicker: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(candidate == normalizedLevel ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(candidate == normalizedLevel ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill))
                     }
                     .buttonStyle(.plain)
                 }
@@ -4153,8 +4153,8 @@ private struct PiAgentSessionSearchField: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
+                .fill(AppTheme.contentFill)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
     }
 }
@@ -4171,7 +4171,7 @@ private struct PiAgentAddSessionButton: View {
                 .frame(width: 30, height: 30)
                 .background(
                     Circle()
-                        .fill(isEnabled ? Color.accentColor : AppTheme.cardStroke.opacity(0.45))
+                        .fill(isEnabled ? Color.accentColor : AppTheme.contentStroke.opacity(0.45))
                 )
                 .contentShape(Circle())
         }
@@ -4246,8 +4246,8 @@ private struct PiAgentSessionRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : AppTheme.cardFill)
-                .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                .fill(isSelected ? Color.accentColor.opacity(0.14) : AppTheme.contentFill)
+                .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -4852,7 +4852,7 @@ private struct PiAgentTranscriptThreadCard: View {
                 HStack(alignment: .top, spacing: 12) {
                     if thread.question != nil {
                         RoundedRectangle(cornerRadius: 1, style: .continuous)
-                            .fill(AppTheme.cardStroke)
+                            .fill(AppTheme.contentStroke)
                             .frame(width: 2)
                             .padding(.leading, 16)
                     }
@@ -4999,7 +4999,7 @@ private struct PiAgentWebActivitySummaryView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.65)).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private let inlineLinkLimit = 5
@@ -5112,7 +5112,7 @@ private struct PiAgentActivitySummaryView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.65)).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private var hasErrors: Bool {
@@ -5135,12 +5135,12 @@ private struct PiAgentActivitySummaryView: View {
                 .monospacedDigit()
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
-                .background(Capsule(style: .continuous).fill(AppTheme.cardStroke.opacity(0.55)))
+                .background(Capsule(style: .continuous).fill(AppTheme.contentStroke.opacity(0.55)))
         }
         .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill((activity.isError ? Color.red : AppTheme.cardStroke).opacity(0.12)))
+        .background(Capsule(style: .continuous).fill((activity.isError ? Color.red : AppTheme.contentStroke).opacity(0.12)))
     }
 
     private func displayName(for name: String, count: Int) -> String {
@@ -5185,7 +5185,7 @@ private struct PiAgentActivityDetailView: View {
         if let summary = activity.subagentSummary {
             PiAgentSubagentTranscriptView(summary: summary)
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)))
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.65)))
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
@@ -5237,7 +5237,7 @@ private struct PiAgentStatusTranscriptRow: View {
     private var compactionDivider: some View {
         HStack(spacing: 10) {
             Rectangle()
-                .fill(AppTheme.cardStroke.opacity(0.9))
+                .fill(AppTheme.contentStroke.opacity(0.9))
                 .frame(height: 1)
             HStack(spacing: 7) {
                 if isCompacting {
@@ -5258,9 +5258,9 @@ private struct PiAgentStatusTranscriptRow: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill.opacity(0.75)).stroke(AppTheme.cardStroke, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.75)).stroke(AppTheme.contentStroke, lineWidth: 1))
             Rectangle()
-                .fill(AppTheme.cardStroke.opacity(0.9))
+                .fill(AppTheme.contentStroke.opacity(0.9))
                 .frame(height: 1)
         }
         .padding(.vertical, 4)
@@ -5512,10 +5512,10 @@ private struct PiAgentTranscriptCard: View {
         case .assistant: return Color.purple.opacity(0.06)
         case .thinking: return Color.indigo.opacity(0.07)
         case .tool: return style == .threadChild ? Color.orange.opacity(0.05) : Color.orange.opacity(0.08)
-        case .status: return AppTheme.subtleFill.opacity(0.7)
+        case .status: return AppTheme.contentSubtleFill.opacity(0.7)
         case .error: return Color.red.opacity(0.08)
         case .stderr: return Color.pink.opacity(0.08)
-        case .raw: return AppTheme.subtleFill
+        case .raw: return AppTheme.contentSubtleFill
         }
     }
 
@@ -5527,8 +5527,8 @@ private struct PiAgentTranscriptCard: View {
         case .tool: return Color.orange.opacity(0.2)
         case .error: return Color.red.opacity(0.22)
         case .stderr: return Color.pink.opacity(0.2)
-        case .status: return AppTheme.cardStroke
-        case .raw: return AppTheme.cardStroke
+        case .status: return AppTheme.contentStroke
+        case .raw: return AppTheme.contentStroke
         }
     }
 
@@ -5597,7 +5597,7 @@ private struct PiAgentToolTranscriptView: View {
                 .textSelection(.enabled)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.7)))
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.7)))
         }
     }
 
@@ -5704,7 +5704,7 @@ struct PiAgentActivityPanel: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(AppTheme.mutedText)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+                .background(Circle().fill(AppTheme.contentFill).stroke(AppTheme.contentStroke, lineWidth: 1))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Activity")
                     .font(.headline.weight(.semibold))
@@ -5781,7 +5781,7 @@ struct PiAgentActivityPanel: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.cardFill).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentFill).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 }
 
@@ -5818,7 +5818,7 @@ private struct PiAgentCurrentPlanCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.82)).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.82)).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private var progressText: String {
@@ -5870,7 +5870,7 @@ private struct PiAgentActivitySubagentsCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.82)).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.82)).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 }
 
@@ -6257,7 +6257,7 @@ private struct PiAgentActivityRow: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(isSelected ? AppTheme.subtleFill.opacity(0.9) : AppTheme.subtleFill.opacity(0.55)).stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(isSelected ? AppTheme.contentSubtleFill.opacity(0.9) : AppTheme.contentSubtleFill.opacity(0.55)).stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1))
     }
 }
 
@@ -6328,7 +6328,7 @@ private struct PiAgentActivityDetail: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(9)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.subtleFill.opacity(0.6)))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.6)))
     }
 
     private func resolvedURL(for path: String) -> URL? {
@@ -6685,8 +6685,8 @@ struct PiAgentRepoChangesPanel: View {
                 .font(.body)
                 .frame(minHeight: 72, maxHeight: 100)
                 .padding(6)
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.cardFill))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentFill))
 
             HStack {
                 Button(viewModel.githubIsCommitting ? "Committing…" : "Commit \(snapshot.staged.count) file\(snapshot.staged.count == 1 ? "" : "s")") { viewModel.commitChanges() }
@@ -6700,8 +6700,8 @@ struct PiAgentRepoChangesPanel: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.subtleFill.opacity(0.55)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.cardStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private func toggleIncluded(_ item: PiAgentGitChangeListItem) {
@@ -7131,7 +7131,7 @@ private struct PiAgentSubagentTranscriptView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.subtleFill.opacity(0.65)))
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.65)))
                 }
             }
         }
@@ -7212,8 +7212,8 @@ private struct PiAgentCompactTranscriptCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
+                .fill(AppTheme.contentFill)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
     }
 

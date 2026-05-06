@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+private struct PiManagerWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
 private struct PiAgentOpenTerminalToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
@@ -134,7 +148,7 @@ struct ContentView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
-            .background(.regularMaterial, ignoresSafeAreaEdges: .all)
+            .background(Color.clear, ignoresSafeAreaEdges: .all)
             .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
         } detail: {
             HSplitView {
@@ -155,6 +169,8 @@ struct ContentView: View {
         }
         .frame(minWidth: 1040, minHeight: 700)
         .navigationTitle(toolbarTitle)
+        .background(PiManagerWindowAccessor { viewModel.setWindow($0) })
+        .focusedSceneValue(\.piManagerCommands, commandContext)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             if newValue == .agent {
                 viewModel.acknowledgeVisibleSelectedPiAgentSession()
@@ -537,6 +553,55 @@ struct ContentView: View {
         }
     }
 
+    private var commandContext: PiManagerCommandContext {
+        let selectedSession = viewModel.piAgentSessionStore.selectedSession
+        let selectedSessionID = selectedSession?.id
+        let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
+        let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
+
+        return PiManagerCommandContext(
+            canCreateAgent: true,
+            canDeletePiAgentSession: selectedSession != nil,
+            canStopPiAgentSession: selectedSessionIsRunning,
+            canOpenPiAgentActivity: selectedSession != nil,
+            canOpenPiAgentRepoChanges: selectedSession != nil,
+            canTogglePiAgentInspector: viewModel.selectedSidebarItem != .agent,
+            canOpenPiAgentInTerminal: viewModel.canOpenSelectedPiAgentSessionInTerminal,
+            canCommitGitHubChanges: hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting,
+            canPushGitHubBranch: hasGitProject && !viewModel.githubIsPushing,
+            refresh: { viewModel.refreshEverything() },
+            createAgent: {
+                editingAgent = nil
+                agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .library : .project)
+            },
+            deletePiAgentSession: { showingPiAgentDeleteAlert = true },
+            stopPiAgentSession: { viewModel.stopSelectedPiAgentSession() },
+            showPiAgentActivity: {
+                viewModel.openPiAgentScreen()
+                isPiAgentActivityPresented.toggle()
+                if isPiAgentActivityPresented { isPiAgentRepoChangesPresented = false }
+            },
+            showPiAgentRepoChanges: {
+                viewModel.openPiAgentScreen()
+                isPiAgentRepoChangesPresented.toggle()
+                if isPiAgentRepoChangesPresented {
+                    isPiAgentActivityPresented = false
+                    viewModel.prepareRepoChangesForSelectedPiAgentSession()
+                }
+            },
+            togglePiAgentInspector: {
+                if viewModel.selectedSidebarItem != .agent {
+                    viewModel.isPiAgentInspectorPresented.toggle()
+                }
+            },
+            resumePiAgentInTerminal: { viewModel.openSelectedPiAgentSessionInTerminal() },
+            refreshGitHub: { viewModel.refreshEverything() },
+            commitGitHubChanges: { viewModel.commitChanges() },
+            pushGitHubBranch: { viewModel.pushCurrentBranch() }
+        )
+    }
+
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {
         AgentModelQuickEditorContext(
             title: "Agent Models",
@@ -817,7 +882,7 @@ private struct PiAgentTranscriptDisplayOptionsPopover: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isOn ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill))
+            .appContentSurface(cornerRadius: 9, isSelected: isOn)
         }
         .buttonStyle(.plain)
     }
@@ -852,10 +917,10 @@ private struct PiAgentSidebarButton: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
+            .appGlassControl(cornerRadius: 16)
+            .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.selectionStroke : Color.clear, lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
                 if needsAttentionCount > 0 {
@@ -929,7 +994,7 @@ private struct SidebarProjectGitHubCard: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
-                        .background(Circle().fill(AppTheme.subtleFill))
+                        .appGlassControl(cornerRadius: 14)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .buttonStyle(.plain)
@@ -962,7 +1027,7 @@ private struct SidebarProjectGitHubCard: View {
                         Circle()
                             .fill(statusColor)
                             .frame(width: 10, height: 10)
-                            .overlay(Circle().stroke(AppTheme.cardFill, lineWidth: 2))
+                            .overlay(Circle().stroke(AppTheme.contentFill, lineWidth: 2))
                     }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -986,7 +1051,7 @@ private struct SidebarProjectGitHubCard: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(width: 28, height: 28)
-                        .background(Circle().fill(AppTheme.subtleFill))
+                        .appGlassControl(cornerRadius: 14)
                         .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
                 }
                 .buttonStyle(.plain)
@@ -997,11 +1062,7 @@ private struct SidebarProjectGitHubCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .animation(.easeInOut(duration: 0.16), value: isExpanded)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(AppTheme.cardFill)
-                .stroke(AppTheme.cardStroke, lineWidth: 1)
-        )
+        .appGlassPanel(cornerRadius: 16)
     }
 
     private var favoriteProjects: [DiscoveredProject] {
@@ -1219,11 +1280,11 @@ private struct ProjectSidebarRow: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.12) : AppTheme.subtleFill.opacity(0.22))
+                        .fill(isSelected ? Color.accentColor.opacity(0.12) : AppTheme.contentSubtleFill.opacity(0.22))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.cardStroke, lineWidth: 1)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -1234,7 +1295,7 @@ private struct ProjectSidebarRow: View {
                         .font(.caption)
                         .foregroundStyle(isFavorite ? Color.yellow : AppTheme.mutedText)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(AppTheme.subtleFill.opacity(0.8)))
+                        .background(Circle().fill(AppTheme.contentSubtleFill.opacity(0.8)))
                 }
                 .buttonStyle(.plain)
                 .help(isFavorite ? "Remove favorite" : "Add favorite")
@@ -1277,7 +1338,7 @@ private struct SidebarGitHubAvatarView: View {
         .frame(width: size, height: size)
         .background(
             Circle()
-                .fill(AppTheme.subtleFill)
+                .fill(AppTheme.contentSubtleFill)
         )
         .clipShape(Circle())
     }
@@ -1301,7 +1362,7 @@ private struct ProjectIconEditorButton: View {
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(isHovering ? Color.accentColor.opacity(0.9) : AppTheme.cardStroke, lineWidth: isHovering ? 2 : 1)
+                            .stroke(isHovering ? Color.accentColor.opacity(0.9) : AppTheme.contentStroke, lineWidth: isHovering ? 2 : 1)
                     }
                     .overlay {
                         if isHovering {
@@ -1349,7 +1410,7 @@ struct ProjectIconView: View {
         .frame(width: size, height: size)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(AppTheme.subtleFill)
+                .fill(AppTheme.contentSubtleFill)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .task(id: imageURL?.path) {
@@ -1570,8 +1631,8 @@ private struct ProjectsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.cardFill)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.28) : AppTheme.cardStroke, lineWidth: 1)
+                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.contentFill)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.28) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity(preference.isEnabled ? 1 : 0.58)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -1864,8 +1925,8 @@ private struct ExtensionsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                    .fill(AppTheme.cardFill)
-                    .stroke(AppTheme.cardStroke, lineWidth: 1)
+                    .fill(AppTheme.contentFill)
+                    .stroke(AppTheme.contentStroke, lineWidth: 1)
             )
         }
     }
@@ -2024,8 +2085,8 @@ private struct ModelsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
-                    .fill(AppTheme.cardFill)
-                    .stroke(AppTheme.cardStroke, lineWidth: 1)
+                    .fill(AppTheme.contentFill)
+                    .stroke(AppTheme.contentStroke, lineWidth: 1)
             )
         }
     }
@@ -2377,7 +2438,7 @@ private struct AgentModelQuickEditRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Thinking")
@@ -2393,12 +2454,12 @@ private struct AgentModelQuickEditRow: View {
                 }
                 .frame(width: 220, alignment: .leading)
                 .padding(12)
-                .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.subtleFill.opacity(0.28), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(AppTheme.contentSubtleFill.opacity(0.28), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var selectedModel: AvailableModel? {
@@ -2713,8 +2774,8 @@ private struct AgentLibraryPane: View {
         .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+                .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
         )
         .opacity(agent.resolved.disabled == true ? 0.62 : 1)
         .saturation(agent.resolved.disabled == true ? 0.25 : 1)
@@ -2848,7 +2909,7 @@ private struct AgentDetailView: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.subtleFill)
+                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -3627,7 +3688,7 @@ private struct AgentDetailView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.subtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -3703,7 +3764,7 @@ private struct AgentDetailView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(AppTheme.subtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
         }
@@ -4383,7 +4444,7 @@ private struct SubagentsProjectRecapPanel: View {
                 .padding(16)
             }
         }
-        .background(AppTheme.subtleFill)
+        .background(AppTheme.contentSubtleFill)
     }
 
     private func agentRecapSection(_ title: String, agents: [EffectiveAgentRecord], color: Color) -> some View {
@@ -4431,7 +4492,7 @@ private struct SubagentsProjectRecapPanel: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -4515,7 +4576,7 @@ private struct SkillsProjectRecapPanel: View {
                 .padding(16)
             }
         }
-        .background(AppTheme.subtleFill)
+        .background(AppTheme.contentSubtleFill)
     }
 
     private func recapSection(_ title: String, skills: [SkillRecord], color: Color, emptyText: String) -> some View {
@@ -4550,7 +4611,7 @@ private struct SkillsProjectRecapPanel: View {
                         }
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppTheme.cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
             }
@@ -4837,8 +4898,8 @@ private struct SkillsScreen: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                    .stroke(selectedSkillName == skill.name ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+                    .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                    .stroke(selectedSkillName == skill.name ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
             .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)
@@ -5346,7 +5407,7 @@ private struct PiDocsScreen: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.subtleFill)
+                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -5828,7 +5889,7 @@ private struct DiagnosticsScreen: View {
                                 .textSelection(.enabled)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+                                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
 
                             Button("Copy") {
                                 copyToPasteboard(pkg.installCommand)
@@ -5864,7 +5925,7 @@ private struct DiagnosticsScreen: View {
         .font(.caption)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
     }
 
     private func doctorLinkChip(_ title: String, url: String) -> some View {
@@ -5879,7 +5940,7 @@ private struct DiagnosticsScreen: View {
             .font(.caption)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Capsule(style: .continuous).fill(AppTheme.subtleFill))
+            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
         }
         .buttonStyle(.plain)
         .help(url)

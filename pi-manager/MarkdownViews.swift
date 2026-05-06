@@ -29,7 +29,7 @@ struct MarkdownTextView: View {
                     .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(AppTheme.subtleFill)
+                            .fill(AppTheme.contentSubtleFill)
                     )
             }
 
@@ -70,7 +70,7 @@ struct MarkdownTextView: View {
         case .quote(let text):
             HStack(alignment: .top, spacing: 8) {
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(AppTheme.cardStroke)
+                    .fill(AppTheme.contentStroke)
                     .frame(width: 3)
                 inlineText(text)
                     .font(.body)
@@ -82,7 +82,7 @@ struct MarkdownTextView: View {
                 .textSelection(.enabled)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.subtleFill))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentSubtleFill))
         }
     }
 

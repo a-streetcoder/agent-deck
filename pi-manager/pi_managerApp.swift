@@ -25,10 +25,14 @@ final class PiManagerAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         if let sessionID = response.notification.request.content.userInfo["sessionID"] as? String {
+            var userInfo: [AnyHashable: Any] = ["sessionID": sessionID]
+            if let windowID = response.notification.request.content.userInfo["windowID"] as? String {
+                userInfo["windowID"] = windowID
+            }
             NotificationCenter.default.post(
                 name: .piAgentNotificationResponse,
                 object: nil,
-                userInfo: ["sessionID": sessionID]
+                userInfo: userInfo
             )
         }
         completionHandler()
@@ -42,6 +46,9 @@ struct pi_managerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+        }
+        .commands {
+            PiManagerCommands()
         }
     }
 }

@@ -46,6 +46,7 @@ private final class NativeParallelGraphScheduler {
 
 @MainActor
 final class AppViewModel: NSObject, ObservableObject {
+    let windowID = UUID()
     @Published var snapshot: ScanSnapshot = .empty
     @Published var selectedSidebarItem: SidebarItem = .agent
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
@@ -121,6 +122,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
+    private weak var window: NSWindow?
 
     private var piAgentNotificationDelay: TimeInterval {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
@@ -181,6 +183,10 @@ final class AppViewModel: NSObject, ObservableObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    func setWindow(_ window: NSWindow?) {
+        self.window = window
     }
 
     private func cleanupOrphanedNativeSubagentArtifacts(retentionDays: Int = 30) {
@@ -1248,7 +1254,10 @@ final class AppViewModel: NSObject, ObservableObject {
                 let content = UNMutableNotificationContent()
                 content.title = "Pi Agent needs review"
                 content.body = session.displayTitle
-                content.userInfo = ["sessionID": session.id.uuidString]
+                content.userInfo = [
+                    "sessionID": session.id.uuidString,
+                    "windowID": windowID.uuidString
+                ]
 
                 let request = UNNotificationRequest(
                     identifier: "pi-agent-\(session.id.uuidString)",
@@ -2490,16 +2499,27 @@ final class AppViewModel: NSObject, ObservableObject {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handlePiAgentNotificationResponse(_:)), name: .piAgentNotificationResponse, object: nil)
         center.addObserver(self, selector: #selector(handleAppDidBecomeActiveNotification(_:)), name: NSApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppWillTerminateNotification(_:)), name: NSApplication.willTerminateNotification, object: nil)
     }
 
     @objc private func handlePiAgentNotificationResponse(_ notification: Notification) {
         guard let rawSessionID = notification.userInfo?["sessionID"] as? String,
               let sessionID = UUID(uuidString: rawSessionID) else { return }
+        if let rawWindowID = notification.userInfo?["windowID"] as? String,
+           let notificationWindowID = UUID(uuidString: rawWindowID),
+           notificationWindowID != windowID {
+            return
+        }
 
         Task { @MainActor [weak self] in
-            self?.selectPiAgentSession(sessionID)
+            guard let self else { return }
+            self.selectPiAgentSession(sessionID)
             NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            if let window = self.window {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                NSApp.mainWindow?.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
@@ -2507,6 +2527,10 @@ final class AppViewModel: NSObject, ObservableObject {
         Task { @MainActor [weak self] in
             self?.acknowledgeVisibleSelectedPiAgentSession()
         }
+    }
+
+    @objc private func handleAppWillTerminateNotification(_ notification: Notification) {
+        piAgentSessionStore.flushPendingSave()
     }
 
     var visibleExtensions: [PiExtensionRecord] {

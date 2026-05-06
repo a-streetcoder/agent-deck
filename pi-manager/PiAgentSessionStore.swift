@@ -228,6 +228,12 @@ final class PiAgentSessionStore: ObservableObject {
         save()
     }
 
+    func flushPendingSave() {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = nil
+        saveNow()
+    }
+
     private func slugID(for title: String, fallback: String) -> String {
         let slug = title.lowercased()
             .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)

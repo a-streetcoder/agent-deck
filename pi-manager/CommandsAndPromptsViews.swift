@@ -172,8 +172,8 @@ struct CommandsAndPromptsScreen: View {
             .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedCommandItemID == prompt.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                    .stroke(viewModel.selectedCommandItemID == prompt.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+                    .fill(viewModel.selectedCommandItemID == prompt.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                    .stroke(viewModel.selectedCommandItemID == prompt.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity(promptIsUnusedLibraryPrompt(prompt) ? 0.62 : 1)
             .saturation(promptIsUnusedLibraryPrompt(prompt) ? 0.25 : 1)
@@ -202,8 +202,8 @@ struct CommandsAndPromptsScreen: View {
             .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.10) : AppTheme.subtleFill)
-                    .stroke(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.45) : AppTheme.cardStroke, lineWidth: 1)
+                    .fill(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                    .stroke(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

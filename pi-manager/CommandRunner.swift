@@ -99,6 +99,17 @@ struct CommandRunner: CommandRunning {
             return URL(fileURLWithPath: command)
         }
 
+        guard isSafeExecutableName(command) else {
+            throw CommandRunnerError.launchFailed(
+                command: command,
+                underlying: NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: Int(EINVAL),
+                    userInfo: [NSLocalizedDescriptionKey: "Executable names may contain only letters, numbers, dots, underscores, plus signs, and hyphens."]
+                )
+            )
+        }
+
         if let shellResolvedPath = try await resolveUsingUserShell(command: command) {
             return URL(fileURLWithPath: shellResolvedPath)
         }
@@ -122,6 +133,12 @@ struct CommandRunner: CommandRunning {
                 userInfo: [NSLocalizedDescriptionKey: "Unable to resolve executable path for `\(command)` from the user's shell environment."]
             )
         )
+    }
+
+    private func isSafeExecutableName(_ command: String) -> Bool {
+        guard !command.isEmpty else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-")
+        return command.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private func resolveUsingUserShell(command: String) async throws -> String? {
@@ -172,4 +189,3 @@ private final class LockedFinishGate: @unchecked Sendable {
         return true
     }
 }
-
