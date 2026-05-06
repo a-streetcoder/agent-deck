@@ -207,8 +207,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/rampatra/TourKit.git";
 			requirement = {
-				kind = revision;
-				revision = 1a2aa23e38befe67f04f563bb9d324394cab442c;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

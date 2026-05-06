@@ -1,0 +1,15 @@
+{
+  "originHash" : "0daa6959e2373bdd83a26b6ef217b8eb32e6a701c700440103d921406e64c57c",
+  "pins" : [
+    {
+      "identity" : "tourkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/rampatra/TourKit.git",
+      "state" : {
+        "revision" : "0cac3a51069e105286635601e82117c195058ee9",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}
