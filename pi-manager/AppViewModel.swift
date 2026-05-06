@@ -122,7 +122,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
-    private weak var window: NSWindow?
 
     private var piAgentNotificationDelay: TimeInterval {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
@@ -183,10 +182,6 @@ final class AppViewModel: NSObject, ObservableObject {
     deinit {
         watchFingerprintTask?.cancel()
         NotificationCenter.default.removeObserver(self)
-    }
-
-    func setWindow(_ window: NSWindow?) {
-        self.window = window
     }
 
     private func cleanupOrphanedNativeSubagentArtifacts(retentionDays: Int = 30) {
@@ -2549,11 +2544,7 @@ final class AppViewModel: NSObject, ObservableObject {
             guard let self else { return }
             self.selectPiAgentSession(sessionID)
             NSApp.activate(ignoringOtherApps: true)
-            if let window = self.window {
-                window.makeKeyAndOrderFront(nil)
-            } else {
-                NSApp.mainWindow?.makeKeyAndOrderFront(nil)
-            }
+            NSApp.mainWindow?.makeKeyAndOrderFront(nil)
         }
     }
 

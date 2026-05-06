@@ -10,53 +10,15 @@ import SwiftUI
 import UserNotifications
 
 final class PiManagerAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
-    private var onboardingCoordinator: WelcomeOnboardingCoordinator?
-    private var mainWindow: NSWindow?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
-
-        DispatchQueue.main.async {
-            if UserDefaults.standard.bool(forKey: WelcomeOnboardingCoordinator.completedDefaultsKey) {
-                self.showMainWindow()
-            } else {
-                let coordinator = WelcomeOnboardingCoordinator { [weak self] in
-                    self?.showMainWindow()
-                }
-                self.onboardingCoordinator = coordinator
-                coordinator.start()
-            }
-        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if UserDefaults.standard.bool(forKey: WelcomeOnboardingCoordinator.completedDefaultsKey) {
-            showMainWindow()
+        if !flag {
+            NSApp.activate(ignoringOtherApps: true)
         }
         return true
-    }
-
-    private func showMainWindow() {
-        if let mainWindow {
-            mainWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Pi Manager"
-        window.minSize = NSSize(width: 1120, height: 700)
-        window.contentView = NSHostingView(rootView: ContentView())
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        mainWindow = window
     }
 
     func userNotificationCenter(
@@ -82,8 +44,14 @@ final class PiManagerAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
 @main
 struct pi_managerApp: App {
     @NSApplicationDelegateAdaptor(PiManagerAppDelegate.self) private var appDelegate
+    @StateObject private var viewModel = AppViewModel()
 
     var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(viewModel)
+                .frame(minWidth: 900, minHeight: 600)
+        }
         Settings {
             SettingsSceneContent()
         }

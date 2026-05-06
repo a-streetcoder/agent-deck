@@ -1,20 +1,6 @@
 import AppKit
 import SwiftUI
 
-private struct PiManagerWindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { onResolve(view.window) }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { onResolve(nsView.window) }
-    }
-}
-
 private struct PiAgentOpenTerminalToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
@@ -53,7 +39,7 @@ private struct PiAgentOpenTerminalToolbarButton: View {
 
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
-    @StateObject private var viewModel = AppViewModel()
+    @EnvironmentObject private var viewModel: AppViewModel
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
     @State private var chainDraft: ChainEditorDraft?
@@ -73,6 +59,7 @@ struct ContentView: View {
     @State private var isPiAgentRepoChangesPresented = false
     @State private var isPiAgentActivityPresented = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
+    @State private var isOnboardingPresented = !UserDefaults.standard.bool(forKey: "piManagerWelcomeTourCompleted.v1")
 
     var body: some View {
         NavigationSplitView {
@@ -161,9 +148,8 @@ struct ContentView: View {
                     .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
             }
         }
-        .frame(minWidth: contentMinimumWidth, minHeight: 700)
-        .navigationTitle(toolbarTitle)
-        .background(PiManagerWindowAccessor { viewModel.setWindow($0) })
+        .frame(minWidth: 900, minHeight: 600)
+        .toolbar(removing: .title)
         .focusedSceneValue(\.piManagerCommands, commandContext)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             if newValue == .agent {
@@ -536,6 +522,13 @@ struct ContentView: View {
                 }
             )
         }
+        .sheet(isPresented: $isOnboardingPresented, onDismiss: {
+            UserDefaults.standard.set(true, forKey: "piManagerWelcomeTourCompleted.v1")
+        }) {
+            WelcomeOnboardingSheet(viewModel: viewModel) {
+                isOnboardingPresented = false
+            }
+        }
     }
 
     @ViewBuilder
@@ -564,19 +557,6 @@ struct ContentView: View {
         }
     }
 
-    private var contentMinimumWidth: CGFloat {
-        let sidebarWidth: CGFloat = 240
-        guard viewModel.selectedSidebarItem == .agent else {
-            return 1040
-        }
-        if isPiAgentActivityPresented {
-            return sidebarWidth + 560 + 380
-        }
-        if isPiAgentRepoChangesPresented {
-            return sidebarWidth + 560 + 400
-        }
-        return 1040
-    }
 
     private var commandContext: PiManagerCommandContext {
         let selectedSession = viewModel.piAgentSessionStore.selectedSession
@@ -793,21 +773,6 @@ struct ContentView: View {
             PiDocsScreen()
         case .credits:
             CreditsScreen()
-        }
-    }
-
-    private var toolbarTitle: String {
-        switch viewModel.selectedSidebarItem {
-        case .agents:
-            return viewModel.selectedAgent?.name ?? "Agents"
-        case .agent:
-            return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
-        case .skills:
-            return viewModel.selectedSkill?.name ?? "Skills"
-        case .extensions:
-            return viewModel.selectedExtension?.displayName ?? "Extensions"
-        default:
-            return viewModel.selectedSidebarItem.rawValue
         }
     }
 
