@@ -5,27 +5,6 @@ import SwiftUI
 import TourKit
 #endif
 
-struct WelcomeOnboardingBackdrop: View {
-    var body: some View {
-        Color(nsColor: .windowBackgroundColor)
-            .ignoresSafeArea()
-    }
-}
-
-private struct OnboardingWindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { onResolve(view.window) }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { onResolve(nsView.window) }
-    }
-}
-
 private enum WelcomeTourContent {
     #if canImport(TourKit)
     static var pages: [TourPage] {
@@ -55,137 +34,92 @@ private enum WelcomeTourContent {
     #endif
 }
 
-#if canImport(TourKit)
-struct WelcomeTourWindowPresenter: View {
-    @Binding var isPresented: Bool
-    let onFinish: () -> Void
-    let onClose: () -> Void
-    @State private var controller: TourKitWindowController?
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onAppear(perform: presentIfNeeded)
-            .onChange(of: isPresented) { _, _ in
-                presentIfNeeded()
-            }
-            .onDisappear {
-                controller?.close()
-                controller = nil
-            }
-    }
-
-    private func presentIfNeeded() {
-        if isPresented {
-            let controller = controller ?? TourKitWindowController()
-            self.controller = controller
-            controller.present(
-                pages: WelcomeTourContent.pages,
-                continueButtonTitle: "Continue",
-                finishButtonTitle: "Check Setup",
-                onFinish: {
-                    isPresented = false
-                    onFinish()
-                },
-                onClose: {
-                    isPresented = false
-                    onClose()
-                }
-            )
-        } else {
-            controller?.close()
-            controller = nil
-        }
-    }
-}
-#endif
-
-struct FirstLaunchOnboardingView: View {
-    @Binding var isCompleted: Bool
-    @StateObject private var viewModel = AppViewModel()
-    @State private var phase: Phase
-    @State private var window: NSWindow?
-
-    private enum Phase {
-        #if canImport(TourKit)
-        case tour
-        #endif
-        case setup
-    }
-
-    init(isCompleted: Binding<Bool>) {
-        _isCompleted = isCompleted
-        #if canImport(TourKit)
-        _phase = State(initialValue: .tour)
-        #else
-        _phase = State(initialValue: .setup)
-        #endif
-    }
-
-    var body: some View {
-        ZStack {
-            WelcomeOnboardingBackdrop()
-
-            switch phase {
-            #if canImport(TourKit)
-            case .tour:
-                WelcomeTourWindowPresenter(
-                    isPresented: tourBinding,
-                    onFinish: showSetup,
-                    onClose: complete
-                )
-            #endif
-            case .setup:
-                SetupChecklistView(viewModel: viewModel, onFinish: complete)
-                    .frame(width: 680, height: 620)
-            }
-        }
-        .background(OnboardingWindowAccessor { resolvedWindow in
-            guard let resolvedWindow else { return }
-            window = resolvedWindow
-            configureWindow(for: phase, window: resolvedWindow)
-        })
-        .onChange(of: phase) { _, newPhase in
-            if let window {
-                configureWindow(for: newPhase, window: window)
-            }
-        }
-    }
+@MainActor
+final class WelcomeOnboardingCoordinator: NSObject, NSWindowDelegate {
+    static let completedDefaultsKey = "piManagerWelcomeTourCompleted.v1"
 
     #if canImport(TourKit)
-    private var tourBinding: Binding<Bool> {
-        Binding(
-            get: { phase == .tour },
-            set: { isPresented in
-                if !isPresented, phase == .tour {
-                    phase = .setup
-                }
-            }
-        )
-    }
+    private let tourController = TourKitWindowController()
     #endif
+    private let onComplete: () -> Void
+    private let viewModel = AppViewModel()
+    private var setupWindow: NSWindow?
+    private var setupItemsTask: Task<[SetupCheckItem], Never>?
+    private var didComplete = false
 
-    private func showSetup() {
-        phase = .setup
+    init(onComplete: @escaping () -> Void = {}) {
+        self.onComplete = onComplete
+        super.init()
     }
 
-    private func complete() {
-        isCompleted = true
+    func start() {
+        guard !UserDefaults.standard.bool(forKey: Self.completedDefaultsKey) else { return }
         NSApp.activate(ignoringOtherApps: true)
+        preloadSetupChecks()
+
+        #if canImport(TourKit)
+        tourController.present(
+            pages: WelcomeTourContent.pages,
+            continueButtonTitle: "Continue",
+            finishButtonTitle: "Check Setup",
+            onFinish: { [weak self] in self?.presentSetupCheck() },
+            onClose: { [weak self] in self?.completeOnboarding() }
+        )
+        #else
+        presentSetupCheck()
+        #endif
     }
 
-    private func configureWindow(for phase: Phase, window: NSWindow) {
-        switch phase {
-        #if canImport(TourKit)
-        case .tour:
-            window.orderOut(nil)
-        #endif
-        case .setup:
-            window.setContentSize(NSSize(width: 680, height: 620))
-            window.center()
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+    private func presentSetupCheck() {
+        let rootView = SetupChecklistView(viewModel: viewModel, preloadedItems: setupItemsTask) { [weak self] in
+            self?.completeOnboarding()
         }
+        .frame(width: 680, height: 620)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Pi Manager"
+        window.contentView = NSHostingView(rootView: rootView)
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        setupWindow = window
+    }
+
+    private func preloadSetupChecks() {
+        guard setupItemsTask == nil else { return }
+        let projectRootPath = viewModel.appSettings.projectsRootPath
+        let githubAccount = viewModel.currentGitHubAccount
+        setupItemsTask = Task {
+            await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount)
+        }
+    }
+
+    private func completeOnboarding() {
+        guard !didComplete else { return }
+        didComplete = true
+
+        #if canImport(TourKit)
+        tourController.close()
+        #endif
+
+        setupWindow?.delegate = nil
+        setupWindow?.close()
+        setupWindow = nil
+
+        UserDefaults.standard.set(true, forKey: Self.completedDefaultsKey)
+        NSApp.activate(ignoringOtherApps: true)
+        onComplete()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        completeOnboarding()
     }
 }
 
@@ -267,9 +201,20 @@ struct WelcomeOnboardingSheet: View {
 
 struct SetupChecklistView: View {
     @ObservedObject var viewModel: AppViewModel
+    fileprivate let preloadedItems: Task<[SetupCheckItem], Never>?
     let onFinish: () -> Void
     @State private var items: [SetupCheckItem] = []
-    @State private var isRefreshing = false
+    @State private var isRefreshing = true
+
+    fileprivate init(
+        viewModel: AppViewModel,
+        preloadedItems: Task<[SetupCheckItem], Never>? = nil,
+        onFinish: @escaping () -> Void
+    ) {
+        self.viewModel = viewModel
+        self.preloadedItems = preloadedItems
+        self.onFinish = onFinish
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -293,8 +238,12 @@ struct SetupChecklistView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(items) { item in
-                        setupRow(item)
+                    if isRefreshing && items.isEmpty {
+                        loadingRow
+                    } else {
+                        ForEach(items) { item in
+                            setupRow(item)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -319,9 +268,39 @@ struct SetupChecklistView: View {
         .padding(24)
         .task {
             if items.isEmpty {
-                await refresh()
+                await loadInitialItems()
             }
         }
+    }
+
+    private var loadingRow: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Checking setup")
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+                Text("Pi Manager is checking Pi, models, project settings, and integrations.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    @MainActor
+    private func loadInitialItems() async {
+        isRefreshing = true
+        if let preloadedItems {
+            items = await preloadedItems.value
+            isRefreshing = false
+            return
+        }
+        await refresh()
     }
 
     @MainActor
@@ -405,24 +384,26 @@ private struct SetupDependencyService {
 
     func loadItems(projectRootPath: String, githubAccount: GitHubHostAccount?) async -> [SetupCheckItem] {
         async let pi = piCheck()
-        async let rpc = piRPCCheck()
         async let models = modelCheck()
+        async let github = githubCheck(account: githubAccount)
         let project = projectRootCheck(path: projectRootPath)
-        let github = githubCheck(account: githubAccount)
         let web = packageCheck(name: "pi-web-access", title: "Web Access Tools", installCommand: "pi install npm:pi-web-access")
         let askUser = packageCheck(name: "pi-ask-user", title: "Ask User Tool", installCommand: "pi install npm:pi-ask-user")
 
-        return await [pi, rpc, models, project, github, web, askUser]
+        return await [pi, models, project, github, web, askUser]
     }
 
     private func piCheck() async -> SetupCheckItem {
         do {
             let result = try await commandRunner.run("pi", arguments: ["--help"], timeout: 6)
+            let supportsRPC = result.stdout.contains("--mode") && result.stdout.contains("rpc")
             return SetupCheckItem(
                 id: "pi-cli",
                 title: "Pi CLI",
-                detail: result.exitCode == 0 ? "The `pi` executable is available from the user shell." : "`pi --help` exited with code \(result.exitCode).",
-                status: result.exitCode == 0 ? .passed : .failed
+                detail: result.exitCode == 0
+                    ? (supportsRPC ? "Pi is installed and supports RPC mode for app-managed sessions." : "Pi is installed, but this version may not support app-managed RPC sessions.")
+                    : "`pi --help` exited with code \(result.exitCode).",
+                status: result.exitCode == 0 ? (supportsRPC ? .passed : .warning) : .failed
             )
         } catch {
             return SetupCheckItem(
@@ -444,32 +425,6 @@ private struct SetupDependencyService {
         )
     }
 
-    private func piRPCCheck() async -> SetupCheckItem {
-        do {
-            let result = try await commandRunner.run("pi", arguments: ["--mode", "rpc"], timeout: 3)
-            return SetupCheckItem(
-                id: "pi-rpc",
-                title: "Pi Agent RPC Runtime",
-                detail: result.exitCode == 0 ? "Pi RPC mode launched and exited cleanly." : "`pi --mode rpc` exited with code \(result.exitCode).",
-                status: result.exitCode == 0 ? .passed : .failed
-            )
-        } catch CommandRunnerError.timedOut {
-            return SetupCheckItem(
-                id: "pi-rpc",
-                title: "Pi Agent RPC Runtime",
-                detail: "`pi --mode rpc` launches and stays alive for app-managed sessions.",
-                status: .passed
-            )
-        } catch {
-            return SetupCheckItem(
-                id: "pi-rpc",
-                title: "Pi Agent RPC Runtime",
-                detail: "Pi Manager could not launch `pi --mode rpc`.",
-                status: .failed
-            )
-        }
-    }
-
     private func projectRootCheck(path: String) -> SetupCheckItem {
         let isDirectory = (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         return SetupCheckItem(
@@ -480,12 +435,19 @@ private struct SetupDependencyService {
         )
     }
 
-    private func githubCheck(account: GitHubHostAccount?) -> SetupCheckItem {
+    private func githubCheck(account: GitHubHostAccount?) async -> SetupCheckItem {
+        let resolvedAccount: GitHubHostAccount?
         if let account {
+            resolvedAccount = account
+        } else {
+            resolvedAccount = await GitHubCLIAuthService(commandRunner: commandRunner).loadStatus().account
+        }
+
+        if let resolvedAccount {
             return SetupCheckItem(
                 id: "github",
                 title: "GitHub",
-                detail: "Connected as \(account.login) on \(account.host).",
+                detail: "Connected as \(resolvedAccount.login) on \(resolvedAccount.host).",
                 status: .passed
             )
         }

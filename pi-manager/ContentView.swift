@@ -456,7 +456,7 @@ struct ContentView: View {
                         isPiAgentActivityPresented.toggle()
                         if isPiAgentActivityPresented { isPiAgentRepoChangesPresented = false }
                     } label: {
-                        Label("Activity", systemImage: "wrench.and.screwdriver")
+                        Label("Activity", systemImage: "sidebar.trailing")
                     }
                     .help("Open Pi Agent activity sidebar")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)

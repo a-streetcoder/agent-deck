@@ -52,10 +52,7 @@ struct CommandRunner: CommandRunning {
             process.executableURL = executableURL
             process.arguments = arguments
             process.currentDirectoryURL = currentDirectoryURL
-
-            if let environment {
-                process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
-            }
+            process.environment = Self.processEnvironment(merging: environment)
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
@@ -180,22 +177,40 @@ struct CommandRunner: CommandRunning {
             }
         }
     }
+
+    private static func processEnvironment(merging environment: [String: String]?) -> [String: String] {
+        var merged = ProcessInfo.processInfo.environment
+        let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        if let existingPath = merged["PATH"], !existingPath.isEmpty {
+            let pathParts = existingPath.split(separator: ":").map(String.init)
+            let additions = defaultPath.split(separator: ":").map(String.init).filter { !pathParts.contains($0) }
+            if !additions.isEmpty {
+                merged["PATH"] = ([existingPath] + additions).joined(separator: ":")
+            }
+        } else {
+            merged["PATH"] = defaultPath
+        }
+        if let environment {
+            merged.merge(environment) { _, new in new }
+        }
+        return merged
+    }
 }
 
 private final class LockedProcessOutputCollector: @unchecked Sendable {
     private let lock = NSLock()
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
-    private var stdoutData = Data()
-    private var stderrData = Data()
-    private var didStop = false
+    nonisolated(unsafe) private var stdoutData = Data()
+    nonisolated(unsafe) private var stderrData = Data()
+    nonisolated(unsafe) private var didStop = false
 
-    init(stdout: FileHandle, stderr: FileHandle) {
+    nonisolated init(stdout: FileHandle, stderr: FileHandle) {
         self.stdoutHandle = stdout
         self.stderrHandle = stderr
     }
 
-    func start() {
+    nonisolated func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
             self?.append(handle.availableData, toStdout: true)
         }
@@ -204,13 +219,13 @@ private final class LockedProcessOutputCollector: @unchecked Sendable {
         }
     }
 
-    func drainRemainingData() {
+    nonisolated func drainRemainingData() {
         guard !isStopped else { return }
         append(stdoutHandle.availableData, toStdout: true)
         append(stderrHandle.availableData, toStdout: false)
     }
 
-    func stop() {
+    nonisolated func stop() {
         lock.lock()
         guard !didStop else {
             lock.unlock()
@@ -225,7 +240,7 @@ private final class LockedProcessOutputCollector: @unchecked Sendable {
         try? stderrHandle.close()
     }
 
-    func output() -> (stdout: String, stderr: String) {
+    nonisolated func output() -> (stdout: String, stderr: String) {
         lock.lock()
         let stdout = stdoutData
         let stderr = stderrData
@@ -236,7 +251,7 @@ private final class LockedProcessOutputCollector: @unchecked Sendable {
         )
     }
 
-    private func append(_ data: Data, toStdout: Bool) {
+    private nonisolated func append(_ data: Data, toStdout: Bool) {
         guard !data.isEmpty else { return }
         lock.lock()
         guard !didStop else {
@@ -251,7 +266,7 @@ private final class LockedProcessOutputCollector: @unchecked Sendable {
         lock.unlock()
     }
 
-    private var isStopped: Bool {
+    private nonisolated var isStopped: Bool {
         lock.lock()
         let value = didStop
         lock.unlock()
