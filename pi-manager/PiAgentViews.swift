@@ -251,6 +251,7 @@ struct PiAgentScreen: View {
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
+    @State private var hasBuiltVisibleSessions = false
 
     var body: some View {
         HSplitView {
@@ -337,13 +338,18 @@ struct PiAgentScreen: View {
     }
 
     private var visibleSessions: [PiAgentSessionRecord] {
-        cachedVisibleSessions
+        hasBuiltVisibleSessions ? cachedVisibleSessions : computedVisibleSessions()
     }
 
     private func rebuildVisibleSessions() {
+        cachedVisibleSessions = computedVisibleSessions()
+        hasBuiltVisibleSessions = true
+    }
+
+    private func computedVisibleSessions() -> [PiAgentSessionRecord] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = viewModel.showPiAgentAttentionOnly ? scopedSessions.filter(\.needsAttention) : scopedSessions
-        cachedVisibleSessions = query.isEmpty ? source : source.filter { sessionMatchesSearch($0, query: query) }
+        return query.isEmpty ? source : source.filter { sessionMatchesSearch($0, query: query) }
     }
 
     private var visibleSessionIDs: [UUID] {
@@ -704,14 +710,10 @@ struct PiAgentScreen: View {
                 onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
                 onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
                 onSelectSubagent: presentNativeSubagentRun,
-                footer: store.selectedSession.map { session in
-                    AnyView(PiAgentComposerFooterBar(
-                        session: session,
-                        viewModel: viewModel,
-                        supportedThinkingLevels: supportedThinkingLevels(for: session)
-                    ))
-                },
-                metricsFooter: store.selectedSession.map { AnyView(PiAgentRuntimeFooter(session: $0)) },
+                viewModel: viewModel,
+                footerSession: store.selectedSession,
+                supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
+                metricsSession: store.selectedSession,
                 onSend: sendComposerMessage,
                 onStop: { viewModel.stopSelectedPiAgentSession() },
                 onClear: clearComposerInput
@@ -1229,8 +1231,10 @@ private struct PiAgentStartupResourcesCard: View {
                 Spacer()
             }
 
+            let rows = chunk(items, size: columns)
             Grid(horizontalSpacing: 8, verticalSpacing: 7) {
-                ForEach(Array(chunk(items, size: columns).enumerated()), id: \.offset) { _, row in
+                ForEach(rows.indices, id: \.self) { index in
+                    let row = rows[index]
                     GridRow {
                         ForEach(row) { item in
                             resourceChip(item, showsDetail: showsDetails)
@@ -1637,12 +1641,12 @@ private struct ShortcutComboHint: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            ForEach(Array(symbols.enumerated()), id: \.offset) { index, symbol in
+            ForEach(symbols.indices, id: \.self) { index in
                 if index > 0 {
                     Image(systemName: "plus")
                         .font(.system(size: 7, weight: .bold))
                 }
-                Image(systemName: symbol)
+                Image(systemName: symbols[index])
                     .font(.caption2.weight(.semibold))
             }
             Text(text)
@@ -1676,7 +1680,11 @@ private struct PiAgentUIRequestCard: View {
 
                 switch request.method {
                 case .select:
-                    isComposingFreeform ? AnyView(freeformComposer) : AnyView(selectOptions)
+                    if isComposingFreeform {
+                        freeformComposer
+                    } else {
+                        selectOptions
+                    }
                 case .multiSelect:
                     multiSelectOptions
                 case .confirm:
@@ -2983,8 +2991,10 @@ private struct PiAgentComposerBox: View {
     let onSetSessionSubagentsEnabled: (Bool) -> Void
     let onSetNewSessionSubagentsEnabled: (Bool) -> Void
     let onSelectSubagent: (String) -> Void
-    let footer: AnyView?
-    let metricsFooter: AnyView?
+    let viewModel: AppViewModel
+    let footerSession: PiAgentSessionRecord?
+    let supportedThinkingLevels: [String]
+    let metricsSession: PiAgentSessionRecord?
     let onSend: () -> Void
     let onStop: () -> Void
     let onClear: () -> Void
@@ -3046,9 +3056,13 @@ private struct PiAgentComposerBox: View {
             }
 
             VStack(spacing: 10) {
-                if let footer {
+                if let footerSession {
                     HStack(spacing: 10) {
-                        footer
+                        PiAgentComposerFooterBar(
+                            session: footerSession,
+                            viewModel: viewModel,
+                            supportedThinkingLevels: supportedThinkingLevels
+                        )
                         composerActionControls
 
                         Spacer(minLength: 18)
@@ -3070,8 +3084,8 @@ private struct PiAgentComposerBox: View {
                         .help(path)
                     }
 
-                    if let metricsFooter {
-                        metricsFooter
+                    if let metricsSession {
+                        PiAgentRuntimeFooter(session: metricsSession)
                     }
 
                     Spacer(minLength: 8)
@@ -6438,6 +6452,14 @@ private struct PiAgentCodePreview: View {
     var lineLimit: Int = 80
     @State private var cachedDisplayText = ""
 
+    init(title: String?, text: String, maxHeight: CGFloat = 240, lineLimit: Int = 80) {
+        self.title = title
+        self.text = text
+        self.maxHeight = maxHeight
+        self.lineLimit = lineLimit
+        _cachedDisplayText = State(initialValue: Self.displayText(for: text, lineLimit: lineLimit))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title {
@@ -6479,6 +6501,11 @@ private struct PiAgentDiffView: View {
     let diffText: String
     @State private var lines: [PiAgentDiffLine] = []
 
+    init(diffText: String) {
+        self.diffText = diffText
+        _lines = State(initialValue: Self.lines(for: diffText))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Diff")
@@ -6515,7 +6542,11 @@ private struct PiAgentDiffView: View {
     }
 
     private func rebuildLines() {
-        lines = diffText.split(separator: "\n", omittingEmptySubsequences: false).map { PiAgentDiffLine(raw: String($0)) }
+        lines = Self.lines(for: diffText)
+    }
+
+    private static func lines(for diffText: String) -> [PiAgentDiffLine] {
+        diffText.split(separator: "\n", omittingEmptySubsequences: false).map { PiAgentDiffLine(raw: String($0)) }
     }
 }
 
@@ -6978,12 +7009,10 @@ struct PiAgentInspectorPanel: View {
                     onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
                     onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
                     onSelectSubagent: presentNativeSubagentRun,
-                    footer: AnyView(PiAgentComposerFooterBar(
-                        session: session,
-                        viewModel: viewModel,
-                        supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"]
-                    )),
-                    metricsFooter: AnyView(PiAgentRuntimeFooter(session: session)),
+                    viewModel: viewModel,
+                    footerSession: session,
+                    supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+                    metricsSession: session,
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }

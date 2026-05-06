@@ -1094,6 +1094,11 @@ private struct GitUnifiedDiffView: View {
     let diffText: String
     @State private var cachedLines: [String] = []
 
+    init(diffText: String) {
+        self.diffText = diffText
+        _cachedLines = State(initialValue: Self.lines(for: diffText))
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView([.vertical, .horizontal]) {
@@ -1113,8 +1118,12 @@ private struct GitUnifiedDiffView: View {
     }
 
     private func rebuildLines() {
+        cachedLines = Self.lines(for: diffText)
+    }
+
+    private static func lines(for diffText: String) -> [String] {
         let split = diffText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        cachedLines = split.isEmpty ? ["No diff for this file."] : split
+        return split.isEmpty ? ["No diff for this file."] : split
     }
 }
 
