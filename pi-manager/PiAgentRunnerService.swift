@@ -872,36 +872,35 @@ final class PiAgentRunnerService {
     }
 
     private func handleExtensionUIRequest(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
-        let method = event.method ?? "extension UI"
-        let title = event.title ?? method
+        let method = nonEmptyBridgeString(event.method) ?? extensionUIString("method", from: event) ?? "extension UI"
+        let title = extensionUITitle(from: event) ?? method
 
-        if title == "PI_MANAGER_BRIDGE managed_subagent", let requestID = event.id {
-            handleManagedSubagentBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            return
-        }
-        if title == "PI_MANAGER_BRIDGE managed_chain", let requestID = event.id {
-            handleManagedChainBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            return
-        }
-        if title == "PI_MANAGER_BRIDGE managed_parallel", let requestID = event.id {
-            handleManagedParallelBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            return
-        }
-        if title == "PI_MANAGER_BRIDGE list_supervisor_requests", let requestID = event.id {
-            let result = onSupervisorRequestsList?(sessionID) ?? "[]"
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
-            return
-        }
-        if title == "PI_MANAGER_BRIDGE answer_supervisor_request", let requestID = event.id {
-            handleAnswerSupervisorBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            return
-        }
-        if title == "PI_MANAGER_BRIDGE set_session_plan", let requestID = event.id {
-            handleSetSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            return
-        }
-        if title == "PI_MANAGER_BRIDGE update_session_plan", let requestID = event.id {
-            handleUpdateSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+        if let bridgeName = piManagerBridgeName(from: event) {
+            guard let requestID = extensionUIRequestID(from: event) else {
+                store.append(.init(sessionID: sessionID, role: .error, title: "Pi Manager Bridge Error", text: "Bridge request \(bridgeName) did not include a request id.", rawJSON: rawLine))
+                return
+            }
+
+            switch bridgeName {
+            case "managed_subagent":
+                handleManagedSubagentBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "managed_chain":
+                handleManagedChainBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "managed_parallel":
+                handleManagedParallelBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "list_supervisor_requests":
+                let result = onSupervisorRequestsList?(sessionID) ?? "[]"
+                clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+            case "answer_supervisor_request":
+                handleAnswerSupervisorBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "set_session_plan":
+                handleSetSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "update_session_plan":
+                handleUpdateSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            default:
+                clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager does not support bridge request \(bridgeName).")
+                store.append(.init(sessionID: sessionID, role: .error, title: "Pi Manager Bridge Error", text: "Unsupported bridge request \(bridgeName).", rawJSON: rawLine))
+            }
             return
         }
 
@@ -1017,13 +1016,46 @@ final class PiAgentRunnerService {
             return
         }
         let result = onSessionPlanUpdate?(sessionID, request) ?? "Pi Manager session plan routing is not available."
+        store.append(.init(sessionID: sessionID, role: .status, title: "Session Plan Updated", text: "Updated \(request.updates.count) item(s).", rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
     private func bridgePayload(from event: PiAgentRPCEvent) -> String? {
-        if let prefill = event.prefill, !prefill.isEmpty { return prefill }
+        if let prefill = nonEmptyBridgeString(event.prefill) { return prefill }
+        if let prefill = extensionUIString("prefill", from: event) { return prefill }
         if let message = event.message?.stringValue, !message.isEmpty { return message }
+        if let message = extensionUIString("message", from: event) { return message }
         return event.message?.compactDescription
+    }
+
+    private func piManagerBridgeName(from event: PiAgentRPCEvent) -> String? {
+        guard let title = extensionUITitle(from: event) else { return nil }
+        let prefix = "PI_MANAGER_BRIDGE "
+        guard title.hasPrefix(prefix) else { return nil }
+        let name = title.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private func extensionUITitle(from event: PiAgentRPCEvent) -> String? {
+        if let title = nonEmptyBridgeString(event.title) { return title }
+        if let title = extensionUIString("title", from: event) { return title }
+        if let method = nonEmptyBridgeString(event.method), method.hasPrefix("PI_MANAGER_BRIDGE ") { return method }
+        return nil
+    }
+
+    private func extensionUIRequestID(from event: PiAgentRPCEvent) -> String? {
+        nonEmptyBridgeString(event.id) ?? extensionUIString("id", from: event)
+    }
+
+    private func extensionUIString(_ key: String, from event: PiAgentRPCEvent) -> String? {
+        nonEmptyBridgeString(event.data?[key]?.stringValue)
+            ?? nonEmptyBridgeString(event.message?[key]?.stringValue)
+            ?? nonEmptyBridgeString(event.result?[key]?.stringValue)
+    }
+
+    private func nonEmptyBridgeString(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
     }
 
     private func parsedUIRequest(

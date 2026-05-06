@@ -97,6 +97,217 @@ final class PiAgentSessionStoreRegressionTests: XCTestCase {
     }
 }
 
+@MainActor
+final class PiAgentRunnerBridgeRegressionTests: XCTestCase {
+    func testSetSessionPlanBridgePersistsPlanAndRespondsToEditorRequest() throws {
+        let payload = #"{"kind":"set_session_plan","toolCallId":"tool-1","items":[{"id":"inspect","title":"Inspect smoke","status":"in_progress"},{"id":"delegate","title":"Run native subagent smoke","status":"todo"},{"id":"finish","title":"Summarize result","status":"todo"}]}"#
+        let harness = try makeBridgeHarness(event: [
+            "type": "extension_ui_request",
+            "id": "bridge-plan-1",
+            "method": "editor",
+            "title": "PI_MANAGER_BRIDGE set_session_plan",
+            "prefill": payload
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        runner.onSessionPlanSet = { sessionID, request in
+            let plan = store.setSessionPlan(sessionID: sessionID, items: request.items)
+            return "Session plan set. \(plan.items.count) item(s)."
+        }
+        let session = store.createSession(kind: .project, title: "Bridge", project: try makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(waitUntil {
+            store.sessionPlan(for: session.id)?.items.count == 3
+                && extensionUIResponses(in: harness.stdinLog).contains { $0["id"] as? String == "bridge-plan-1" }
+        })
+
+        let plan = try XCTUnwrap(store.sessionPlan(for: session.id))
+        XCTAssertEqual(plan.items.map(\.id), ["inspect", "delegate", "finish"])
+        XCTAssertEqual(plan.items.map(\.status), [.inProgress, .todo, .todo])
+        XCTAssertNil(store.uiRequestsBySessionID[session.id], "Bridge editor requests must not become interactive editor cards.")
+
+        let response = try XCTUnwrap(extensionUIResponses(in: harness.stdinLog).first { $0["id"] as? String == "bridge-plan-1" })
+        XCTAssertEqual(response["type"] as? String, "extension_ui_response")
+        XCTAssertEqual(response["value"] as? String, "Session plan set. 3 item(s).")
+    }
+
+    func testMalformedSessionPlanBridgeStillRespondsAndDoesNotOpenEditorUI() throws {
+        let harness = try makeBridgeHarness(event: [
+            "type": "extension_ui_request",
+            "id": "bridge-plan-bad",
+            "method": "editor",
+            "title": "PI_MANAGER_BRIDGE set_session_plan",
+            "prefill": "{not-json"
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Bridge", project: try makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(waitUntil {
+            extensionUIResponses(in: harness.stdinLog).contains { $0["id"] as? String == "bridge-plan-bad" }
+        })
+
+        XCTAssertNil(store.sessionPlan(for: session.id))
+        XCTAssertNil(store.uiRequestsBySessionID[session.id], "Malformed bridge requests should still be handled as bridge traffic.")
+        let response = try XCTUnwrap(extensionUIResponses(in: harness.stdinLog).first { $0["id"] as? String == "bridge-plan-bad" })
+        XCTAssertEqual(response["value"] as? String, "Pi Manager could not parse the session plan request.")
+    }
+
+    func testNestedBridgeEditorShapePersistsPlanAndResponds() throws {
+        let payload = #"{"kind":"set_session_plan","items":[{"id":"inspect","title":"Inspect smoke","status":"in_progress"}]}"#
+        let harness = try makeBridgeHarness(event: [
+            "type": "extension_ui_request",
+            "data": [
+                "id": "bridge-plan-nested",
+                "method": "editor",
+                "title": "PI_MANAGER_BRIDGE set_session_plan",
+                "prefill": payload
+            ]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        runner.onSessionPlanSet = { sessionID, request in
+            let plan = store.setSessionPlan(sessionID: sessionID, items: request.items)
+            return "Session plan set. \(plan.items.count) item(s)."
+        }
+        let session = store.createSession(kind: .project, title: "Bridge", project: try makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(waitUntil {
+            store.sessionPlan(for: session.id)?.items.count == 1
+                && extensionUIResponses(in: harness.stdinLog).contains { $0["id"] as? String == "bridge-plan-nested" }
+        })
+
+        XCTAssertEqual(store.sessionPlan(for: session.id)?.items.first?.id, "inspect")
+        XCTAssertNil(store.uiRequestsBySessionID[session.id])
+    }
+
+    func testRegularEditorRequestStillBecomesInteractiveUIRequest() throws {
+        let harness = try makeBridgeHarness(event: [
+            "type": "extension_ui_request",
+            "id": "editor-1",
+            "method": "editor",
+            "title": "Edit response",
+            "prefill": "Draft"
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Bridge", project: try makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(waitUntil {
+            store.uiRequestsBySessionID[session.id]?.id == "editor-1"
+        })
+
+        let request = try XCTUnwrap(store.uiRequestsBySessionID[session.id])
+        XCTAssertEqual(request.method, .editor)
+        XCTAssertEqual(request.title, "Edit response")
+        XCTAssertEqual(request.prefill, "Draft")
+        XCTAssertTrue(extensionUIResponses(in: harness.stdinLog).isEmpty)
+    }
+
+    private struct BridgeHarness {
+        let stdinLog: URL
+        let restoreEnvironment: () -> Void
+    }
+
+    private func makeBridgeHarness(event: [String: Any]) throws -> BridgeHarness {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pi-manager-bridge-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let eventFile = directory.appendingPathComponent("event.json")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let executable = directory.appendingPathComponent("pi")
+        let data = try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])
+        try data.write(to: eventFile)
+
+        let script = """
+        #!/bin/sh
+        sleep 0.2
+        cat \(shellSingleQuoted(eventFile.path))
+        printf '\\n'
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> \(shellSingleQuoted(stdinLog.path))
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("PI_MANAGER_PI_PATH").map { String(cString: $0) }
+        setenv("PI_MANAGER_PI_PATH", executable.path, 1)
+        return BridgeHarness(stdinLog: stdinLog) {
+            if let oldPiPath {
+                setenv("PI_MANAGER_PI_PATH", oldPiPath, 1)
+            } else {
+                unsetenv("PI_MANAGER_PI_PATH")
+            }
+        }
+    }
+
+    private func extensionUIResponses(in logURL: URL) -> [[String: Any]] {
+        guard let content = try? String(contentsOf: logURL, encoding: .utf8) else { return [] }
+        return content
+            .split(separator: "\n")
+            .compactMap { line -> [String: Any]? in
+                guard let data = String(line).data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      object["type"] as? String == "extension_ui_response" else {
+                    return nil
+                }
+                return object
+            }
+    }
+
+    private func waitUntil(timeout: TimeInterval = 3, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        return condition()
+    }
+
+    private func makeProject() throws -> DiscoveredProject {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pi-manager-test-project-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return DiscoveredProject(
+            url: url,
+            gitHubRemote: nil,
+            isGitRepository: true,
+            iconFileURL: nil,
+            fallbackSymbolName: "folder",
+            searchIndex: "pi-manager-test-project"
+        )
+    }
+
+    private func temporaryStateFile() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("pi-manager-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("agent-sessions.json")
+    }
+
+    private func shellSingleQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+}
+
 final class PiSubagentLaunchPlannerRegressionTests: XCTestCase {
     func testDefaultAgentInheritsParentProviderModelAndThinking() {
         let selection = PiSubagentLaunchPlanner.modelSelection(
