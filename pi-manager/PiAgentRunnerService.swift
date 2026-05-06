@@ -623,7 +623,7 @@ final class PiAgentRunnerService {
                 title: "Thinking",
                 text: thinkingText,
                 rawJSON: nil
-            ), before: assistantEntryIDsBySessionID[sessionID])
+            ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
         }
 
         if let assistantEntryID = assistantEntryIDsBySessionID[sessionID],
@@ -635,7 +635,7 @@ final class PiAgentRunnerService {
                 title: "Assistant",
                 text: assistantText,
                 rawJSON: nil
-            ))
+            ), persist: false)
         }
     }
 

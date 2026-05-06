@@ -297,6 +297,13 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     private func loadHTML(in webView: WKWebView, context: Context) {
         context.coordinator.prepareForContentLoad(contentHash: contentHash)
+        webView.loadHTMLString(Self.cachedHTML(for: content, colorScheme: colorScheme), baseURL: nil)
+    }
+
+    @MainActor
+    private static func cachedHTML(for content: String, colorScheme: ColorScheme) -> String {
+        let key = htmlCacheKey(for: content, colorScheme: colorScheme)
+        if let cached = htmlCache[key] { return cached }
         let parsed = RawFrontmatterParser.parse(content)
         let markdown = parsed?.content ?? content
         let frontmatterHTML = parsed?.frontmatter.map(Self.frontmatterHTML) ?? ""
@@ -362,8 +369,28 @@ private struct MarkdownWebView: NSViewRepresentable {
         </html>
         """
 
-        webView.loadHTMLString(html, baseURL: nil)
+        htmlCache[key] = html
+        htmlCacheOrder.append(key)
+        if htmlCacheOrder.count > htmlCacheLimit {
+            let overflow = htmlCacheOrder.count - htmlCacheLimit
+            for oldKey in htmlCacheOrder.prefix(overflow) {
+                htmlCache[oldKey] = nil
+            }
+            htmlCacheOrder.removeFirst(overflow)
+        }
+        return html
     }
+
+    private static func htmlCacheKey(for content: String, colorScheme: ColorScheme) -> String {
+        var hasher = Hasher()
+        hasher.combine(content)
+        hasher.combine(colorScheme)
+        return "\(content.count):\(hasher.finalize())"
+    }
+
+    @MainActor private static var htmlCache: [String: String] = [:]
+    @MainActor private static var htmlCacheOrder: [String] = []
+    private static let htmlCacheLimit = 64
 
     private static let dynamicBackgroundColor = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

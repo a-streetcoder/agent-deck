@@ -1092,13 +1092,14 @@ private struct GitDiffPreviewPane: View {
 
 private struct GitUnifiedDiffView: View {
     let diffText: String
+    @State private var cachedLines: [String] = []
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        GitDiffLineView(lineNumber: index + 1, text: line, minWidth: geometry.size.width)
+                    ForEach(cachedLines.indices, id: \.self) { index in
+                        GitDiffLineView(lineNumber: index + 1, text: cachedLines[index], minWidth: geometry.size.width)
                     }
                 }
                 .padding(.vertical, 8)
@@ -1107,11 +1108,13 @@ private struct GitUnifiedDiffView: View {
         }
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.45)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+        .onAppear(perform: rebuildLines)
+        .onChange(of: diffText) { _, _ in rebuildLines() }
     }
 
-    private var lines: [String] {
+    private func rebuildLines() {
         let split = diffText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        return split.isEmpty ? ["No diff for this file."] : split
+        cachedLines = split.isEmpty ? ["No diff for this file."] : split
     }
 }
 

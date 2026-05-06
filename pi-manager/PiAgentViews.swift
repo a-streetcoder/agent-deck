@@ -6,6 +6,32 @@ import UniformTypeIdentifiers
 private let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "code_search"]
 
 @MainActor
+private enum PiAgentRPCEventRenderCache {
+    private static var cache: [String: PiAgentRPCEvent] = [:]
+    private static var order: [String] = []
+    private static let limit = 512
+
+    static func event(from rawJSON: String?) -> PiAgentRPCEvent? {
+        guard let rawJSON else { return nil }
+        if let cached = cache[rawJSON] { return cached }
+        guard let data = rawJSON.data(using: .utf8),
+              let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data) else {
+            return nil
+        }
+        cache[rawJSON] = event
+        order.append(rawJSON)
+        if order.count > limit {
+            let overflow = order.count - limit
+            for oldKey in order.prefix(overflow) {
+                cache[oldKey] = nil
+            }
+            order.removeFirst(overflow)
+        }
+        return event
+    }
+}
+
+@MainActor
 private final class PiAgentTranscriptRenderCache: ObservableObject {
     @Published private(set) var entries: [PiAgentTranscriptEntry] = []
     @Published private(set) var threads: [PiAgentTranscriptThread] = []
@@ -92,9 +118,7 @@ private final class PiAgentTranscriptRenderCache: ObservableObject {
     }
 
     private func assistantContentInterpretation(fromRawJSON rawJSON: String?) -> AssistantContentInterpretation? {
-        guard let rawJSON,
-              let data = rawJSON.data(using: .utf8),
-              let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data),
+        guard let event = PiAgentRPCEventRenderCache.event(from: rawJSON),
               event.type == "message_end",
               let message = event.message,
               message["role"]?.stringValue == "assistant",
@@ -226,6 +250,7 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
+    @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
 
     var body: some View {
         HSplitView {
@@ -241,8 +266,12 @@ struct PiAgentScreen: View {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
             loadComposerDraft(for: store.selectedSession?.id)
+            rebuildVisibleSessions()
             scheduleTranscriptCacheUpdate()
         }
+        .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
+        .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
+        .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessions() }
         .onDisappear {
             saveComposerDraft(for: store.selectedSession?.id)
         }
@@ -256,6 +285,7 @@ struct PiAgentScreen: View {
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
         .onChange(of: visibleSessionIDs) { _, _ in syncVisibleSessionSelection() }
         .onChange(of: viewModel.selectedProjectPath) { _, _ in
+            rebuildVisibleSessions()
             syncVisibleSessionSelection()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
@@ -307,10 +337,13 @@ struct PiAgentScreen: View {
     }
 
     private var visibleSessions: [PiAgentSessionRecord] {
+        cachedVisibleSessions
+    }
+
+    private func rebuildVisibleSessions() {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = viewModel.showPiAgentAttentionOnly ? scopedSessions.filter(\.needsAttention) : scopedSessions
-        guard !query.isEmpty else { return source }
-        return source.filter { sessionMatchesSearch($0, query: query) }
+        cachedVisibleSessions = query.isEmpty ? source : source.filter { sessionMatchesSearch($0, query: query) }
     }
 
     private var visibleSessionIDs: [UUID] {
@@ -4675,7 +4708,8 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         return entry.title
     }
 
-    nonisolated private static func webLinks(for name: String, entries: [PiAgentTranscriptEntry]) -> [PiAgentWebLink] {
+    @MainActor
+    private static func webLinks(for name: String, entries: [PiAgentTranscriptEntry]) -> [PiAgentWebLink] {
         switch name.lowercased() {
         case "web_search":
             let details = entries.lazy.compactMap(toolDetails).last
@@ -4697,7 +4731,8 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         }
     }
 
-    nonisolated private static func compactDetail(for name: String, entries: [PiAgentTranscriptEntry]) -> String? {
+    @MainActor
+    private static func compactDetail(for name: String, entries: [PiAgentTranscriptEntry]) -> String? {
         switch name.lowercased() {
         case "web_search":
             return webSearchDetail(from: entries)
@@ -4710,7 +4745,8 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         }
     }
 
-    nonisolated private static func webSearchDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+    @MainActor
+    private static func webSearchDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
         let details = entries.lazy.compactMap(toolDetails).last
         let args = entries.lazy.compactMap(toolArgs).last
         let queries = stringArray(details?["queries"]) ?? stringArray(args?["queries"]) ?? args?["query"]?.stringValue.map { [$0] } ?? []
@@ -4728,7 +4764,8 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    nonisolated private static func fetchContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+    @MainActor
+    private static func fetchContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
         let details = entries.lazy.compactMap(toolDetails).last
         let args = entries.lazy.compactMap(toolArgs).last
         let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
@@ -4752,7 +4789,8 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    nonisolated private static func retrievedContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+    @MainActor
+    private static func retrievedContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
         let details = entries.lazy.compactMap(toolDetails).last
         let title = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         let url = details?["url"]?.stringValue
@@ -4773,18 +4811,19 @@ private struct PiAgentTranscriptActivity: Identifiable, Hashable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    nonisolated private static func toolDetails(from entry: PiAgentTranscriptEntry) -> JSONValue? {
+    @MainActor
+    private static func toolDetails(from entry: PiAgentTranscriptEntry) -> JSONValue? {
         toolEvent(from: entry)?.result?["details"]
     }
 
-    nonisolated private static func toolArgs(from entry: PiAgentTranscriptEntry) -> JSONValue? {
+    @MainActor
+    private static func toolArgs(from entry: PiAgentTranscriptEntry) -> JSONValue? {
         toolEvent(from: entry)?.args
     }
 
-    nonisolated private static func toolEvent(from entry: PiAgentTranscriptEntry) -> PiAgentRPCEvent? {
-        guard let rawJSON = entry.rawJSON,
-              let data = rawJSON.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
+    @MainActor
+    private static func toolEvent(from entry: PiAgentTranscriptEntry) -> PiAgentRPCEvent? {
+        PiAgentRPCEventRenderCache.event(from: entry.rawJSON)
     }
 
     nonisolated private static func stringArray(_ value: JSONValue?) -> [String]? {
@@ -6397,6 +6436,7 @@ private struct PiAgentCodePreview: View {
     let text: String
     var maxHeight: CGFloat = 240
     var lineLimit: Int = 80
+    @State private var cachedDisplayText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -6406,7 +6446,7 @@ private struct PiAgentCodePreview: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
             ScrollView([.horizontal, .vertical]) {
-                Text(displayText)
+                Text(cachedDisplayText.isEmpty ? displayText : cachedDisplayText)
                     .font(.caption.monospaced())
                     .foregroundStyle(.primary.opacity(0.82))
                     .textSelection(.enabled)
@@ -6416,9 +6456,19 @@ private struct PiAgentCodePreview: View {
             .frame(maxHeight: maxHeight)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.black.opacity(0.04)))
         }
+        .onAppear(perform: rebuildDisplayText)
+        .onChange(of: text) { _, _ in rebuildDisplayText() }
     }
 
     private var displayText: String {
+        Self.displayText(for: text, lineLimit: lineLimit)
+    }
+
+    private func rebuildDisplayText() {
+        cachedDisplayText = Self.displayText(for: text, lineLimit: lineLimit)
+    }
+
+    private static func displayText(for text: String, lineLimit: Int) -> String {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard lines.count > lineLimit else { return text }
         return lines.prefix(lineLimit).joined(separator: "\n") + "\n… \(lines.count - lineLimit) more lines"
@@ -6427,10 +6477,7 @@ private struct PiAgentCodePreview: View {
 
 private struct PiAgentDiffView: View {
     let diffText: String
-
-    private var lines: [PiAgentDiffLine] {
-        diffText.split(separator: "\n", omittingEmptySubsequences: false).map { PiAgentDiffLine(raw: String($0)) }
-    }
+    @State private var lines: [PiAgentDiffLine] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -6439,7 +6486,8 @@ private struct PiAgentDiffView: View {
                 .foregroundStyle(AppTheme.mutedText)
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    ForEach(lines.indices, id: \.self) { index in
+                        let line = lines[index]
                         HStack(alignment: .top, spacing: 8) {
                             Text(line.gutter)
                                 .font(.caption.monospaced())
@@ -6462,6 +6510,12 @@ private struct PiAgentDiffView: View {
             .frame(maxHeight: 320)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.black.opacity(0.04)))
         }
+        .onAppear(perform: rebuildLines)
+        .onChange(of: diffText) { _, _ in rebuildLines() }
+    }
+
+    private func rebuildLines() {
+        lines = diffText.split(separator: "\n", omittingEmptySubsequences: false).map { PiAgentDiffLine(raw: String($0)) }
     }
 }
 

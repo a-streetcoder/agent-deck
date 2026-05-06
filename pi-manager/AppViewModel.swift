@@ -109,6 +109,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
+    private var watchFingerprintTask: Task<Void, Never>?
     private var lastWatchFingerprint: String = ""
     private var refreshTask: Task<Void, Never>?
     private var refreshRequestID = 0
@@ -135,7 +136,6 @@ final class AppViewModel: NSObject, ObservableObject {
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         refresh(includeModels: true)
-        lastWatchFingerprint = watchFingerprint()
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -182,6 +182,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     deinit {
+        watchFingerprintTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -210,7 +211,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func refresh(includeModels: Bool = false) {
+    func refresh(includeModels: Bool = false, scanAllProjects: Bool = true) {
         let previousAgentID = selectedAgentID
         let previousChainID = selectedChainID
         let previousSkillID = selectedSkillID
@@ -228,7 +229,8 @@ final class AppViewModel: NSObject, ObservableObject {
             let result = AppRefreshService().loadSnapshot(
                 rootURL: rootURL,
                 selectedProjectPath: selectedProjectPath,
-                preferencesByPath: preferencesByPath
+                preferencesByPath: preferencesByPath,
+                scanAllProjects: scanAllProjects
             )
 
             await MainActor.run {
@@ -258,7 +260,12 @@ final class AppViewModel: NSObject, ObservableObject {
         projectPreferencesByPath = result.projectPreferencesByPath
         discoveredProjects = result.discoveredProjects
         globalSnapshot = result.globalSnapshot
-        allProjectSnapshots = result.projectSnapshots
+        if result.includesAllProjectSnapshots {
+            allProjectSnapshots = result.projectSnapshots
+        } else {
+            allProjectSnapshots.merge(result.projectSnapshots) { _, fresh in fresh }
+        }
+        lastWatchFingerprint = result.watchFingerprint
 
         if let matchingProject = result.selectedProject {
             projectRootURL = matchingProject.url
@@ -276,8 +283,6 @@ final class AppViewModel: NSObject, ObservableObject {
         selectedExtensionID = visibleExtensions.contains(where: { $0.id == previousExtensionID }) ? previousExtensionID : visibleExtensions.first?.id
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
         selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
-        lastWatchFingerprint = watchFingerprint()
-
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
         if includeModels {
@@ -3689,7 +3694,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func startAutoRefresh() {
-        autoRefreshCancellable = Timer.publish(every: 2, on: .main, in: .common)
+        autoRefreshCancellable = Timer.publish(every: 2, tolerance: 0.5, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refreshIfWatchedFilesChanged()
@@ -3697,52 +3702,19 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func refreshIfWatchedFilesChanged() {
-        let fingerprint = watchFingerprint()
-        guard fingerprint != lastWatchFingerprint else { return }
-        refresh(includeModels: false)
-    }
-
-    private func watchFingerprint() -> String {
-        let fileManager = FileManager.default
-        let urls = watchedURLs()
-        let entries: [String] = urls.flatMap { url in
-            if let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey]),
-               values.isDirectory == true {
-                let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey])
-                var children: [String] = []
-                while let child = enumerator?.nextObject() as? URL {
-                    guard watchedFileName(child.lastPathComponent) else { continue }
-                    let date = (try? child.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
-                    children.append("\(child.path)::\(date)")
-                }
-                return children
+        guard watchFingerprintTask == nil else { return }
+        let previousFingerprint = lastWatchFingerprint
+        let urls = AppRefreshService.watchedURLs(enabledProjects: enabledProjects, snapshot: snapshot)
+        let shouldScanAllProjects = selectedProjectPath == nil
+        watchFingerprintTask = Task.detached(priority: .utility) {
+            let fingerprint = FileWatchFingerprint.make(urls: urls)
+            await MainActor.run {
+                self.watchFingerprintTask = nil
+                guard fingerprint != previousFingerprint else { return }
+                self.lastWatchFingerprint = fingerprint
+                self.refresh(includeModels: false, scanAllProjects: shouldScanAllProjects)
             }
-            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
-            return ["\(url.path)::\(date)"]
         }
-        return entries.sorted().joined(separator: "|")
-    }
-
-    private func watchedURLs() -> [URL] {
-        var urls: [URL] = [
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent", isDirectory: true),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
-        ]
-
-        for project in enabledProjects {
-            urls.append(project.url.appendingPathComponent(".pi", isDirectory: true))
-            urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))
-        }
-
-        urls += snapshot.promptTemplates.map { URL(fileURLWithPath: $0.filePath) }
-        urls += snapshot.settings.flatMap(\.prompts).map { URL(fileURLWithPath: $0) }
-
-        var seen: Set<String> = []
-        return urls.filter { seen.insert($0.path).inserted }
-    }
-
-    private func watchedFileName(_ name: String) -> Bool {
-        name.hasSuffix(".md") || name.hasSuffix(".json") || name == ".env" || name == "SKILL.md"
     }
 
     private func isPackageInstalled(_ name: String) -> Bool {
