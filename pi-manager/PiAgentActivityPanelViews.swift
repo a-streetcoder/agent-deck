@@ -88,8 +88,8 @@ struct PiAgentActivityPanel: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(AppTheme.mutedText)
-            .help("Close activity sidebar")
-            .accessibilityLabel("Close activity sidebar")
+            .help("Close activity panel")
+            .accessibilityLabel("Close activity panel")
         }
     }
 
@@ -117,7 +117,7 @@ struct PiAgentActivityPanel: View {
     }
 
     private func stickySubagentRuns(for sessionID: UUID) -> [PiSubagentRunRecord] {
-        // The activity sidebar is for current work. Completed subagents already
+        // The activity panel is for current work. Completed subagents already
         // have transcript cards, so repeating them here makes the UI noisy.
         Array(store.subagentRuns(for: sessionID).filter(\.status.isActive).prefix(4))
     }
@@ -749,7 +749,7 @@ private struct PiAgentCodePreview: View {
                     .padding(9)
             }
             .frame(maxHeight: maxHeight)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.black.opacity(0.04)))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.textContentFill))
         }
         .onAppear(perform: rebuildDisplayText)
         .onChange(of: text) { _, _ in rebuildDisplayText() }
@@ -808,7 +808,7 @@ private struct PiAgentDiffView: View {
                 .padding(.vertical, 6)
             }
             .frame(maxHeight: 320)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.black.opacity(0.04)))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.textContentFill))
         }
         .onAppear(perform: rebuildLines)
         .onChange(of: diffText) { _, _ in rebuildLines() }
@@ -869,4 +869,3 @@ private struct PiAgentDiffLine: Hashable {
 
     var gutterColor: Color { textColor.opacity(prefix == " " ? 0.75 : 1) }
 }
-

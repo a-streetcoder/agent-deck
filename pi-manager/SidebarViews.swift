@@ -59,7 +59,7 @@ struct PiAgentSidebarButton: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .appGlassControl(cornerRadius: 16)
+            .appControlSurface(cornerRadius: 16)
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(isSelected ? AppTheme.selectionStroke : Color.clear, lineWidth: 1)
@@ -139,7 +139,7 @@ struct SidebarProjectGitHubCard: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
-                        .appGlassControl(cornerRadius: 14)
+                        .appControlSurface(cornerRadius: 14)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .buttonStyle(.plain)
@@ -198,7 +198,7 @@ struct SidebarProjectGitHubCard: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(width: 28, height: 28)
-                        .appGlassControl(cornerRadius: 14)
+                        .appControlSurface(cornerRadius: 14)
                         .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsRefreshingEverything)
                 }
                 .buttonStyle(.plain)
@@ -210,7 +210,7 @@ struct SidebarProjectGitHubCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isExpanded)
-        .appGlassPanel(cornerRadius: 16)
+        .appContentSurface(cornerRadius: 16)
     }
 
     private var favoriteProjects: [DiscoveredProject] {
@@ -439,4 +439,3 @@ struct SidebarGitHubAvatarView: View {
         .clipShape(Circle())
     }
 }
-

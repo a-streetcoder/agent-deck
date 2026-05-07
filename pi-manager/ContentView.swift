@@ -514,7 +514,7 @@ struct ContentView: View {
                     } label: {
                         Label("Activity", systemImage: "sidebar.trailing")
                     }
-                    .help("Open Pi Agent activity sidebar")
+                    .help("Show Pi Agent activity panel")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
                     Button {
@@ -530,8 +530,8 @@ struct ContentView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 16, height: 16)
                     }
-                    .help("Open repo changes sidebar")
-                    .accessibilityLabel("Open repo changes")
+                    .help("Show repo changes panel")
+                    .accessibilityLabel("Show repo changes panel")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
                     PiAgentOpenTerminalToolbarButton(

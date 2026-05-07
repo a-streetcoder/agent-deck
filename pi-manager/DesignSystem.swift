@@ -7,18 +7,21 @@ enum AppTheme {
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
 
-    static let contentFill = Color.primary.opacity(0.035)
-    static let contentStroke = Color.primary.opacity(0.10)
-    static let contentSubtleFill = Color.primary.opacity(0.055)
+    static let windowBackground = Color(nsColor: .windowBackgroundColor)
+    static let contentFill = Color(nsColor: .controlBackgroundColor)
+    static let textContentFill = Color(nsColor: .textBackgroundColor)
+    static let contentStroke = Color(nsColor: .separatorColor).opacity(0.55)
+    static let contentSubtleFill = Color(nsColor: .controlColor).opacity(0.62)
+    static let panelFill = Color(nsColor: .windowBackgroundColor)
     static let selectionFill = Color.accentColor.opacity(0.12)
     static let selectionStroke = Color.accentColor.opacity(0.35)
     static let mutedText = Color.secondary
 
-    @available(*, deprecated, message: "Use contentFill, contentSubtleFill, or Liquid Glass surface helpers based on role.")
+    @available(*, deprecated, message: "Use semantic content, panel, or control surface helpers based on role.")
     static let cardFill = contentFill
     @available(*, deprecated, message: "Use contentStroke or selectionStroke based on role.")
     static let cardStroke = contentStroke
-    @available(*, deprecated, message: "Use contentSubtleFill or Liquid Glass surface helpers based on role.")
+    @available(*, deprecated, message: "Use contentSubtleFill or semantic surface helpers based on role.")
     static let subtleFill = contentSubtleFill
 }
 
@@ -31,14 +34,14 @@ struct AppContentSurface: ViewModifier {
         content
             .background(
                 shape
-                    .fill(.regularMaterial)
-                    .overlay(shape.fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill))
+                    .fill(AppTheme.contentFill)
+                    .overlay(shape.fill(isSelected ? AppTheme.selectionFill : Color.clear))
                     .overlay(shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
             )
     }
 }
 
-struct AppGlassPanelSurface: ViewModifier {
+struct AppPanelSurface: ViewModifier {
     var cornerRadius: CGFloat = 14
 
     func body(content: Content) -> some View {
@@ -46,13 +49,13 @@ struct AppGlassPanelSurface: ViewModifier {
         content
             .background(
                 shape
-                    .fill(.regularMaterial)
+                    .fill(AppTheme.panelFill)
                     .overlay(shape.stroke(AppTheme.contentStroke, lineWidth: 1))
             )
     }
 }
 
-struct AppGlassControlSurface: ViewModifier {
+struct AppControlSurface: ViewModifier {
     var cornerRadius: CGFloat = 12
 
     func body(content: Content) -> some View {
@@ -60,13 +63,13 @@ struct AppGlassControlSurface: ViewModifier {
         content
             .background(
                 shape
-                    .fill(.thinMaterial)
+                    .fill(AppTheme.contentSubtleFill)
                     .overlay(shape.stroke(AppTheme.contentStroke, lineWidth: 1))
             )
     }
 }
 
-struct AppGlassControlGroup<Content: View>: View {
+struct AppControlGroup<Content: View>: View {
     var spacing: CGFloat = AppTheme.contentSpacing
     @ViewBuilder let content: Content
 
@@ -87,12 +90,12 @@ extension View {
         modifier(AppContentSurface(cornerRadius: cornerRadius, isSelected: isSelected))
     }
 
-    func appGlassPanel(cornerRadius: CGFloat = 14) -> some View {
-        modifier(AppGlassPanelSurface(cornerRadius: cornerRadius))
+    func appPanelSurface(cornerRadius: CGFloat = 14) -> some View {
+        modifier(AppPanelSurface(cornerRadius: cornerRadius))
     }
 
-    func appGlassControl(cornerRadius: CGFloat = 12) -> some View {
-        modifier(AppGlassControlSurface(cornerRadius: cornerRadius))
+    func appControlSurface(cornerRadius: CGFloat = 12) -> some View {
+        modifier(AppControlSurface(cornerRadius: cornerRadius))
     }
 }
 
@@ -195,7 +198,7 @@ struct AppSidebarPane<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .appGlassPanel(cornerRadius: 0)
+        .appPanelSurface(cornerRadius: 0)
     }
 }
 

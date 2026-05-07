@@ -164,7 +164,7 @@ struct PiAgentComposerBox: View {
     }
 
     private var composerActionControls: some View {
-        AppGlassControlGroup(spacing: 6) {
+        AppControlGroup(spacing: 6) {
             Button(action: attachImagesFromOpenPanel) {
                 Image(systemName: "paperclip")
                     .font(.system(size: 14, weight: .semibold))
@@ -172,7 +172,7 @@ struct PiAgentComposerBox: View {
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
-            .appGlassControl(cornerRadius: 15)
+            .appControlSurface(cornerRadius: 15)
             .help("Attach images or UTF-8 text files")
             .accessibilityLabel("Attach files")
             .accessibilityHint("Attach images or UTF-8 text files")
@@ -186,7 +186,7 @@ struct PiAgentComposerBox: View {
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
-            .appGlassControl(cornerRadius: 15)
+            .appControlSurface(cornerRadius: 15)
             .help(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
             .accessibilityLabel("Native subagents")
             .accessibilityHint(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
@@ -1606,4 +1606,3 @@ struct PiAgentThinkingPicker: View {
         return levels.contains(normalizedLevel) ? normalizedLevel : "\(normalizedLevel) unavailable"
     }
 }
-

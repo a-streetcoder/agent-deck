@@ -466,7 +466,7 @@ struct PiAgentScreen: View {
                 }
             }
         }
-        .appGlassPanel(cornerRadius: 0)
+        .appPanelSurface(cornerRadius: 0)
     }
 
     private var activeSessionColumn: some View {
