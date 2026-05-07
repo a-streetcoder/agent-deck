@@ -147,10 +147,6 @@ struct PiNativeSubagentRunCard: View {
 
                 taskPreview
 
-                if let summaryText {
-                    answerPreview(summaryText)
-                }
-
                 if let children = run.children, !children.isEmpty {
                     childSummary(children)
                 }
@@ -249,53 +245,6 @@ struct PiNativeSubagentRunCard: View {
                 .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
         )
         .help(run.task)
-    }
-
-    @ViewBuilder
-    private func answerPreview(_ text: String) -> some View {
-        if run.status == .failed {
-            Text(text)
-                .font(.callout)
-                .lineLimit(4)
-                .truncationMode(.tail)
-                .foregroundStyle(.red)
-                .textSelection(.enabled)
-        } else if run.child?.currentTool != nil {
-            Label(text, systemImage: "hammer")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(AppTheme.mutedText)
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Answer", systemImage: "sparkles")
-                    .font(.caption.weight(.semibold))
-                    .fontWidth(.expanded)
-                    .foregroundStyle(.purple)
-
-                MarkdownTextView(source: text)
-                    .lineLimit(5)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.purple.opacity(0.06))
-                    .stroke(Color.purple.opacity(0.18), lineWidth: 1)
-            )
-        }
-    }
-
-    private var summaryText: String? {
-        if let currentTool = run.child?.currentTool {
-            return "Running tool: \(currentTool)"
-        }
-        if let error = run.error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return error
-        }
-        guard let summary = run.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty else { return nil }
-        return summary == "Completed without a text summary." ? nil : summary
     }
 
     private var detailRows: [(String, String)] {
@@ -630,9 +579,10 @@ struct PiNativeSubagentGraphSheet: View {
 struct PiNativeSubagentTranscriptSheet: View {
     let run: PiSubagentRunRecord
     let entries: [PiAgentTranscriptEntry]
+    let thinkingDisplayMode: PiAgentThinkingDisplayMode
+    let visibility: PiAgentTranscriptVisibilitySettings
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var showExecutionLog = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -652,46 +602,25 @@ struct PiNativeSubagentTranscriptSheet: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.mutedText)
-                TextField("Search task, answer, or execution log", text: $query)
+                TextField("Search transcript", text: $query)
                     .textFieldStyle(.roundedBorder)
             }
 
             Divider()
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    transcriptSection(title: "Task", systemImage: "person.crop.circle", color: .blue) {
-                        Text(run.task)
-                            .textSelection(.enabled)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if filteredTranscriptEntries.isEmpty {
+                        Text("No matching transcript entries.")
+                            .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    transcriptSection(title: "Answer", systemImage: "sparkles", color: .green) {
-                        if let answer = finalAnswer {
-                            Text(answer)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Text("No final answer was captured for this run. Older runs may have completed before final-answer capture was fixed.")
-                                .foregroundStyle(AppTheme.mutedText)
+                            .padding(14)
+                            .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    } else {
+                        ForEach(filteredTranscriptEntries) { entry in
+                            transcriptEntryView(entry)
+                                .id(entry.id)
                         }
-                    }
-
-                    DisclosureGroup(isExpanded: $showExecutionLog) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if filteredActivityEntries.isEmpty {
-                                Text("No matching execution events.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                            } else {
-                                ForEach(filteredActivityEntries) { entry in
-                                    executionRow(entry)
-                                }
-                            }
-                        }
-                        .padding(.top, 8)
-                    } label: {
-                        Label("Execution log", systemImage: "terminal")
-                            .font(.headline)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -701,80 +630,56 @@ struct PiNativeSubagentTranscriptSheet: View {
         .frame(width: 820, height: 620)
     }
 
-    private var finalAnswer: String? {
-        let summary = run.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let summary, !summary.isEmpty, summary != "Completed without a text summary." { return summary }
-        return entries.reversed().first { $0.role == .assistant && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?.text
-    }
-
-    private var filteredActivityEntries: [PiAgentTranscriptEntry] {
-        let activity = entries.filter { entry in
+    private var filteredTranscriptEntries: [PiAgentTranscriptEntry] {
+        let displayEntries = [taskEntry] + entries.filter { entry in
             switch entry.role {
-            case .tool, .status, .error, .stderr, .raw: return true
-            case .assistant: return entry.text != finalAnswer
-            case .user, .thinking: return false
+            case .tool:
+                return isWebActivity(entry) ? visibility.showWebActivity : visibility.showToolCalls
+            case .status, .raw:
+                return visibility.showToolCalls
+            case .error, .stderr: return visibility.showErrors
+            case .thinking: return visibility.showThinking
+            case .assistant: return true
+            case .user: return false
             }
         }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return activity }
-        return activity.filter { "\($0.title)\n\($0.text)".lowercased().contains(needle) }
+        guard !needle.isEmpty else { return displayEntries }
+        return displayEntries.filter { "\($0.title)\n\($0.text)".lowercased().contains(needle) }
     }
 
-    private func transcriptSection<Content: View>(title: String, systemImage: String, color: Color, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-                .foregroundStyle(color)
-            content()
-        }
-        .padding(14)
-        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    private var taskEntry: PiAgentTranscriptEntry {
+        PiAgentTranscriptEntry(
+            id: run.id,
+            sessionID: run.parentSessionID,
+            role: .user,
+            title: "Task",
+            text: run.task,
+            timestamp: run.createdAt
+        )
     }
 
-    private func executionRow(_ entry: PiAgentTranscriptEntry) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                AppLabelTag(text: label(for: entry.role), color: color(for: entry.role))
-                Text(entry.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                Spacer(minLength: 0)
-                Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-            if !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(entry.text)
-                    .font(.caption)
-                    .textSelection(.enabled)
-                    .lineLimit(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(10)
-        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func label(for role: PiAgentTranscriptRole) -> String {
-        switch role {
-        case .assistant: return "answer"
-        case .tool: return "tool"
-        case .status: return "status"
-        case .error: return "error"
-        case .stderr: return "stderr"
-        case .raw: return "raw"
-        case .user: return "task"
-        case .thinking: return "thinking"
+    private func isWebActivity(_ entry: PiAgentTranscriptEntry) -> Bool {
+        let name = entry.title.hasPrefix("Tool: ")
+            ? entry.title.replacingOccurrences(of: "Tool: ", with: "")
+            : entry.title
+        switch name.lowercased() {
+        case "web_search", "fetch_content", "get_search_content", "code_search":
+            return true
+        default:
+            return false
         }
     }
 
-    private func color(for role: PiAgentTranscriptRole) -> Color {
-        switch role {
-        case .assistant: return .green
-        case .tool: return .purple
-        case .status: return .blue
-        case .error, .stderr: return .red
-        case .raw, .thinking, .user: return AppTheme.mutedText
+    @ViewBuilder
+    private func transcriptEntryView(_ entry: PiAgentTranscriptEntry) -> some View {
+        switch entry.role {
+        case .status, .stderr, .raw, .error:
+            PiAgentStatusTranscriptRow(entry: entry)
+        case .user:
+            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: .question)
+        default:
+            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: .threadChild)
         }
     }
 

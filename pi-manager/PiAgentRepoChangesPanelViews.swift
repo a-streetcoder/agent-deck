@@ -49,15 +49,15 @@ struct PiAgentRepoChangesPanel: View {
 
     @ViewBuilder
     private var repositoryState: some View {
-        if viewModel.githubIsLoadingRepositoryChanges {
-            ProgressView("Loading repository changes…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let snapshot {
+        if let snapshot {
             if snapshot.totalChangeCount == 0 {
                 cleanRepositoryState(snapshot)
             } else {
                 changesContent(snapshot)
             }
+        } else if viewModel.githubIsLoadingRepositoryChanges {
+            ProgressView("Loading repository changes…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView("No repository data", systemImage: "arrow.triangle.branch", description: Text("Refresh to inspect changes for this Pi Agent session."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -87,6 +87,13 @@ struct PiAgentRepoChangesPanel: View {
             }
             Spacer(minLength: 12)
             HStack(spacing: 6) {
+                if viewModel.githubIsLoadingRepositoryChanges, snapshot != nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 28, height: 28)
+                        .help("Refreshing changes")
+                }
+
                 Button {
                     viewModel.prepareRepoChangesForSelectedPiAgentSession()
                 } label: {
@@ -319,4 +326,3 @@ private struct PiAgentGitChangeRow: View {
         .help(item.isIncluded ? "Exclude from commit" : "Include in commit")
     }
 }
-

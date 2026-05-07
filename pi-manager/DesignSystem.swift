@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum AppTheme {
@@ -81,6 +82,74 @@ struct AppControlGroup<Content: View>: View {
     var body: some View {
         HStack(spacing: spacing) {
             content
+        }
+    }
+}
+
+struct AppCopyIconButton: View {
+    var text: String
+    var help: String = "Copy"
+    var size = CGSize(width: 28, height: 22)
+    var usesMaterialBackground = false
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            showCopiedFeedback()
+        } label: {
+            ZStack {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(copied ? Color.green : Color.primary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityLabel(copied ? "Copied" : "Copy")
+            }
+            .frame(width: size.width, height: size.height)
+            .background {
+                if usesMaterialBackground {
+                    Capsule(style: .continuous)
+                        .fill(.regularMaterial)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(copied ? "Copied" : help)
+    }
+
+    private func showCopiedFeedback() {
+        copied = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1100))
+            copied = false
+        }
+    }
+}
+
+struct AppCopyTextButton: View {
+    var title = "Copy"
+    var text: String
+    var help: String? = nil
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            showCopiedFeedback()
+        } label: {
+            Label(copied ? "Copied" : title, systemImage: copied ? "checkmark" : "doc.on.doc")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .help(copied ? "Copied" : (help ?? title))
+    }
+
+    private func showCopiedFeedback() {
+        copied = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1100))
+            copied = false
         }
     }
 }

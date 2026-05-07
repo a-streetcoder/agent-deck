@@ -205,7 +205,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         case .assistant:
             return isMeaningfulAssistantEntry(entry)
         case .status:
-            return entry.title == "Compaction" || entry.title == "Retry"
+            return entry.title == "Compaction" || entry.title == "Retry" || entry.title == "Subagent Started"
         case .tool:
             return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
         case .stderr:
@@ -292,7 +292,12 @@ struct PiAgentScreen: View {
         }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
         .sheet(item: selectedSubagentTranscriptBinding) { run in
-            PiNativeSubagentTranscriptSheet(run: run, entries: store.subagentTranscript(for: run.id))
+            PiNativeSubagentTranscriptSheet(
+                run: run,
+                entries: store.subagentTranscript(for: run.id),
+                thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
+                visibility: viewModel.appSettings.piAgentTranscriptVisibility
+            )
         }
         .sheet(item: selectedSubagentGraphBinding) { run in
             PiNativeSubagentGraphSheet(
@@ -537,7 +542,7 @@ struct PiAgentScreen: View {
                         if let finalSystemPrompt = session.finalSystemPrompt {
                             PiAgentSystemPromptAuditCard(
                                 title: "Final System Prompt",
-                                subtitle: session.finalSystemPromptCapturedAt.map { "Captured \($0.formatted(date: .omitted, time: .shortened))" } ?? "Captured from Pi runtime",
+                                subtitle: "",
                                 prompt: finalSystemPrompt
                             )
                         }
@@ -571,24 +576,15 @@ struct PiAgentScreen: View {
                                 thread: thread,
                                 thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
                                 visibility: viewModel.appSettings.piAgentTranscriptVisibility,
-                                skills: visibleSkillsForSelectedSession
+                                skills: visibleSkillsForSelectedSession,
+                                nativeSubagentRunsByID: nativeSubagentRunsByID,
+                                nativeSubagentCard: nativeSubagentCard
                             )
                             .id(thread.id)
                         }
                         if let processingMessage = selectedSessionProcessingMessage {
                             PiAgentProcessingIndicatorCard(message: processingMessage)
                                 .id("pi-agent-processing")
-                        }
-                        if let session = store.selectedSession {
-                            ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
-                                PiNativeSubagentRunCard(
-                                    run: run,
-                                    onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
-                                    onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
-                                    onReveal: { revealSubagentRun(run) },
-                                    onOpenGraph: { selectedSubagentGraphRunID = run.id }
-                                )
-                            }
                         }
                     }
 
@@ -820,6 +816,21 @@ struct PiAgentScreen: View {
         return Dictionary(uniqueKeysWithValues: snapshot.effectiveAgents.map { agent in
             (agent.name, PiNativeSubagentRunSheet.AgentInfo(agent: agent))
         })
+    }
+
+    private var nativeSubagentRunsByID: [UUID: PiSubagentRunRecord] {
+        guard let session = store.selectedSession else { return [:] }
+        return Dictionary(uniqueKeysWithValues: store.subagentRuns(for: session.id).map { ($0.id, $0) })
+    }
+
+    private func nativeSubagentCard(for run: PiSubagentRunRecord) -> PiNativeSubagentRunCard {
+        PiNativeSubagentRunCard(
+            run: run,
+            onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: run.parentSessionID) },
+            onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
+            onReveal: { revealSubagentRun(run) },
+            onOpenGraph: { selectedSubagentGraphRunID = run.id }
+        )
     }
 
     private var selectedSubagentTranscriptBinding: Binding<PiSubagentRunRecord?> {

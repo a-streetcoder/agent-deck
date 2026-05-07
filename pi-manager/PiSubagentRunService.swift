@@ -5,8 +5,13 @@ final class PiSubagentRunService {
     private let store: PiAgentSessionStore
     private var clientsByRunID: [UUID: PiRPCClient] = [:]
     private var finalTextByRunID: [UUID: String] = [:]
+    private var assistantEntryIDsByRunID: [UUID: UUID] = [:]
+    private var assistantTextByRunID: [UUID: String] = [:]
+    private var thinkingEntryIDsByRunID: [UUID: UUID] = [:]
+    private var thinkingTextByRunID: [UUID: String] = [:]
     private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
     private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
+    private var streamFlushTasksByRunID: [UUID: Task<Void, Never>] = [:]
     private let fileManager = FileManager.default
 
     init(store: PiAgentSessionStore) {
@@ -242,6 +247,7 @@ final class PiSubagentRunService {
     func stop(runID: UUID, parentSessionID: UUID) {
         guard let client = clientsByRunID.removeValue(forKey: runID) else { return }
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        clearStreamingState(for: runID)
         client.stop()
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             let completedAt = Date()
@@ -288,6 +294,8 @@ final class PiSubagentRunService {
                 run.child?.currentTool = event.type == "tool_execution_end" ? nil : toolName
                 run.child?.updatedAt = Date()
             }
+        case "message_update":
+            handleMessageUpdate(event, runID: runID, parentSessionID: parentSessionID)
         case "message_end":
             handleMessageEnd(event, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
         case "extension_ui_request":
@@ -301,6 +309,71 @@ final class PiSubagentRunService {
                 store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .raw, title: type, text: event.data?.compactDescription ?? rawLine, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             }
         }
+    }
+
+    private func handleMessageUpdate(_ event: PiAgentRPCEvent, runID: UUID, parentSessionID: UUID) {
+        guard let assistantEvent = event.assistantMessageEvent else { return }
+        let deltaType = assistantEvent["type"]?.stringValue ?? "update"
+        guard deltaType == "text_delta" || deltaType == "thinking_delta" else { return }
+        let delta = assistantEvent["delta"]?.stringValue ?? ""
+        guard !delta.isEmpty else { return }
+        if deltaType == "thinking_delta" {
+            let entryID = thinkingEntryIDsByRunID[runID] ?? UUID()
+            thinkingEntryIDsByRunID[runID] = entryID
+            thinkingTextByRunID[runID, default: ""] += delta
+        } else {
+            let entryID = assistantEntryIDsByRunID[runID] ?? UUID()
+            assistantEntryIDsByRunID[runID] = entryID
+            assistantTextByRunID[runID, default: ""] += delta
+        }
+        scheduleStreamingFlush(runID: runID, parentSessionID: parentSessionID)
+    }
+
+    private func scheduleStreamingFlush(runID: UUID, parentSessionID: UUID) {
+        guard streamFlushTasksByRunID[runID] == nil else { return }
+        streamFlushTasksByRunID[runID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 33_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.streamFlushTasksByRunID[runID] = nil
+                self?.flushStreamingEntries(runID: runID, parentSessionID: parentSessionID)
+            }
+        }
+    }
+
+    private func flushStreamingEntries(runID: UUID, parentSessionID: UUID) {
+        if let thinkingEntryID = thinkingEntryIDsByRunID[runID],
+           let thinkingText = thinkingTextByRunID[runID],
+           !thinkingText.isEmpty {
+            store.upsertSubagentTranscript(.init(
+                id: thinkingEntryID,
+                sessionID: parentSessionID,
+                role: .thinking,
+                title: "Thinking",
+                text: thinkingText,
+                rawJSON: nil
+            ), runID: runID, parentSessionID: parentSessionID, before: assistantEntryIDsByRunID[runID])
+        }
+
+        if let assistantEntryID = assistantEntryIDsByRunID[runID],
+           let assistantText = assistantTextByRunID[runID] {
+            store.upsertSubagentTranscript(.init(
+                id: assistantEntryID,
+                sessionID: parentSessionID,
+                role: .assistant,
+                title: "Assistant",
+                text: assistantText,
+                rawJSON: nil
+            ), runID: runID, parentSessionID: parentSessionID)
+        }
+    }
+
+    private func clearStreamingState(for runID: UUID) {
+        streamFlushTasksByRunID.removeValue(forKey: runID)?.cancel()
+        assistantEntryIDsByRunID[runID] = nil
+        assistantTextByRunID[runID] = nil
+        thinkingEntryIDsByRunID[runID] = nil
+        thinkingTextByRunID[runID] = nil
     }
 
     private func resolvedModelName(from data: JSONValue) -> String? {
@@ -334,6 +407,7 @@ final class PiSubagentRunService {
     private func handleTermination(exitCode: Int32, runID: UUID, parentSessionID: UUID) {
         clientsByRunID[runID] = nil
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        clearStreamingState(for: runID)
         if exitCode == 0 {
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
         } else {
@@ -365,24 +439,44 @@ final class PiSubagentRunService {
         guard let message = event.message else { return }
         let role = message["role"]?.stringValue ?? "assistant"
         let text = role == "assistant" ? extractAssistantText(from: message) : extractText(from: message)
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if role == "assistant" {
+            streamFlushTasksByRunID[runID]?.cancel()
+            streamFlushTasksByRunID[runID] = nil
+            let assistantEntryID = assistantEntryIDsByRunID[runID] ?? UUID()
+            let thinkingEntryID = thinkingEntryIDsByRunID[runID] ?? UUID()
+            let thinkingBeforeID = assistantEntryIDsByRunID[runID]
+            assistantEntryIDsByRunID[runID] = nil
+            assistantTextByRunID[runID] = nil
+            thinkingEntryIDsByRunID[runID] = nil
+            thinkingTextByRunID[runID] = nil
+
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                store.upsertSubagentTranscript(.init(id: assistantEntryID, sessionID: parentSessionID, role: .assistant, title: "Assistant", text: text, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+            } else {
+                let thinkingText = extractAssistantThinking(from: message)
+                if !thinkingText.isEmpty {
+                    store.upsertSubagentTranscript(.init(id: thinkingEntryID, sessionID: parentSessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID, before: thinkingBeforeID)
+                }
+            }
+        } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let transcriptRole = PiAgentTranscriptRole(rawValue: role) ?? .raw
             store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: transcriptRole, title: role.capitalized, text: text, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
         }
         guard role == "assistant" else { return }
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        finalTextByRunID[runID] = text
-        store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
-            run.summary = text
-            run.child?.summary = text
-            if let usage = message["usage"] {
-                run.child?.inputTokens = usage["input"]?.numberValue.map(Int.init)
-                run.child?.outputTokens = usage["output"]?.numberValue.map(Int.init)
-                run.child?.totalTokens = usage["totalTokens"]?.numberValue.map(Int.init) ?? usage["total"]?.numberValue.map(Int.init)
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            finalTextByRunID[runID] = text
+            store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+                run.summary = text
+                run.child?.summary = text
+                if let usage = message["usage"] {
+                    run.child?.inputTokens = usage["input"]?.numberValue.map(Int.init)
+                    run.child?.outputTokens = usage["output"]?.numberValue.map(Int.init)
+                    run.child?.totalTokens = usage["totalTokens"]?.numberValue.map(Int.init) ?? usage["total"]?.numberValue.map(Int.init)
+                }
             }
-        }
-        if let outputURL = outputURL(for: runID, parentSessionID: parentSessionID) {
-            try? text.write(to: outputURL, atomically: true, encoding: .utf8)
+            if let outputURL = outputURL(for: runID, parentSessionID: parentSessionID) {
+                try? text.write(to: outputURL, atomically: true, encoding: .utf8)
+            }
         }
     }
 
@@ -414,6 +508,7 @@ final class PiSubagentRunService {
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clientsByRunID[runID]?.stop()
         clientsByRunID[runID] = nil
+        clearStreamingState(for: runID)
         if shouldAppend {
             if finalSummary.count > 1200 {
                 finalSummary = String(finalSummary.prefix(1200)) + "…"
@@ -958,6 +1053,15 @@ final class PiSubagentRunService {
             }
         }
         return message["output"]?.stringValue ?? ""
+    }
+
+    private func extractAssistantThinking(from message: JSONValue) -> String {
+        guard let content = message["content"] else { return "" }
+        guard case let .array(blocks) = content else { return "" }
+        return blocks.compactMap { block in
+            guard block["type"]?.stringValue == "thinking" else { return nil }
+            return block["thinking"]?.stringValue
+        }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
     }
 }
 

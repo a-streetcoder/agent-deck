@@ -57,9 +57,9 @@ struct EnvironmentScreen: View {
                                             toggleReveal(for: row.key)
                                         }
                                         Menu("Actions") {
-                                            Button("Copy Key") { copyToPasteboard(row.winningRecord.key) }
-                                            Button("Copy Value") { copyToPasteboard(row.winningRecord.value ?? "") }
-                                            Button("Copy Line") { copyToPasteboard("\(row.winningRecord.key)=\(row.winningRecord.value ?? "")") }
+                                            AppCopyTextButton(title: "Copy Key", text: row.winningRecord.key)
+                                            AppCopyTextButton(title: "Copy Value", text: row.winningRecord.value ?? "")
+                                            AppCopyTextButton(title: "Copy Line", text: "\(row.winningRecord.key)=\(row.winningRecord.value ?? "")")
                                             Divider()
                                             Button("Edit Key") { onEditKey(row.winningRecord) }
                                         }
@@ -713,9 +713,7 @@ struct DiagnosticsScreen: View {
                                 .padding(.vertical, 6)
                                 .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
 
-                            Button("Copy") {
-                                copyToPasteboard(pkg.installCommand)
-                            }
+                            AppCopyTextButton(text: pkg.installCommand)
                             .controlSize(.small)
                         }
                     }
@@ -964,11 +962,6 @@ private func resolutionUsageLabel(_ agent: EffectiveAgentRecord) -> String {
         scope = agent.resolutionKind.rawValue
     }
     return "\(scope) · \(agent.resolutionKind.rawValue)"
-}
-
-private func copyToPasteboard(_ value: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(value, forType: .string)
 }
 
 private func openFile(_ path: String) {

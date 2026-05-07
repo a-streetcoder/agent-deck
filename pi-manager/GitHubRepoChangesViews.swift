@@ -24,10 +24,10 @@ struct GitHubRepoChangesPlaceholder: View {
                     if !project.isGitRepository {
                         Text("The selected project is not a git repository, so local git changes are unavailable here.")
                             .foregroundStyle(AppTheme.mutedText)
-                    } else if viewModel.githubIsLoadingRepositoryChanges {
-                        ProgressView("Loading repository changes…")
                     } else if let snapshot = viewModel.githubRepositoryChanges {
                         GitHubDesktopChangesView(snapshot: snapshot, filterText: $filterText, viewModel: viewModel)
+                    } else if viewModel.githubIsLoadingRepositoryChanges {
+                        ProgressView("Loading repository changes…")
                     } else {
                         Text("Press Refresh to load local git status for this repository.")
                             .foregroundStyle(AppTheme.mutedText)
@@ -53,8 +53,15 @@ struct GitHubRepoChangesPlaceholder: View {
             Spacer()
 
             if project.isGitRepository {
-                Button("Refresh") {
-                    viewModel.refreshRepositoryChanges()
+                HStack(spacing: 8) {
+                    if viewModel.githubIsLoadingRepositoryChanges, viewModel.githubRepositoryChanges != nil {
+                        ProgressView()
+                            .controlSize(.small)
+                            .help("Refreshing changes")
+                    }
+                    Button("Refresh") {
+                        viewModel.refreshRepositoryChanges()
+                    }
                 }
             }
         }
@@ -427,4 +434,3 @@ private struct GitDiffLineView: View {
         return Color.clear
     }
 }
-

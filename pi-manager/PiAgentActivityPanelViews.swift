@@ -656,6 +656,8 @@ private struct PiAgentActivityDetail: View {
                 PiAgentCodePreview(title: "Output", text: item.detailText, maxHeight: 180, lineLimit: 32)
             case .web:
                 PiAgentWebActivitySnippet(entry: item.entry)
+            case .subagent:
+                quietNote("Native subagent details are shown in the inline subagent card. Open Transcript there for the full child run.")
             default:
                 quietNote(item.detailText)
             }
@@ -679,7 +681,7 @@ private struct PiAgentActivityDetail: View {
                 .buttonStyle(.plain)
                 .disabled(resolvedURL(for: path) == nil)
             if let diff = item.diff {
-                Button("Copy Diff") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(diff, forType: .string) }
+                AppCopyTextButton(title: "Copy Diff", text: diff)
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.plain)
             }

@@ -430,8 +430,8 @@ struct ContentView: View {
                         Menu {
                             Button("Open Raw File") { openPromptFile(prompt.filePath) }
                             Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
-                            Button("Copy Invocation") { copyCommandValue(prompt.invocation) }
-                            Button("Copy Prompt Path") { copyCommandValue(prompt.filePath) }
+                            AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
+                            AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
                         } label: {
                             Label("More", systemImage: "ellipsis.circle")
                         }
@@ -443,12 +443,11 @@ struct ContentView: View {
             if viewModel.selectedSidebarItem == .commands {
                 ToolbarItemGroup {
                     if let command = viewModel.selectedCommand {
-                        Button {
-                            copyCommandValue(command.invocation)
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                        }
-                        .help("Copy command invocation")
+                        AppCopyTextButton(
+                            title: "Copy",
+                            text: command.invocation,
+                            help: "Copy command invocation"
+                        )
                     }
                 }
             }

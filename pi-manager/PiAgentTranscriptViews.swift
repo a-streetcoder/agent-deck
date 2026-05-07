@@ -410,6 +410,8 @@ struct PiAgentTranscriptThreadCard: View {
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
     let visibility: PiAgentTranscriptVisibilitySettings
     let skills: [SkillRecord]
+    let nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
+    let nativeSubagentCard: (PiSubagentRunRecord) -> PiNativeSubagentRunCard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -435,10 +437,6 @@ struct PiAgentTranscriptThreadCard: View {
                             PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: effectiveThinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(thinking.id)
                         }
-                        ForEach(thread.assistantMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
-                                .id(entry.id)
-                        }
                         if visibility.showWebActivity && !webActivities.isEmpty {
                             PiAgentWebActivitySummaryView(activities: webActivities)
                         }
@@ -446,7 +444,16 @@ struct PiAgentTranscriptThreadCard: View {
                             PiAgentActivitySummaryView(activities: toolActivities)
                         }
                         ForEach(thread.statuses) { entry in
-                            PiAgentStatusTranscriptRow(entry: entry)
+                            if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
+                                nativeSubagentCard(run)
+                                    .id(entry.id)
+                            } else {
+                                PiAgentStatusTranscriptRow(entry: entry)
+                                    .id(entry.id)
+                            }
+                        }
+                        ForEach(thread.assistantMessages) { entry in
+                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(entry.id)
                         }
                         if visibility.showErrors {
@@ -862,15 +869,11 @@ struct PiAgentStatusTranscriptRow: View {
                 .font(.caption2)
                 .foregroundStyle(AppTheme.mutedText)
             if isCopyableToolError {
-                Button {
-                    copyToPasteboard(errorClipboardText)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.caption.weight(.semibold))
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.borderless)
-                .help("Copy tool error")
+                AppCopyIconButton(
+                    text: errorClipboardText,
+                    help: "Copy tool error",
+                    size: CGSize(width: 22, height: 22)
+                )
             }
             ForEach(promptActions) { action in
                 Button {
@@ -903,11 +906,6 @@ struct PiAgentStatusTranscriptRow: View {
     private var errorClipboardText: String {
         let toolName = entry.title.replacingOccurrences(of: "Tool: ", with: "")
         return "Tool failed: \(toolName)\n\n\(entry.text)"
-    }
-
-    private func copyToPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var detail: String {
@@ -1033,8 +1031,10 @@ struct PiAgentSystemPromptAuditCard: View {
                     Text(title)
                         .font(.headline)
                     HStack(spacing: 6) {
-                        Text(subtitle)
-                        Text("·")
+                        if !subtitle.isEmpty {
+                            Text(subtitle)
+                            Text("·")
+                        }
                         Image(systemName: "tugriksign.circle")
                             .font(.caption2.weight(.semibold))
                         Text("~\(formatPromptTokens(estimatedPromptTokens(prompt)))")
@@ -1056,6 +1056,18 @@ struct PiAgentSystemPromptAuditCard: View {
                 }
             }
         }
+    }
+}
+
+private extension PiAgentTranscriptEntry {
+    var nativeSubagentRunID: UUID? {
+        guard title == "Subagent Started",
+              let rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "pi_manager_subagent_started",
+              let runID = object["runID"] as? String else { return nil }
+        return UUID(uuidString: runID)
     }
 }
 
@@ -1086,15 +1098,11 @@ struct PiAgentPromptAuditPopover: View {
                 Text(title)
                     .font(.headline)
                 Spacer(minLength: 0)
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.borderless)
-                .help("Copy prompt")
+                AppCopyIconButton(
+                    text: text,
+                    help: "Copy prompt",
+                    size: CGSize(width: 26, height: 26)
+                )
             }
 
             ScrollView {
@@ -1137,24 +1145,23 @@ struct PiAgentTranscriptCard: View {
                     .fontWidth(.expanded)
                     .foregroundStyle(headerColor)
                 Spacer(minLength: 8)
-                if isHovering {
-                    Button {
-                        copyToPasteboard(copyText)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption.weight(.semibold))
-                            .frame(width: 28, height: 22)
-                            .background(.regularMaterial, in: Capsule(style: .continuous))
+                ZStack {
+                    if isHovering {
+                        AppCopyIconButton(
+                            text: copyText,
+                            help: "Copy message",
+                            size: CGSize(width: 44, height: 22),
+                            usesMaterialBackground: true
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    } else {
+                        Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .transition(.opacity)
                     }
-                    .buttonStyle(.plain)
-                    .help("Copy message")
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                } else {
-                    Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .transition(.opacity)
                 }
+                .frame(width: 44, height: 22)
             }
 
             content
@@ -1342,10 +1349,6 @@ struct PiAgentTranscriptCard: View {
         entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func copyToPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
 }
 
 struct PiAgentToolTranscriptView: View {

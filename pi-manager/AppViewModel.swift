@@ -40,6 +40,12 @@ private final class NativeParallelGraphScheduler {
     }
 }
 
+private struct GitDiffCacheKey: Hashable {
+    let projectPath: String
+    let filePath: String
+    let kind: GitDiffKind
+}
+
 @MainActor
 final class AppViewModel: NSObject, ObservableObject {
     let windowID = UUID()
@@ -115,7 +121,9 @@ final class AppViewModel: NSObject, ObservableObject {
     private var isRefreshingModels = false
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
+    private var githubDiffRequestID = 0
     private var githubIssueDetailRequestID = 0
+    private var githubDiffCache: [GitDiffCacheKey: String] = [:]
     private var nativeParallelSchedulersByID: [UUID: NativeParallelGraphScheduler] = [:]
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
     private let lastExternalSkillsDirectoryDefaultsKey = "lastExternalSkillsDirectoryPath"
@@ -680,6 +688,7 @@ final class AppViewModel: NSObject, ObservableObject {
         githubProjectBoardFetchedAt = nil
         githubRepositoryChanges = nil
         githubSelectedChangePaths = []
+        githubDiffCache.removeAll()
         githubSelectedDiffFilePath = nil
         githubSelectedDiffKind = nil
         githubSelectedDiffText = nil
@@ -859,19 +868,38 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func loadDiff(for filePath: String, kind: GitDiffKind) {
         guard let project = selectedDiscoveredProject else { return }
+        let cacheKey = GitDiffCacheKey(projectPath: project.path, filePath: filePath, kind: kind)
+        if githubSelectedDiffFilePath == filePath,
+           githubSelectedDiffKind == kind,
+           githubSelectedDiffText != nil {
+            return
+        }
+
+        githubDiffRequestID += 1
+        let requestID = githubDiffRequestID
         githubSelectedDiffFilePath = filePath
         githubSelectedDiffKind = kind
-        githubSelectedDiffText = nil
+        githubSelectedDiffText = githubDiffCache[cacheKey]
         githubLastError = nil
 
         Task {
             do {
                 let diff = try await self.gitRepositoryService.loadDiff(for: filePath, kind: kind, in: project.url)
                 await MainActor.run {
-                    self.githubSelectedDiffText = diff.isEmpty ? "No \(kind.rawValue.lowercased()) diff for this file." : diff
+                    guard self.githubDiffRequestID == requestID,
+                          self.selectedDiscoveredProject?.path == project.path,
+                          self.githubSelectedDiffFilePath == filePath,
+                          self.githubSelectedDiffKind == kind else { return }
+                    let displayText = diff.isEmpty ? "No \(kind.rawValue.lowercased()) diff for this file." : diff
+                    self.githubDiffCache[cacheKey] = displayText
+                    self.githubSelectedDiffText = displayText
                 }
             } catch {
                 await MainActor.run {
+                    guard self.githubDiffRequestID == requestID,
+                          self.selectedDiscoveredProject?.path == project.path,
+                          self.githubSelectedDiffFilePath == filePath,
+                          self.githubSelectedDiffKind == kind else { return }
                     self.githubSelectedDiffText = nil
                     self.githubLastError = error.localizedDescription
                 }
@@ -887,6 +915,7 @@ final class AppViewModel: NSObject, ObservableObject {
             do {
                 try await self.gitRepositoryService.stage(filePath, in: project.url)
                 await MainActor.run {
+                    self.invalidateDiffCache(projectPath: project.path, filePath: filePath)
                     self.refreshRepositoryChanges(preservingDiffSelection: true)
                     self.loadDiff(for: filePath, kind: .staged)
                 }
@@ -906,6 +935,7 @@ final class AppViewModel: NSObject, ObservableObject {
             do {
                 try await self.gitRepositoryService.unstage(filePath, in: project.url)
                 await MainActor.run {
+                    self.invalidateDiffCache(projectPath: project.path, filePath: filePath)
                     self.refreshRepositoryChanges(preservingDiffSelection: true)
                     self.loadDiff(for: filePath, kind: .unstaged)
                 }
@@ -977,7 +1007,10 @@ final class AppViewModel: NSObject, ObservableObject {
         Task {
             do {
                 try await self.gitRepositoryService.stageAll(in: project.url)
-                await MainActor.run { self.refreshRepositoryChanges() }
+                await MainActor.run {
+                    self.invalidateDiffCache(projectPath: project.path)
+                    self.refreshRepositoryChanges(preservingDiffSelection: true)
+                }
             } catch {
                 await MainActor.run { self.githubLastError = error.localizedDescription }
             }
@@ -991,10 +1024,21 @@ final class AppViewModel: NSObject, ObservableObject {
         Task {
             do {
                 try await self.gitRepositoryService.unstageAll(in: project.url)
-                await MainActor.run { self.refreshRepositoryChanges() }
+                await MainActor.run {
+                    self.invalidateDiffCache(projectPath: project.path)
+                    self.refreshRepositoryChanges(preservingDiffSelection: true)
+                }
             } catch {
                 await MainActor.run { self.githubLastError = error.localizedDescription }
             }
+        }
+    }
+
+    private func invalidateDiffCache(projectPath: String, filePath: String? = nil) {
+        githubDiffCache = githubDiffCache.filter { entry in
+            guard entry.key.projectPath == projectPath else { return true }
+            guard let filePath else { return false }
+            return entry.key.filePath != filePath
         }
     }
 
