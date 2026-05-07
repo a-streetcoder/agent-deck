@@ -37,6 +37,34 @@ private struct PiAgentOpenTerminalToolbarButton: View {
     }
 }
 
+private struct SidebarNavigationRow: View {
+    let item: SidebarItem
+
+    var body: some View {
+        HStack(spacing: 8) {
+            icon
+            Text(item.rawValue)
+        }
+        .fontWidth(.expanded)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        if item == .github {
+            Image("github")
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 16, height: 16)
+                .foregroundStyle(.secondary)
+        } else {
+            Image(systemName: item.systemImage)
+                .frame(width: 16, height: 16)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @EnvironmentObject private var viewModel: AppViewModel
@@ -98,23 +126,7 @@ struct ContentView: View {
                     ForEach(SidebarSection.allCases) { section in
                         Section(section.rawValue) {
                             ForEach(section.items) { item in
-                                HStack(spacing: 8) {
-                                    if item == .github {
-                                        Image("github")
-                                            .resizable()
-                                            .renderingMode(.template)
-                                            .aspectRatio(contentMode: .fit)
-                                            .frame(width: 16, height: 16)
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Image(systemName: item.systemImage)
-                                            .frame(width: 16, height: 16)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Text(item.rawValue)
-                                }
-                                .fontWidth(.expanded)
+                                SidebarNavigationRow(item: item)
                                 .tag(item)
                             }
                         }
@@ -167,9 +179,7 @@ struct ContentView: View {
         .toolbar(removing: .title)
         .focusedSceneValue(\.piManagerCommands, commandContext)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
-            if newValue == .agent {
-                viewModel.acknowledgeVisibleSelectedPiAgentSession()
-            }
+            handleSidebarSelectionChange(newValue)
         }
         .alert("Enable all projects?", isPresented: $showingEnableAllProjectsAlert) {
             Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
@@ -489,7 +499,7 @@ struct ContentView: View {
                 }
             }
 
-            if viewModel.selectedSidebarItem == .extensionCommands {
+            if viewModel.selectedSidebarItem == .commands {
                 ToolbarItemGroup {
                     if let command = viewModel.selectedCommand {
                         Button {
@@ -919,6 +929,12 @@ struct ContentView: View {
             PiDocsScreen()
         case .credits:
             CreditsScreen()
+        }
+    }
+
+    private func handleSidebarSelectionChange(_ newValue: SidebarItem) {
+        if newValue == .agent {
+            viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
     }
 
