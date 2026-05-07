@@ -1,0 +1,1 @@
+{"kind":"managed_subagent","agent":"scout","task":"Map the repo and report findings.","context":"fresh","reads":["README.md","pi-manager/AppViewModel.swift"]}

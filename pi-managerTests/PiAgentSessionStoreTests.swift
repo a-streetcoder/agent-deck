@@ -1,0 +1,112 @@
+import XCTest
+@testable import pi_manager
+
+@MainActor
+final class PiAgentSessionStoreTests: XCTestCase {
+    func testSessionPlanSetAndUpdateAreStableInPlace() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Smoke", project: try PiTestSupport.makeProject(), repository: nil)
+
+        let plan = store.setSessionPlan(sessionID: session.id, items: [
+            .init(id: "inspect", title: "Inspect smoke", status: .inProgress),
+            .init(id: "delegate", title: "Run native subagent smoke", status: .todo),
+            .init(id: "finish", title: "Summarize result", status: .todo)
+        ])
+
+        XCTAssertEqual(plan.items.map(\.id), ["inspect", "delegate", "finish"])
+        XCTAssertEqual(plan.items.map(\.status), [.inProgress, .todo, .todo])
+
+        let updated = store.updateSessionPlan(sessionID: session.id, updates: [
+            .init(id: "inspect", title: nil, status: .done),
+            .init(id: "delegate", title: nil, status: .inProgress)
+        ])
+
+        XCTAssertEqual(updated?.items.map(\.id), ["inspect", "delegate", "finish"])
+        XCTAssertEqual(updated?.items.map(\.status), [.done, .inProgress, .todo])
+        XCTAssertEqual(store.sessionPlan(for: session.id)?.items.count, 3)
+    }
+
+    func testCreatedSessionSelectionPersistsAcrossReload() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+
+        XCTAssertEqual(reloadedStore.selectedSessionID, session.id)
+        XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
+    }
+
+    func testReloadWithNilPersistedSelectionSelectsFirstSession() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.flushForTesting()
+        try rewritePersistedSelection(in: fileURL, selectedSessionID: NSNull())
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+
+        XCTAssertEqual(reloadedStore.selectedSessionID, session.id)
+        XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
+    }
+
+    func testReloadWithInvalidPersistedSelectionSelectsFirstSession() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Selected", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.flushForTesting()
+        try rewritePersistedSelection(in: fileURL, selectedSessionID: UUID().uuidString)
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+
+        XCTAssertEqual(reloadedStore.selectedSessionID, session.id)
+        XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
+    }
+
+    func testSupervisorRequestAnswerAndCancelStateTransitions() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Supervisor", project: try PiTestSupport.makeProject(), repository: nil)
+        let runID = UUID()
+        let request = PiSubagentSupervisorRequest(
+            id: "request-1",
+            bridgeRequestID: "bridge-1",
+            runID: runID,
+            parentSessionID: session.id,
+            childID: nil,
+            kind: .needDecision,
+            title: "Decision",
+            message: "Choose.",
+            status: .pending,
+            response: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+
+        store.upsertSupervisorRequest(request)
+        store.updateSupervisorRequest(request.id, parentSessionID: session.id) { item in
+            item.status = .answered
+            item.response = "Use worktree."
+        }
+
+        XCTAssertEqual(store.supervisorRequests(for: session.id).first?.status, .answered)
+        XCTAssertEqual(store.supervisorRequests(for: session.id).first?.response, "Use worktree.")
+
+        store.updateSupervisorRequest(request.id, parentSessionID: session.id) { item in
+            item.status = .cancelled
+        }
+
+        XCTAssertEqual(store.supervisorRequests(for: session.id).first?.status, .cancelled)
+    }
+
+    private func rewritePersistedSelection(in fileURL: URL, selectedSessionID: Any) throws {
+        let data = try Data(contentsOf: fileURL)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Expected persisted Pi Agent state dictionary.")
+            return
+        }
+        object["selectedSessionID"] = selectedSessionID
+        let rewritten = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try rewritten.write(to: fileURL, options: .atomic)
+    }
+}
