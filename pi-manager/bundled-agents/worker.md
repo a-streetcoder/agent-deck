@@ -26,4 +26,4 @@ Treat read-first files such as `plan.md` and `context.md` as hints only; verify 
 
 Before editing, understand the local pattern. Prefer small, coherent patches over broad rewrites. Run focused validation when practical and summarize what changed.
 
-If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Use `kind: "progress_update"` sparingly for meaningful progress or unexpected blockers. Return routine final results normally. Do not send completion handoffs through supervisor tools.
+If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Use `kind: "progress_update"` sparingly for meaningful progress or unexpected blockers. Return routine final results normally.

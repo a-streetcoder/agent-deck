@@ -198,9 +198,110 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(command.contains("--no-extensions"))
         XCTAssertTrue(command.contains("--extension"))
         XCTAssertTrue(command.contains("contact-supervisor-bridge.ts"))
+        XCTAssertTrue(command.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(command.contains(customExtension))
         XCTAssertTrue(command.contains("--tools shell,contact_supervisor"))
         XCTAssertEqual(run.tools, ["shell", "contact_supervisor"])
+    }
+
+    func testChildRuntimeSystemPromptAuditWritesFinalPromptArtifact() throws {
+        let payload = #"{"scope":"child","runID":"placeholder","agent":"scout","systemPrompt":"Final child prompt from Pi."}"#
+        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "audit-child-1", name: "system_prompt_audit", payload: payload))
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(),
+            snapshot: .empty,
+            task: "Capture prompt.",
+            requestedContext: .fresh
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        let finalPromptURL = try XCTUnwrap(run.artifactDirectory).asFileURL.appendingPathComponent("final-system-prompt.md")
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            (try? String(contentsOf: finalPromptURL, encoding: .utf8)) == "Final child prompt from Pi."
+                && responseValue(id: "audit-child-1", in: harness.stdinLog) == "System prompt captured."
+        })
+        XCTAssertTrue(store.subagentTranscript(for: run.id).contains { $0.title == "System Prompt Captured" })
+    }
+
+    func testExplicitPrivateSkillsAreInjectedByPiManagerWhileAmbientPiSkillsStayDisabledByDefault() throws {
+        let harness = try PiTestSupport.makeBridgeHarness(events: [])
+        defer { harness.restoreEnvironment() }
+
+        let skillURL = FileManager.default.temporaryDirectory.appendingPathComponent("pi-manager-test-skill-\(UUID().uuidString).md")
+        try "# Skill\nUse this private skill.".write(to: skillURL, atomically: true, encoding: .utf8)
+        let skill = SkillRecord(
+            id: "library:private-skill",
+            name: "private-skill",
+            description: nil,
+            source: ScopeID(kind: .library, path: skillURL.path),
+            filePath: skillURL.path,
+            body: "fallback"
+        )
+        let snapshot = ScanSnapshot(
+            projectRoot: nil,
+            builtinAgents: [],
+            globalAgents: [],
+            projectAgents: [],
+            legacyProjectAgents: [],
+            effectiveAgents: [],
+            chains: [],
+            libraryAgents: [],
+            libraryChains: [],
+            skills: [],
+            librarySkills: [skill],
+            commands: [],
+            promptTemplates: [],
+            libraryPromptTemplates: [],
+            settings: [],
+            envKeys: [],
+            warnings: []
+        )
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(skills: ["private-skill"]),
+            snapshot: snapshot,
+            task: "Use the private skill.",
+            requestedContext: .fresh
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        let authoredPrompt = try String(contentsOf: try XCTUnwrap(run.artifactDirectory).asFileURL.appendingPathComponent("system-prompt.md"), encoding: .utf8)
+        XCTAssertTrue(authoredPrompt.contains(#"<skill name="private-skill""#))
+        XCTAssertTrue(authoredPrompt.contains("# Skill\nUse this private skill."))
+        XCTAssertTrue(try XCTUnwrap(run.launchCommand).contains("--no-skills"))
+    }
+
+    func testExplicitPrivateSkillsCanCoexistWithAmbientPiSkillListingWhenInheritanceIsExplicitlyEnabled() throws {
+        let harness = try PiTestSupport.makeBridgeHarness(events: [])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(skills: ["missing-private-skill"], inheritSkills: true),
+            snapshot: .empty,
+            task: "Use inherited skills if needed.",
+            requestedContext: .fresh
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        XCTAssertFalse(try XCTUnwrap(run.launchCommand).contains("--no-skills"))
+        XCTAssertEqual(run.skills, ["missing-private-skill"])
+        XCTAssertTrue(run.error?.contains("Skill not found: missing-private-skill") == true)
     }
 
     func testExpectedOutcomePromptContractsAreSentToChildPi() throws {

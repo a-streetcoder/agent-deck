@@ -1084,9 +1084,11 @@ struct PiAgentContextBreakdownPopover: View {
             return .purple
         case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results":
             return .blue
-        case "messages", "estimatedMessages":
+        case "messages", "estimatedMessages", "estimatedInputTokens":
             return .accentColor
-        case "estimatedCachedPromptTools":
+        case "estimatedOutputTokens":
+            return .green
+        case "estimatedCachedPromptTools", "estimatedCacheTokens":
             return .blue
         case "estimatedOtherUsedContext":
             return .orange

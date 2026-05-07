@@ -460,6 +460,7 @@ struct PiAgentContextEstimateBuilder {
         transcript: [PiAgentTranscriptEntry],
         fallbackModels: [AvailableModel] = []
     ) -> PiAgentContextBreakdownEstimate {
+        _ = fallbackModels
         guard let contextWindow = positive(session.contextWindow) else {
             return PiAgentContextBreakdownEstimate(
                 rows: [],
@@ -468,77 +469,99 @@ struct PiAgentContextEstimateBuilder {
         }
 
         let usedTokens = max(session.contextTokens ?? 0, 0)
+        let inputTokens = max(session.inputTokens ?? 0, 0)
+        let outputTokens = max(session.outputTokens ?? 0, 0)
         let cacheTokens = max((session.cacheReadTokens ?? 0) + (session.cacheWriteTokens ?? 0), 0)
-        let outputBufferTokens = selectedMaxOutputTokens(session: session, fallbackModels: fallbackModels)
-        let rawMessageTokens = estimatedTranscriptTokens(transcript)
-        let messageBudget = max(usedTokens - cacheTokens, 0)
-        let messageTokens = min(rawMessageTokens, messageBudget)
 
         var rows: [PiAgentContextBreakdownEstimateRow] = []
-        if messageTokens > 0 || rawMessageTokens > 0 {
+        var accountedUsedTokens = 0
+
+        func clampedToRemainingUsed(_ tokens: Int) -> Int {
+            min(max(tokens, 0), max(usedTokens - accountedUsedTokens, 0))
+        }
+
+        if inputTokens > 0 {
+            let tokens = clampedToRemainingUsed(inputTokens)
+            accountedUsedTokens += tokens
             rows.append(.init(
-                key: "estimatedMessages",
-                title: "Messages",
-                tokens: messageTokens,
-                percent: percent(messageTokens, of: contextWindow),
-                detail: rawMessageTokens > messageTokens
-                    ? "Estimated from visible user, assistant, tool, and thinking transcript entries; clamped to RPC used tokens."
-                    : "Estimated from visible user, assistant, tool, and thinking transcript entries.",
-                source: .estimated
+                key: "estimatedInputTokens",
+                title: "Prompt input",
+                tokens: tokens,
+                percent: percent(tokens, of: contextWindow),
+                detail: "RPC input tokens. Includes system prompt, tools, and conversation content sent to the model.",
+                source: .rpcAggregate
+            ))
+        }
+
+        if outputTokens > 0 {
+            let tokens = clampedToRemainingUsed(outputTokens)
+            accountedUsedTokens += tokens
+            rows.append(.init(
+                key: "estimatedOutputTokens",
+                title: "Model output",
+                tokens: tokens,
+                percent: percent(tokens, of: contextWindow),
+                detail: "RPC output tokens from the latest reported assistant response.",
+                source: .rpcAggregate
             ))
         }
 
         if cacheTokens > 0 {
+            let tokens = clampedToRemainingUsed(cacheTokens)
+            accountedUsedTokens += tokens
             rows.append(.init(
-                key: "estimatedCachedPromptTools",
-                title: "Cached prompt/tools",
-                tokens: min(cacheTokens, usedTokens),
-                percent: percent(min(cacheTokens, usedTokens), of: contextWindow),
-                detail: "RPC cache read/write total. This is a prompt/tools proxy, not an exact category.",
+                key: "estimatedCacheTokens",
+                title: "Cache read/write",
+                tokens: tokens,
+                percent: percent(tokens, of: contextWindow),
+                detail: "RPC cache read/write tokens. This is token accounting, not a separate prompt/tools category.",
                 source: .rpcAggregate
             ))
         }
 
-        let accountedUsedTokens = messageTokens + min(cacheTokens, usedTokens)
+        if accountedUsedTokens == 0 {
+            let rawMessageTokens = estimatedTranscriptTokens(transcript)
+            let messageTokens = min(rawMessageTokens, usedTokens)
+            if messageTokens > 0 || rawMessageTokens > 0 {
+                accountedUsedTokens += messageTokens
+                rows.append(.init(
+                    key: "estimatedMessages",
+                    title: "Visible transcript",
+                    tokens: messageTokens,
+                    percent: percent(messageTokens, of: contextWindow),
+                    detail: rawMessageTokens > messageTokens
+                        ? "Estimated from visible user, assistant, tool, and thinking transcript entries; clamped to RPC used tokens."
+                        : "Estimated from visible user, assistant, tool, and thinking transcript entries.",
+                    source: .estimated
+                ))
+            }
+        }
+
         let otherUsedTokens = max(usedTokens - accountedUsedTokens, 0)
         if otherUsedTokens > 0 {
             rows.append(.init(
                 key: "estimatedOtherUsedContext",
-                title: "Other used context",
+                title: "Unattributed used context",
                 tokens: otherUsedTokens,
                 percent: percent(otherUsedTokens, of: contextWindow),
-                detail: "RPC used tokens not attributed to visible transcript or cache proxy estimates.",
+                detail: "RPC used tokens not covered by the token categories Pi reported.",
                 source: .rpcAggregate
             ))
         }
 
-        if let outputBufferTokens, outputBufferTokens > 0 {
-            rows.append(.init(
-                key: "estimatedOutputBuffer",
-                title: "Output buffer",
-                tokens: outputBufferTokens,
-                percent: percent(outputBufferTokens, of: contextWindow),
-                detail: "Reserved from selected model max output metadata.",
-                source: .estimated
-            ))
-        }
-
-        let reservedOutput = outputBufferTokens ?? 0
-        let freeTokens = max(contextWindow - usedTokens - reservedOutput, 0)
+        let freeTokens = max(contextWindow - usedTokens, 0)
         rows.append(.init(
             key: "estimatedFreeSpace",
             title: "Free space",
             tokens: freeTokens,
             percent: percent(freeTokens, of: contextWindow),
-            detail: outputBufferTokens == nil
-                ? "Output buffer is not reserved because selected model max output is unavailable."
-                : nil,
+            detail: nil,
             source: .estimated
         ))
 
         return PiAgentContextBreakdownEstimate(
             rows: rows,
-            note: "Estimated from Pi Manager transcript and RPC token totals. Exact category data is not exposed by current Pi RPC."
+            note: "Estimated from Pi RPC token totals. Exact system prompt, tool schema, and message category data is not exposed by current Pi RPC."
         )
     }
 
@@ -598,22 +621,6 @@ struct PiAgentContextEstimateBuilder {
         return "\(title)\n\(text)"
     }
 
-    private static func selectedMaxOutputTokens(session: PiAgentSessionRecord, fallbackModels: [AvailableModel]) -> Int? {
-        let provider = session.modelOverrideProvider ?? session.modelProvider
-        let modelID = session.modelOverrideID ?? session.model
-        guard let provider, let modelID else { return nil }
-
-        if let option = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }),
-           let maxOutput = positive(option.maxOutput) {
-            return maxOutput
-        }
-
-        if let model = fallbackModels.first(where: { $0.provider == provider && $0.model == modelID }) {
-            return parseTokenCount(model.maxOutput)
-        }
-
-        return nil
-    }
 }
 
 struct PiAgentSessionRecord: Identifiable, Codable, Hashable {

@@ -3,8 +3,10 @@ import XCTest
 
 final class PiAgentContextEstimateBuilderTests: XCTestCase {
     @MainActor
-    func testEstimatedRowsUseTranscriptCacheAndRpcFreeSpace() {
+    func testEstimatedRowsUseRpcTokenTotalsAndFreeSpace() {
         let session = makeSession(
+            inputTokens: 800,
+            outputTokens: 50,
             cacheReadTokens: 100,
             cacheWriteTokens: 50,
             contextTokens: 1_000,
@@ -18,14 +20,16 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
 
         let estimate = PiAgentContextEstimateBuilder.build(session: session, transcript: transcript)
 
-        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedMessages" })?.tokens, 850)
-        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedCachedPromptTools" })?.tokens, 150)
+        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedInputTokens" })?.tokens, 800)
+        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedOutputTokens" })?.tokens, 50)
+        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedCacheTokens" })?.tokens, 150)
+        XCTAssertNil(estimate.rows.first(where: { $0.key == "estimatedMessages" }))
         XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedFreeSpace" })?.tokens, 1_000)
         XCTAssertTrue(estimate.note.contains("Estimated"))
     }
 
     @MainActor
-    func testEstimatedRowsReserveKnownOutputBuffer() {
+    func testEstimatedRowsDoNotReserveModelMaxOutputFromFreeSpace() {
         let session = makeSession(
             model: "gpt-test",
             modelProvider: "openai",
@@ -48,8 +52,8 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
 
         let estimate = PiAgentContextEstimateBuilder.build(session: session, transcript: [])
 
-        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedOutputBuffer" })?.tokens, 200)
-        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedFreeSpace" })?.tokens, 800)
+        XCTAssertNil(estimate.rows.first(where: { $0.key == "estimatedOutputBuffer" }))
+        XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedFreeSpace" })?.tokens, 1_000)
     }
 
     @MainActor
@@ -64,6 +68,8 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
         model: String? = nil,
         modelProvider: String? = nil,
         availableModels: [PiAgentModelOption]? = nil,
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
         cacheReadTokens: Int? = nil,
         cacheWriteTokens: Int? = nil,
         contextTokens: Int?,
@@ -95,8 +101,8 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
             lastSummary: nil,
             needsAttention: false,
             lastNotificationAt: nil,
-            inputTokens: nil,
-            outputTokens: nil,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
             totalTokens: nil,
@@ -106,6 +112,8 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
             contextWindow: contextWindow,
             contextPercent: contextPercent,
             cost: nil,
+            finalSystemPrompt: nil,
+            finalSystemPromptCapturedAt: nil,
             pendingSteeringMessages: [],
             pendingFollowUpMessages: [],
             subagentsEnabled: true,

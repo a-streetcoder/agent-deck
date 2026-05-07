@@ -24,4 +24,4 @@ Return a concise plan with:
 - risks, edge cases, and validation
 - any decisions still needed before implementation
 
-If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Return routine final plans normally. Do not send completion handoffs through supervisor tools.
+If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Return routine final plans normally.

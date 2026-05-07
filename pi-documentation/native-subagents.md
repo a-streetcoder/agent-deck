@@ -107,6 +107,8 @@ Children that explicitly include `contact_supervisor` can send:
 - `need_decision` — blocking
 - `interview_request` — blocking, supports structured JSON question forms
 
+When `contact_supervisor` is present in agent `tools`, Pi Manager also injects native boundary instructions telling the child to use it only for blockers, structured interviews, or meaningful progress, and to return final results normally.
+
 Blocking requests create app supervisor cards. Humans can answer in the UI. The parent Pi Agent can also answer using:
 
 - `list_supervisor_requests()`

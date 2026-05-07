@@ -40,6 +40,6 @@ Pi Manager preserves unknown frontmatter fields where possible.
 
 ## Native subagent guidance
 
-- Use `contact_supervisor` in `tools` only when the child may need progress updates, decisions, or interviews.
+- Use `contact_supervisor` in `tools` only when the child may need progress updates, decisions, or interviews. When present, Pi Manager injects native boundary instructions for blocker/progress/interview routing and normal final-result return.
 - Do not rely on `output` to write project files. In Pi Manager native runs, the expected outcome controls whether project writes are allowed.
 - Keep explicit `skills` references stable and ensure the skills are active in the intended project/global scope.

@@ -159,7 +159,13 @@ final class PiSubagentRunService {
             durationMs: nil
         )
         store.upsertSubagentRun(run)
-        store.append(.init(sessionID: parentSession.id, role: .status, title: "Subagent Started", text: "\(agent.name) is running.\n\nTask: \(trimmedTask)"))
+        store.append(.init(
+            sessionID: parentSession.id,
+            role: .status,
+            title: "Subagent Started",
+            text: "\(agent.name) is running.\n\nTask: \(trimmedTask)",
+            rawJSON: subagentStartedAuditPayload(run: run)
+        ))
 
         let childSessionID = UUID()
         let parentSessionID = parentSession.id
@@ -525,6 +531,21 @@ final class PiSubagentRunService {
         return URL(fileURLWithPath: outputPath)
     }
 
+    private func subagentStartedAuditPayload(run: PiSubagentRunRecord) -> String? {
+        let payload: [String: Any] = [
+            "type": "pi_manager_subagent_started",
+            "runID": run.id.uuidString,
+            "agent": run.agentName,
+            "artifactDirectory": run.artifactDirectory,
+            "authoredSystemPromptPath": URL(fileURLWithPath: run.artifactDirectory).appendingPathComponent("system-prompt.md").path,
+            "finalSystemPromptPath": URL(fileURLWithPath: run.artifactDirectory).appendingPathComponent("final-system-prompt.md").path
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+    }
+
     private func sanitizedForkContextFile(from parentSessionFile: String, artifactDirectory: URL) throws -> URL {
         let sourceURL = URL(fileURLWithPath: parentSessionFile)
         let raw = try String(contentsOf: sourceURL, encoding: .utf8)
@@ -681,16 +702,30 @@ final class PiSubagentRunService {
     }
 
     private func nativeBoundaryPrompt(agent: EffectiveAgentRecord) -> String {
-        """
-        You are Pi Manager native subagent `\(agent.name)` in a separate child Pi session. Complete only the assigned task; the parent/user remain decision authority.
+        var lines = [
+            "You are Pi Manager native subagent `\(agent.name)` in a separate child Pi session. Complete only the assigned task; the parent/user remain decision authority.",
+            "",
+            "Boundaries:",
+            "- Do not launch subagents.",
+            "- Treat forked context as reference only; do not continue old parent messages."
+        ]
 
-        Boundaries:
-        - Do not launch subagents.
-        - Treat forked context as reference only; do not continue old parent messages.
-        - If blocked on a product/architecture/scope decision, use `contact_supervisor` when available, otherwise report the decision needed.
-        - Return final results normally; use coordination tools only for progress/blockers.
-        - Prefer narrow, correct changes over broad rewrites.
-        """
+        if agent.resolved.tools?.contains("contact_supervisor") == true {
+            lines.append(contentsOf: [
+                "- If blocked on a product, architecture, scope, approval, or ambiguity decision, call `contact_supervisor` with `kind: \"need_decision\"` and one focused question.",
+                "- Use `contact_supervisor` with `kind: \"interview_request\"` only when a structured set of questions is needed.",
+                "- Use `contact_supervisor` with `kind: \"progress_update\"` sparingly for meaningful non-blocking updates.",
+                "- Return final results normally; do not use `contact_supervisor` for routine completion."
+            ])
+        } else {
+            lines.append(contentsOf: [
+                "- If blocked on a product, architecture, scope, approval, or ambiguity decision, report the decision needed in your final response.",
+                "- Return final results normally."
+            ])
+        }
+
+        lines.append("- Prefer narrow, correct changes over broad rewrites.")
+        return lines.joined(separator: "\n")
     }
 
     private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String], resolvedContext: PiSubagentContextMode) -> String {
