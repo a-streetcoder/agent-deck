@@ -8,7 +8,11 @@ struct PiAgentActivityPanel: View {
     @State private var selectedID: UUID?
 
     private var items: [PiAgentActivityItem] {
-        PiAgentActivityItem.items(from: store.selectedTranscript)
+        PiAgentActivityItem.items(
+            parentEntries: store.selectedTranscript,
+            subagentRuns: selectedSubagentRuns,
+            subagentTranscripts: selectedSubagentTranscripts
+        )
             .filter { filter.includes($0) }
     }
 
@@ -41,7 +45,7 @@ struct PiAgentActivityPanel: View {
                                         PiAgentActivityRow(
                                             item: item,
                                             isSelected: selectedItem?.id == item.id,
-                                            rootPath: selectedRootPath,
+                                            rootPath: item.rootPath ?? selectedRootPath,
                                             onSelect: { selectedID = item.id }
                                         )
                                     }
@@ -101,6 +105,17 @@ struct PiAgentActivityPanel: View {
 
     private var selectedRootPath: String? {
         store.selectedSession.map { $0.worktreePath ?? $0.projectPath }
+    }
+
+    private var selectedSubagentRuns: [PiSubagentRunRecord] {
+        guard let session = store.selectedSession else { return [] }
+        return store.subagentRuns(for: session.id)
+    }
+
+    private var selectedSubagentTranscripts: [UUID: [PiAgentTranscriptEntry]] {
+        Dictionary(uniqueKeysWithValues: selectedSubagentRuns.map { run in
+            (run.id, store.subagentTranscript(for: run.id))
+        })
     }
 
     @ViewBuilder
@@ -415,6 +430,8 @@ private enum PiAgentActivityStatus: Hashable {
 private struct PiAgentActivityItem: Identifiable, Hashable {
     let id: UUID
     let entry: PiAgentTranscriptEntry
+    let sourceName: String?
+    let rootPath: String?
     let kind: PiAgentActivityKind
     let status: PiAgentActivityStatus
     let toolName: String
@@ -425,11 +442,18 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
     let detailText: String
 
     @MainActor
-    static func items(from entries: [PiAgentTranscriptEntry]) -> [PiAgentActivityItem] {
-        entries.compactMap(PiAgentActivityItem.init(entry:)).reversed()
+    static func items(parentEntries: [PiAgentTranscriptEntry], subagentRuns: [PiSubagentRunRecord], subagentTranscripts: [UUID: [PiAgentTranscriptEntry]]) -> [PiAgentActivityItem] {
+        let parentItems = parentEntries.compactMap { PiAgentActivityItem(entry: $0, sourceName: nil, rootPath: nil) }
+        let childItems = subagentRuns.flatMap { run in
+            let rootPath = run.worktreePath ?? run.parentRepoPath
+            return (subagentTranscripts[run.id] ?? []).compactMap { entry in
+                PiAgentActivityItem(entry: entry, sourceName: run.agentName, rootPath: rootPath)
+            }
+        }
+        return (parentItems + childItems).sorted { $0.entry.timestamp > $1.entry.timestamp }
     }
 
-    init?(entry: PiAgentTranscriptEntry) {
+    init?(entry: PiAgentTranscriptEntry, sourceName: String?, rootPath: String?) {
         guard entry.role == .tool || entry.role == .error || (entry.role == .status && entry.title.localizedCaseInsensitiveContains("Supervisor")) else { return nil }
         let event = Self.event(from: entry.rawJSON)
         let rawToolName = event?.toolName ?? entry.title.replacingOccurrences(of: "Tool: ", with: "")
@@ -474,6 +498,8 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
 
         self.id = entry.id
         self.entry = entry
+        self.sourceName = sourceName
+        self.rootPath = rootPath
         self.kind = kind
         self.status = status
         self.toolName = toolName
@@ -496,25 +522,26 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
     }
 
     var subtitle: String {
+        let prefix = sourceName.map { "\($0) · " } ?? ""
         switch kind {
         case .edit:
-            return diff == nil ? "edit · \(status.label)" : "edit diff · \(status.label)"
+            return prefix + (diff == nil ? "edit · \(status.label)" : "edit diff · \(status.label)")
         case .write:
-            return contentPreview == nil ? "write · \(status.label)" : "write preview · \(status.label)"
+            return prefix + (contentPreview == nil ? "write · \(status.label)" : "write preview · \(status.label)")
         case .read:
-            return "file read · \(status.label)"
+            return "\(prefix)file read · \(status.label)"
         case .bash:
-            return "shell · \(status.label)"
+            return "\(prefix)shell · \(status.label)"
         case .web:
-            return "web · \(status.label)"
+            return "\(prefix)web · \(status.label)"
         case .subagent:
-            return "native delegation · \(status.label)"
+            return "\(prefix)native delegation · \(status.label)"
         case .supervisor:
-            return "routing · \(status.label)"
+            return "\(prefix)routing · \(status.label)"
         case .tool:
-            return "\(toolName) · \(status.label)"
+            return "\(prefix)\(toolName) · \(status.label)"
         case .error:
-            return "error"
+            return "\(prefix)error"
         }
     }
 
