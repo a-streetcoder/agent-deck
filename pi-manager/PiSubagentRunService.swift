@@ -33,11 +33,7 @@ final class PiSubagentRunService {
         let prompt = buildSystemPrompt(agent: agent, skillBlocks: skillBlocks)
         let promptURL = artifactDirectory.appendingPathComponent("system-prompt.md")
         try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
-        try childInput(agent: agent, task: trimmedTask, skillBlocks: skillBlocks).write(
-            to: artifactDirectory.appendingPathComponent("input.md"),
-            atomically: true,
-            encoding: .utf8
-        )
+        fileManager.createFile(atPath: artifactDirectory.appendingPathComponent("output.md").path, contents: nil)
 
         let requestedContext = contextOverride ?? .agentDefault
         let resolvedContext = PiSubagentLaunchPlanner.resolvedContextMode(for: agent, parentSession: parentSession, requestedContext: requestedContext)
@@ -77,6 +73,11 @@ final class PiSubagentRunService {
         let modelDisplayName = modelSelection.displayName
         let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
         let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
+        try childInput(agent: agent, task: trimmedTask, skillBlocks: skillBlocks, readFirstPaths: resolvedReadFirstPaths).write(
+            to: artifactDirectory.appendingPathComponent("input.md"),
+            atomically: true,
+            encoding: .utf8
+        )
         let diagnosticMessages = missingSkillNames.map { "Skill not found: \($0)" } + bridgeWarnings + contextWarnings
         var run = PiSubagentRunRecord(
             id: runID,
@@ -721,8 +722,9 @@ final class PiSubagentRunService {
         return lines.joined(separator: "\n\n")
     }
 
-    private func childInput(agent: EffectiveAgentRecord, task: String, skillBlocks: [ResolvedSkillBlock]) -> String {
-        """
+    private func childInput(agent: EffectiveAgentRecord, task: String, skillBlocks: [ResolvedSkillBlock], readFirstPaths: [String]) -> String {
+        var sections = [
+            """
         # Native subagent input
 
         Agent: \(agent.name)
@@ -733,10 +735,19 @@ final class PiSubagentRunService {
 
         \(task)
         """
+        ]
+        if !readFirstPaths.isEmpty {
+            sections.append("""
+            ## Read first
+
+            \(readFirstPaths.joined(separator: "\n"))
+            """)
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     private func sanitizedReadFirstPaths(agentReads: [String], requestReads: [String], projectRoot: URL) -> [String] {
-        let allReads = requestReads.isEmpty ? agentReads : requestReads
+        let allReads = agentReads + requestReads
         let rootPath = projectRoot.standardizedFileURL.path
         return distinctPreservingOrder(allReads).compactMap { raw -> String? in
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

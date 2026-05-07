@@ -12,6 +12,17 @@ Issue 23 tracks the Pi Manager runtime validation suite. The goal is to keep uni
 
 Normal CI should run unit tests and harnessed smoke tests. Real integration tests should be opt-in because they depend on local credentials, installed Pi versions, shell tools, and real repositories.
 
+## Latest Validation
+
+Validated on May 7, 2026 with Xcode 26.4.1 selected at `/Applications/Xcode.app/Contents/Developer`.
+
+| Command | Result |
+|---|---|
+| `xcodebuild test -scheme pi-manager -destination "platform=macOS"` | Passed |
+| `xcrun swiftc -parse -enable-bare-slash-regex pi-manager/*.swift pi-managerTests/*.swift` | Passed |
+| `git diff --check` | Passed |
+| `plutil -lint pi-manager.xcodeproj/project.pbxproj` | Passed |
+
 ## Current Test Layout
 
 | File | Responsibility |

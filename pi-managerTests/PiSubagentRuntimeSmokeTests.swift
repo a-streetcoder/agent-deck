@@ -2,6 +2,7 @@ import XCTest
 @testable import pi_manager
 
 final class PiSubagentLaunchPlannerTests: XCTestCase {
+    @MainActor
     func testDefaultAgentInheritsParentProviderModelAndThinking() throws {
         let selection = PiSubagentLaunchPlanner.modelSelection(
             for: PiTestSupport.makeAgent(model: nil, thinking: nil),
@@ -13,6 +14,7 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
         XCTAssertEqual(selection.displayName, "zai/glm-5.1:low")
     }
 
+    @MainActor
     func testExplicitAgentModelWinsOverParentModel() throws {
         let selection = PiSubagentLaunchPlanner.modelSelection(
             for: PiTestSupport.makeAgent(model: "openai-codex/gpt-5.5", thinking: "high"),
@@ -24,6 +26,7 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
         XCTAssertEqual(selection.displayName, "openai-codex/gpt-5.5:high")
     }
 
+    @MainActor
     func testThinkingSuffixIsNotDuplicated() throws {
         let selection = PiSubagentLaunchPlanner.modelSelection(
             for: PiTestSupport.makeAgent(model: nil, thinking: nil),
@@ -35,6 +38,7 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
         XCTAssertEqual(selection.displayName, "zai/glm-5.1:low")
     }
 
+    @MainActor
     func testInheritedLaunchArgumentsIncludeProviderAndModel() throws {
         let selection = PiSubagentLaunchPlanner.modelSelection(
             for: PiTestSupport.makeAgent(model: nil, thinking: nil),
@@ -55,6 +59,7 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
         ])
     }
 
+    @MainActor
     func testForkContextRequiresParentSessionFile() throws {
         let agent = PiTestSupport.makeAgent(defaultContext: "fork")
 
@@ -332,7 +337,18 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             guard let log = try? String(contentsOf: harness.stdinLog, encoding: .utf8) else { return false }
             return log.contains("Expected outcome")
         })
-        return try String(contentsOf: harness.stdinLog, encoding: .utf8)
+        let log = try String(contentsOf: harness.stdinLog, encoding: .utf8)
+        let prompts = log
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard let data = String(line).data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      object["type"] as? String == "prompt" else {
+                    return nil
+                }
+                return object["message"] as? String
+            }
+        return try XCTUnwrap(prompts.first { $0.contains("Expected outcome") })
     }
 
     private func restorePiPath(_ oldPiPath: String?) {

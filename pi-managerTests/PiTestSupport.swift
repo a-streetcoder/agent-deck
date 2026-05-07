@@ -20,6 +20,7 @@ enum PiTestSupport {
         return url
     }
 
+    @MainActor
     static func makeProject(url: URL? = nil) throws -> DiscoveredProject {
         let projectURL = try url ?? temporaryProjectURL()
         return DiscoveredProject(
@@ -32,6 +33,7 @@ enum PiTestSupport {
         )
     }
 
+    @MainActor
     static func makeParentSession(
         projectURL: URL? = nil,
         model: String? = nil,
@@ -85,6 +87,7 @@ enum PiTestSupport {
         )
     }
 
+    @MainActor
     static func makeAgent(
         name: String = "scout",
         model: String? = nil,

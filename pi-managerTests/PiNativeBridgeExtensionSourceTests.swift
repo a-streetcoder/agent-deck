@@ -2,6 +2,7 @@ import XCTest
 @testable import pi_manager
 
 final class PiNativeBridgeExtensionSourceTests: XCTestCase {
+    @MainActor
     func testParentExtensionSourceRegistersEveryAppHandledBridgeTool() throws {
         let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.parentExtensionURL(), encoding: .utf8)
 
@@ -25,6 +26,7 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("minItems: 1, maxItems: 12"))
     }
 
+    @MainActor
     func testChildExtensionSourceRegistersContactSupervisorWithBlockingKindsAndEnvironmentIdentity() throws {
         let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.childExtensionURL(), encoding: .utf8)
 

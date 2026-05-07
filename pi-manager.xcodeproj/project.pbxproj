@@ -442,7 +442,6 @@
 				PRODUCT_MODULE_NAME = pi_managerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pi-manager.app/Contents/MacOS/pi-manager";
 			};
@@ -466,7 +465,6 @@
 				PRODUCT_MODULE_NAME = pi_managerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pi-manager.app/Contents/MacOS/pi-manager";
 			};

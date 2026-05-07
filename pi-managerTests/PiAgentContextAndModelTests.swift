@@ -2,6 +2,7 @@ import XCTest
 @testable import pi_manager
 
 final class PiAgentContextEstimateBuilderTests: XCTestCase {
+    @MainActor
     func testEstimatedRowsUseTranscriptCacheAndRpcFreeSpace() {
         let session = makeSession(
             cacheReadTokens: 100,
@@ -23,6 +24,7 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
         XCTAssertTrue(estimate.note.contains("Estimated"))
     }
 
+    @MainActor
     func testEstimatedRowsReserveKnownOutputBuffer() {
         let session = makeSession(
             model: "gpt-test",
@@ -50,12 +52,14 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
         XCTAssertEqual(estimate.rows.first(where: { $0.key == "estimatedFreeSpace" })?.tokens, 800)
     }
 
+    @MainActor
     func testParsesCompactTokenCounts() {
         XCTAssertEqual(PiAgentContextEstimateBuilder.parseTokenCount("128k"), 128_000)
         XCTAssertEqual(PiAgentContextEstimateBuilder.parseTokenCount("1.5m"), 1_500_000)
         XCTAssertEqual(PiAgentContextEstimateBuilder.parseTokenCount("16,384"), 16_384)
     }
 
+    @MainActor
     private func makeSession(
         model: String? = nil,
         modelProvider: String? = nil,
@@ -112,6 +116,7 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
 }
 
 final class PiModelDiscoveryServiceTests: XCTestCase {
+    @MainActor
     func testParsesPiModelListRows() {
         let output = """
 provider model context output thinking images
@@ -129,6 +134,7 @@ anthropic claude-sonnet-4.5 200k 64k no no
         XCTAssertEqual(models.last?.supportedThinkingLevels, ["off"])
     }
 
+    @MainActor
     func testExtractsProviderAndModelIdentifiers() {
         let output = """
 provider model context output thinking images

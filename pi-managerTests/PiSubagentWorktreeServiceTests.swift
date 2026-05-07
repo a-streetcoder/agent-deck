@@ -2,6 +2,7 @@ import XCTest
 @testable import pi_manager
 
 final class PiSubagentWorktreeServiceTests: XCTestCase {
+    @MainActor
     func testPreparePatchWritesBinaryDiffAndListsChangedFiles() async throws {
         let context = try makeWorktreeContext()
         let diff = """
@@ -43,6 +44,7 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
         ])
     }
 
+    @MainActor
     func testApplyPatchRefusesWhenParentRepositoryIsDirty() async throws {
         let context = try makeWorktreeContext()
         let runner = FakeWorktreeCommandRunner { invocation in
@@ -61,6 +63,7 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testWorktreeOperationsRejectPathsOutsideArtifactDirectory() async throws {
         let artifact = try PiTestSupport.temporaryProjectURL()
         let outsideWorktree = try PiTestSupport.temporaryProjectURL()
@@ -78,6 +81,7 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testNonIsolatedRunsCannotPrepareWorktreePatches() async throws {
         let artifact = try PiTestSupport.temporaryProjectURL()
         let worktree = try PiTestSupport.temporaryProjectURL()
@@ -96,6 +100,7 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
         }
     }
 
+    @MainActor
     private func makeWorktreeContext() throws -> (run: PiSubagentRunRecord, artifact: URL, worktree: URL, parent: URL) {
         let artifact = try PiTestSupport.temporaryProjectURL()
         let worktree = artifact.appendingPathComponent("worktree", isDirectory: true)
@@ -104,13 +109,14 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
         return (makeRun(artifactDirectory: artifact, worktree: worktree, parent: parent), artifact, worktree, parent)
     }
 
+    @MainActor
     private func makeRun(artifactDirectory: URL, worktree: URL, parent: URL) -> PiSubagentRunRecord {
         let now = Date()
         return PiSubagentRunRecord(
             id: UUID(),
             parentSessionID: UUID(),
             mode: .single,
-            status: .succeeded,
+            status: .completed,
             agentName: "worker",
             task: "Patch files",
             requestedContext: .fresh,

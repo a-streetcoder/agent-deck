@@ -28,7 +28,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertEqual(captured?.context, "fresh")
         XCTAssertEqual(captured?.reads, ["README.md"])
         XCTAssertEqual(responseValue(id: "bridge-subagent-1", in: harness.stdinLog), "subagent accepted")
-        XCTAssertEqual(store.transcript(for: session.id).last?.title, "Native Subagent Requested")
+        XCTAssertEqual(store.transcriptsBySessionID[session.id]?.last?.title, "Native Subagent Requested")
     }
 
     func testManagedChainBridgeRoutesRequestAndResponds() throws {
