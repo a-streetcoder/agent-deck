@@ -46,7 +46,7 @@ jobs:
           set -o pipefail
           xcodebuild \
             -project pi-manager.xcodeproj \
-            -target pi-manager \
+            -scheme pi-manager \
             -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             CODE_SIGNING_ALLOWED=NO \
