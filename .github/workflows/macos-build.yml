@@ -48,7 +48,7 @@ jobs:
             -project pi-manager.xcodeproj \
             -target pi-manager \
             -configuration Debug \
-            -destination 'platform=macOS' \
+            -destination 'platform=macOS,arch=arm64' \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
 
