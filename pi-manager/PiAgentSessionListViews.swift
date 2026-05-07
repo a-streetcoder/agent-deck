@@ -175,7 +175,7 @@ struct PiAgentSessionRow: View {
             .padding(.vertical, 2)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isTitleHovered ? Color.primary.opacity(0.06) : Color.clear)
+                    .fill(isTitleHovered ? AppTheme.contentSubtleFill.opacity(0.65) : Color.clear)
             )
             .contentShape(Rectangle())
             .onHover { isTitleHovered = $0 }
@@ -312,4 +312,3 @@ struct PiAgentTypingIndicator: View {
         .accessibilityLabel("Pi is typing")
     }
 }
-
