@@ -1,10 +1,10 @@
 # Pi Manager Session Relay
 
-Pi Manager should not expose this as “intercom”. The native app concept is **Session Relay**: app-managed coordination between Pi sessions.
+The native app concept is **Session Relay**: app-managed coordination between Pi sessions.
 
 ## Goal
 
-Provide native Pi Manager coordination without depending on the `pi-intercom` package name or UX.
+Provide native Pi Manager coordination with app-native naming and UX.
 
 ## Scope
 
@@ -20,7 +20,7 @@ Provide native Pi Manager coordination without depending on the `pi-intercom` pa
 
 - Add a small local Session Relay bus for external Pi processes that opt in.
 - Support list/send/ask/reply/pending across opted-in sessions.
-- Keep the protocol separate from `pi-intercom` naming and UI.
+- Keep the protocol separate from external coordination naming and UI.
 
 ## Current native coverage
 
@@ -28,6 +28,6 @@ Pi Manager already has the most important subagent-specific part: app-managed pa
 
 ## Non-goals
 
-- Do not copy `pi-intercom` naming or terminal UX.
+- Do not copy external coordination naming or terminal UX.
 - Do not require native subagent execution to depend on Session Relay.
 - Do not make external sessions visible unless they explicitly opt in.

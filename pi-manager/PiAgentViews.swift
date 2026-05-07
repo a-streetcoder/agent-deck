@@ -976,7 +976,7 @@ struct PiAgentScreen: View {
             if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
                 return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : defaultThinkingLevels(provider: provider, modelID: modelID))
             }
-            if let cached = viewModel.availableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+            if let cached = viewModel.enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
                 return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? defaultThinkingLevels(provider: provider, modelID: modelID) : ["off"]) : cached.supportedThinkingLevels
             }
         }

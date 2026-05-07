@@ -551,7 +551,7 @@ struct ContentView: View {
                 draft: draft,
                 availableTools: viewModel.availableToolNames(for: draft.target),
                 availableSkills: viewModel.availableSkillNames(for: draft.target),
-                availableModels: viewModel.availableModels,
+                availableModels: viewModel.enabledAvailableModels,
                 modelsLastUpdatedAt: viewModel.modelsLastUpdatedAt,
                 onCancel: {
                     agentDraft = nil
@@ -608,7 +608,7 @@ struct ContentView: View {
         .sheet(item: $agentModelQuickEditor) { context in
             AgentModelQuickEditorSheet(
                 context: context,
-                availableModels: viewModel.availableModels,
+                availableModels: viewModel.enabledAvailableModels,
                 modelsLastUpdatedAt: viewModel.modelsLastUpdatedAt,
                 makeDraft: { agent in
                     viewModel.makeAgentDraft(for: agent, preferredOverrideScope: context.preferredOverrideScope)

@@ -174,9 +174,16 @@ struct ModelsScreen: View {
                 }
             } else {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Pi’s model catalog, grouped by provider. Thinking, image input, context, and output limits come directly from `pi --list-models`.")
+                    Text("Pi’s model catalog, grouped by provider. Disable models to hide them from Pi Manager model pickers.")
                         .foregroundStyle(AppTheme.mutedText)
                     Spacer()
+                    Text("\(viewModel.enabledAvailableModels.count) of \(viewModel.availableModels.count) enabled")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    Button("Enable All") {
+                        viewModel.enableAllModels()
+                    }
+                    .disabled(viewModel.appSettings.disabledModelIdentifiers.isEmpty)
                     catalogUpdatedLabel()
                 }
 
@@ -204,6 +211,9 @@ struct ModelsScreen: View {
                     .font(.title3.weight(.bold))
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
+                Text("\(group.models.filter { viewModel.isModelEnabled($0) }.count)/\(group.models.count) enabled")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
                 Spacer()
             }
             .padding(.horizontal, 2)
@@ -228,11 +238,20 @@ struct ModelsScreen: View {
     }
 
     private func modelRow(_ model: AvailableModel) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        let isEnabled = viewModel.isModelEnabled(model)
+        return HStack(alignment: .top, spacing: 12) {
+            Toggle("", isOn: Binding(
+                get: { viewModel.isModelEnabled(model) },
+                set: { viewModel.setModelEnabled(model, isEnabled: $0) }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.model)
                     .font(.headline)
                     .fontWidth(.expanded)
+                    .foregroundStyle(isEnabled ? .primary : AppTheme.mutedText)
                 Text(model.identifier)
                     .font(.footnote.monospaced())
                     .foregroundStyle(AppTheme.mutedText)
@@ -251,6 +270,7 @@ struct ModelsScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
         }
+        .opacity(isEnabled ? 1 : 0.55)
         .padding(.vertical, 10)
     }
 

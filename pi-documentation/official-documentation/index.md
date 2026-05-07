@@ -47,4 +47,4 @@ Use this official tree as the public-facing source of truth. Use the older files
 
 ## Archive note
 
-Older planning and exploratory docs still exist outside this folder. Treat this `official-documentation/` tree as the maintained public documentation. Deprecated package-era `pi-subagents` and `intercom` flows should not be presented as current Pi Manager behavior unless explicitly marked as historical.
+Older planning and exploratory docs still exist outside this folder. Treat this `official-documentation/` tree as the maintained public documentation. Legacy external coordination flows should not be presented as current Pi Manager behavior unless explicitly marked as historical.

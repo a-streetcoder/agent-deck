@@ -9,7 +9,7 @@ Pi Manager is a native macOS SwiftUI app for managing the real resources used by
 ## Required mental models
 
 - Pi Manager launches the installed `pi` CLI; it is not Pi core.
-- Native subagents are app-managed child Pi RPC sessions, not the old package `/run` flow.
+- Native subagents are app-managed child Pi RPC sessions, not raw slash-command delegation.
 - Library resources are storage only until linked/assigned into active global or project paths.
 - Builtin resources are read-only; use overrides or replacements.
 - Report-only native subagent runs write artifacts, not project files.

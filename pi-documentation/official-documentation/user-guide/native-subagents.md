@@ -1,6 +1,6 @@
 # Native Subagents
 
-Pi Manager runs app-managed native subagents. This replaces app-owned uses of the older package-managed `/run`, `/chain`, and `/parallel` flow.
+Pi Manager runs app-managed native subagents. The app owns child process launch and tracking directly.
 
 ## What Pi Manager owns
 

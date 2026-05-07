@@ -177,17 +177,17 @@ That distinction matters because some third-party packages may also scan `.agent
 
 ---
 
-## Explicit skills on subagents
+## Explicit skills on native subagents
 
-`pi-subagents` agents can declare explicit skills in agent frontmatter:
+Pi Manager native agents can declare explicit skills in agent frontmatter:
 
 ```yaml
 skills: axiom-ai
 ```
 
-or receive skills from a subagent/chain task override.
+or receive skills from a native subagent/chain task override.
 
-This is a **name reference**, not a file dependency. At execution time, `pi-subagents` resolves the name against Pi's discoverable skills for the run's current working directory, with fallback to the parent runtime cwd.
+This is a **name reference**, not a file dependency. At execution time, Pi Manager resolves the name against the current scan snapshot for the selected project/session.
 
 Therefore:
 
@@ -220,15 +220,13 @@ PROJECT/.pi/skills/<skill>
 
 ---
 
-## Collision note relevant to `pi-subagents`
+## Collision note for legacy `.agents` paths
 
 Pi core skill discovery looks in:
 - `~/.agents/skills/`
 - project `.agents/skills/`
 
-Separately, `pi-subagents` may scan `~/.agents/` and project `.agents/` for subagent markdown files.
-
-That means a repository or home-directory layout using `.agents` for multiple resource types can create cross-discovery problems if a package assumes `.agents` is only for agents.
+Pi Manager also scans legacy `.agents/*.md` agent files. A repository or home-directory layout using `.agents` for multiple resource types should keep skills under `.agents/skills/` and agents at `.agents/*.md` to avoid ambiguous discovery.
 
 ---
 

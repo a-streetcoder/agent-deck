@@ -832,12 +832,13 @@ struct PiAgentComposerFooterBar: View {
             PiAgentContextUsageMeter(
                 session: session,
                 transcript: transcript,
-                fallbackModels: viewModel.availableModels,
+                fallbackModels: viewModel.enabledAvailableModels,
                 onCompact: { viewModel.compactSelectedPiAgentSession() }
             )
             PiAgentModelPicker(
                 session: session,
-                fallbackModels: viewModel.availableModels,
+                fallbackModels: viewModel.enabledAvailableModels,
+                disabledModelIdentifiers: viewModel.appSettings.disabledModelIdentifiers,
                 isRunning: viewModel.isPiAgentSessionRunning(session.id),
                 onRefresh: { viewModel.refreshPiAgentControlsForSelectedSession() },
                 onCycle: { viewModel.cyclePiAgentModelForSelectedSession() },
@@ -1007,9 +1008,13 @@ struct PiAgentContextBreakdownPopover: View {
                 Text("Context usage")
                     .font(.headline.weight(.semibold))
                 if let tokens = session.contextTokens, let window = session.contextWindow {
-                    Text("\(format(tokens)) of \(format(window)) tokens · \(formatPercent(usedPercent))")
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
+                    HStack(spacing: 4) {
+                        Image(systemName: "tugriksign.circle")
+                            .font(.caption.weight(.semibold))
+                        Text("\(format(tokens)) of \(format(window)) tokens · \(formatPercent(usedPercent))")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                    }
+                    .foregroundStyle(AppTheme.mutedText)
                 } else {
                     Text("Exact usage will appear after Pi reports session stats.")
                         .font(.caption)
@@ -1407,6 +1412,7 @@ struct PiAgentRuntimeFooter: View {
 struct PiAgentModelPicker: View {
     let session: PiAgentSessionRecord
     let fallbackModels: [AvailableModel]
+    let disabledModelIdentifiers: Set<String>
     let isRunning: Bool
     let onRefresh: () -> Void
     let onCycle: () -> Void
@@ -1510,7 +1516,9 @@ struct PiAgentModelPicker: View {
     }
 
     private var modelOptions: [PiAgentModelOption] {
-        if let models = session.availableModels, !models.isEmpty { return models }
+        if let models = session.availableModels, !models.isEmpty {
+            return models.filter { !disabledModelIdentifiers.contains($0.selectionID) }
+        }
         return fallbackModels.map { model in
             PiAgentModelOption(
                 provider: model.provider,

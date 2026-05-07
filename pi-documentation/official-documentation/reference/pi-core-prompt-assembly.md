@@ -2,7 +2,7 @@
 
 Pi Manager is a companion app around Pi. Native sessions and native subagents still run through Pi, so Pi's normal prompt assembly rules matter.
 
-This page summarizes the stable parts of `../pi-core-system-reference-and-subagents.md` from the older documentation set and connects them to Pi Manager behavior.
+This page summarizes the stable parts of `../pi-core-system-reference-and-subagents.md` from the supporting documentation set and connects them to Pi Manager behavior.
 
 ## Normal Pi session order
 
@@ -61,4 +61,4 @@ When debugging “why did Pi behave this way?”, separate:
 - Pi core instruction assembly
 - Pi Manager's scanned resource model
 - Pi Manager native subagent run construction
-- old package-managed `pi-subagents` behavior
+- native child-session behavior

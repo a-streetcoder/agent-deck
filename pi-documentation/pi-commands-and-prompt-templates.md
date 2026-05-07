@@ -70,7 +70,6 @@ Extensions can also register slash commands.
 Examples from installed packages may include:
 - `/agents`
 - `/subagents-status`
-- `/intercom`
 - `/websearch`
 
 ### What they do
@@ -280,9 +279,9 @@ Opens Pi settings UI.
 
 ### Extension command
 ```text
-/agents
+/websearch
 ```
-Opens the `pi-subagents` agent manager UI.
+Runs an extension-provided web search workflow when that extension is enabled.
 
 ### Prompt template
 If file exists:

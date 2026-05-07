@@ -794,12 +794,22 @@ struct PiAgentActivityDetailView: View {
 
 struct PiAgentStatusTranscriptRow: View {
     let entry: PiAgentTranscriptEntry
+    @State private var promptPopover: PromptPopover?
+
+    private struct PromptPopover: Identifiable {
+        let id = UUID()
+        var title: String
+        var text: String
+    }
 
     var body: some View {
         if entry.title == "Compaction" {
             compactionDivider
         } else {
             compactStatusRow
+                .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
+                    PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
+                }
         }
     }
 
@@ -862,6 +872,18 @@ struct PiAgentStatusTranscriptRow: View {
                 .buttonStyle(.borderless)
                 .help("Copy tool error")
             }
+            ForEach(promptActions) { action in
+                Button {
+                    promptPopover = .init(title: action.title, text: action.text())
+                } label: {
+                    Image(systemName: action.icon)
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.borderless)
+                .help(action.help)
+                .disabled(!action.isEnabled)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -916,6 +938,122 @@ struct PiAgentStatusTranscriptRow: View {
         if entry.title == "Compaction" { return .secondary }
         if entry.role == .error { return .red }
         return .secondary
+    }
+
+    private var promptActions: [PromptAuditAction] {
+        if entry.title == "System Prompt Captured", let prompt = capturedSystemPrompt {
+            return [
+                PromptAuditAction(
+                    title: "Final System Prompt",
+                    icon: "doc.text.magnifyingglass",
+                    help: "Show final system prompt captured from Pi runtime",
+                    isEnabled: true,
+                    text: { prompt }
+                )
+            ]
+        }
+
+        guard entry.title == "Subagent Started", let metadata = subagentPromptMetadata else { return [] }
+        return [
+            PromptAuditAction(
+                title: "Pi Manager Authored System Prompt",
+                icon: "doc.text",
+                help: "Show system prompt Pi Manager passed to the child",
+                isEnabled: true,
+                text: { promptFileText(path: metadata.authoredSystemPromptPath) }
+            ),
+            PromptAuditAction(
+                title: "Final Runtime System Prompt",
+                icon: "doc.text.magnifyingglass",
+                help: "Show system prompt captured from the child Pi runtime",
+                isEnabled: true,
+                text: { promptFileText(path: metadata.finalSystemPromptPath) }
+            )
+        ]
+    }
+
+    private var capturedSystemPrompt: String? {
+        guard let raw = entry.rawJSON,
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let prefill = object["prefill"] as? String,
+           let payload = try? JSONSerialization.jsonObject(with: Data(prefill.utf8)) as? [String: Any],
+           let prompt = payload["systemPrompt"] as? String {
+            return prompt
+        }
+        if let dataObject = object["data"] as? [String: Any],
+           let prefill = dataObject["prefill"] as? String,
+           let payload = try? JSONSerialization.jsonObject(with: Data(prefill.utf8)) as? [String: Any],
+           let prompt = payload["systemPrompt"] as? String {
+            return prompt
+        }
+        return object["systemPrompt"] as? String
+    }
+
+    private var subagentPromptMetadata: SubagentPromptMetadata? {
+        guard let raw = entry.rawJSON,
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "pi_manager_subagent_started",
+              let authored = object["authoredSystemPromptPath"] as? String,
+              let final = object["finalSystemPromptPath"] as? String else { return nil }
+        return SubagentPromptMetadata(authoredSystemPromptPath: authored, finalSystemPromptPath: final)
+    }
+}
+
+private struct PromptAuditAction: Identifiable {
+    let id = UUID()
+    var title: String
+    var icon: String
+    var help: String
+    var isEnabled: Bool
+    var text: () -> String
+}
+
+private struct SubagentPromptMetadata {
+    var authoredSystemPromptPath: String
+    var finalSystemPromptPath: String
+}
+
+private func promptFileText(path: String) -> String {
+    (try? String(contentsOfFile: path, encoding: .utf8)) ?? "Prompt file is not available yet:\n\(path)"
+}
+
+private struct PiAgentPromptAuditPopover: View {
+    var title: String
+    var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .foregroundStyle(Color.accentColor)
+                Text(title)
+                    .font(.headline)
+                Spacer(minLength: 0)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy prompt")
+            }
+
+            ScrollView {
+                Text(text.isEmpty ? "No prompt content captured." : text)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .frame(width: 720, height: 520)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.contentSubtleFill))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+        }
+        .padding(14)
     }
 }
 

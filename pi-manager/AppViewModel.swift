@@ -84,6 +84,9 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
     @Published var appSettings: AppSettings = AppSettings()
+    var enabledAvailableModels: [AvailableModel] {
+        availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
+    }
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentPendingComposerText: String?
@@ -1221,6 +1224,22 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentSessionStore.sessions.filter(\.needsAttention).count
     }
 
+    func isModelEnabled(_ model: AvailableModel) -> Bool {
+        !appSettings.disabledModelIdentifiers.contains(model.identifier)
+    }
+
+    func setModelEnabled(_ model: AvailableModel, isEnabled: Bool) {
+        guard appSettingsController.setModelEnabled(identifier: model.identifier, isEnabled: isEnabled) else { return }
+        appSettings = appSettingsController.settings
+        seedPiAgentSessionsWithAvailableModels(availableModels, overwriteExisting: true)
+    }
+
+    func enableAllModels() {
+        guard appSettingsController.enableAllModels() else { return }
+        appSettings = appSettingsController.settings
+        seedPiAgentSessionsWithAvailableModels(availableModels, overwriteExisting: true)
+    }
+
     func acknowledgePiAgentSession(_ id: UUID) {
         pendingPiAgentNotificationTasks[id]?.cancel()
         pendingPiAgentNotificationTasks[id] = nil
@@ -2171,7 +2190,7 @@ final class AppViewModel: NSObject, ObservableObject {
                 if runtimeModel.supportsThinking == false { return ["off"] }
                 return defaultPiAgentThinkingLevels(provider: provider, modelID: modelID)
             }
-            if let cached = availableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+            if let cached = enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
                 if !cached.supportedThinkingLevels.isEmpty { return cached.supportedThinkingLevels }
                 return cached.supportsThinking ? defaultPiAgentThinkingLevels(provider: provider, modelID: modelID) : ["off"]
             }
@@ -2753,7 +2772,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func availableModelIdentifiers() -> [String] {
-        availableModels.map(\.identifier)
+        enabledAvailableModels.map(\.identifier)
     }
 
     var selectedProjectName: String {
@@ -2808,7 +2827,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var availableModelProviders: [String] {
-        Array(Set(availableModels.map(\.provider)))
+        Array(Set(enabledAvailableModels.map(\.provider)))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -3562,9 +3581,10 @@ final class AppViewModel: NSObject, ObservableObject {
     private func ensurePiAgentModels(for sessionID: UUID) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
               session.availableModels?.isEmpty ?? true else { return }
-        if !availableModels.isEmpty {
+        let enabledModels = enabledAvailableModels
+        if !enabledModels.isEmpty {
             piAgentSessionStore.updateSession(sessionID) { record in
-                record.availableModels = piAgentModelOptions(from: availableModels)
+                record.availableModels = piAgentModelOptions(from: enabledModels)
             }
             return
         }
@@ -3581,13 +3601,15 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func piAgentModelOptionsForNewSession() -> [PiAgentModelOption]? {
-        availableModels.isEmpty ? nil : piAgentModelOptions(from: availableModels)
+        let models = enabledAvailableModels
+        return models.isEmpty ? nil : piAgentModelOptions(from: models)
     }
 
-    private func seedPiAgentSessionsWithAvailableModels(_ models: [AvailableModel]) {
-        guard !models.isEmpty else { return }
-        let options = piAgentModelOptions(from: models)
-        for session in piAgentSessionStore.sessions where session.availableModels?.isEmpty ?? true {
+    private func seedPiAgentSessionsWithAvailableModels(_ models: [AvailableModel], overwriteExisting: Bool = false) {
+        let enabledModels = models.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
+        guard !enabledModels.isEmpty || overwriteExisting else { return }
+        let options = piAgentModelOptions(from: enabledModels)
+        for session in piAgentSessionStore.sessions where overwriteExisting || (session.availableModels?.isEmpty ?? true) {
             piAgentSessionStore.updateSession(session.id) { record in
                 record.availableModels = options
             }

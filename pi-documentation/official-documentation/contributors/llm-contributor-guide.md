@@ -19,7 +19,7 @@ Common task reads:
 - Do not edit read-only builtin files directly.
 - Do not make report-only native subagents write project files.
 - Do not hide write targets.
-- Do not confuse old package-managed `pi-subagents` flows with current app-managed native subagents.
+- Describe current app-managed native subagents directly.
 - Do not assume a library resource is active until linked globally or into a project.
 - Do not inject stale file contents into long-lived system prompts.
 

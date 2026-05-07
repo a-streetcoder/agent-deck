@@ -10,7 +10,7 @@ reusedCache: false
 # Code Context
 
 ## Scope
-How Pi Manager can implement bundled parent-facing `managed_subagent(...)` and child-facing `contact_supervisor(...)` bridges without relying on `pi-subagents`/`pi-intercom`.
+How Pi Manager can implement bundled parent-facing `managed_subagent(...)` and child-facing `contact_supervisor(...)` bridges without relying on external coordination packages.
 
 ## Files Retrieved
 1. `pi-manager/ExtensionManagement.swift` (lines 1-340) - app extension discovery/enabling model.
@@ -89,5 +89,5 @@ Start in `PiAgentRunnerService.handleExtensionUIRequest` (`pi-manager/PiAgentRun
 - For blocking parent `managed_subagent`, avoid deadlock: the parent tool execution is waiting while app runs a child process; app must remain responsive and handle child completion asynchronously before responding to parent extension UI request.
 - Security: if using local IPC, require unguessable per-run tokens and bind only to loopback/Unix socket.
 
-## Pi-intercom handoff
-No intercom target used; findings written to `subagent-research/native-subagent-bridges-scout.md`.
+## Handoff
+Findings written to `subagent-research/native-subagent-bridges-scout.md`.

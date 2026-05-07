@@ -64,7 +64,7 @@ The parent and child runtime paths are currently separate. Parent sessions use `
 Start in `pi-manager/PiSubagentRunService.swift`. It is the single choke point for child launch, child event handling, output writing, and future `contact_supervisor` routing. Then update `PiAgentSessionModels.swift`/`PiAgentSessionStore.swift` before UI.
 
 ## Constraints And Risks
-- Do not make native runs depend on old `pi-subagents` or `/run`.
+- Do not make native runs depend on raw slash-command delegation.
 - `contact_supervisor` is filtered out of child tools today (`PiSubagentRunService.swift:56`, `271-274`); enabling it requires a real extension/tool bridge first.
 - Active subagent runs are not fixed on app restart; add recovery before long-lived runs.
 - Parent-facing `managed_subagent(...)` requires a callable Pi tool/extension. Current app only handles extension UI requests, not arbitrary host tool calls.
@@ -125,5 +125,5 @@ Smallest viable design: bundled/local extension emits an `extension_ui_request` 
 3. Pass child cwd as worktree path in `PiRPCClient` launch (`PiSubagentRunService.swift:102`).
 4. Track worktree path on child record and add reveal/diff/apply/discard UI.
 
-## Pi-intercom handoff
-No intercom handoff performed; no safe orchestrator target was needed for this scout task.
+## Handoff
+No supervisor handoff was needed for this scout task.

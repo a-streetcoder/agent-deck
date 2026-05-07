@@ -1,8 +1,6 @@
 # Pi Manager Native Subagents
 
-Pi Manager now runs app-managed native subagents without relying on the old package-managed `/run` path. The app owns child Pi RPC processes, run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs.
-
-For migrating existing package-style agents, see `pi-documentation/convert-pi-subagents-agents-to-native.md`.
+Pi Manager now runs app-managed native subagents with app-owned child RPC sessions. The app owns child Pi RPC processes, run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs.
 
 ## What is replaced
 

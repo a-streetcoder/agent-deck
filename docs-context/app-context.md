@@ -8,7 +8,7 @@ Generated from repository inspection on 2026-05-06. This is evidence-backed docu
 
 Evidence:
 
-- `pi-manager-spec.md:5` says the app is “a native macOS app for browsing, understanding, editing, and creating the resources used by Pi and `pi-subagents`.”
+- `pi-manager-spec.md:5` says the app is “a native macOS app for browsing, understanding, editing, and creating the resources used by Pi and Pi Manager native subagents.”
 - `pi-manager-spec.md:12` says it is “Pi-native manager for the actual files and settings Pi reads,” not a generic LLM prompt manager.
 - `pi-manager-spec.md:16-24` lists primary product goals: show available agents across builtin/global/project scope, show effective resolved agents, make builtin overrides and skill inheritance understandable, show precedence, improve chain authoring, and be safe about write targets.
 - `pi-manager/pi_managerApp.swift:35-51` defines the macOS app entry point, a single `WindowGroup` with `ContentView`, a settings scene, and app commands.
@@ -68,12 +68,12 @@ Evidence:
 
 ### Native subagents integrated with Pi Agent
 
-Pi Manager has an app-native subagent runtime that replaces package-managed `/run` for app-owned subagent work. Parent Pi sessions receive bridge tools; child subagents run as separate Pi RPC processes with app-managed artifacts, transcripts, supervisor requests, and optional worktrees.
+Pi Manager has an app-native subagent runtime that replaces raw slash-command delegation for app-owned subagent work. Parent Pi sessions receive bridge tools; child subagents run as separate Pi RPC processes with app-managed artifacts, transcripts, supervisor requests, and optional worktrees.
 
 Evidence:
 
 - `PI_MANAGER_NATIVE_SUBAGENTS_PLAN.md:1-8` states native single-run execution and graph foundations are implemented; remaining work includes fallback model retry and session relay.
-- `pi-documentation/native-subagents.md:1-13` says Pi Manager runs app-managed native subagents without relying on old package-managed `/run`.
+- `pi-documentation/native-subagents.md:1-13` says Pi Manager runs app-managed native subagents without relying on old raw slash-command delegation.
 - `pi-documentation/native-subagents.md:27-38` defines every native run as a parent Pi Agent session, child Pi RPC process per subagent step/task, app artifacts under `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/`, and persisted metadata/transcript entries.
 - `pi-manager/PiSubagentRunService.swift:4-18` owns child Pi RPC clients and final text/completion/supervisor timeout state.
 - `pi-manager/PiSubagentRunService.swift:20-153` builds a single native subagent run: validates task/disabled agent, creates artifact directory, resolves skill blocks, optionally creates a worktree, writes `system-prompt.md` and `input.md`, configures fork/fresh context, context/skill inheritance flags, child bridge extension, tools/extensions, model, expected outcome, read-first paths, and run records.
@@ -175,7 +175,7 @@ Evidence:
 - `pi-manager/EnvPersistence.swift`
   - Writes global `.pi/agent/.env` or project `.pi/.env`; updates/de-duplicates key lines without revealing by default (`EnvPersistence.swift:1-113`).
 - `pi-manager/SubagentConfigPersistence.swift`
-  - Writes `~/.pi/agent/extensions/subagent/config.json`-style config with async/control/parallel/worktree/intercom fields (`SubagentConfigPersistence.swift:1-55`).
+  - Writes `~/.pi/agent/extensions/subagent/config.json`-style config with async/control/parallel/worktree fields (`SubagentConfigPersistence.swift:1-55`).
 - `pi-manager/PiAgentSessionStore.swift`
   - Persists app session state to `~/Library/Application Support/Pi Manager/agent-sessions.json` (`PiAgentSessionStore.swift:25-36`).
   - Stores sessions, transcripts, UI requests, native subagent runs/transcripts, supervisor requests, and session plans (`PiAgentSessionStore.swift:4-19`).
@@ -329,7 +329,7 @@ Diagnostics surface relevant packages and warnings.
 
 Evidence:
 
-- `pi-manager/ContentView.swift:4951-5039` lists package checks for `pi-subagents`, `pi-web-access`, `pi-intercom`, and `pi-ask-user`, including install commands and installed-version detection.
+- `pi-manager/ContentView.swift:4951-5039` lists package checks for installed Pi extensions, including install commands and installed-version detection.
 - `pi-manager/PiScanner.swift:88-99` builds warnings from effective agents, raw agents, chains, skills, prompt templates, env keys, malformed resource warnings, package-skill warnings, and prompt-scan warnings.
 - `pi-manager-spec.md:74-89` calls for overview/diagnostics warnings for duplicate agents, malformed frontmatter, broken chain references, unresolved skills, missing env keys, and extension/tool mismatches.
 

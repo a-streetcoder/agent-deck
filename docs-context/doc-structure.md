@@ -7,8 +7,7 @@
 - Existing docs are split between:
   - root planning/status docs: `pi-manager-spec.md`, `PI_MANAGER_NATIVE_SUBAGENTS_PLAN.md`, `PI_MANAGER_*`, `plan.md`, `progress.md`, `research.md`, `manual-verification.md`
   - technical reference docs under `pi-documentation/`
-  - deprecated package-era docs under `pi-documentation/Deprecated-old-pi-subagents-and-intercom/`
-- The app already has an in-app Docs screen with tabs `Core System`, `Skills`, `Prompts & Commands`, `Agents & Chains`, `Architecture`, `Intercom` (`pi-manager/ContentView.swift:4592-4638`). Some strings appear stale relative to native subagents, e.g. builtin agents shown as `<pi-subagents package>/agents/*.md` (`pi-manager/ContentView.swift:4654-4668`) while newer docs say bundled native agents are app-bundled builtins.
+- The app already has an in-app Docs screen with tabs `Core System`, `Skills`, `Prompts & Commands`, `Agents & Chains`, `Architecture`, `Supervisor routing` (`pi-manager/ContentView.swift:4592-4638`). Some strings appear stale relative to native subagents, e.g. builtin agents shown as app-bundled native agents (`pi-manager/ContentView.swift:4654-4668`) while newer docs say bundled native agents are app-bundled builtins.
 - Current sidebar concepts are a useful public IA source: Workspace (`Projects`, `GitHub`), Pi Resources (`Agents`, `Chains`, `Skills`, `Prompts`), Runtime (`Extensions`, `Models`, `Settings`, `Environment`, `Diagnostics`), Reference (`Docs`) (`pi-manager/AppViewModel.swift:3850-3907`).
 
 ## Relevant source-backed product facts to preserve in official docs
@@ -23,7 +22,7 @@
 - App resource-management docs intentionally distinguish Pi runtime discovery from Pi Manager's narrower library/active/project/symlink model (`pi-documentation/pi-manager-resource-management.md:1-17`, `21-35`).
 - Pi Manager app-managed chains live in `~/.pi/agent/chains/*.chain.md`, `~/.pi/agent/agent-library/chains/*.chain.md`, and `PROJECT/.pi/chains/*.chain.md`; the docs warn the app does **not** actively discover legacy chain files in `.agents/` (`pi-documentation/pi-manager-resource-management.md:101-118`).
 - Skills have subtle discovery rules (`.pi/skills` accepts root `.md` and `SKILL.md` dirs; `.agents/skills` ignores root `.md`) that deserve their own page (`pi-documentation/pi-skills-discovery.md:19-65`).
-- Native subagents are app-managed child Pi RPC sessions, not package `/run`; the app owns run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs (`pi-documentation/native-subagents.md:1-17`).
+- Native subagents are app-managed child Pi RPC sessions, not app-owned child RPC sessions; the app owns run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs (`pi-documentation/native-subagents.md:1-17`).
 - Bundled starter agents are `scout`, `planner`, `worker`, `reviewer` and are treated as global builtins replaceable/disableable by same-name custom agents or overrides (`pi-documentation/native-subagents.md:19-30`; `pi-documentation/pi-manager-resource-management.md:89-97`).
 - Native expected outcome policy is central to safety: report-only artifacts by default; worktree edits; explicit project-file writes; direct project writes only after approval (`pi-documentation/native-subagents.md:44-56`).
 - Read-first files are hints/current-file reads, not injected stale context (`pi-documentation/native-subagents.md:57-70`).
@@ -121,8 +120,8 @@ docs/
     run-worker-in-worktree.md
     configure-env-and-mcp.md
   archive/
-    deprecated-pi-subagents-package-flow.md
-    old-intercom-flow.md
+    native-subagent-flow.md
+    native-supervisor-routing.md
 ```
 
 ### Why this structure
@@ -280,7 +279,7 @@ Outline:
 Audience: users running app-managed subagents.
 
 Outline:
-- Native subagents replace app-managed package `/run` flows.
+- Native subagents replace app-managed app-owned child RPC sessions flows.
 - Bundled agents: scout/planner/worker/reviewer.
 - Manual run sheet.
 - Expected outcomes and safety.
@@ -314,7 +313,7 @@ Audience: advanced users/contributors.
 
 Outline:
 - Pi core discovery vs Pi Manager app model.
-- Package `pi-subagents` historical behavior vs native app-managed behavior.
+- Native app-managed subagent behavior.
 - What the app scans but does not execute.
 - What native subagents own.
 
@@ -417,7 +416,7 @@ Outline:
 - Avoid stale `plan.md`/`progress.md` assumptions.
 - Report-only vs edit-file expectations.
 - Validation and evidence standards.
-- Common pitfalls: confusing package `pi-subagents` with native app-managed subagents; stale in-app docs; legacy `.agents` paths.
+- Common pitfalls: stale in-app docs; legacy `.agents` paths.
 
 ## Migration plan for existing docs
 
@@ -428,13 +427,11 @@ Suggested mapping:
 | `pi-manager-spec.md` | `docs/concepts/product-scope.md` or excerpts into `README.md` and `docs/user-guide/overview.md` | Keep full spec either archived or maintained as product reference. |
 | `pi-documentation/pi-manager-resource-management.md` | `docs/concepts/library-vs-active-resources.md` + `docs/reference/file-locations.md` | This is one of the strongest existing docs; promote it. |
 | `pi-documentation/native-subagents.md` | `docs/user-guide/native-subagents.md` + `docs/reference/native-subagent-api.md` | Split user guide from API/runtime details. |
-| `pi-documentation/convert-pi-subagents-agents-to-native.md` | `docs/recipes/migrate-package-agent-to-native.md` | Keep as migration recipe. |
 | `pi-documentation/pi-core-system-reference-and-subagents.md` | `docs/concepts/pi-runtime-vs-pi-manager.md` + `docs/reference/file-locations.md` | Remove machine-specific setup from official public docs or move to contributor notes. |
 | `pi-documentation/pi-skills-discovery.md` | `docs/reference/skill-discovery.md` | Promote mostly as-is after public tone cleanup. |
 | `pi-documentation/pi-commands-and-prompt-templates.md` | `docs/user-guide/prompts-and-commands.md` + `docs/reference/prompt-template-format.md` | Split mental model and format reference. |
 | `manual-verification.md` | `docs/contributors/testing-and-verification.md` | Current file is session-specific; extract stable checks. |
 | `PI_MANAGER_*_PLAN.md`, `plan.md`, `progress.md`, `research.md`, `subagent-research/*` | `docs/archive/` or leave outside official docs | Do not present as current user docs unless curated. |
-| `pi-documentation/Deprecated-old-pi-subagents-and-intercom/*` | `docs/archive/old-package-subagents/` | Must be clearly labeled deprecated. |
 
 ## Gaps and open questions
 
@@ -443,7 +440,7 @@ Suggested mapping:
 3. **Public support matrix**: Need official minimum macOS, Xcode, and Pi CLI versions. CI currently selects Xcode 26.4+ in `.github/workflows/macos-build.yml`, but user-facing requirements should be confirmed.
 4. **Official docs location**: Choose between `docs/` (standard GitHub convention) and existing `pi-documentation/official-documentation/`. Recommendation: use `docs/`, and optionally deprecate/redirect `pi-documentation/`.
 5. **In-app docs source of truth**: Current `PiDocsScreen` is hardcoded Swift text, not rendered from Markdown. Decide whether in-app Docs should be generated from official Markdown or maintained manually with a sync checklist.
-6. **Stale package-era references**: Some in-app docs and older markdown still describe `pi-subagents` package builtins/`/run`/intercom flows. Official docs must explicitly separate current native app-managed behavior from archived package behavior.
+6. **Stale package-era references**: Some in-app docs and older markdown still describe stale external-flow behavior. Official docs must explicitly separate current native app-managed behavior from archived package behavior.
 7. **GitHub integration docs**: Source has GitHub services/views, but existing markdown docs do not appear to cover setup, auth, or issue workflows.
 8. **MCP docs**: Spec lists MCP as a top-level concern, and core reference mentions MCP paths, but current app sidebar has no separate MCP item. Decide whether MCP is part of Environment/Settings docs or deserves its own user-guide page.
 9. **Screenshots/assets**: Public docs should include app screenshots, but none are currently organized under docs assets.

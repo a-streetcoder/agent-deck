@@ -2,10 +2,8 @@
 
 This is the app-specific reference for how **Pi Manager actually manages** agents, chains, skills, and prompt templates.
 
-It is intentionally different from the broader Pi / `pi-subagents` runtime docs.
-
-Those runtime docs explain everything Pi *can* discover.
-Pi Manager also has a **native subagent runtime** now: the app launches and tracks child Pi RPC sessions directly, instead of sending raw package `/run` commands for app-managed work. The same agent/skill/resource records described here feed that native runtime, but run execution, artifacts, supervisor requests, worktrees, chains, and parallel graphs are app-managed. See `native-subagents.md` for the execution model.
+It is intentionally different from broader Pi runtime docs, which explain everything Pi *can* discover.
+Pi Manager also has a **native subagent runtime**: the app launches and tracks child Pi RPC sessions directly. The same agent/skill/resource records described here feed that native runtime, but run execution, artifacts, supervisor requests, worktrees, chains, and parallel graphs are app-managed. See `native-subagents.md` for the execution model.
 
 This file explains the narrower model Pi Manager uses to keep things understandable:
 
@@ -40,9 +38,9 @@ That gives you one canonical file plus explicit visibility.
 
 ### 1. Builtins
 
-These come from installed packages and are read-only.
+These come from the app bundle or installed packages and are read-only.
 
-- Agents: `/opt/homebrew/lib/node_modules/pi-subagents/agents/`
+- App-bundled native agents: `pi-manager/bundled-agents/`
 - Package skills/prompts: discovered from packages listed in settings
 
 Pi Manager never edits builtin package files directly.
@@ -70,7 +68,7 @@ They are the right place for one-off experiments, repo-specific specialists, and
 ## Agents
 
 ### Builtin
-- `/opt/homebrew/lib/node_modules/pi-subagents/agents/*.md`
+- app bundle resources under `bundled-agents/*.md`
 
 ### Active global
 - preferred write target: `~/.agents/*.md` **if `~/.agents` exists**
@@ -145,7 +143,7 @@ skills: axiom-ai
 
 That means: "when this agent runs, inject the skill named `axiom-ai` into that child session."
 
-For Pi Manager native subagents, the app resolves these explicit skills from the current scan snapshot and writes their current `SKILL.md` content into the child system prompt as private skill blocks. For package-managed `pi-subagents` runs, `pi-subagents` resolves and injects explicit skills itself.
+For Pi Manager native subagents, the app resolves these explicit skills from the current scan snapshot and writes their current `SKILL.md` content into the child system prompt as private skill blocks.
 
 It does **not** mean Pi Manager copies, bundles, or carries the skill directory together with the agent.
 The agent stores only the skill name.
@@ -301,7 +299,7 @@ Library skills are shown separately because they are stored-but-not-active until
 
 ## The most important distinction: runtime discovery vs app management
 
-Pi and `pi-subagents` can discover more things than Pi Manager currently models.
+Pi can discover more things than Pi Manager currently models.
 
 Pi Manager is opinionated.
 It intentionally narrows the surface area.
@@ -310,7 +308,6 @@ It intentionally narrows the surface area.
 
 ### Agents
 - app-bundled native starter agents (`scout`, `planner`, `worker`, `reviewer`)
-- package builtin agents
 - global agents in `~/.agents` and `~/.pi/agent/agents`
 - project agents in `.pi/agents` and legacy `.agents`
 - builtin overrides from settings
@@ -423,4 +420,4 @@ If this document ever drifts, check these files:
 - `pi-manager/CommandsAndPromptsViews.swift`
 - `pi-manager/ContentView.swift`
 
-Those files define the current app behavior more accurately than older generic `pi-subagents` docs.
+Those files define the current app behavior more accurately than older generic runtime notes.

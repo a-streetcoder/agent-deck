@@ -17,7 +17,7 @@ struct AgentsScreen: View {
                 AgentDetailView(
                     agent: agent,
                     stateBadge: viewModel.builtinStateBadge(for: agent),
-                    availableModels: viewModel.availableModels,
+                    availableModels: viewModel.enabledAvailableModels,
                     availableTools: viewModel.availableToolNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
                     availableSkills: viewModel.availableSkillNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
                     availableExtensions: viewModel.availableExtensionNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),

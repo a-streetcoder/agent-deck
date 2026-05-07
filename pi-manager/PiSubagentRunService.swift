@@ -908,7 +908,6 @@ final class PiSubagentRunService {
             return
         }
 
-        let now = Date()
         if let run = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) {
             let artifactDirectory = URL(fileURLWithPath: run.artifactDirectory)
             let outputURL = artifactDirectory.appendingPathComponent("final-system-prompt.md")

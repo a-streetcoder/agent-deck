@@ -80,6 +80,10 @@ final class AppSettingsController {
         settings.nativeSubagentsEnabledForNewSessions
     }
 
+    var disabledModelIdentifiers: Set<String> {
+        settings.disabledModelIdentifiers
+    }
+
     @discardableResult
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) -> Bool {
         let normalizedMinutes = max(minutes, 1)
@@ -227,6 +231,31 @@ final class AppSettingsController {
     @discardableResult
     func toggleSubagentsForNewSessions() -> Bool {
         setSubagentsEnabledForNewSessions(!areSubagentsEnabledForNewSessions)
+    }
+
+    @discardableResult
+    func setModelEnabled(identifier: String, isEnabled: Bool) -> Bool {
+        let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return false }
+        var disabled = settings.disabledModelIdentifiers
+        let changed: Bool
+        if isEnabled {
+            changed = disabled.remove(normalized) != nil
+        } else {
+            changed = disabled.insert(normalized).inserted
+        }
+        guard changed else { return false }
+        settings.disabledModelIdentifiers = disabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func enableAllModels() -> Bool {
+        guard !settings.disabledModelIdentifiers.isEmpty else { return false }
+        settings.disabledModelIdentifiers = []
+        persist()
+        return true
     }
 
     private func persist() {

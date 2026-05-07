@@ -31,9 +31,7 @@ Pi Manager provides:
 
 ## Important distinction: subagents
 
-Older package-managed subagent workflows used extension slash commands such as `/run`, `/chain`, and `/parallel`.
-
-Pi Manager's current app-managed native subagents do not rely on those package commands. Parent Pi sessions receive generated bridge tools such as `managed_subagent`, while the app launches and tracks child Pi RPC processes itself.
+Parent Pi sessions receive generated bridge tools such as `managed_subagent`, while the app launches and tracks child Pi RPC processes itself.
 
 ## MCP note
 

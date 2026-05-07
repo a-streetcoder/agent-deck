@@ -24,6 +24,7 @@ struct AppSettings: Codable, Hashable {
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
     var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
+    var disabledModelIdentifiers: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
         case gitHubBoardCacheLifetimeMinutes
@@ -34,6 +35,7 @@ struct AppSettings: Codable, Hashable {
         case projectsRootPath
         case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
+        case disabledModelIdentifiers
     }
 
     init() {}
@@ -48,6 +50,7 @@ struct AppSettings: Codable, Hashable {
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
+        disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
     }
 }
 
