@@ -229,14 +229,20 @@ struct SidebarProjectGitHubCard: View {
         if let remote = selectedProject?.gitHubRemote {
             return remote.repo
         }
-        return selectedProject?.name ?? "Select project"
+        if let selectedProject {
+            return selectedProject.name
+        }
+        if let selectedProjectPath {
+            return URL(fileURLWithPath: selectedProjectPath).lastPathComponent
+        }
+        return "Select project"
     }
 
     private var selectedProjectSubtitle: String {
         if let remote = selectedProject?.gitHubRemote {
             return remote.owner
         }
-        return selectedProject != nil ? selectedProject?.path ?? "" : ""
+        return selectedProject?.path ?? selectedProjectPath ?? ""
     }
 
     private var accountName: String {

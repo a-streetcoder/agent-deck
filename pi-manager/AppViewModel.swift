@@ -131,6 +131,9 @@ final class AppViewModel: NSObject, ObservableObject {
 
         appSettings = appSettingsController.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
+        if let selectedProjectPath {
+            projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
+        }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         refresh(includeModels: true)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
