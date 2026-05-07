@@ -233,6 +233,10 @@ struct PiAgentScreen: View {
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
     @State private var renamingSessionID: UUID?
+    @State private var selectedSessionIDs: Set<UUID> = []
+    @State private var lastSelectedSessionID: UUID?
+    @State private var pendingDeleteSessionIDs: Set<UUID> = []
+    @State private var isDeleteSessionsAlertPresented = false
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
@@ -255,6 +259,7 @@ struct PiAgentScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             syncVisibleSessionSelection()
+            syncMultiSelectionToSelectedSession()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
             loadComposerDraft(for: store.selectedSession?.id)
@@ -271,11 +276,20 @@ struct PiAgentScreen: View {
             saveComposerDraft(for: oldID)
             renamingSessionID = nil
             syncSelectedSessionTitleDraft()
+            if let newID, !selectedSessionIDs.contains(newID) {
+                syncMultiSelectionToSelectedSession()
+            } else if newID == nil {
+                selectedSessionIDs = []
+                lastSelectedSessionID = nil
+            }
             loadComposerDraft(for: newID)
             scheduleTranscriptCacheUpdate()
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
-        .onChange(of: visibleSessionIDs) { _, _ in syncVisibleSessionSelection() }
+        .onChange(of: visibleSessionIDs) { _, _ in
+            syncVisibleSessionSelection()
+            pruneMultiSelectionToVisibleSessions()
+        }
         .onChange(of: viewModel.selectedProjectPath) { _, _ in
             rebuildVisibleSessions()
             syncVisibleSessionSelection()
@@ -298,6 +312,12 @@ struct PiAgentScreen: View {
                 onRetryChild: { child in viewModel.retryNativeSubagentGraphChild(graphRunID: run.id, childID: child.id, parentSessionID: run.parentSessionID) },
                 onOpenChildArtifacts: { child in if let path = child.artifactDirectory { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } }
             )
+        }
+        .alert(deleteSessionsAlertTitle, isPresented: $isDeleteSessionsAlertPresented) {
+            Button("Delete", role: .destructive, action: deletePendingSessions)
+            Button("Cancel", role: .cancel) { pendingDeleteSessionIDs = [] }
+        } message: {
+            Text(deleteSessionsAlertMessage)
         }
     }
 
@@ -329,6 +349,26 @@ struct PiAgentScreen: View {
         visibleSessions.map(\.id)
     }
 
+    private var deleteSessionsAlertTitle: String {
+        pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
+    }
+
+    private var deleteSessionsAlertMessage: String {
+        pendingDeleteSessionIDs.count == 1
+            ? "This removes the selected Pi Agent session and its local transcript from Pi Manager."
+            : "This removes the selected Pi Agent sessions and their local transcripts from Pi Manager."
+    }
+
+    private var sessionDeleteTargets: Set<UUID> {
+        if !selectedSessionIDs.isEmpty {
+            return selectedSessionIDs
+        }
+        if let selectedID = store.selectedSession?.id {
+            return [selectedID]
+        }
+        return []
+    }
+
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
@@ -341,12 +381,25 @@ struct PiAgentScreen: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
+                Button(role: .destructive) {
+                    requestDeleteSessions(sessionDeleteTargets)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(sessionDeleteTargets.isEmpty ? AppTheme.mutedText.opacity(0.45) : AppTheme.mutedText)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(AppTheme.contentSubtleFill.opacity(0.85)))
+                }
+                .buttonStyle(.plain)
+                .disabled(sessionDeleteTargets.isEmpty)
+                .help(sessionDeleteTargets.count > 1 ? "Delete selected sessions" : "Delete selected session")
+                .accessibilityLabel(sessionDeleteTargets.count > 1 ? "Delete selected sessions" : "Delete selected session")
                 Button {
                     viewModel.showPiAgentAttentionOnly.toggle()
                 } label: {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(viewModel.showPiAgentAttentionOnly ? .white : Color.accentColor)
                             .frame(width: 30, height: 30)
                             .background(Circle().fill(viewModel.showPiAgentAttentionOnly ? Color.accentColor : Color.accentColor.opacity(0.12)))
@@ -397,25 +450,24 @@ struct PiAgentScreen: View {
                                     PiAgentSessionRow(
                                         session: session,
                                         project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
-                                        isSelected: store.selectedSession?.id == session.id,
+                                        isSelected: selectedSessionIDs.contains(session.id),
                                         isRunning: viewModel.isPiAgentSessionRunning(session.id),
                                         isRenaming: renamingSessionID == session.id,
                                         onSelect: {
                                             renamingSessionID = nil
                                             withAnimation(.snappy(duration: 0.22)) {
-                                                viewModel.selectPiAgentSession(session.id)
+                                                selectSessionFromList(session)
                                             }
                                         },
                                         onBeginRename: {
                                             withAnimation(.snappy(duration: 0.22)) {
-                                                viewModel.selectPiAgentSession(session.id)
+                                                selectSessionFromList(session, forceSingle: true)
                                             }
                                             renamingSessionID = session.id
                                         },
                                         onEndRename: { renamingSessionID = nil },
                                         onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
-                                        onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) },
-                                        onDelete: { viewModel.deletePiAgentSession(session.id) }
+                                        onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) }
                                     )
                                     .contextMenu {
                                         Button {
@@ -424,9 +476,9 @@ struct PiAgentScreen: View {
                                             Label(session.isPinned ? "Unpin Session" : "Pin Session", systemImage: session.isPinned ? "pin.slash" : "pin")
                                         }
                                         Button(role: .destructive) {
-                                            viewModel.deletePiAgentSession(session.id)
+                                            requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
                                         } label: {
-                                            Label("Delete Session", systemImage: "trash")
+                                            Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
                                         }
                                     }
                                 }
@@ -674,10 +726,6 @@ struct PiAgentScreen: View {
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
-                subagentsEnabled: store.selectedSession?.subagentsEnabled == true,
-                subagentsEnabledForNewSessions: viewModel.areSubagentsEnabledForNewSessions,
-                onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
-                onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
                 viewModel: viewModel,
                 footerSession: store.selectedSession,
                 transcript: store.selectedTranscript,
@@ -962,6 +1010,64 @@ struct PiAgentScreen: View {
         } else {
             store.clearSelection()
         }
+    }
+
+    private func syncMultiSelectionToSelectedSession() {
+        if let selectedID = store.selectedSession?.id {
+            selectedSessionIDs = [selectedID]
+        } else {
+            selectedSessionIDs = []
+        }
+        lastSelectedSessionID = store.selectedSession?.id
+    }
+
+    private func pruneMultiSelectionToVisibleSessions() {
+        let visibleIDs = Set(visibleSessionIDs)
+        selectedSessionIDs.formIntersection(visibleIDs)
+        if let selectedID = store.selectedSession?.id, visibleIDs.contains(selectedID) {
+            selectedSessionIDs.insert(selectedID)
+        }
+        if let lastSelectedSessionID, !visibleIDs.contains(lastSelectedSessionID) {
+            self.lastSelectedSessionID = store.selectedSession?.id
+        }
+    }
+
+    private func selectSessionFromList(_ session: PiAgentSessionRecord, forceSingle: Bool = false) {
+        let modifiers = NSEvent.modifierFlags.intersection([.command, .shift])
+        if forceSingle || modifiers.isEmpty {
+            selectedSessionIDs = [session.id]
+        } else if modifiers.contains(.shift), let anchorID = lastSelectedSessionID, let anchorIndex = visibleSessionIDs.firstIndex(of: anchorID), let targetIndex = visibleSessionIDs.firstIndex(of: session.id) {
+            let range = min(anchorIndex, targetIndex)...max(anchorIndex, targetIndex)
+            selectedSessionIDs.formUnion(visibleSessionIDs[range])
+        } else if modifiers.contains(.command) {
+            if selectedSessionIDs.contains(session.id), selectedSessionIDs.count > 1 {
+                selectedSessionIDs.remove(session.id)
+            } else {
+                selectedSessionIDs.insert(session.id)
+            }
+        }
+        lastSelectedSessionID = session.id
+        viewModel.selectPiAgentSession(session.id)
+    }
+
+    private func requestDeleteSessions(_ ids: Set<UUID>) {
+        let existing = Set(store.sessions.map(\.id))
+        pendingDeleteSessionIDs = ids.intersection(existing)
+        guard !pendingDeleteSessionIDs.isEmpty else { return }
+        isDeleteSessionsAlertPresented = true
+    }
+
+    private func deletePendingSessions() {
+        let ids = pendingDeleteSessionIDs
+        pendingDeleteSessionIDs = []
+        selectedSessionIDs.subtract(ids)
+        withAnimation(.snappy(duration: 0.18)) {
+            cachedVisibleSessions.removeAll { ids.contains($0.id) }
+            hasBuiltVisibleSessions = true
+        }
+        viewModel.deletePiAgentSessions(ids)
+        rebuildVisibleSessions()
+        syncMultiSelectionToSelectedSession()
     }
 
     private func syncSelectedSessionTitleDraft() {

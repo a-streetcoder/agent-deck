@@ -2377,10 +2377,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func deletePiAgentSession(_ sessionID: UUID) {
-        if piAgentRunner.isRunning(sessionID: sessionID) {
+        deletePiAgentSessions([sessionID])
+    }
+
+    func deletePiAgentSessions(_ sessionIDs: Set<UUID>) {
+        for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID) {
             piAgentRunner.stop(sessionID: sessionID)
         }
-        piAgentSessionStore.deleteSession(sessionID)
+        piAgentSessionStore.deleteSessions(sessionIDs)
     }
 
     func prepareRepoChangesForSelectedPiAgentSession() {

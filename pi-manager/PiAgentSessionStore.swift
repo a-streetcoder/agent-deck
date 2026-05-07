@@ -393,17 +393,26 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     func deleteSession(_ sessionID: UUID) {
-        sessions.removeAll { $0.id == sessionID }
-        transcriptsBySessionID[sessionID] = nil
-        transcriptRevisionsBySessionID[sessionID] = nil
-        let runIDs = subagentRunsBySessionID[sessionID]?.map(\.id) ?? []
-        for runID in runIDs {
-            subagentTranscriptsByRunID[runID] = nil
+        deleteSessions([sessionID])
+    }
+
+    func deleteSessions(_ sessionIDs: Set<UUID>) {
+        let existingIDs = Set(sessions.map(\.id)).intersection(sessionIDs)
+        guard !existingIDs.isEmpty else { return }
+
+        sessions.removeAll { existingIDs.contains($0.id) }
+        for sessionID in existingIDs {
+            transcriptsBySessionID[sessionID] = nil
+            transcriptRevisionsBySessionID[sessionID] = nil
+            let runIDs = subagentRunsBySessionID[sessionID]?.map(\.id) ?? []
+            for runID in runIDs {
+                subagentTranscriptsByRunID[runID] = nil
+            }
+            subagentRunsBySessionID[sessionID] = nil
+            supervisorRequestsBySessionID[sessionID] = nil
+            sessionPlansBySessionID[sessionID] = nil
         }
-        subagentRunsBySessionID[sessionID] = nil
-        supervisorRequestsBySessionID[sessionID] = nil
-        sessionPlansBySessionID[sessionID] = nil
-        if selectedSessionID == sessionID {
+        if let selectedSessionID, existingIDs.contains(selectedSessionID) {
             selectedSessionID = sessions.first?.id
         }
         save()

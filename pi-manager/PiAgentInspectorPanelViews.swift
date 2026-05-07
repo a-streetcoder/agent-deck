@@ -79,10 +79,6 @@ struct PiAgentInspectorPanel: View {
                             composerFiles.append(attachment)
                         }
                     },
-                    subagentsEnabled: session.subagentsEnabled,
-                    subagentsEnabledForNewSessions: viewModel.areSubagentsEnabledForNewSessions,
-                    onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
-                    onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
                     viewModel: viewModel,
                     footerSession: session,
                     transcript: store.selectedTranscript,

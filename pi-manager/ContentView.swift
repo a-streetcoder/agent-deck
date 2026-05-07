@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var showingDisableAllProjectsAlert = false
     @State private var showingPiAgentDeleteAlert = false
     @State private var isPiAgentTranscriptOptionsPresented = false
+    @State private var isPiAgentSubagentsPopoverPresented = false
     @State private var isPiAgentRepoChangesPresented = false
     @State private var isPiAgentActivityPresented = false
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
@@ -487,15 +488,6 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItemGroup {
-                    Button(role: .destructive) {
-                        showingPiAgentDeleteAlert = true
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    .help("Delete session")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-
-
                     Button {
                         isPiAgentTranscriptOptionsPresented.toggle()
                     } label: {
@@ -504,6 +496,25 @@ struct ContentView: View {
                     .help("Choose what appears in the agent transcript")
                     .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
                         PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+                    }
+
+                    Button {
+                        isPiAgentSubagentsPopoverPresented.toggle()
+                    } label: {
+                        Label("Subagents", systemImage: "rectangle.connected.to.line.below")
+                    }
+                    .help("Toggle native subagents for this session")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+                    .popover(isPresented: $isPiAgentSubagentsPopoverPresented, arrowEdge: .bottom) {
+                        PiAgentSubagentPopover(
+                            isEnabled: Binding(
+                                get: { viewModel.piAgentSessionStore.selectedSession?.subagentsEnabled == true },
+                                set: { isEnabled in
+                                    viewModel.setSubagentsEnabledForSelectedSession(isEnabled)
+                                    viewModel.setSubagentsEnabledForNewSessions(isEnabled)
+                                }
+                            )
+                        )
                     }
 
                     Button {

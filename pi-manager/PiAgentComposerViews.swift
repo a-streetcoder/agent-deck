@@ -17,10 +17,6 @@ struct PiAgentComposerBox: View {
     let canSend: Bool
     let path: String?
     let onFiles: ([URL]) -> Void
-    let subagentsEnabled: Bool
-    let subagentsEnabledForNewSessions: Bool
-    let onSetSessionSubagentsEnabled: (Bool) -> Void
-    let onSetNewSessionSubagentsEnabled: (Bool) -> Void
     let viewModel: AppViewModel
     let footerSession: PiAgentSessionRecord?
     let transcript: [PiAgentTranscriptEntry]
@@ -30,7 +26,6 @@ struct PiAgentComposerBox: View {
     let onStop: () -> Void
     let onClear: () -> Void
     @State private var isDropTargeted = false
-    @State private var isSubagentPopoverPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -174,31 +169,6 @@ struct PiAgentComposerBox: View {
             .help("Attach images or UTF-8 text files")
             .accessibilityLabel("Attach files")
             .accessibilityHint("Attach images or UTF-8 text files")
-
-            Button {
-                isSubagentPopoverPresented.toggle()
-            } label: {
-                Image(systemName: "rectangle.connected.to.line.below")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(subagentsEnabled ? Color.accentColor : AppTheme.mutedText)
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-            .appControlSurface(cornerRadius: 15)
-            .help(subagentsEnabled ? "Native subagents are enabled" : "Native subagents are disabled")
-            .accessibilityLabel("Native subagents")
-            .accessibilityHint("Toggle native subagents for this session")
-            .popover(isPresented: $isSubagentPopoverPresented, arrowEdge: .bottom) {
-                PiAgentSubagentPopover(
-                    isEnabled: Binding(
-                        get: { subagentsEnabled },
-                        set: { isEnabled in
-                            onSetSessionSubagentsEnabled(isEnabled)
-                            onSetNewSessionSubagentsEnabled(isEnabled)
-                        }
-                    )
-                )
-            }
         }
     }
 
@@ -1453,10 +1423,10 @@ struct PiAgentRuntimeFooter: View {
             if let toolCalls = session.toolCalls {
                 metric("\(toolCalls) tools", icon: "wrench.and.screwdriver")
             }
-            metric("subagents \(session.subagentsEnabled ? "on" : "off")", icon: "rectangle.connected.to.line.below")
             if let cost = session.cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }
+            metric("subagents: \(session.subagentsEnabled ? "on" : "off")", icon: "rectangle.connected.to.line.below")
         }
         .font(.caption)
         .foregroundStyle(AppTheme.mutedText)
@@ -1468,6 +1438,8 @@ struct PiAgentRuntimeFooter: View {
             Image(systemName: icon)
                 .font(.caption2.weight(.semibold))
             Text(text)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.18), value: text)
         }
         .lineLimit(1)
     }
