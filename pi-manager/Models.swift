@@ -96,7 +96,9 @@ nonisolated struct BuiltinOverrideRecord: Hashable, @unchecked Sendable {
         hasher.combine(settingsPath)
         for key in values.keys.sorted() {
             hasher.combine(key)
-            hasher.combine(String(describing: values[key]!))
+            if let value = values[key] {
+                hasher.combine(String(describing: value))
+            }
         }
     }
 }

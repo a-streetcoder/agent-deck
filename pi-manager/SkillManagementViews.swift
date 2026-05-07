@@ -664,7 +664,6 @@ struct SkillsScreen: View {
     }
 
     private func chooseDifferentImportFolder() {
-        print("[SkillImport] chooseDifferentImportFolder currentSource=\(importSourceURL?.path ?? "nil")")
         viewModel.chooseExternalSkillsDirectory(startingAt: importSourceURL) { url in
             guard let url else { return }
             DispatchQueue.main.async {
@@ -734,4 +733,3 @@ struct SkillsScreen: View {
         """
     }
 }
-
