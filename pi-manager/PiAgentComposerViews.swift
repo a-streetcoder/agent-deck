@@ -17,12 +17,10 @@ struct PiAgentComposerBox: View {
     let canSend: Bool
     let path: String?
     let onFiles: ([URL]) -> Void
-    let subagentNames: [String]
     let subagentsEnabled: Bool
     let subagentsEnabledForNewSessions: Bool
     let onSetSessionSubagentsEnabled: (Bool) -> Void
     let onSetNewSessionSubagentsEnabled: (Bool) -> Void
-    let onSelectSubagent: (String) -> Void
     let viewModel: AppViewModel
     let footerSession: PiAgentSessionRecord?
     let transcript: [PiAgentTranscriptEntry]
@@ -187,23 +185,18 @@ struct PiAgentComposerBox: View {
             }
             .buttonStyle(.plain)
             .appControlSurface(cornerRadius: 15)
-            .help(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
+            .help(subagentsEnabled ? "Native subagents are enabled" : "Native subagents are disabled")
             .accessibilityLabel("Native subagents")
-            .accessibilityHint(subagentsEnabled ? "Run or disable native subagents" : "Native subagents are disabled")
+            .accessibilityHint("Toggle native subagents for this session")
             .popover(isPresented: $isSubagentPopoverPresented, arrowEdge: .bottom) {
                 PiAgentSubagentPopover(
-                    agentNames: subagentNames,
                     isEnabled: Binding(
                         get: { subagentsEnabled },
                         set: { isEnabled in
                             onSetSessionSubagentsEnabled(isEnabled)
                             onSetNewSessionSubagentsEnabled(isEnabled)
                         }
-                    ),
-                    onSelectAgent: { agentName in
-                        isSubagentPopoverPresented = false
-                        onSelectSubagent(agentName)
-                    }
+                    )
                 )
             }
         }
@@ -436,66 +429,25 @@ final class DropSafeNSTextView: NSTextView {
 }
 
 struct PiAgentSubagentPopover: View {
-    let agentNames: [String]
     @Binding var isEnabled: Bool
-    let onSelectAgent: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if isEnabled {
-                if agentNames.isEmpty {
-                    Text("No enabled agents found.")
-                        .font(.callout)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
-                } else {
-                    VStack(alignment: .leading, spacing: 7) {
-                        ForEach(agentNames, id: \.self) { agentName in
-                            Button {
-                                onSelectAgent(agentName)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Text(agentName)
-                                        .font(.body.weight(.medium))
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "arrow.right.circle")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            } else {
-                Label("Subagents disabled", systemImage: "nosign")
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
-            }
-
-            Divider()
-
             HStack(spacing: 12) {
-                Text("Subagents")
+                Label("Subagents", systemImage: "rectangle.connected.to.line.below")
                     .font(.body.weight(.medium))
                 Spacer(minLength: 24)
                 Toggle("Subagents", isOn: $isEnabled)
                     .toggleStyle(.switch)
                     .labelsHidden()
             }
+            Text(isEnabled ? "Parent Pi can delegate to native subagents when useful." : "Native subagent tools are not exposed to this session.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: 320, alignment: .leading)
     }
 }
 
@@ -1501,6 +1453,7 @@ struct PiAgentRuntimeFooter: View {
             if let toolCalls = session.toolCalls {
                 metric("\(toolCalls) tools", icon: "wrench.and.screwdriver")
             }
+            metric("subagents \(session.subagentsEnabled ? "on" : "off")", icon: "rectangle.connected.to.line.below")
             if let cost = session.cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }

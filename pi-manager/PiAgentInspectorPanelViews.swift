@@ -9,15 +9,6 @@ struct PiAgentInspectorPanel: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
-    @State private var isNativeSubagentRunSheetPresented = false
-    @State private var nativeSubagentAgentName = ""
-    @State private var nativeSubagentTask = ""
-    @State private var nativeSubagentUseWorktreeIsolation = false
-    @State private var nativeSubagentAllowDirectProjectWrites = false
-    @State private var nativeSubagentExpectedOutcome: PiSubagentExpectedOutcome = .reportOnly
-    @State private var nativeSubagentRequestedOutputPath = ""
-    @State private var nativeSubagentAllowOverwrite = false
-    @State private var nativeSubagentReadFirstPaths = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -88,12 +79,10 @@ struct PiAgentInspectorPanel: View {
                             composerFiles.append(attachment)
                         }
                     },
-                    subagentNames: runnableSubagentNames(for: session),
                     subagentsEnabled: session.subagentsEnabled,
                     subagentsEnabledForNewSessions: viewModel.areSubagentsEnabledForNewSessions,
                     onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
                     onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
-                    onSelectSubagent: presentNativeSubagentRun,
                     viewModel: viewModel,
                     footerSession: session,
                     transcript: store.selectedTranscript,
@@ -136,52 +125,6 @@ struct PiAgentInspectorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .sheet(isPresented: $isNativeSubagentRunSheetPresented) {
-            PiNativeSubagentRunSheet(
-                agentNames: store.selectedSession.map { runnableSubagentNames(for: $0) } ?? [],
-                agentInfos: nativeSubagentSheetInfos,
-                selectedAgentName: $nativeSubagentAgentName,
-                task: $nativeSubagentTask,
-                useWorktreeIsolation: $nativeSubagentUseWorktreeIsolation,
-                allowDirectProjectWrites: $nativeSubagentAllowDirectProjectWrites,
-                expectedOutcome: $nativeSubagentExpectedOutcome,
-                requestedOutputPath: $nativeSubagentRequestedOutputPath,
-                allowOverwrite: $nativeSubagentAllowOverwrite,
-                readFirstPathsText: $nativeSubagentReadFirstPaths,
-                projectRootPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite, readFirstPaths in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths)
-                    if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
-                        composerText = ""
-                    }
-                    isNativeSubagentRunSheetPresented = false
-                }
-            )
-        }
-    }
-
-    private func runnableSubagentNames(for session: PiAgentSessionRecord) -> [String] {
-        guard session.subagentsEnabled else { return [] }
-        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
-        return snapshot.effectiveAgents
-            .filter { $0.resolved.disabled != true }
-            .map(\.name)
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    private var nativeSubagentSheetInfos: [String: PiNativeSubagentRunSheet.AgentInfo] {
-        guard let session = store.selectedSession else { return [:] }
-        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
-        return Dictionary(uniqueKeysWithValues: snapshot.effectiveAgents.map { agent in
-            (agent.name, PiNativeSubagentRunSheet.AgentInfo(agent: agent))
-        })
-    }
-
-    private func presentNativeSubagentRun(for agentName: String) {
-        nativeSubagentAgentName = agentName
-        nativeSubagentTask = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        isNativeSubagentRunSheetPresented = true
     }
 
     private func isCompactTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {

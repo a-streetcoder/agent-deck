@@ -236,15 +236,6 @@ struct PiAgentScreen: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerAttachmentError: String?
-    @State private var isNativeSubagentRunSheetPresented = false
-    @State private var nativeSubagentAgentName = ""
-    @State private var nativeSubagentTask = ""
-    @State private var nativeSubagentUseWorktreeIsolation = false
-    @State private var nativeSubagentAllowDirectProjectWrites = false
-    @State private var nativeSubagentExpectedOutcome: PiSubagentExpectedOutcome = .reportOnly
-    @State private var nativeSubagentRequestedOutputPath = ""
-    @State private var nativeSubagentAllowOverwrite = false
-    @State private var nativeSubagentReadFirstPaths = ""
     @State private var selectedSubagentTranscriptRunID: UUID?
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
@@ -306,29 +297,6 @@ struct PiAgentScreen: View {
                 onStopChild: { child in viewModel.stopNativeSubagentGraphChild(graphRunID: run.id, childID: child.id, parentSessionID: run.parentSessionID) },
                 onRetryChild: { child in viewModel.retryNativeSubagentGraphChild(graphRunID: run.id, childID: child.id, parentSessionID: run.parentSessionID) },
                 onOpenChildArtifacts: { child in if let path = child.artifactDirectory { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } }
-            )
-        }
-        .sheet(isPresented: $isNativeSubagentRunSheetPresented) {
-            PiNativeSubagentRunSheet(
-                agentNames: runnableSubagentNames,
-                agentInfos: nativeSubagentSheetInfos,
-                selectedAgentName: $nativeSubagentAgentName,
-                task: $nativeSubagentTask,
-                useWorktreeIsolation: $nativeSubagentUseWorktreeIsolation,
-                allowDirectProjectWrites: $nativeSubagentAllowDirectProjectWrites,
-                expectedOutcome: $nativeSubagentExpectedOutcome,
-                requestedOutputPath: $nativeSubagentRequestedOutputPath,
-                allowOverwrite: $nativeSubagentAllowOverwrite,
-                readFirstPathsText: $nativeSubagentReadFirstPaths,
-                projectRootPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                onCancel: { isNativeSubagentRunSheetPresented = false },
-                onRun: { agentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, requestedOutputPath, allowOverwrite, readFirstPaths in
-                    viewModel.runNativeSubagent(agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths)
-                    if composerText.trimmingCharacters(in: .whitespacesAndNewlines) == task.trimmingCharacters(in: .whitespacesAndNewlines) {
-                        clearComposerInput()
-                    }
-                    isNativeSubagentRunSheetPresented = false
-                }
             )
         }
     }
@@ -706,12 +674,10 @@ struct PiAgentScreen: View {
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
-                subagentNames: runnableSubagentNames,
                 subagentsEnabled: store.selectedSession?.subagentsEnabled == true,
                 subagentsEnabledForNewSessions: viewModel.areSubagentsEnabledForNewSessions,
                 onSetSessionSubagentsEnabled: viewModel.setSubagentsEnabledForSelectedSession,
                 onSetNewSessionSubagentsEnabled: viewModel.setSubagentsEnabledForNewSessions,
-                onSelectSubagent: presentNativeSubagentRun,
                 viewModel: viewModel,
                 footerSession: store.selectedSession,
                 transcript: store.selectedTranscript,
@@ -801,23 +767,6 @@ struct PiAgentScreen: View {
         replaceCurrentSuggestionToken(with: command)
     }
 
-    private var runnableSubagentNames: [String] {
-        guard let session = store.selectedSession, session.subagentsEnabled else { return [] }
-        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
-        return snapshot.effectiveAgents
-            .filter { $0.resolved.disabled != true }
-            .map(\.name)
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }
-
-    private var nativeSubagentSheetInfos: [String: PiNativeSubagentRunSheet.AgentInfo] {
-        guard let session = store.selectedSession else { return [:] }
-        let snapshot = viewModel.startupSnapshot(forProjectPath: session.projectPath)
-        return Dictionary(uniqueKeysWithValues: snapshot.effectiveAgents.map { agent in
-            (agent.name, PiNativeSubagentRunSheet.AgentInfo(agent: agent))
-        })
-    }
-
     private var nativeSubagentRunsByID: [UUID: PiSubagentRunRecord] {
         guard let session = store.selectedSession else { return [:] }
         return Dictionary(uniqueKeysWithValues: store.subagentRuns(for: session.id).map { ($0.id, $0) })
@@ -859,12 +808,6 @@ struct PiAgentScreen: View {
         let target = run.outputPath ?? run.artifactDirectory
         guard !target.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: target)])
-    }
-
-    private func presentNativeSubagentRun(for agentName: String) {
-        nativeSubagentAgentName = agentName
-        nativeSubagentTask = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        isNativeSubagentRunSheetPresented = true
     }
 
     private func replaceCurrentSuggestionToken(with replacement: String) {
