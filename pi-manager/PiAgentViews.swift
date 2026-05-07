@@ -222,6 +222,31 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
     }
 }
 
+private struct PiAgentTranscriptTimelineItem: Identifiable {
+    enum Kind {
+        case thread(PiAgentTranscriptThread)
+        case plan(PiSessionPlanEventRecord)
+    }
+
+    let id: String
+    let timestamp: Date
+    let kind: Kind
+}
+
+private extension PiAgentTranscriptThread {
+    var timelineTimestamp: Date {
+        let activityEntries = activities.compactMap(\.representativeEntry)
+        let candidates = [question].compactMap { $0 }
+            + steeringMessages
+            + [thinking].compactMap { $0 }
+            + assistantMessages
+            + activityEntries
+            + statuses
+            + errors
+        return candidates.map(\.timestamp).min() ?? .distantPast
+    }
+}
+
 struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
@@ -247,6 +272,7 @@ struct PiAgentScreen: View {
     @State private var transcriptBottomScrollRequest = 0
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
+    @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
     var body: some View {
         HSplitView {
@@ -260,6 +286,7 @@ struct PiAgentScreen: View {
         .onAppear {
             syncVisibleSessionSelection()
             syncMultiSelectionToSelectedSession()
+            syncRuntimeFooterSnapshot()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
             loadComposerDraft(for: store.selectedSession?.id)
@@ -283,7 +310,11 @@ struct PiAgentScreen: View {
                 lastSelectedSessionID = nil
             }
             loadComposerDraft(for: newID)
+            syncRuntimeFooterSnapshot()
             scheduleTranscriptCacheUpdate()
+        }
+        .onChange(of: store.selectedSession?.status.isActive) { _, _ in
+            syncRuntimeFooterSnapshot()
         }
         .onChange(of: store.selectedSession?.title) { _, _ in syncSelectedSessionTitleDraft() }
         .onChange(of: visibleSessionIDs) { _, _ in
@@ -376,10 +407,15 @@ struct PiAgentScreen: View {
                     Text("Sessions")
                         .font(.title2.bold())
                         .fontWidth(.expanded)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                     Text("\(scopedSessions.count) saved · \(runningCount) active")
                         .font(.footnote)
                         .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                 }
+                .layoutPriority(1)
                 Spacer()
                 Button(role: .destructive) {
                     requestDeleteSessions(sessionDeleteTargets)
@@ -556,7 +592,7 @@ struct PiAgentScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                         if let finalSystemPrompt = session.finalSystemPrompt {
@@ -575,7 +611,8 @@ struct PiAgentScreen: View {
                         }
                     }
 
-                    if store.selectedTranscript.isEmpty {
+                    let timelineItems = transcriptTimelineItems
+                    if timelineItems.isEmpty {
                         AppRowCard {
                             HStack(spacing: 12) {
                                 Image(systemName: "text.bubble")
@@ -591,16 +628,22 @@ struct PiAgentScreen: View {
                             }
                         }
                     } else {
-                        ForEach(transcriptCache.threads) { thread in
-                            PiAgentTranscriptThreadCard(
-                                thread: thread,
-                                thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
-                                visibility: viewModel.appSettings.piAgentTranscriptVisibility,
-                                skills: visibleSkillsForSelectedSession,
-                                nativeSubagentRunsByID: nativeSubagentRunsByID,
-                                nativeSubagentCard: nativeSubagentCard
-                            )
-                            .id(thread.id)
+                        ForEach(timelineItems) { item in
+                            switch item.kind {
+                            case let .thread(thread):
+                                PiAgentTranscriptThreadCard(
+                                    thread: thread,
+                                    thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
+                                    visibility: viewModel.appSettings.piAgentTranscriptVisibility,
+                                    skills: visibleSkillsForSelectedSession,
+                                    nativeSubagentRunsByID: nativeSubagentRunsByID,
+                                    nativeSubagentCard: nativeSubagentCard
+                                )
+                                .id(thread.id)
+                            case let .plan(event):
+                                PiAgentCurrentPlanCard(event: event)
+                                    .id(event.id)
+                            }
                         }
                         if let processingMessage = selectedSessionProcessingMessage {
                             PiAgentProcessingIndicatorCard(message: processingMessage)
@@ -627,6 +670,30 @@ struct PiAgentScreen: View {
             .onChange(of: transcriptBottomScrollRequest) { _, _ in
                 scrollToRequestedBottom(proxy: proxy)
             }
+        }
+    }
+
+    private var transcriptTimelineItems: [PiAgentTranscriptTimelineItem] {
+        var items = transcriptCache.threads.map { thread in
+            PiAgentTranscriptTimelineItem(
+                id: "thread-\(thread.id.uuidString)",
+                timestamp: thread.timelineTimestamp,
+                kind: .thread(thread)
+            )
+        }
+        if viewModel.appSettings.piAgentTranscriptVisibility.showPlans,
+           let sessionID = store.selectedSession?.id {
+            items += store.sessionPlanEvents(for: sessionID).map { event in
+                PiAgentTranscriptTimelineItem(
+                    id: "plan-\(event.id.uuidString)",
+                    timestamp: event.timestamp,
+                    kind: .plan(event)
+                )
+            }
+        }
+        return items.sorted { lhs, rhs in
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+            return lhs.id < rhs.id
         }
     }
 
@@ -691,8 +758,11 @@ struct PiAgentScreen: View {
 
     private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool) {
         lastStreamingScrollAt = Date()
-        withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
-            proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
+        Task { @MainActor in
+            await Task.yield()
+            withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
+                proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
+            }
         }
     }
 
@@ -730,7 +800,7 @@ struct PiAgentScreen: View {
                 footerSession: store.selectedSession,
                 transcript: store.selectedTranscript,
                 supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
-                metricsSession: store.selectedSession,
+                metricsSession: runtimeFooterSession(isRunning: isRunning),
                 onSend: sendComposerMessage,
                 onStop: { viewModel.stopSelectedPiAgentSession() },
                 onClear: clearComposerInput
@@ -1068,6 +1138,15 @@ struct PiAgentScreen: View {
         viewModel.deletePiAgentSessions(ids)
         rebuildVisibleSessions()
         syncMultiSelectionToSelectedSession()
+        syncRuntimeFooterSnapshot()
+    }
+
+    private func runtimeFooterSession(isRunning: Bool) -> PiAgentSessionRecord? {
+        isRunning ? frozenRuntimeFooterSession ?? store.selectedSession : store.selectedSession
+    }
+
+    private func syncRuntimeFooterSnapshot() {
+        frozenRuntimeFooterSession = store.selectedSession
     }
 
     private func syncSelectedSessionTitleDraft() {

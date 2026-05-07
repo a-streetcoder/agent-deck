@@ -79,6 +79,7 @@ struct PiAgentSessionRow: View {
                         .fill(session.needsAttention ? Color.accentColor : (isRunning ? .green : statusColor))
                         .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
                     titleView
+                        .layoutPriority(1)
                     Spacer(minLength: 0)
                     Button(action: onTogglePinned) {
                         Image(systemName: session.isPinned ? "pin.fill" : "pin")
@@ -106,6 +107,7 @@ struct PiAgentSessionRow: View {
                     Text(subtitle)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .minimumScaleFactor(0.8)
                 }
                 .font(.footnote)
                 .foregroundStyle(AppTheme.mutedText)
@@ -113,6 +115,8 @@ struct PiAgentSessionRow: View {
                 Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
         }
         .padding(14)
@@ -162,6 +166,7 @@ struct PiAgentSessionRow: View {
                 Text(sessionTitle)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .minimumScaleFactor(0.75)
                 Image(systemName: "pencil")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(AppTheme.mutedText)

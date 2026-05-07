@@ -13,6 +13,26 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
     var showWebActivity: Bool = true
     var showToolCalls: Bool = true
     var showErrors: Bool = true
+    var showPlans: Bool = true
+
+    enum CodingKeys: String, CodingKey {
+        case showThinking
+        case showWebActivity
+        case showToolCalls
+        case showErrors
+        case showPlans
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showThinking = try container.decodeIfPresent(Bool.self, forKey: .showThinking) ?? true
+        showWebActivity = try container.decodeIfPresent(Bool.self, forKey: .showWebActivity) ?? true
+        showToolCalls = try container.decodeIfPresent(Bool.self, forKey: .showToolCalls) ?? true
+        showErrors = try container.decodeIfPresent(Bool.self, forKey: .showErrors) ?? true
+        showPlans = try container.decodeIfPresent(Bool.self, forKey: .showPlans) ?? true
+    }
 }
 
 struct AppSettings: Codable, Hashable {
@@ -24,6 +44,7 @@ struct AppSettings: Codable, Hashable {
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
     var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
+    var showContextSmartZoneHint: Bool = false
     var disabledModelIdentifiers: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
@@ -35,6 +56,7 @@ struct AppSettings: Codable, Hashable {
         case projectsRootPath
         case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
+        case showContextSmartZoneHint
         case disabledModelIdentifiers
     }
 
@@ -50,6 +72,7 @@ struct AppSettings: Codable, Hashable {
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
+        showContextSmartZoneHint = try container.decodeIfPresent(Bool.self, forKey: .showContextSmartZoneHint) ?? false
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
     }
 }

@@ -26,9 +26,9 @@ struct SettingsSceneContent: View {
 }
 
 private enum SettingsLayout {
-    static let formWidth: CGFloat = 660
-    static let labelWidth: CGFloat = 170
-    static let controlWidth: CGFloat = 360
+    static let formWidth: CGFloat = 700
+    static let labelWidth: CGFloat = 180
+    static let controlWidth: CGFloat = 390
     static let noteSpacing: CGFloat = 5
     static let rowSpacing: CGFloat = 10
     static let sectionSpacing: CGFloat = 18
@@ -293,6 +293,26 @@ private struct AgentSettingsTab: View {
             }
 
             SettingsSection {
+                SettingsToggleRow(
+                    title: "Context zones:",
+                    label: "Show smart/dumb zone hint",
+                    note: "Off by default. When enabled, the context meter shows a 40% smart-zone marker and explains Matt Pocock's warning that added context can degrade model decisions.",
+                    isOn: showContextSmartZoneHintBinding
+                )
+
+                SettingsRow(title: "") {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("“As LLMs receive more tokens, the relationships between tokens scale quadratically… every LLM has a smart zone and a dumb zone.”")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Link("Read the AIHero article", destination: URL(string: "https://www.aihero.dev/why-the-anthropic-ralph-plugin-sucks")!)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+
+            SettingsSection {
                 SettingsPickerRow(title: "Terminal app:", selection: piAgentTerminalApplicationSelectionBinding) {
                     ForEach(viewModel.piAgentTerminalApplicationOptions) { option in
                         Text(option.name).tag(option.id)
@@ -318,6 +338,13 @@ private struct AgentSettingsTab: View {
         Binding(
             get: { viewModel.piAgentNotificationDelayMinutes },
             set: { viewModel.setPiAgentNotificationDelayMinutes($0) }
+        )
+    }
+
+    private var showContextSmartZoneHintBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.showContextSmartZoneHint },
+            set: { viewModel.setShowContextSmartZoneHint($0) }
         )
     }
 

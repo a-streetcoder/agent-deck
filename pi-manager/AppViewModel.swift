@@ -1976,7 +1976,7 @@ final class AppViewModel: NSObject, ObservableObject {
               let text = String(data: data, encoding: .utf8) else {
             return "Session plan set with \(plan.items.count) item(s)."
         }
-        return "Session plan set. Use these ids for updates:\n\(text)"
+        return "Session plan set (`\(plan.id.uuidString)`). Use these item ids for updates:\n\(text)"
     }
 
     private func updateSessionPlanFromParentAgent(sessionID: UUID, request: PiSessionPlanUpdateBridgeRequest) -> String {
@@ -1988,7 +1988,7 @@ final class AppViewModel: NSObject, ObservableObject {
               let text = String(data: data, encoding: .utf8) else {
             return "Session plan updated."
         }
-        return "Session plan updated:\n\(text)"
+        return "Session plan updated (`\(plan.id.uuidString)`):\n\(text)"
     }
 
     private func nativeSubagentCatalogPrompt(for session: PiAgentSessionRecord) -> String? {
@@ -2629,6 +2629,11 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func setPiAgentTranscriptVisibility(_ keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>, to value: Bool) {
         guard appSettingsController.setPiAgentTranscriptVisibility(keyPath, to: value) else { return }
+        syncAppSettings()
+    }
+
+    func setShowContextSmartZoneHint(_ isEnabled: Bool) {
+        guard appSettingsController.setShowContextSmartZoneHint(isEnabled) else { return }
         syncAppSettings()
     }
 

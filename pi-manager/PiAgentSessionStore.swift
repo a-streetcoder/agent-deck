@@ -11,6 +11,7 @@ final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var subagentTranscriptsByRunID: [UUID: [PiAgentTranscriptEntry]] = [:]
     @Published private(set) var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]] = [:]
     @Published private(set) var sessionPlansBySessionID: [UUID: PiSessionPlanRecord] = [:]
+    @Published private(set) var sessionPlanEventsBySessionID: [UUID: [PiSessionPlanEventRecord]] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
     var newSessionSubagentsEnabled = true
@@ -124,6 +125,7 @@ final class PiAgentSessionStore: ObservableObject {
         subagentRunsBySessionID[record.id] = []
         supervisorRequestsBySessionID[record.id] = []
         sessionPlansBySessionID[record.id] = nil
+        sessionPlanEventsBySessionID[record.id] = []
         selectedSessionID = record.id
         save()
         return record
@@ -204,9 +206,13 @@ final class PiAgentSessionStore: ObservableObject {
         sessionPlansBySessionID[sessionID]
     }
 
+    func sessionPlanEvents(for sessionID: UUID) -> [PiSessionPlanEventRecord] {
+        sessionPlanEventsBySessionID[sessionID] ?? []
+    }
+
     func setSessionPlan(sessionID: UUID, items: [PiSessionPlanBridgeItem]) -> PiSessionPlanRecord {
         let now = Date()
-        let existing = sessionPlansBySessionID[sessionID]
+        let planID = UUID()
         var seen = Set<String>()
         let records = items.prefix(12).enumerated().compactMap { index, item -> PiSessionPlanItemRecord? in
             let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -216,7 +222,7 @@ final class PiAgentSessionStore: ObservableObject {
             let id = uniquePlanItemID(baseID, seen: &seen)
             return PiSessionPlanItemRecord(id: id, title: title, status: item.status ?? (index == 0 ? .inProgress : .todo), updatedAt: now)
         }
-        let record = PiSessionPlanRecord(sessionID: sessionID, items: records, createdAt: existing?.createdAt ?? now, updatedAt: now)
+        let record = PiSessionPlanRecord(id: planID, sessionID: sessionID, items: records, createdAt: now, updatedAt: now)
         if records.isEmpty {
             sessionPlansBySessionID[sessionID] = nil
         } else {
@@ -229,16 +235,24 @@ final class PiAgentSessionStore: ObservableObject {
     func updateSessionPlan(sessionID: UUID, updates: [PiSessionPlanBridgeUpdate]) -> PiSessionPlanRecord? {
         guard var plan = sessionPlansBySessionID[sessionID] else { return nil }
         let now = Date()
+        var changed = false
         for update in updates.prefix(12) {
             guard let index = plan.items.firstIndex(where: { $0.id == update.id }) else { continue }
-            if let title = update.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            var itemChanged = false
+            if let title = update.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, plan.items[index].title != title {
                 plan.items[index].title = title
+                itemChanged = true
             }
-            if let status = update.status {
+            if let status = update.status, plan.items[index].status != status {
                 plan.items[index].status = status
+                itemChanged = true
             }
-            plan.items[index].updatedAt = now
+            if itemChanged {
+                plan.items[index].updatedAt = now
+                changed = true
+            }
         }
+        guard changed else { return plan }
         plan.updatedAt = now
         sessionPlansBySessionID[sessionID] = plan
         touchSession(sessionID, bumpUpdatedAt: false)
@@ -248,6 +262,12 @@ final class PiAgentSessionStore: ObservableObject {
     func clearSessionPlan(sessionID: UUID) {
         sessionPlansBySessionID[sessionID] = nil
         save()
+    }
+
+    private func appendPlanEvent(sessionID: UUID, planID: UUID, kind: PiSessionPlanEventKind, items: [PiSessionPlanItemRecord], timestamp: Date) {
+        var events = sessionPlanEventsBySessionID[sessionID] ?? []
+        events.append(PiSessionPlanEventRecord(id: UUID(), sessionID: sessionID, planID: planID, kind: kind, items: items, timestamp: timestamp))
+        sessionPlanEventsBySessionID[sessionID] = Array(events.suffix(100))
     }
 
     func flushPendingSave() {
@@ -411,8 +431,9 @@ final class PiAgentSessionStore: ObservableObject {
             subagentRunsBySessionID[sessionID] = nil
             supervisorRequestsBySessionID[sessionID] = nil
             sessionPlansBySessionID[sessionID] = nil
+            sessionPlanEventsBySessionID[sessionID] = nil
         }
-        if let selectedSessionID, existingIDs.contains(selectedSessionID) {
+        if let currentSelectedSessionID = selectedSessionID, existingIDs.contains(currentSelectedSessionID) {
             selectedSessionID = sessions.first?.id
         }
         save()
@@ -491,6 +512,19 @@ final class PiAgentSessionStore: ObservableObject {
                 return (persistedRequests.sessionID, recovered)
             })
             sessionPlansBySessionID = Dictionary(uniqueKeysWithValues: (persisted.sessionPlans ?? []).map { ($0.sessionID, $0) })
+            sessionPlanEventsBySessionID = Dictionary(grouping: persisted.sessionPlanEvents ?? [], by: \.sessionID)
+            for plan in sessionPlansBySessionID.values where sessionPlanEventsBySessionID[plan.sessionID]?.isEmpty != false {
+                sessionPlanEventsBySessionID[plan.sessionID] = [
+                    PiSessionPlanEventRecord(
+                        id: UUID(),
+                        sessionID: plan.sessionID,
+                        planID: plan.id,
+                        kind: .created,
+                        items: plan.items,
+                        timestamp: plan.createdAt
+                    )
+                ]
+            }
             if let persistedSelectedSessionID = persisted.selectedSessionID,
                sessions.contains(where: { $0.id == persistedSelectedSessionID }) {
                 selectedSessionID = persistedSelectedSessionID
@@ -548,7 +582,8 @@ final class PiAgentSessionStore: ObservableObject {
                 subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
                 subagentTranscripts: subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
                 supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
-                sessionPlans: Array(sessionPlansBySessionID.values)
+                sessionPlans: Array(sessionPlansBySessionID.values),
+                sessionPlanEvents: Array(sessionPlanEventsBySessionID.values.joined())
             )
             let data = try JSONEncoder.piAgent.encode(persisted)
             try data.write(to: fileURL, options: .atomic)
@@ -566,6 +601,7 @@ private struct PersistedState: Codable {
     var subagentTranscripts: [PersistedSubagentTranscript]?
     var supervisorRequests: [PersistedSupervisorRequests]?
     var sessionPlans: [PiSessionPlanRecord]?
+    var sessionPlanEvents: [PiSessionPlanEventRecord]?
 }
 
 private struct PersistedTranscript: Codable {

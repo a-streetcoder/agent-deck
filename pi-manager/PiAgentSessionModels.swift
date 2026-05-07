@@ -166,11 +166,53 @@ struct PiSessionPlanItemRecord: Identifiable, Codable, Hashable {
     var updatedAt: Date
 }
 
-struct PiSessionPlanRecord: Codable, Hashable {
+enum PiSessionPlanEventKind: String, Codable, Hashable {
+    case created
+    case updated
+    case replaced
+    case cleared
+}
+
+struct PiSessionPlanRecord: Codable, Hashable, Identifiable {
+    var id: UUID
     var sessionID: UUID
     var items: [PiSessionPlanItemRecord]
     var createdAt: Date
     var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionID
+        case items
+        case createdAt
+        case updatedAt
+    }
+
+    init(id: UUID = UUID(), sessionID: UUID, items: [PiSessionPlanItemRecord], createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.sessionID = sessionID
+        self.items = items
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        sessionID = try container.decode(UUID.self, forKey: .sessionID)
+        items = try container.decode([PiSessionPlanItemRecord].self, forKey: .items)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
+struct PiSessionPlanEventRecord: Codable, Hashable, Identifiable {
+    var id: UUID
+    var sessionID: UUID
+    var planID: UUID
+    var kind: PiSessionPlanEventKind
+    var items: [PiSessionPlanItemRecord]
+    var timestamp: Date
 }
 
 enum PiSubagentRunMode: String, Codable, Hashable {

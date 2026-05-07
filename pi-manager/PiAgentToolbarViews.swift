@@ -79,6 +79,13 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
                 isOn: visibility.showErrors,
                 keyPath: \.showErrors
             )
+            optionRow(
+                title: "Plans",
+                subtitle: "Show the current session plan above the chat",
+                systemImage: "checklist",
+                isOn: visibility.showPlans,
+                keyPath: \.showPlans
+            )
         }
         .padding(12)
         .frame(width: 260)

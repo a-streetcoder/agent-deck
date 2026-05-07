@@ -428,7 +428,7 @@ struct PiAgentTranscriptThreadCard: View {
                             .frame(width: 2)
                             .padding(.leading, 16)
                     }
-                    LazyVStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
                         ForEach(thread.steeringMessages) { entry in
                             PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(entry.id)

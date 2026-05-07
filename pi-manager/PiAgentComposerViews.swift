@@ -755,6 +755,7 @@ struct PiAgentComposerFooterBar: View {
                 session: session,
                 transcript: transcript,
                 fallbackModels: viewModel.enabledAvailableModels,
+                showsSmartZoneHint: viewModel.appSettings.showContextSmartZoneHint,
                 onCompact: { viewModel.compactSelectedPiAgentSession() }
             )
             PiAgentModelPicker(
@@ -789,6 +790,7 @@ struct PiAgentContextUsageMeter: View {
     let session: PiAgentSessionRecord
     let transcript: [PiAgentTranscriptEntry]
     let fallbackModels: [AvailableModel]
+    let showsSmartZoneHint: Bool
     let onCompact: () -> Void
     @State private var isConfirmingCompaction = false
     @State private var isBreakdownPresented = false
@@ -819,14 +821,12 @@ struct PiAgentContextUsageMeter: View {
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                         .fixedSize()
-                    ZStack(alignment: .leading) {
-                        Capsule(style: .continuous)
-                            .fill(AppTheme.contentFill.opacity(0.75))
-                        Capsule(style: .continuous)
-                            .fill(percent > 85 ? Color.orange : Color.accentColor)
-                            .frame(width: 92 * min(max(percent, 0), 100) / 100)
-                    }
-                    .frame(width: 92, height: 10)
+                    PiAgentSmartZoneContextBar(
+                        percent: percent,
+                        showsSmartZoneHint: showsSmartZoneHint,
+                        width: 92,
+                        height: 10
+                    )
                     Text("\(Int(percent))%")
                         .font(.caption.monospacedDigit().weight(.bold))
                         .lineLimit(1)
@@ -852,10 +852,11 @@ struct PiAgentContextUsageMeter: View {
                     PiAgentContextBreakdownPopover(
                         session: session,
                         transcript: transcript,
-                        fallbackModels: fallbackModels
+                        fallbackModels: fallbackModels,
+                        showsSmartZoneHint: showsSmartZoneHint
                     )
                 }
-                .help("Show context usage details")
+                .help(showsSmartZoneHint ? "Show context usage details. Smart zone hint is enabled in Settings." : "Show context usage details")
 
                 Button {
                     isConfirmingCompaction = true
@@ -887,10 +888,56 @@ struct PiAgentContextUsageMeter: View {
     }
 }
 
+private struct PiAgentSmartZoneContextBar: View {
+    let percent: Double
+    let showsSmartZoneHint: Bool
+    let width: CGFloat
+    let height: CGFloat
+
+    private var clampedPercent: Double {
+        min(max(percent, 0), 100)
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Capsule(style: .continuous)
+                .fill(AppTheme.contentFill.opacity(0.75))
+
+            Capsule(style: .continuous)
+                .fill(clampedPercent > 85 ? Color.orange : Color.accentColor)
+                .frame(width: width * clampedPercent / 100)
+
+        }
+        .frame(width: width, height: height)
+        .overlay(alignment: .leading) {
+            if showsSmartZoneHint {
+                PiAgentSmartZoneDottedMarker()
+                    .stroke(Color.primary.opacity(0.72), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 3]))
+                    .frame(width: 1.5, height: 24)
+                    .offset(x: width * 0.4 - 0.75)
+                    .shadow(color: .black.opacity(0.24), radius: 1, x: 0, y: 0)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityLabel(showsSmartZoneHint ? "Context usage with smart zone marker" : "Context usage")
+        .accessibilityValue("\(Int(clampedPercent)) percent")
+    }
+}
+
+private struct PiAgentSmartZoneDottedMarker: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        return path
+    }
+}
+
 struct PiAgentContextBreakdownPopover: View {
     let session: PiAgentSessionRecord
     let transcript: [PiAgentTranscriptEntry]
     let fallbackModels: [AvailableModel]
+    let showsSmartZoneHint: Bool
 
     private var usedPercent: Double {
         min(max(session.contextPercent ?? 0, 0), 100)
@@ -952,6 +999,10 @@ struct PiAgentContextBreakdownPopover: View {
             }
 
             PiAgentContextDotGrid(rows: visibleRows)
+
+            if showsSmartZoneHint {
+                PiAgentSmartZoneExplanation(usedPercent: usedPercent)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 if session.contextBreakdown.isEmpty == false {
@@ -1080,6 +1131,67 @@ struct PiAgentContextBreakdownPopover: View {
             Text("\(prefix)\(format(value))")
                 .font(.caption.monospacedDigit().weight(.semibold))
         }
+    }
+}
+
+private struct PiAgentSmartZoneExplanation: View {
+    let usedPercent: Double
+
+    private var isPastSmartZone: Bool {
+        usedPercent >= 40
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label("Smart zone hint", systemImage: isPastSmartZone ? "exclamationmark.triangle.fill" : "brain.head.profile")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(isPastSmartZone ? .orange : .green)
+                Spacer()
+                Text("40% marker")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                ZStack(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(Color.green.opacity(0.26))
+                            .frame(width: width * 0.4)
+                        Rectangle()
+                            .fill(Color.orange.opacity(0.18))
+                    }
+                    Rectangle()
+                        .fill(Color.green.opacity(0.95))
+                        .frame(width: 2)
+                        .offset(x: width * 0.4 - 1)
+                    HStack(spacing: 0) {
+                        Text("Smart zone · first 40%")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.green)
+                            .frame(width: width * 0.4, alignment: .center)
+                        Text("Dumb zone / overload risk · last 60%")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.orange)
+                            .frame(width: width * 0.6, alignment: .center)
+                    }
+                }
+            }
+            .frame(height: 24)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+            Text("Matt Pocock describes a practical heuristic: the first ~40% of context is the model's “smart zone”; beyond that, more tokens can increase overload and decision mistakes. Treat this as a cautionary guide, not a hard model limit.")
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Link("Read the AIHero article", destination: URL(string: "https://www.aihero.dev/why-the-anthropic-ralph-plugin-sucks")!)
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 }
 

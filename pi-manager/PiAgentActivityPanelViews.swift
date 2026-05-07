@@ -1,24 +1,21 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct PiAgentActivityPanel: View {
     @ObservedObject var store: PiAgentSessionStore
     @Binding var isPresented: Bool
-    @State private var filter: PiAgentActivityFilter = .all
+    @StateObject private var activityCache = PiAgentActivityCache()
+    @State private var filter: PiAgentActivityFilter = .files
     @State private var selectedID: UUID?
 
     private var items: [PiAgentActivityItem] {
-        PiAgentActivityItem.items(
-            parentEntries: store.selectedTranscript,
-            subagentRuns: selectedSubagentRuns,
-            subagentTranscripts: selectedSubagentTranscripts
-        )
-            .filter { filter.includes($0) }
+        activityCache.items(for: filter)
     }
 
     private var selectedItem: PiAgentActivityItem? {
         if let selectedID, let item = items.first(where: { $0.id == selectedID }) { return item }
-        return items.first(where: { $0.kind.isFileMutation }) ?? items.first
+        return nil
     }
 
     var body: some View {
@@ -34,7 +31,6 @@ struct PiAgentActivityPanel: View {
                     if store.selectedSession == nil {
                         compactEmptyState(title: "No session selected", message: "Select a Pi Agent session to inspect tool activity.", icon: "wrench.and.screwdriver")
                     } else {
-                        stickyContext
                         filterBar
                         if items.isEmpty {
                             compactEmptyState(title: "No activity", message: filter.emptyMessage, icon: filter.emptyIcon)
@@ -44,7 +40,7 @@ struct PiAgentActivityPanel: View {
                                     ForEach(items) { item in
                                         PiAgentActivityRow(
                                             item: item,
-                                            isSelected: selectedItem?.id == item.id,
+                                            isSelected: selectedID == item.id,
                                             rootPath: item.rootPath ?? selectedRootPath,
                                             onSelect: { selectedID = item.id }
                                         )
@@ -59,9 +55,20 @@ struct PiAgentActivityPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .onChange(of: store.selectedSession?.id) { _, _ in selectedID = nil }
-        .onChange(of: items.map(\.id)) { _, ids in
-            guard let selectedID, !ids.contains(selectedID) else { return }
+        .onAppear(perform: rebuildActivityCache)
+        .onChange(of: store.selectedSession?.id) { _, _ in
+            selectedID = nil
+            rebuildActivityCache()
+        }
+        .onChange(of: store.selectedTranscriptRevision) { _, _ in rebuildActivityCache() }
+        .onReceive(store.$subagentRunsBySessionID) { _ in rebuildActivityCache() }
+        .onReceive(store.$subagentTranscriptsByRunID) { _ in rebuildActivityCache() }
+        .onReceive(activityCache.$changes) { changes in
+            let diffs = changes.compactMap(\.diff)
+            Task { await piAgentDiffRenderCache.prewarm(diffs) }
+        }
+        .onReceive(activityCache.$visibleIDsByFilter) { visibleIDsByFilter in
+            guard let selectedID, !visibleIDsByFilter[filter, default: []].contains(selectedID) else { return }
             self.selectedID = nil
         }
     }
@@ -118,6 +125,15 @@ struct PiAgentActivityPanel: View {
         })
     }
 
+    private func rebuildActivityCache() {
+        activityCache.rebuild(
+            sessionID: store.selectedSession?.id,
+            parentEntries: store.selectedTranscript,
+            subagentRuns: selectedSubagentRuns,
+            subagentTranscripts: selectedSubagentTranscripts
+        )
+    }
+
     @ViewBuilder
     private var stickyContext: some View {
         if let session = store.selectedSession {
@@ -165,45 +181,86 @@ struct PiAgentActivityPanel: View {
     }
 }
 
-private struct PiAgentCurrentPlanCard: View {
-    let plan: PiSessionPlanRecord
+struct PiAgentCurrentPlanCard: View {
+    let title: String
+    let subtitle: String
+    let items: [PiSessionPlanItemRecord]
+
+    init(plan: PiSessionPlanRecord) {
+        self.title = "Current plan"
+        self.subtitle = "Latest session checklist"
+        self.items = plan.items
+    }
+
+    init(event: PiSessionPlanEventRecord) {
+        self.title = event.displayTitle
+        self.subtitle = "Plan \(event.planID.uuidString.prefix(8)) · \(event.timestamp.formatted(date: .omitted, time: .shortened))"
+        self.items = event.items
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
                 Image(systemName: "checklist")
-                    .foregroundStyle(AppTheme.mutedText)
-                Text("Current Plan")
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.accentColor.opacity(0.13)))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
                 Spacer(minLength: 0)
                 Text(progressText)
-                    .font(.caption2.monospacedDigit())
+                    .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
             }
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(plan.items) { item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: icon(for: item.status))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(color(for: item.status))
-                            .frame(width: 16)
+
+            if items.isEmpty {
+                Text("No active plan items")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { Divider().opacity(0.45).padding(.leading, 30) }
+                    HStack(alignment: .top, spacing: 9) {
+                        ZStack {
+                            Circle()
+                                .fill(color(for: item.status).opacity(item.status == .todo ? 0.08 : 0.14))
+                                .frame(width: 20, height: 20)
+                            Image(systemName: icon(for: item.status))
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(color(for: item.status))
+                        }
                         Text(item.title)
-                            .font(.caption)
+                            .font(.callout)
                             .foregroundStyle(item.status == .done || item.status == .skipped ? AppTheme.mutedText : .primary)
                             .strikethrough(item.status == .skipped, color: AppTheme.mutedText)
-                            .lineLimit(2)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
+                    }
+                        .padding(.vertical, 7)
                     }
                 }
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.82)).stroke(AppTheme.contentStroke, lineWidth: 1))
+        .padding(12)
+        .appContentSurface(cornerRadius: 14)
     }
 
     private var progressText: String {
-        let done = plan.items.filter { $0.status == .done || $0.status == .skipped }.count
-        return "\(done)/\(plan.items.count)"
+        guard !items.isEmpty else { return "0/0" }
+        let done = items.filter { $0.status == .done || $0.status == .skipped }.count
+        return "\(done)/\(items.count)"
     }
 
     private func icon(for status: PiSessionPlanItemStatus) -> String {
@@ -223,6 +280,17 @@ private struct PiAgentCurrentPlanCard: View {
         case .done: return .green
         case .blocked: return .orange
         case .skipped: return AppTheme.mutedText
+        }
+    }
+}
+
+private extension PiSessionPlanEventRecord {
+    var displayTitle: String {
+        switch kind {
+        case .created: return "Plan created"
+        case .updated: return "Plan updated"
+        case .replaced: return "New plan"
+        case .cleared: return "Plan cleared"
         }
     }
 }
@@ -312,10 +380,101 @@ private struct PiAgentActivitySubagentRow: View {
     }
 }
 
+@MainActor
+private final class PiAgentActivityCache: ObservableObject {
+    @Published private(set) var changes: [PiAgentActivityItem] = []
+    @Published private(set) var web: [PiAgentActivityItem] = []
+    @Published private(set) var errors: [PiAgentActivityItem] = []
+    @Published private(set) var visibleIDsByFilter: [PiAgentActivityFilter: Set<UUID>] = [:]
+
+    private var signature = ""
+    private var parsedItemsByEntryID: [UUID: PiAgentActivityItem] = [:]
+    private let visibleLimit = 80
+
+    func items(for filter: PiAgentActivityFilter) -> [PiAgentActivityItem] {
+        switch filter {
+        case .files: return changes
+        case .web: return web
+        case .errors: return errors
+        }
+    }
+
+    func rebuild(sessionID: UUID?, parentEntries: [PiAgentTranscriptEntry], subagentRuns: [PiSubagentRunRecord], subagentTranscripts: [UUID: [PiAgentTranscriptEntry]]) {
+        let nextSignature = Self.signature(sessionID: sessionID, parentEntries: parentEntries, subagentRuns: subagentRuns, subagentTranscripts: subagentTranscripts)
+        guard nextSignature != signature else { return }
+        signature = nextSignature
+
+        guard sessionID != nil else {
+            parsedItemsByEntryID = [:]
+            publish(changes: [], web: [], errors: [])
+            return
+        }
+
+        let allEntries: [(entry: PiAgentTranscriptEntry, sourceName: String?, rootPath: String?)] =
+            parentEntries.map { ($0, nil, nil) } +
+            subagentRuns.flatMap { run in
+                let rootPath = run.worktreePath ?? run.parentRepoPath
+                return (subagentTranscripts[run.id] ?? []).map { ($0, run.agentName, rootPath) }
+            }
+
+        let liveEntryIDs = Set(allEntries.map(\.entry.id))
+        parsedItemsByEntryID = parsedItemsByEntryID.filter { liveEntryIDs.contains($0.key) }
+
+        var nextChanges: [PiAgentActivityItem] = []
+        var nextWeb: [PiAgentActivityItem] = []
+        var nextErrors: [PiAgentActivityItem] = []
+
+        for source in allEntries {
+            let item: PiAgentActivityItem?
+            if let cached = parsedItemsByEntryID[source.entry.id], cached.entry.rawJSON == source.entry.rawJSON, cached.entry.text == source.entry.text {
+                item = cached
+            } else {
+                item = PiAgentActivityItem(entry: source.entry, sourceName: source.sourceName, rootPath: source.rootPath)
+                if let item {
+                    parsedItemsByEntryID[source.entry.id] = item
+                }
+            }
+            guard let item else { continue }
+            if item.kind.isFileMutation { nextChanges.append(item) }
+            if item.kind.isWebActivity { nextWeb.append(item) }
+            if item.status == .failed { nextErrors.append(item) }
+        }
+
+        let newestFirst: (PiAgentActivityItem, PiAgentActivityItem) -> Bool = { $0.entry.timestamp > $1.entry.timestamp }
+        publish(
+            changes: Array(nextChanges.sorted(by: newestFirst).prefix(visibleLimit)),
+            web: Array(nextWeb.sorted(by: newestFirst).prefix(visibleLimit)),
+            errors: Array(nextErrors.sorted(by: newestFirst).prefix(visibleLimit))
+        )
+    }
+
+    private func publish(changes: [PiAgentActivityItem], web: [PiAgentActivityItem], errors: [PiAgentActivityItem]) {
+        self.changes = changes
+        self.web = web
+        self.errors = errors
+        visibleIDsByFilter = [
+            .files: Set(changes.map(\.id)),
+            .web: Set(web.map(\.id)),
+            .errors: Set(errors.map(\.id))
+        ]
+    }
+
+    private static func signature(sessionID: UUID?, parentEntries: [PiAgentTranscriptEntry], subagentRuns: [PiSubagentRunRecord], subagentTranscripts: [UUID: [PiAgentTranscriptEntry]]) -> String {
+        let parentTail = parentEntries.last.map { "\($0.id.uuidString):\($0.text.count):\($0.rawJSON?.count ?? 0)" } ?? "none"
+        let runTail = subagentRuns.map { "\($0.id.uuidString):\($0.status.rawValue):\($0.updatedAt.timeIntervalSince1970)" }.joined(separator: "|")
+        let childTail = subagentTranscripts
+            .sorted { $0.key.uuidString < $1.key.uuidString }
+            .map { runID, entries in
+                let last = entries.last.map { "\($0.id.uuidString):\($0.text.count):\($0.rawJSON?.count ?? 0)" } ?? "none"
+                return "\(runID.uuidString):\(entries.count):\(last)"
+            }
+            .joined(separator: "|")
+        return "\(sessionID?.uuidString ?? "none")#p\(parentEntries.count):\(parentTail)#r\(subagentRuns.count):\(runTail)#c\(childTail)"
+    }
+}
+
 private enum PiAgentActivityFilter: String, CaseIterable, Identifiable {
-    case all
     case files
-    case shell
     case web
     case errors
 
@@ -323,9 +482,7 @@ private enum PiAgentActivityFilter: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .all: return "All"
-        case .files: return "Files"
-        case .shell: return "Shell"
+        case .files: return "Changes"
         case .web: return "Web"
         case .errors: return "Errors"
         }
@@ -333,9 +490,7 @@ private enum PiAgentActivityFilter: String, CaseIterable, Identifiable {
 
     var emptyMessage: String {
         switch self {
-        case .all: return "Tool calls will appear here while the agent works."
-        case .files: return "File reads, writes, and edits will appear here."
-        case .shell: return "Shell commands will appear here."
+        case .files: return "File changes will appear here."
         case .web: return "Web activity will appear here."
         case .errors: return "Tool failures will appear here."
         }
@@ -343,9 +498,7 @@ private enum PiAgentActivityFilter: String, CaseIterable, Identifiable {
 
     var emptyIcon: String {
         switch self {
-        case .all: return "wrench.and.screwdriver"
         case .files: return "doc.text.magnifyingglass"
-        case .shell: return "terminal"
         case .web: return "globe"
         case .errors: return "exclamationmark.triangle"
         }
@@ -353,9 +506,7 @@ private enum PiAgentActivityFilter: String, CaseIterable, Identifiable {
 
     func includes(_ item: PiAgentActivityItem) -> Bool {
         switch self {
-        case .all: return true
-        case .files: return item.kind.isFileActivity
-        case .shell: return item.kind == .bash
+        case .files: return item.kind.isFileMutation
         case .web: return item.kind.isWebActivity
         case .errors: return item.status == .failed
         }
@@ -799,14 +950,45 @@ private struct PiAgentCodePreview: View {
     }
 }
 
+private let piAgentDiffRenderCache = PiAgentDiffRenderCache()
+
+private actor PiAgentDiffRenderCache {
+    private var cache: [String: PiAgentRenderedDiff] = [:]
+    private let maxRenderedLines = 500
+    private let prewarmLimit = 20
+
+    func prewarm(_ diffTexts: [String]) async {
+        for diffText in diffTexts.prefix(prewarmLimit) {
+            guard cache[diffText] == nil else { continue }
+            cache[diffText] = Self.render(diffText, maxRenderedLines: maxRenderedLines)
+            if Task.isCancelled { return }
+        }
+    }
+
+    func renderedDiff(for diffText: String) async -> PiAgentRenderedDiff {
+        if let cached = cache[diffText] { return cached }
+        let rendered = Self.render(diffText, maxRenderedLines: maxRenderedLines)
+        cache[diffText] = rendered
+        return rendered
+    }
+
+    private static func render(_ diffText: String, maxRenderedLines: Int) -> PiAgentRenderedDiff {
+        let rawLines = diffText.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = rawLines.prefix(maxRenderedLines).map { PiAgentDiffLine(raw: String($0)) }
+        return PiAgentRenderedDiff(lines: lines, omittedLineCount: max(rawLines.count - maxRenderedLines, 0))
+    }
+}
+
+private nonisolated struct PiAgentRenderedDiff: Sendable, Hashable {
+    let lines: [PiAgentDiffLine]
+    let omittedLineCount: Int
+}
+
 private struct PiAgentDiffView: View {
     let diffText: String
     @State private var lines: [PiAgentDiffLine] = []
-
-    init(diffText: String) {
-        self.diffText = diffText
-        _lines = State(initialValue: Self.lines(for: diffText))
-    }
+    @State private var omittedLineCount = 0
+    @State private var isLoading = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -815,23 +997,41 @@ private struct PiAgentDiffView: View {
                 .foregroundStyle(AppTheme.mutedText)
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(lines.indices, id: \.self) { index in
-                        let line = lines[index]
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(line.gutter)
+                    if isLoading && lines.isEmpty {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Preparing diff...")
                                 .font(.caption.monospaced())
-                                .foregroundStyle(line.gutterColor)
-                                .frame(width: 52, alignment: .trailing)
-                            Text(line.content.isEmpty ? " " : line.content)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(line.textColor)
-                                .textSelection(.enabled)
-                            Spacer(minLength: 0)
+                                .foregroundStyle(AppTheme.mutedText)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
                         .frame(minWidth: 620, alignment: .leading)
-                        .background(line.background)
+                        .padding(8)
+                    } else {
+                        ForEach(lines.indices, id: \.self) { index in
+                            let line = lines[index]
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(line.gutter)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(line.gutterColor)
+                                    .frame(width: 52, alignment: .trailing)
+                                Text(line.content.isEmpty ? " " : line.content)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(line.textColor)
+                                    .textSelection(.enabled)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .frame(minWidth: 620, alignment: .leading)
+                            .background(line.background)
+                        }
+                        if omittedLineCount > 0 {
+                            Text("... \(omittedLineCount) more diff lines hidden for performance. Use Copy Diff for the full diff.")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(AppTheme.mutedText)
+                                .padding(8)
+                        }
                     }
                 }
                 .padding(.vertical, 6)
@@ -839,39 +1039,41 @@ private struct PiAgentDiffView: View {
             .frame(maxHeight: 320)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.textContentFill))
         }
-        .onAppear(perform: rebuildLines)
-        .onChange(of: diffText) { _, _ in rebuildLines() }
-    }
-
-    private func rebuildLines() {
-        lines = Self.lines(for: diffText)
-    }
-
-    private static func lines(for diffText: String) -> [PiAgentDiffLine] {
-        diffText.split(separator: "\n", omittingEmptySubsequences: false).map { PiAgentDiffLine(raw: String($0)) }
+        .task(id: diffText) {
+            isLoading = true
+            let rendered = await piAgentDiffRenderCache.renderedDiff(for: diffText)
+            guard !Task.isCancelled else { return }
+            lines = rendered.lines
+            omittedLineCount = rendered.omittedLineCount
+            isLoading = false
+        }
     }
 }
 
-private struct PiAgentDiffLine: Hashable {
+private nonisolated struct PiAgentDiffLine: Hashable, Sendable {
     let prefix: String
     let lineNumber: String
     let content: String
 
     init(raw: String) {
-        let pattern = #"^([+\-\s])(\s*\d*)\s(.*)$"#
-        if let regex = try? NSRegularExpression(pattern: pattern),
-           let match = regex.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
-           match.numberOfRanges == 4,
-           let prefixRange = Range(match.range(at: 1), in: raw),
-           let lineRange = Range(match.range(at: 2), in: raw),
-           let contentRange = Range(match.range(at: 3), in: raw) {
-            prefix = String(raw[prefixRange])
-            lineNumber = String(raw[lineRange]).trimmingCharacters(in: .whitespaces)
-            content = String(raw[contentRange]).replacingOccurrences(of: "\t", with: "   ")
-        } else {
+        guard let first = raw.first, first == "+" || first == "-" || first == " " else {
             prefix = " "
             lineNumber = ""
             content = raw.replacingOccurrences(of: "\t", with: "   ")
+            return
+        }
+
+        prefix = String(first)
+        let remainder = raw.dropFirst()
+        let trimmedLeading = remainder.drop(while: { $0 == " " })
+        let numberPart = trimmedLeading.prefix(while: { $0.isNumber })
+        if numberPart.isEmpty {
+            lineNumber = ""
+            content = String(remainder.drop(while: { $0 == " " })).replacingOccurrences(of: "\t", with: "   ")
+        } else {
+            lineNumber = String(numberPart)
+            let afterNumber = trimmedLeading.dropFirst(numberPart.count)
+            content = String(afterNumber.drop(while: { $0 == " " })).replacingOccurrences(of: "\t", with: "   ")
         }
     }
 
@@ -892,7 +1094,7 @@ private struct PiAgentDiffLine: Hashable {
         switch prefix {
         case "+": return .green
         case "-": return .red
-        default: return AppTheme.mutedText
+        default: return .secondary
         }
     }
 

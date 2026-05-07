@@ -7,12 +7,14 @@ final class AppSettingsController {
     private let store: AppSettingsStore
     private(set) var settings: AppSettings
 
+    @MainActor
     init() {
         let sharedStore = AppSettingsStore.shared
         self.store = sharedStore
         self.settings = sharedStore.settings
     }
 
+    @MainActor
     init(store: AppSettingsStore) {
         self.store = store
         self.settings = store.settings
@@ -87,6 +89,10 @@ final class AppSettingsController {
 
     var disabledModelIdentifiers: Set<String> {
         settings.disabledModelIdentifiers
+    }
+
+    var shouldShowContextSmartZoneHint: Bool {
+        settings.showContextSmartZoneHint
     }
 
     @discardableResult
@@ -215,6 +221,14 @@ final class AppSettingsController {
     @discardableResult
     func togglePiAgentThinkingBlocksVisibility() -> Bool {
         setPiAgentTranscriptVisibility(\.showThinking, to: !settings.piAgentTranscriptVisibility.showThinking)
+    }
+
+    @discardableResult
+    func setShowContextSmartZoneHint(_ isEnabled: Bool) -> Bool {
+        guard settings.showContextSmartZoneHint != isEnabled else { return false }
+        settings.showContextSmartZoneHint = isEnabled
+        persist()
+        return true
     }
 
     @discardableResult

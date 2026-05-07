@@ -1038,7 +1038,6 @@ final class PiAgentRunnerService {
             return
         }
         let result = onSessionPlanSet?(sessionID, request) ?? "Pi Manager session plan routing is not available."
-        store.append(.init(sessionID: sessionID, role: .status, title: "Session Plan Updated", text: "Set \(request.items.count) item(s).", rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
@@ -1049,7 +1048,6 @@ final class PiAgentRunnerService {
             return
         }
         let result = onSessionPlanUpdate?(sessionID, request) ?? "Pi Manager session plan routing is not available."
-        store.append(.init(sessionID: sessionID, role: .status, title: "Session Plan Updated", text: "Updated \(request.updates.count) item(s).", rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 

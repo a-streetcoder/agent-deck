@@ -638,6 +638,10 @@ struct ContentView: View {
                 }
             )
         }
+        .sheet(isPresented: $isPiAgentActivityPresented) {
+            PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
+                .frame(minWidth: 760, idealWidth: 900, minHeight: 560, idealHeight: 720)
+        }
     }
 
     private func completeOnboarding() {
@@ -650,16 +654,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailSplitView: some View {
-        if viewModel.selectedSidebarItem == .agent && isPiAgentActivityPresented {
-            HStack(spacing: 0) {
-                detailView
-                    .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
-
-                Divider()
-                PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
-                    .frame(width: 380)
-            }
-        } else if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
+        if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
             HStack(spacing: 0) {
                 detailView
                     .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
