@@ -1129,13 +1129,15 @@ final class AppViewModel: NSObject, ObservableObject {
             let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
             if let existing {
                 selectPiAgentSession(existing.id)
+                seedPiAgentModelsIfNeeded(for: existing.id)
             } else {
-                _ = piAgentSessionStore.createSession(
+                let session = piAgentSessionStore.createSession(
                     kind: .project,
                     title: "Project agent · \(project.name)",
                     project: project,
                     repository: project.gitHubRemote?.nameWithOwner
                 )
+                seedPiAgentModelsIfNeeded(for: session.id)
             }
         } else {
             acknowledgeVisibleSelectedPiAgentSession()
@@ -1146,12 +1148,13 @@ final class AppViewModel: NSObject, ObservableObject {
         let project = piAgentSessionProjectContext()
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        _ = piAgentSessionStore.createSession(
+        let session = piAgentSessionStore.createSession(
             kind: .project,
             title: "Draft · \(project.name)",
             project: project,
             repository: project.gitHubRemote?.nameWithOwner
         )
+        seedPiAgentModelsIfNeeded(for: session.id)
     }
 
     func startPiAgentForSelectedProject(initialInstruction: String) {
@@ -1172,7 +1175,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        _ = piAgentSessionStore.createSession(
+        let session = piAgentSessionStore.createSession(
             kind: .issue,
             title: detail.item.title,
             project: project,
@@ -1180,6 +1183,7 @@ final class AppViewModel: NSObject, ObservableObject {
             issueNumber: detail.item.number,
             issueURL: detail.item.url
         )
+        seedPiAgentModelsIfNeeded(for: session.id)
         piAgentPendingComposerText = PiIssuePromptBuilder.issuePrompt(detail: detail, project: project)
     }
 
@@ -1197,6 +1201,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func selectPiAgentSession(_ id: UUID) {
         piAgentSessionStore.select(id)
         selectedSidebarItem = .agent
+        seedPiAgentModelsIfNeeded(for: id)
         acknowledgePiAgentSession(id)
     }
 
@@ -3541,10 +3546,67 @@ final class AppViewModel: NSObject, ObservableObject {
             let models = await PiModelDiscoveryService().loadAvailableModels()
             await MainActor.run {
                 self.availableModels = models
+                self.seedPiAgentSessionsWithAvailableModels(models)
                 self.modelsLastUpdatedAt = Date()
                 self.isRefreshingModels = false
             }
         }
+    }
+
+    private func seedPiAgentModelsIfNeeded(for sessionID: UUID) {
+        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
+              session.availableModels?.isEmpty ?? true else { return }
+        guard !availableModels.isEmpty else {
+            refreshAvailableModels()
+            return
+        }
+        piAgentSessionStore.updateSession(sessionID) { record in
+            record.availableModels = piAgentModelOptions(from: availableModels)
+        }
+    }
+
+    private func seedPiAgentSessionsWithAvailableModels(_ models: [AvailableModel]) {
+        guard !models.isEmpty else { return }
+        let options = piAgentModelOptions(from: models)
+        for session in piAgentSessionStore.sessions where session.availableModels?.isEmpty ?? true {
+            piAgentSessionStore.updateSession(session.id) { record in
+                record.availableModels = options
+            }
+        }
+    }
+
+    private func piAgentModelOptions(from models: [AvailableModel]) -> [PiAgentModelOption] {
+        models.map { model in
+            PiAgentModelOption(
+                provider: model.provider,
+                id: model.model,
+                name: nil,
+                contextWindow: Self.compactModelNumber(model.contextWindow),
+                maxOutput: Self.compactModelNumber(model.maxOutput),
+                supportsThinking: model.supportsThinking,
+                supportedThinkingLevels: model.supportedThinkingLevels,
+                supportsImages: model.supportsImages
+            )
+        }
+    }
+
+    private static func compactModelNumber(_ value: String) -> Int? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let multiplier: Double
+        let numericText: String
+        if trimmed.lowercased().hasSuffix("k") {
+            multiplier = 1_000
+            numericText = String(trimmed.dropLast())
+        } else if trimmed.lowercased().hasSuffix("m") {
+            multiplier = 1_000_000
+            numericText = String(trimmed.dropLast())
+        } else {
+            multiplier = 1
+            numericText = trimmed
+        }
+        guard let number = Double(numericText) else { return nil }
+        return Int(number * multiplier)
     }
 
     private func skillVisible(to agent: EffectiveAgentRecord, skill: SkillRecord) -> Bool {
