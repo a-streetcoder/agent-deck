@@ -1,6 +1,6 @@
 import Foundation
 
-final class PiAgentProcess: @unchecked Sendable {
+nonisolated final class PiAgentProcess: @unchecked Sendable {
     struct Configuration {
         var arguments: [String]
         var currentDirectoryURL: URL
@@ -202,7 +202,7 @@ final class PiAgentProcess: @unchecked Sendable {
     }
 }
 
-private final class LineStreamReader: @unchecked Sendable {
+private nonisolated final class LineStreamReader: @unchecked Sendable {
     private let handle: FileHandle
     private let callback: @Sendable (String) -> Void
     private let lock = NSLock()

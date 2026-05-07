@@ -7,9 +7,10 @@ final class AppSettingsController {
     private let store: AppSettingsStore
     private(set) var settings: AppSettings
 
-    init(store: AppSettingsStore = .shared) {
-        self.store = store
-        self.settings = store.settings
+    init(store: AppSettingsStore? = nil) {
+        let resolvedStore = store ?? .shared
+        self.store = resolvedStore
+        self.settings = resolvedStore.settings
     }
 
     var gitHubBoardCacheLifetime: TimeInterval {
