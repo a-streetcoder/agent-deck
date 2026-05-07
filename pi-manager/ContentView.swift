@@ -86,6 +86,8 @@ struct ContentView: View {
     @State private var isPiAgentTranscriptOptionsPresented = false
     @State private var isPiAgentRepoChangesPresented = false
     @State private var isPiAgentActivityPresented = false
+    @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
+    @State private var piAgentRightPanelCollapsedSidebar = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var isRunChainSheetPresented = false
     @State private var chainRunTask = ""
@@ -105,7 +107,7 @@ struct ContentView: View {
     }
 
     private var mainContent: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image("pi")
@@ -176,10 +178,13 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1180, minHeight: 700)
-        .toolbar(removing: .title)
+        .navigationTitle(toolbarTitle)
         .focusedSceneValue(\.piManagerCommands, commandContext)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             handleSidebarSelectionChange(newValue)
+        }
+        .onChange(of: isPiAgentRightPanelPresented) { _, isPresented in
+            updateSidebarVisibilityForPiAgentRightPanel(isPresented: isPresented)
         }
         .alert("Enable all projects?", isPresented: $showingEnableAllProjectsAlert) {
             Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
@@ -935,6 +940,43 @@ struct ContentView: View {
     private func handleSidebarSelectionChange(_ newValue: SidebarItem) {
         if newValue == .agent {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
+        } else {
+            restoreSidebarIfPiAgentRightPanelCollapsedIt()
+        }
+    }
+
+    private var isPiAgentRightPanelPresented: Bool {
+        viewModel.selectedSidebarItem == .agent && (isPiAgentActivityPresented || isPiAgentRepoChangesPresented)
+    }
+
+    private func updateSidebarVisibilityForPiAgentRightPanel(isPresented: Bool) {
+        if isPresented {
+            guard navigationColumnVisibility == .all else { return }
+            navigationColumnVisibility = .detailOnly
+            piAgentRightPanelCollapsedSidebar = true
+        } else {
+            restoreSidebarIfPiAgentRightPanelCollapsedIt()
+        }
+    }
+
+    private func restoreSidebarIfPiAgentRightPanelCollapsedIt() {
+        guard piAgentRightPanelCollapsedSidebar else { return }
+        navigationColumnVisibility = .all
+        piAgentRightPanelCollapsedSidebar = false
+    }
+
+    private var toolbarTitle: String {
+        switch viewModel.selectedSidebarItem {
+        case .agents:
+            return viewModel.selectedAgent?.name ?? "Agents"
+        case .agent:
+            return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
+        case .skills:
+            return viewModel.selectedSkill?.name ?? "Skills"
+        case .extensions:
+            return viewModel.selectedExtension?.displayName ?? "Extensions"
+        default:
+            return viewModel.selectedSidebarItem.rawValue
         }
     }
 
