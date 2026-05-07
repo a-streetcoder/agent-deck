@@ -266,8 +266,16 @@ final class AppViewModel: NSObject, ObservableObject {
         selectedChainID = allVisibleChainRecords.contains(where: { $0.id == currentChainID }) ? currentChainID : allVisibleChainRecords.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == currentSkillID }) ? currentSkillID : allVisibleSkillRecords.first?.id
         selectedExtensionID = visibleExtensions.contains(where: { $0.id == currentExtensionID }) ? currentExtensionID : visibleExtensions.first?.id
-        let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
-        selectedCommandItemID = availableCommandItemIDs.contains(currentCommandItemID ?? "") ? currentCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
+        let availablePromptIDs = Set(allVisiblePromptTemplateRecords.map(\.id))
+        let availableCommandIDs = Set(snapshot.commands.map(\.id))
+        let availableCommandItemIDs = availableCommandIDs.union(availablePromptIDs)
+        if availableCommandItemIDs.contains(currentCommandItemID ?? "") {
+            selectedCommandItemID = currentCommandItemID
+        } else if selectedSidebarItem == .commands {
+            selectedCommandItemID = snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id
+        } else {
+            selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id ?? snapshot.commands.first?.id
+        }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
         if includeModels {
@@ -3777,7 +3785,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case agents = "Agents"
     case chains = "Chains"
     case skills = "Skills"
-    case commandsAndPrompts = "Prompts"
+    case prompts = "Prompts"
+    case commands = "Commands"
     case subagents = "Subagents"
     case extensions = "Extensions"
     case models = "Models"
@@ -3796,7 +3805,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .agents: return "rectangle.connected.to.line.below"
         case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
-        case .commandsAndPrompts: return "rectangle.and.pencil.and.ellipsis"
+        case .prompts: return "rectangle.and.pencil.and.ellipsis"
+        case .commands: return "command"
         case .subagents: return "slider.horizontal.3"
         case .extensions: return "puzzlepiece.extension"
         case .models: return "cpu"
@@ -3821,7 +3831,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .workspace:
             return [.projects, .github]
         case .piResources:
-            return [.agents, .chains, .skills, .commandsAndPrompts]
+            return [.agents, .chains, .skills, .prompts, .commands]
         case .runtime:
             return [.extensions, .models, .environment, .diagnostics]
         case .reference:

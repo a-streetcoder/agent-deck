@@ -264,8 +264,6 @@ struct ContentView: View {
                 }
 
                 if let agent = viewModel.selectedAgent {
-                    ToolbarSpacer(.fixed)
-
                     ToolbarItemGroup {
                         Button {
                             editingAgent = nil
@@ -300,8 +298,6 @@ struct ContentView: View {
                         .help("More actions for the selected agent")
                     }
                 }
-
-                ToolbarSpacer(.fixed)
 
                 ToolbarItemGroup {
                     Button {
@@ -383,8 +379,6 @@ struct ContentView: View {
                 }
 
                 if let selectedChain = viewModel.selectedChain {
-                    ToolbarSpacer(.fixed)
-
                     ToolbarItemGroup {
                         Button {
                             chainRunTask = ""
@@ -450,8 +444,6 @@ struct ContentView: View {
                     }
                 }
 
-                ToolbarSpacer(.fixed)
-
                 ToolbarItemGroup {
                     Button {
                         isSubagentsInfoPresented.toggle()
@@ -473,7 +465,7 @@ struct ContentView: View {
                 }
             }
 
-            if viewModel.selectedSidebarItem == .commandsAndPrompts {
+            if viewModel.selectedSidebarItem == .prompts {
                 ToolbarItemGroup {
                     Button {
                         do { try viewModel.createLibraryPromptTemplate() }
@@ -493,7 +485,13 @@ struct ContentView: View {
                             Label("More", systemImage: "ellipsis.circle")
                         }
                         .help("More actions for the selected prompt")
-                    } else if let command = viewModel.selectedCommand {
+                    }
+                }
+            }
+
+            if viewModel.selectedSidebarItem == .extensionCommands {
+                ToolbarItemGroup {
+                    if let command = viewModel.selectedCommand {
                         Button {
                             copyCommandValue(command.invocation)
                         } label: {
@@ -516,8 +514,6 @@ struct ContentView: View {
                         SkillsInfoPopover()
                     }
                 }
-
-                ToolbarSpacer(.fixed)
 
                 ToolbarItem {
                     Button {
@@ -728,6 +724,8 @@ struct ContentView: View {
         let selectedCommand = viewModel.selectedCommand
         let selectedAgent = viewModel.selectedAgent
         let selectedAgentPath = selectedAgentFilePath
+        let promptsAreVisible = viewModel.selectedSidebarItem == .prompts
+        let extensionCommandsAreVisible = viewModel.selectedSidebarItem == .commands
 
         return PiManagerCommandContext(
             canCreateAgent: true,
@@ -744,10 +742,10 @@ struct ContentView: View {
             canAddProject: true,
             canImportSkills: true,
             canCreatePrompt: true,
-            canCopyPromptInvocation: selectedPrompt != nil,
-            canOpenPromptFile: selectedPrompt != nil,
-            canRevealPromptFile: selectedPrompt != nil,
-            canCopyCommandInvocation: selectedCommand != nil,
+            canCopyPromptInvocation: promptsAreVisible && selectedPrompt != nil,
+            canOpenPromptFile: promptsAreVisible && selectedPrompt != nil,
+            canRevealPromptFile: promptsAreVisible && selectedPrompt != nil,
+            canCopyCommandInvocation: extensionCommandsAreVisible && selectedCommand != nil,
             canOpenSelectedAgentFile: selectedAgentPath != nil,
             canRevealSelectedAgentFile: selectedAgentPath != nil,
             canEditSelectedAgent: selectedAgent != nil,
@@ -891,8 +889,10 @@ struct ContentView: View {
                 viewModel: viewModel,
                 isRecapPresented: $isSkillsRecapPresented
             )
-        case .commandsAndPrompts:
-            CommandsAndPromptsScreen(viewModel: viewModel)
+        case .prompts:
+            PromptsScreen(viewModel: viewModel)
+        case .commands:
+            ExtensionCommandsScreen(viewModel: viewModel)
         case .github:
             GitHubScreen(viewModel: viewModel)
         case .agent:
@@ -4316,14 +4316,12 @@ private struct SkillsScreen: View {
                 }
             }
             .toolbar {
-                ToolbarSpacer(.flexible)
-
-                ToolbarItem {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         isImportSheetPresented = false
                     }
                 }
-                ToolbarItem {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Import") {
                         importSelectedSkills()
                     }
@@ -4740,7 +4738,7 @@ private struct PiDocsScreen: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("In Pi, many things start with `/` but they are not all the same:")
                     Text("• **Built-in commands** — app actions like `/settings`, `/model`, `/reload`, `/quit`")
-                    Text("• **Extension commands** — registered by packages, e.g. `/agents`, `/subagents-status`")
+                    Text("• **Commands** — registered by packages, e.g. `/agents`, `/subagents-status`")
                     Text("• **Prompt templates** — file-backed `.md` templates that expand into the composer")
                     Text("• **Skill commands** — invoke a skill by name")
                 }

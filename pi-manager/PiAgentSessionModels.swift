@@ -378,12 +378,33 @@ struct PiAgentModelOption: Identifiable, Codable, Hashable {
     var id: String
     var name: String?
     var contextWindow: Int?
+    var maxOutput: Int?
     var supportsThinking: Bool?
     var supportedThinkingLevels: [String]?
     var supportsImages: Bool?
 
     var displayName: String { name?.isEmpty == false ? name! : id }
     var selectionID: String { "\(provider)/\(id)" }
+
+    init(
+        provider: String,
+        id: String,
+        name: String?,
+        contextWindow: Int?,
+        maxOutput: Int? = nil,
+        supportsThinking: Bool?,
+        supportedThinkingLevels: [String]?,
+        supportsImages: Bool?
+    ) {
+        self.provider = provider
+        self.id = id
+        self.name = name
+        self.contextWindow = contextWindow
+        self.maxOutput = maxOutput
+        self.supportsThinking = supportsThinking
+        self.supportedThinkingLevels = supportedThinkingLevels
+        self.supportsImages = supportsImages
+    }
 }
 
 struct PiAgentContextBreakdownItem: Identifiable, Codable, Hashable {
@@ -401,6 +422,189 @@ struct PiAgentContextBreakdownItem: Identifiable, Codable, Hashable {
         self.tokens = tokens
         self.percent = percent
         self.detail = detail
+    }
+}
+
+struct PiAgentContextBreakdownEstimateRow: Identifiable, Hashable {
+    enum Source: String, Hashable {
+        case estimated
+        case rpcAggregate
+    }
+
+    var id: String { key }
+
+    var key: String
+    var title: String
+    var tokens: Int?
+    var percent: Double?
+    var detail: String?
+    var source: Source
+}
+
+struct PiAgentContextBreakdownEstimate: Hashable {
+    var rows: [PiAgentContextBreakdownEstimateRow]
+    var note: String
+}
+
+struct PiAgentContextEstimateBuilder {
+    static func build(
+        session: PiAgentSessionRecord,
+        transcript: [PiAgentTranscriptEntry],
+        fallbackModels: [AvailableModel] = []
+    ) -> PiAgentContextBreakdownEstimate {
+        guard let contextWindow = positive(session.contextWindow) else {
+            return PiAgentContextBreakdownEstimate(
+                rows: [],
+                note: "Estimated rows need RPC context totals before Pi Manager can derive a useful breakdown."
+            )
+        }
+
+        let usedTokens = max(session.contextTokens ?? 0, 0)
+        let cacheTokens = max((session.cacheReadTokens ?? 0) + (session.cacheWriteTokens ?? 0), 0)
+        let outputBufferTokens = selectedMaxOutputTokens(session: session, fallbackModels: fallbackModels)
+        let rawMessageTokens = estimatedTranscriptTokens(transcript)
+        let messageBudget = max(usedTokens - cacheTokens, 0)
+        let messageTokens = min(rawMessageTokens, messageBudget)
+
+        var rows: [PiAgentContextBreakdownEstimateRow] = []
+        if messageTokens > 0 || rawMessageTokens > 0 {
+            rows.append(.init(
+                key: "estimatedMessages",
+                title: "Messages",
+                tokens: messageTokens,
+                percent: percent(messageTokens, of: contextWindow),
+                detail: rawMessageTokens > messageTokens
+                    ? "Estimated from visible user, assistant, tool, and thinking transcript entries; clamped to RPC used tokens."
+                    : "Estimated from visible user, assistant, tool, and thinking transcript entries.",
+                source: .estimated
+            ))
+        }
+
+        if cacheTokens > 0 {
+            rows.append(.init(
+                key: "estimatedCachedPromptTools",
+                title: "Cached prompt/tools",
+                tokens: min(cacheTokens, usedTokens),
+                percent: percent(min(cacheTokens, usedTokens), of: contextWindow),
+                detail: "RPC cache read/write total. This is a prompt/tools proxy, not an exact category.",
+                source: .rpcAggregate
+            ))
+        }
+
+        let accountedUsedTokens = messageTokens + min(cacheTokens, usedTokens)
+        let otherUsedTokens = max(usedTokens - accountedUsedTokens, 0)
+        if otherUsedTokens > 0 {
+            rows.append(.init(
+                key: "estimatedOtherUsedContext",
+                title: "Other used context",
+                tokens: otherUsedTokens,
+                percent: percent(otherUsedTokens, of: contextWindow),
+                detail: "RPC used tokens not attributed to visible transcript or cache proxy estimates.",
+                source: .rpcAggregate
+            ))
+        }
+
+        if let outputBufferTokens, outputBufferTokens > 0 {
+            rows.append(.init(
+                key: "estimatedOutputBuffer",
+                title: "Output buffer",
+                tokens: outputBufferTokens,
+                percent: percent(outputBufferTokens, of: contextWindow),
+                detail: "Reserved from selected model max output metadata.",
+                source: .estimated
+            ))
+        }
+
+        let reservedOutput = outputBufferTokens ?? 0
+        let freeTokens = max(contextWindow - usedTokens - reservedOutput, 0)
+        rows.append(.init(
+            key: "estimatedFreeSpace",
+            title: "Free space",
+            tokens: freeTokens,
+            percent: percent(freeTokens, of: contextWindow),
+            detail: outputBufferTokens == nil
+                ? "Output buffer is not reserved because selected model max output is unavailable."
+                : nil,
+            source: .estimated
+        ))
+
+        return PiAgentContextBreakdownEstimate(
+            rows: rows,
+            note: "Estimated from Pi Manager transcript and RPC token totals. Exact category data is not exposed by current Pi RPC."
+        )
+    }
+
+    static func parseTokenCount(_ value: String) -> Int? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmed.isEmpty == false else { return nil }
+        let multiplier: Double
+        let numberText: String
+        if trimmed.hasSuffix("k") {
+            multiplier = 1_000
+            numberText = String(trimmed.dropLast())
+        } else if trimmed.hasSuffix("m") {
+            multiplier = 1_000_000
+            numberText = String(trimmed.dropLast())
+        } else {
+            multiplier = 1
+            numberText = trimmed.replacingOccurrences(of: ",", with: "")
+        }
+        guard let number = Double(numberText.replacingOccurrences(of: ",", with: "")) else { return nil }
+        return max(Int((number * multiplier).rounded()), 0)
+    }
+
+    private static func positive(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
+    }
+
+    private static func percent(_ tokens: Int, of contextWindow: Int) -> Double {
+        guard contextWindow > 0 else { return 0 }
+        return min(max((Double(max(tokens, 0)) / Double(contextWindow)) * 100, 0), 100)
+    }
+
+    private static func estimatedTranscriptTokens(_ transcript: [PiAgentTranscriptEntry]) -> Int {
+        transcript.reduce(0) { total, entry in
+            guard isProviderVisibleEstimateRole(entry.role) else { return total }
+            let text = transcriptTextForEstimate(entry)
+            guard text.isEmpty == false else { return total }
+            return total + Int(ceil(Double(text.count) / 4.0))
+        }
+    }
+
+    private static func isProviderVisibleEstimateRole(_ role: PiAgentTranscriptRole) -> Bool {
+        switch role {
+        case .user, .assistant, .tool, .thinking:
+            return true
+        case .status, .error, .stderr, .raw:
+            return false
+        }
+    }
+
+    private static func transcriptTextForEstimate(_ entry: PiAgentTranscriptEntry) -> String {
+        let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard entry.role == .tool else { return text }
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.isEmpty { return text }
+        if text.isEmpty { return title }
+        return "\(title)\n\(text)"
+    }
+
+    private static func selectedMaxOutputTokens(session: PiAgentSessionRecord, fallbackModels: [AvailableModel]) -> Int? {
+        let provider = session.modelOverrideProvider ?? session.modelProvider
+        let modelID = session.modelOverrideID ?? session.model
+        guard let provider, let modelID else { return nil }
+
+        if let option = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }),
+           let maxOutput = positive(option.maxOutput) {
+            return maxOutput
+        }
+
+        if let model = fallbackModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+            return parseTokenCount(model.maxOutput)
+        }
+
+        return nil
     }
 }
 

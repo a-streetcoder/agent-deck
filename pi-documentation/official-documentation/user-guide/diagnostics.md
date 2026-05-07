@@ -33,3 +33,7 @@ Check the expected outcome. Report-only runs write to app artifacts, not project
 ### Extension command list looks stale
 
 Runtime commands come from Pi RPC and loaded extensions. Start a new Pi session or reload Pi after changing extension settings.
+
+### Context breakdown rows are labelled estimated
+
+Pi Manager prefers exact `contextBreakdown` rows when Pi RPC provides them. Current Pi RPC commonly exposes only aggregate context totals, so Pi Manager's native popover derives fallback rows from the local transcript and RPC token totals. Those rows are intentionally labelled estimated and should not be treated as exact system prompt, tool schema, or message category observability.

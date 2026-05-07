@@ -712,6 +712,7 @@ struct PiAgentScreen: View {
                 onSelectSubagent: presentNativeSubagentRun,
                 viewModel: viewModel,
                 footerSession: store.selectedSession,
+                transcript: store.selectedTranscript,
                 supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
                 metricsSession: store.selectedSession,
                 onSend: sendComposerMessage,
@@ -1327,9 +1328,12 @@ private struct PiAgentStartupResourcesCard: View {
         case .skill(let id):
             viewModel.selectedSkillID = id
             viewModel.selectedSidebarItem = .skills
-        case .command(let id), .prompt(let id):
+        case .command(let id):
             viewModel.selectedCommandItemID = id
-            viewModel.selectedSidebarItem = .commandsAndPrompts
+            viewModel.selectedSidebarItem = .commands
+        case .prompt(let id):
+            viewModel.selectedCommandItemID = id
+            viewModel.selectedSidebarItem = .prompts
         case .extensions:
             viewModel.selectedSidebarItem = .extensions
         case .environment:
@@ -2993,6 +2997,7 @@ struct PiAgentComposerBox: View {
     let onSelectSubagent: (String) -> Void
     let viewModel: AppViewModel
     let footerSession: PiAgentSessionRecord?
+    let transcript: [PiAgentTranscriptEntry]
     let supportedThinkingLevels: [String]
     let metricsSession: PiAgentSessionRecord?
     let onSend: () -> Void
@@ -3061,6 +3066,7 @@ struct PiAgentComposerBox: View {
                         PiAgentComposerFooterBar(
                             session: footerSession,
                             viewModel: viewModel,
+                            transcript: transcript,
                             supportedThinkingLevels: supportedThinkingLevels
                         )
                         composerActionControls
@@ -3790,11 +3796,17 @@ struct PiAgentModelSelection {
 struct PiAgentComposerFooterBar: View {
     let session: PiAgentSessionRecord
     @ObservedObject var viewModel: AppViewModel
+    let transcript: [PiAgentTranscriptEntry]
     let supportedThinkingLevels: [String]
 
     var body: some View {
         HStack(spacing: 10) {
-            PiAgentContextUsageMeter(session: session, onCompact: { viewModel.compactSelectedPiAgentSession() })
+            PiAgentContextUsageMeter(
+                session: session,
+                transcript: transcript,
+                fallbackModels: viewModel.availableModels,
+                onCompact: { viewModel.compactSelectedPiAgentSession() }
+            )
             PiAgentModelPicker(
                 session: session,
                 fallbackModels: viewModel.availableModels,
@@ -3822,6 +3834,8 @@ struct PiAgentComposerFooterBar: View {
 
 struct PiAgentContextUsageMeter: View {
     let session: PiAgentSessionRecord
+    let transcript: [PiAgentTranscriptEntry]
+    let fallbackModels: [AvailableModel]
     let onCompact: () -> Void
     @State private var isConfirmingCompaction = false
     @State private var isBreakdownPresented = false
@@ -3881,7 +3895,11 @@ struct PiAgentContextUsageMeter: View {
                     isBreakdownPresented = true
                 }
                 .popover(isPresented: $isBreakdownPresented, arrowEdge: .bottom) {
-                    PiAgentContextBreakdownPopover(session: session)
+                    PiAgentContextBreakdownPopover(
+                        session: session,
+                        transcript: transcript,
+                        fallbackModels: fallbackModels
+                    )
                 }
                 .help("Show context usage details")
 
@@ -3917,19 +3935,42 @@ struct PiAgentContextUsageMeter: View {
 
 struct PiAgentContextBreakdownPopover: View {
     let session: PiAgentSessionRecord
+    let transcript: [PiAgentTranscriptEntry]
+    let fallbackModels: [AvailableModel]
 
     private var usedPercent: Double {
         min(max(session.contextPercent ?? 0, 0), 100)
     }
 
-    private var freeTokens: Int? {
-        guard let tokens = session.contextTokens, let window = session.contextWindow else { return nil }
-        return max(window - tokens, 0)
+    private var estimate: PiAgentContextBreakdownEstimate {
+        PiAgentContextEstimateBuilder.build(
+            session: session,
+            transcript: transcript,
+            fallbackModels: fallbackModels
+        )
     }
 
-    private var freePercent: Double? {
-        guard let percent = session.contextPercent else { return nil }
-        return max(100 - percent, 0)
+    private var visibleRows: [PiAgentContextVisualRow] {
+        if session.contextBreakdown.isEmpty == false {
+            return session.contextBreakdown.map {
+                PiAgentContextVisualRow(
+                    key: $0.key,
+                    title: $0.title,
+                    tokens: $0.tokens,
+                    percent: $0.percent,
+                    tint: tint(for: $0.key)
+                )
+            }
+        }
+        return estimate.rows.map {
+            PiAgentContextVisualRow(
+                key: $0.key,
+                title: $0.title,
+                tokens: $0.tokens,
+                percent: $0.percent,
+                tint: tint(for: $0.key)
+            )
+        }
     }
 
     var body: some View {
@@ -3948,8 +3989,13 @@ struct PiAgentContextBreakdownPopover: View {
                 }
             }
 
+            PiAgentContextDotGrid(rows: visibleRows)
+
             VStack(alignment: .leading, spacing: 8) {
                 if session.contextBreakdown.isEmpty == false {
+                    Text("Exact from Pi RPC")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.mutedText)
                     ForEach(session.contextBreakdown) { item in
                         PiAgentContextBreakdownRow(
                             title: item.title,
@@ -3960,21 +4006,29 @@ struct PiAgentContextBreakdownPopover: View {
                         )
                     }
                 } else {
-                    PiAgentContextBreakdownRow(
-                        title: "Used context",
-                        tokens: session.contextTokens,
-                        percent: session.contextPercent,
-                        detail: nil,
-                        tint: usedPercent > 85 ? .orange : .accentColor
-                    )
-                    PiAgentContextBreakdownRow(
-                        title: "Free space",
-                        tokens: freeTokens,
-                        percent: freePercent,
-                        detail: nil,
-                        tint: .secondary
-                    )
-                    Text("Detailed category data is unavailable from Pi for this session.")
+                    Text("Estimated")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    if estimate.rows.isEmpty {
+                        PiAgentContextBreakdownRow(
+                            title: "Used context",
+                            tokens: session.contextTokens,
+                            percent: session.contextPercent,
+                            detail: nil,
+                            tint: usedPercent > 85 ? .orange : .accentColor
+                        )
+                    } else {
+                        ForEach(estimate.rows) { row in
+                            PiAgentContextBreakdownRow(
+                                title: row.title,
+                                tokens: row.tokens,
+                                percent: row.percent,
+                                detail: row.detail,
+                                tint: tint(for: row.key)
+                            )
+                        }
+                    }
+                    Text(estimate.note)
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3993,7 +4047,7 @@ struct PiAgentContextBreakdownPopover: View {
             }
         }
         .padding(14)
-        .frame(width: 330, alignment: .leading)
+        .frame(width: 360, alignment: .leading)
     }
 
     private func tint(for key: String) -> Color {
@@ -4002,11 +4056,15 @@ struct PiAgentContextBreakdownPopover: View {
             return .purple
         case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results":
             return .blue
-        case "messages":
+        case "messages", "estimatedMessages":
             return .accentColor
-        case "freeSpace", "free_space":
+        case "estimatedCachedPromptTools":
+            return .blue
+        case "estimatedOtherUsedContext":
+            return .orange
+        case "freeSpace", "free_space", "estimatedFreeSpace":
             return .secondary
-        case "autocompactBuffer", "autocompact_buffer":
+        case "autocompactBuffer", "autocompact_buffer", "estimatedOutputBuffer":
             return .gray
         default:
             return .accentColor
@@ -4087,6 +4145,110 @@ private struct PiAgentContextBreakdownRow: View {
 
     private func formatPercent(_ value: Double) -> String {
         String(format: "%.1f%%", min(max(value, 0), 100))
+    }
+}
+
+private struct PiAgentContextVisualRow {
+    let key: String
+    let title: String
+    let tokens: Int?
+    let percent: Double?
+    let tint: Color
+}
+
+private struct PiAgentContextDotGrid: View {
+    let rows: [PiAgentContextVisualRow]
+
+    private let columns = Array(repeating: GridItem(.fixed(13), spacing: 7), count: 10)
+    private let totalCells = 80
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 7) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                PiAgentContextDotCellView(cell: cell)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+
+    private var cells: [PiAgentContextDotCell] {
+        let positiveRows = rows.filter { ($0.percent ?? 0) > 0 }
+        guard positiveRows.isEmpty == false else {
+            return Array(repeating: .empty, count: totalCells)
+        }
+
+        var output: [PiAgentContextDotCell] = []
+        var remaining = totalCells
+        for (index, row) in positiveRows.enumerated() {
+            let percent = min(max(row.percent ?? 0, 0), 100)
+            let requested = max(Int(((percent / 100) * Double(totalCells)).rounded()), percent > 0 ? 1 : 0)
+            let count = index == positiveRows.count - 1 ? min(remaining, max(requested, 0)) : min(remaining, requested)
+            guard count > 0 else { continue }
+            output.append(contentsOf: Array(repeating: dotCell(for: row), count: count))
+            remaining -= count
+            if remaining <= 0 { break }
+        }
+
+        if output.count < totalCells {
+            output.append(contentsOf: Array(repeating: .empty, count: totalCells - output.count))
+        }
+        return Array(output.prefix(totalCells))
+    }
+
+    private func dotCell(for row: PiAgentContextVisualRow) -> PiAgentContextDotCell {
+        if row.key.localizedCaseInsensitiveContains("buffer") {
+            return .hollow(row.tint)
+        }
+        if row.key.localizedCaseInsensitiveContains("free") {
+            return .dim
+        }
+        return .filled(row.tint)
+    }
+}
+
+private struct PiAgentContextDotCell {
+    enum Style {
+        case filled
+        case hollow
+        case dim
+        case empty
+    }
+
+    var style: Style
+    var tint: Color
+
+    static func filled(_ tint: Color) -> PiAgentContextDotCell { .init(style: .filled, tint: tint) }
+    static func hollow(_ tint: Color) -> PiAgentContextDotCell { .init(style: .hollow, tint: tint) }
+    static let dim = PiAgentContextDotCell(style: .dim, tint: AppTheme.mutedText)
+    static let empty = PiAgentContextDotCell(style: .empty, tint: AppTheme.mutedText)
+}
+
+private struct PiAgentContextDotCellView: View {
+    let cell: PiAgentContextDotCell
+
+    var body: some View {
+        ZStack {
+            switch cell.style {
+            case .filled:
+                Circle()
+                    .fill(cell.tint.opacity(0.85))
+                    .frame(width: 9, height: 9)
+            case .hollow:
+                Circle()
+                    .stroke(cell.tint.opacity(0.82), lineWidth: 1.3)
+                    .frame(width: 10, height: 10)
+            case .dim:
+                Circle()
+                    .fill(AppTheme.mutedText.opacity(0.45))
+                    .frame(width: 4, height: 4)
+            case .empty:
+                Circle()
+                    .fill(AppTheme.mutedText.opacity(0.18))
+                    .frame(width: 3, height: 3)
+            }
+        }
+        .frame(width: 13, height: 13)
     }
 }
 

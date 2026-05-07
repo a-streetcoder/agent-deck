@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct CommandsAndPromptsScreen: View {
+struct PromptsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
@@ -9,13 +9,16 @@ struct CommandsAndPromptsScreen: View {
             promptLibraryPane
                 .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
-            if let command = viewModel.selectedCommand {
-                commandDetail(command)
-            } else if let prompt = viewModel.selectedPromptTemplate {
+            if let prompt = viewModel.selectedPromptTemplate {
                 promptDetail(prompt)
             } else {
                 ContentUnavailableView("No Prompt Selected", systemImage: "doc.text")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            if viewModel.selectedPromptTemplate == nil {
+                viewModel.selectedCommandItemID = viewModel.allVisiblePromptTemplateRecords.first?.id
             }
         }
     }
@@ -79,11 +82,6 @@ struct CommandsAndPromptsScreen: View {
                     }
                 }
 
-                if !viewModel.snapshot.commands.isEmpty {
-                    AppCard(title: "Extension Commands") {
-                        commandGrid(viewModel.snapshot.commands, emptyText: "No extension commands.")
-                    }
-                }
             }
         }
     }
@@ -92,7 +90,7 @@ struct CommandsAndPromptsScreen: View {
         if let selectedProject = viewModel.selectedDiscoveredProject {
             return "Prompt template locations active for \(selectedProject.name)"
         }
-        return "Reusable prompt templates and extension commands"
+        return "Reusable prompt templates loaded from Pi prompt locations"
     }
 
     private var visiblePrompts: [PromptTemplateRecord] {
@@ -142,16 +140,6 @@ struct CommandsAndPromptsScreen: View {
         }
     }
 
-    private func commandGrid(_ commands: [CommandRecord], emptyText: String) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-            if commands.isEmpty {
-                Text(emptyText).foregroundStyle(AppTheme.mutedText)
-            } else {
-                ForEach(commands) { command in commandTile(command) }
-            }
-        }
-    }
-
     private func promptTile(_ prompt: PromptTemplateRecord) -> some View {
         return Button { viewModel.selectedCommandItemID = prompt.id } label: {
             VStack(alignment: .leading, spacing: 10) {
@@ -191,34 +179,6 @@ struct CommandsAndPromptsScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func commandTile(_ command: CommandRecord) -> some View {
-        Button { viewModel.selectedCommandItemID = command.id } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(command.invocation)
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                        .foregroundStyle(.primary)
-                    Text(command.description)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 8)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
-                    .stroke(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
     private func promptIcon(_ prompt: PromptTemplateRecord) -> String {
         if prompt.source.kind == .package { return "shippingbox" }
         if prompt.source.kind == .library { return "building.columns" }
@@ -235,21 +195,6 @@ struct CommandsAndPromptsScreen: View {
         if prompt.discoveryKind == .settings { return .indigo }
         if prompt.source.kind == .global { return .blue }
         return .blue
-    }
-
-    private func commandDetail(_ command: CommandRecord) -> some View {
-        AppPage(command.invocation, subtitle: command.description) {
-            AppCard(title: "Details") {
-                AppKeyValueList(rows: [
-                    ("Invocation", command.invocation),
-                    ("Type", command.kind.rawValue),
-                    ("Provider", command.packageName ?? "Extension"),
-                    ("Scope", command.sourceScope ?? "—"),
-                    ("Origin", command.sourceOrigin ?? "—"),
-                    ("Path", command.sourcePath ?? "—")
-                ])
-            }
-        }
     }
 
     private func promptDetail(_ prompt: PromptTemplateRecord) -> some View {
@@ -282,6 +227,99 @@ struct CommandsAndPromptsScreen: View {
 
             AppCard(title: "Template") {
                 MarkdownDocumentView(source: prompt.body, minimumHeight: 120)
+            }
+        }
+    }
+}
+
+struct ExtensionCommandsScreen: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        HSplitView {
+            commandLibraryPane
+                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+
+            if let command = viewModel.selectedCommand {
+                commandDetail(command)
+            } else {
+                ContentUnavailableView("No Extension Command Selected", systemImage: "terminal")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            if viewModel.selectedCommand == nil {
+                viewModel.selectedCommandItemID = viewModel.snapshot.commands.first?.id
+            }
+        }
+    }
+
+    private var commandLibraryPane: some View {
+        AppPage("Commands", subtitle: pageSubtitle) {
+            AppCard(title: "Commands") {
+                commandGrid(viewModel.snapshot.commands, emptyText: "No commands.")
+            }
+        }
+    }
+
+    private var pageSubtitle: String {
+        if let selectedProject = viewModel.selectedDiscoveredProject {
+            return "Slash commands provided by extensions active for \(selectedProject.name)"
+        }
+        return "Slash commands provided by discovered extensions"
+    }
+
+    private func commandGrid(_ commands: [CommandRecord], emptyText: String) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+            if commands.isEmpty {
+                Text(emptyText)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(commands) { command in commandTile(command) }
+            }
+        }
+    }
+
+    private func commandTile(_ command: CommandRecord) -> some View {
+        Button { viewModel.selectedCommandItemID = command.id } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "terminal")
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(command.invocation)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .foregroundStyle(.primary)
+                    Text(command.description)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
+                    .stroke(viewModel.selectedCommandItemID == command.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func commandDetail(_ command: CommandRecord) -> some View {
+        AppPage(command.invocation, subtitle: command.description) {
+            AppCard(title: "Details") {
+                AppKeyValueList(rows: [
+                    ("Invocation", command.invocation),
+                    ("Type", command.kind.rawValue),
+                    ("Provider", command.packageName ?? "Extension"),
+                    ("Scope", command.sourceScope ?? "-"),
+                    ("Origin", command.sourceOrigin ?? "-"),
+                    ("Path", command.sourcePath ?? "-")
+                ])
             }
         }
     }

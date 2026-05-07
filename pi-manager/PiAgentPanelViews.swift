@@ -1284,6 +1284,7 @@ struct PiAgentInspectorPanel: View {
                     onSelectSubagent: presentNativeSubagentRun,
                     viewModel: viewModel,
                     footerSession: session,
+                    transcript: store.selectedTranscript,
                     supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
                     metricsSession: session,
                     onSend: {

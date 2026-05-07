@@ -675,6 +675,10 @@ final class PiAgentRunnerService {
             } else {
                 contextWindow = nil
             }
+            let maxOutput = Self.modelTokenCount(from: model["maxOutput"])
+                ?? Self.modelTokenCount(from: model["max_output"])
+                ?? Self.modelTokenCount(from: model["output"])
+                ?? Self.modelTokenCount(from: model["maxTokens"])
             let supportsThinking = model["reasoning"]?.boolValue ?? model["supportsThinking"]?.boolValue
             let supportedThinkingLevels: [String]? = {
                 if let levels = stringArray(from: model["supportedThinkingLevels"]) { return levels }
@@ -687,10 +691,22 @@ final class PiAgentRunnerService {
                 id: id,
                 name: model["name"]?.stringValue,
                 contextWindow: contextWindow,
+                maxOutput: maxOutput,
                 supportsThinking: supportsThinking,
                 supportedThinkingLevels: supportedThinkingLevels,
                 supportsImages: supportsImages
             )
+        }
+    }
+
+    private static func modelTokenCount(from value: JSONValue?) -> Int? {
+        switch value {
+        case let .number(number):
+            return max(Int(number), 0)
+        case let .string(text):
+            return PiAgentContextEstimateBuilder.parseTokenCount(text)
+        default:
+            return nil
         }
     }
 

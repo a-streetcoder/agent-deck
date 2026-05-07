@@ -52,6 +52,7 @@ struct pi_managerApp: App {
                 .environmentObject(viewModel)
         }
         .defaultSize(width: 1180, height: 760)
+        .windowToolbarStyle(.unified)
         .windowResizability(.contentMinSize)
         Settings {
             SettingsSceneContent()
