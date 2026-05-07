@@ -38,11 +38,13 @@ Use this file to quickly find the source of a behavior.
 
 ## UI
 
-- `pi-manager/ContentView.swift` — main navigation and many resource screens
-- `pi-manager/PiAgentViews.swift` — Pi Agent session UI
-- `pi-manager/PiAgentPanelViews.swift` — activity, inspector, and repo change panels
+- `pi-manager/ContentView.swift` — main navigation, toolbar commands, sheets, and screen routing
+- `pi-manager/AgentManagementViews.swift`, `ChainManagementViews.swift`, `SkillManagementViews.swift` — resource management screens
+- `pi-manager/PiAgentViews.swift` — Pi Agent screen shell and transcript cache
+- `pi-manager/PiAgentComposerViews.swift`, `PiAgentTranscriptViews.swift`, `PiAgentSubagentViews.swift` — Pi Agent composer, transcript, and native subagent UI
+- `pi-manager/PiAgentActivityPanelViews.swift`, `PiAgentInspectorPanelViews.swift`, `PiAgentRepoChangesPanelViews.swift` — activity, inspector, and repo change panels
 - `pi-manager/CommandsAndPromptsViews.swift` — prompts/commands screen
-- `pi-manager/GitHubViews.swift` — GitHub screen
+- `pi-manager/GitHubViews.swift`, `GitHubIssuesViews.swift`, `GitHubRepoChangesViews.swift`, `GitHubConnectionViews.swift` — GitHub screen and feature sections
 - `pi-manager/SettingsAndCatalogViews.swift` — settings, extensions, models, subagent config screens
 - `pi-manager/MarkdownViews.swift` — markdown rendering
 

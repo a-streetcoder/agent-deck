@@ -1174,16 +1174,3 @@ nonisolated struct PiScanner {
         }
     }
 }
-
-nonisolated private extension Optional where Wrapped == String {
-    var nonEmpty: String? {
-        guard let self, !self.isEmpty else { return nil }
-        return self
-    }
-}
-
-nonisolated private extension String {
-    var nonEmpty: String? {
-        isEmpty ? nil : self
-    }
-}

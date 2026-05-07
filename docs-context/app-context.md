@@ -194,19 +194,19 @@ Evidence:
 
 ### UI screens
 
-- `pi-manager/ContentView.swift:1718-1790` `AgentsScreen`: agent library pane plus selected agent detail, editing, builtin disable controls, library/global/project enablement, assigned project/skill visibility warnings.
-- `pi-manager/ContentView.swift:3291-3378` `ChainsScreen`: chain list, create/duplicate/convert, run native chain, open/reveal/edit.
-- `pi-manager/ContentView.swift:3834-3953` `SkillsScreen`: active project skills, global skills, library skills, package skills, detail panel, import sheet.
+- `pi-manager/AgentManagementViews.swift` `AgentsScreen`: agent library pane plus selected agent detail, editing, builtin disable controls, library/global/project enablement, assigned project/skill visibility warnings.
+- `pi-manager/ChainManagementViews.swift` `ChainsScreen`: chain list, create/duplicate/convert, run native chain, open/reveal/edit.
+- `pi-manager/SkillManagementViews.swift` `SkillsScreen`: active project skills, global skills, library skills, package skills, detail panel, import sheet.
 - `pi-manager/CommandsAndPromptsViews.swift:4-23` `CommandsAndPromptsScreen`: prompt templates and runtime slash/extension commands.
 - `pi-manager/GitHubViews.swift:4-40` `GitHubScreen`: project board, repo changes, connection.
 - `pi-manager/PiAgentViews.swift:225-345` `PiAgentScreen`: sessions, transcript, composer, native subagent run/graph/transcript sheets.
-- `pi-manager/PiAgentPanelViews.swift:4-153` activity panel; `PiAgentPanelViews.swift:873-936` repo changes panel; `PiAgentPanelViews.swift:1192-1475` inspector panel.
+- `pi-manager/PiAgentActivityPanelViews.swift` activity panel; `PiAgentRepoChangesPanelViews.swift` repo changes panel; `PiAgentInspectorPanelViews.swift` inspector panel.
 - `pi-manager/SettingsAndCatalogViews.swift:4-120` `SettingsScreen`: project root, skill imports, GitHub cache, Pi Agent settings.
 - `pi-manager/SettingsAndCatalogViews.swift:222-312` `ExtensionsScreen`: extension safety and package/local extension listing/toggles.
 - `pi-manager/SettingsAndCatalogViews.swift:383-448` `ModelsScreen`: model catalog display.
 - `pi-manager/SettingsAndCatalogViews.swift:484-612` `SubagentsScreen`: subagent config UI.
-- `pi-manager/ContentView.swift:4420-4436` `EnvironmentScreen`: effective env keys with secret reveal behavior.
-- `pi-manager/ContentView.swift:4951-5061` `DiagnosticsScreen`: doctor screen for package/helper/settings/warnings.
+- `pi-manager/EnvironmentDiagnosticsViews.swift` `EnvironmentScreen`: effective env keys with secret reveal behavior.
+- `pi-manager/EnvironmentDiagnosticsViews.swift` `DiagnosticsScreen`: doctor screen for package/helper/settings/warnings.
 
 ## Resource paths and resolution rules
 
