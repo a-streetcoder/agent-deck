@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsSceneContent: View {
-    @StateObject private var viewModel = AppViewModel()
+    @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {
         TabView {
@@ -393,4 +393,5 @@ private func revealInFinder(_ path: String?) {
 
 #Preview {
     SettingsSceneContent()
+        .environmentObject(AppViewModel())
 }

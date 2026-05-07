@@ -56,6 +56,7 @@ struct pi_managerApp: App {
         .windowResizability(.contentMinSize)
         Settings {
             SettingsSceneContent()
+                .environmentObject(viewModel)
         }
         .commands {
             PiManagerCommands()

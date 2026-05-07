@@ -83,7 +83,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubIsRefreshingEverything = false
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
-    @Published var appSettings: AppSettings = AppSettingsStore.shared.settings
+    @Published var appSettings: AppSettings = AppSettings()
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentPendingComposerText: String?
@@ -94,7 +94,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private let envPersistence = EnvPersistence()
     private let extensionManagementService = PiExtensionManagementService()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
-    private let appSettingsStore = AppSettingsStore.shared
+    private let appSettingsController = AppSettingsController()
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
     private let subagentWorktreeService = PiSubagentWorktreeService()
@@ -126,7 +126,7 @@ final class AppViewModel: NSObject, ObservableObject {
     override init() {
         super.init()
 
-        appSettings = appSettingsStore.settings
+        appSettings = appSettingsController.settings
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         refresh(includeModels: true)
@@ -2354,169 +2354,112 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private var gitHubBoardCacheLifetime: TimeInterval {
-        TimeInterval(max(appSettings.gitHubBoardCacheLifetimeMinutes, 1) * 60)
+        appSettingsController.gitHubBoardCacheLifetime
     }
 
     var gitHubBoardCacheLifetimeMinutes: Int {
-        max(appSettings.gitHubBoardCacheLifetimeMinutes, 1)
+        appSettingsController.gitHubBoardCacheLifetimeMinutes
     }
 
     var piAgentNotificationDelayMinutes: Int {
-        max(appSettings.piAgentNotificationDelayMinutes, 1)
+        appSettingsController.piAgentNotificationDelayMinutes
     }
 
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) {
-        let normalizedMinutes = max(minutes, 1)
-        guard appSettings.piAgentNotificationDelayMinutes != normalizedMinutes else { return }
-        appSettings.piAgentNotificationDelayMinutes = normalizedMinutes
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setPiAgentNotificationDelayMinutes(minutes) else { return }
+        syncAppSettings()
     }
 
     func setGitHubBoardCacheLifetimeMinutes(_ minutes: Int) {
-        let normalizedMinutes = max(minutes, 1)
-        guard appSettings.gitHubBoardCacheLifetimeMinutes != normalizedMinutes else { return }
-        appSettings.gitHubBoardCacheLifetimeMinutes = normalizedMinutes
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setGitHubBoardCacheLifetimeMinutes(minutes) else { return }
+        syncAppSettings()
     }
 
     func chooseProjectsRootDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Folder"
-        panel.message = "Choose the folder Pi Manager should scan for projects and use for projectless Pi Agent sessions."
-        panel.directoryURL = configuredProjectsRootURL
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setProjectsRootPath(url.path)
+        guard appSettingsController.chooseProjectsRootDirectory() else { return }
+        handleProjectsRootSettingsChange()
     }
 
     func setProjectsRootPath(_ path: String) {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPath = trimmed.isEmpty
-            ? ProjectDiscovery.defaultRootDirectoryURL().path
-            : URL(fileURLWithPath: trimmed).standardizedFileURL.path
-        guard appSettings.projectsRootPath != normalizedPath else { return }
-        appSettings.projectsRootPath = normalizedPath
-        appSettingsStore.settings = appSettings
-        refresh(includeModels: false)
-        refreshGitHubProjectScopedState()
+        guard appSettingsController.setProjectsRootPath(path) else { return }
+        handleProjectsRootSettingsChange()
     }
 
     func resetProjectsRootPathToDefault() {
-        setProjectsRootPath(ProjectDiscovery.defaultRootDirectoryURL().path)
+        guard appSettingsController.resetProjectsRootPathToDefault() else { return }
+        handleProjectsRootSettingsChange()
     }
 
     func chooseDefaultSkillsImportDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Folder"
-        panel.message = "Choose the default folder Pi Manager should open when importing skills."
-        panel.directoryURL = suggestedExternalSkillsDirectoryURL
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setDefaultSkillsImportRootPath(url.path)
+        guard appSettingsController.chooseDefaultSkillsImportDirectory(startingAt: suggestedExternalSkillsDirectoryURL) else { return }
+        syncAppSettings()
     }
 
     func setDefaultSkillsImportRootPath(_ path: String) {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPath = trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed).standardizedFileURL.path
-        guard appSettings.defaultSkillsImportRootPath != normalizedPath else { return }
-        appSettings.defaultSkillsImportRootPath = normalizedPath
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setDefaultSkillsImportRootPath(path) else { return }
+        syncAppSettings()
     }
 
     func resetDefaultSkillsImportRootPath() {
-        guard appSettings.defaultSkillsImportRootPath != nil else { return }
-        appSettings.defaultSkillsImportRootPath = nil
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.resetDefaultSkillsImportRootPath() else { return }
+        syncAppSettings()
     }
 
     var piAgentTerminalApplicationDisplayName: String {
-        guard let path = appSettings.piAgentTerminalApplicationPath, !path.isEmpty else {
-            return "macOS default"
-        }
-        return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        appSettingsController.piAgentTerminalApplicationDisplayName
     }
 
     var piAgentTerminalApplicationSelectionID: String {
-        appSettings.piAgentTerminalApplicationPath ?? TerminalApplicationOption.defaultID
+        appSettingsController.piAgentTerminalApplicationSelectionID
     }
 
     var piAgentTerminalApplicationOptions: [TerminalApplicationOption] {
-        var options = [TerminalApplicationOption(name: "macOS Default", path: nil)]
-        let candidates = [
-            "/System/Applications/Utilities/Terminal.app",
-            "/Applications/Utilities/Terminal.app",
-            "/Applications/iTerm.app",
-            "/Applications/Warp.app",
-            "/Applications/Ghostty.app",
-            "/Applications/WezTerm.app",
-            "/Applications/Alacritty.app",
-            "/Applications/kitty.app",
-            "/Applications/Hyper.app"
-        ]
-
-        var seen = Set(options.map(\.id))
-        for path in candidates where FileManager.default.fileExists(atPath: path) {
-            let option = TerminalApplicationOption(name: URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent, path: path)
-            guard seen.insert(option.id).inserted else { continue }
-            options.append(option)
-        }
-
-        if let selectedPath = appSettings.piAgentTerminalApplicationPath,
-           !seen.contains(selectedPath) {
-            options.append(TerminalApplicationOption(name: URL(fileURLWithPath: selectedPath).deletingPathExtension().lastPathComponent, path: selectedPath))
-        }
-
-        return options
+        appSettingsController.piAgentTerminalApplicationOptions
     }
 
     func setPiAgentTerminalApplicationSelection(_ selectionID: String) {
-        setPiAgentTerminalApplicationPath(selectionID == TerminalApplicationOption.defaultID ? nil : selectionID)
+        appSettingsController.setPiAgentTerminalApplicationSelection(selectionID)
+        syncAppSettings()
     }
 
     func choosePiAgentTerminalApplication() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.application]
-        panel.prompt = "Choose App"
-        panel.message = "Choose the terminal app Pi Manager should use when resuming a Pi session in the CLI."
-        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setPiAgentTerminalApplicationPath(url.path)
+        guard appSettingsController.choosePiAgentTerminalApplication() else { return }
+        syncAppSettings()
     }
 
     func setPiAgentTerminalApplicationPath(_ path: String?) {
-        let normalizedPath = path?.trimmingCharacters(in: .whitespacesAndNewlines)
-        appSettings.piAgentTerminalApplicationPath = normalizedPath?.isEmpty == false ? normalizedPath : nil
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setPiAgentTerminalApplicationPath(path) else { return }
+        syncAppSettings()
     }
 
     func resetPiAgentTerminalApplicationToDefault() {
-        setPiAgentTerminalApplicationPath(nil)
+        guard appSettingsController.resetPiAgentTerminalApplicationToDefault() else { return }
+        syncAppSettings()
     }
 
     func setPiAgentThinkingDisplayMode(_ mode: PiAgentThinkingDisplayMode) {
-        guard appSettings.piAgentThinkingDisplayMode != mode else { return }
-        appSettings.piAgentThinkingDisplayMode = mode
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setPiAgentThinkingDisplayMode(mode) else { return }
+        syncAppSettings()
     }
 
     func togglePiAgentThinkingBlocksVisibility() {
-        setPiAgentTranscriptVisibility(\.showThinking, to: !appSettings.piAgentTranscriptVisibility.showThinking)
+        guard appSettingsController.togglePiAgentThinkingBlocksVisibility() else { return }
+        syncAppSettings()
     }
 
     func setPiAgentTranscriptVisibility(_ keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>, to value: Bool) {
-        guard appSettings.piAgentTranscriptVisibility[keyPath: keyPath] != value else { return }
-        appSettings.piAgentTranscriptVisibility[keyPath: keyPath] = value
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setPiAgentTranscriptVisibility(keyPath, to: value) else { return }
+        syncAppSettings()
+    }
+
+    private func syncAppSettings() {
+        appSettings = appSettingsController.settings
+    }
+
+    private func handleProjectsRootSettingsChange() {
+        syncAppSettings()
+        refresh(includeModels: false)
+        refreshGitHubProjectScopedState()
     }
 
     private func registerAppNotificationObservers() {
@@ -2571,18 +2514,19 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var areSubagentsEnabledForNewSessions: Bool {
-        appSettings.nativeSubagentsEnabledForNewSessions
+        appSettingsController.areSubagentsEnabledForNewSessions
     }
 
     func setSubagentsEnabledForNewSessions(_ isEnabled: Bool) {
-        guard appSettings.nativeSubagentsEnabledForNewSessions != isEnabled else { return }
-        appSettings.nativeSubagentsEnabledForNewSessions = isEnabled
-        appSettingsStore.settings = appSettings
+        guard appSettingsController.setSubagentsEnabledForNewSessions(isEnabled) else { return }
+        syncAppSettings()
         piAgentSessionStore.newSessionSubagentsEnabled = isEnabled
     }
 
     func toggleSubagentsForNewSessions() {
-        setSubagentsEnabledForNewSessions(!areSubagentsEnabledForNewSessions)
+        guard appSettingsController.toggleSubagentsForNewSessions() else { return }
+        syncAppSettings()
+        piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
     }
 
     func setSubagentsEnabledForSelectedSession(_ isEnabled: Bool) {
@@ -2805,14 +2749,11 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var configuredProjectsRootURL: URL {
-        let trimmed = appSettings.projectsRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = ProjectDiscovery.defaultRootDirectoryURL()
-        guard !trimmed.isEmpty else { return fallback }
-        return URL(fileURLWithPath: trimmed).standardizedFileURL
+        appSettingsController.configuredProjectsRootURL
     }
 
     var configuredProjectsRootPath: String {
-        configuredProjectsRootURL.path
+        appSettingsController.configuredProjectsRootPath
     }
 
     var enabledProjects: [DiscoveredProject] {
