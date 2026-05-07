@@ -131,10 +131,14 @@ struct PiNativeSubagentRunCard: View {
     let onOpenTranscript: () -> Void
     let onReveal: () -> Void
     let onOpenGraph: () -> Void
-    let onOpenWorktreePatch: () -> Void
-    let onApplyWorktreePatch: () -> Void
-    let onDiscardWorktree: () -> Void
     @State private var isDetailsPresented = false
+    @State private var promptPopover: PromptPopover?
+
+    private struct PromptPopover: Identifiable {
+        let id = UUID()
+        var title: String
+        var text: String
+    }
 
     var body: some View {
         AppRowCard {
@@ -162,6 +166,9 @@ struct PiNativeSubagentRunCard: View {
                 }
             }
         }
+        .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
+            PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
+        }
     }
 
     private var header: some View {
@@ -187,6 +194,16 @@ struct PiNativeSubagentRunCard: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
         }
+        Button("System Prompt") {
+            promptPopover = .init(
+                title: "Final Runtime System Prompt",
+                text: promptFileText(path: artifactURL(named: "final-system-prompt.md").path)
+            )
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!canOpenArtifact(named: "final-system-prompt.md"))
+        .help("Show final runtime system prompt")
         Button("Transcript", action: onOpenTranscript)
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -283,12 +300,8 @@ struct PiNativeSubagentRunCard: View {
 
     private var detailRows: [(String, String)] {
         var rows: [(String, String)] = [
-            ("Started", run.createdAt.formatted(date: .abbreviated, time: .shortened)),
             ("Context", "requested \(run.requestedContext.rawValue), resolved \(run.resolvedContext.rawValue)")
         ]
-        if let completedAt = run.completedAt {
-            rows.append(("Completed", completedAt.formatted(date: .abbreviated, time: .shortened)))
-        }
         if let duration = run.durationMs {
             rows.append(("Duration", formattedDuration(duration)))
         }
@@ -313,17 +326,7 @@ struct PiNativeSubagentRunCard: View {
         if run.isWorktreeIsolated == true {
             rows.append(("Worktree status", (run.worktreeStatus ?? .active).rawValue))
         }
-        appendPath("Worktree", run.worktreePath, to: &rows)
-        appendPath("Patch", run.worktreePatchPath, to: &rows)
-        appendPath("Output", run.outputPath, to: &rows)
-        appendPath("Run folder", run.artifactDirectory, to: &rows)
-        appendPath("Child session", run.childPiSessionFile, to: &rows)
         return rows
-    }
-
-    private func appendPath(_ label: String, _ value: String?, to rows: inout [(String, String)]) {
-        guard let value, !value.isEmpty else { return }
-        rows.append((label, value))
     }
 
     private var detailsPopover: some View {
@@ -342,21 +345,6 @@ struct PiNativeSubagentRunCard: View {
 
                     if !run.artifactDirectory.isEmpty {
                         Button("Reveal Run Folder", action: onReveal)
-                        Button("Open Output", action: { openArtifact(named: "output.md") })
-                            .disabled(!canOpenArtifact(named: "output.md"))
-                        Button("Open Input", action: { openArtifact(named: "input.md") })
-                            .disabled(!canOpenArtifact(named: "input.md"))
-                        Button("Open System Prompt", action: { openArtifact(named: "system-prompt.md") })
-                            .disabled(!canOpenArtifact(named: "system-prompt.md"))
-                        Button("Open Final System Prompt", action: { openArtifact(named: "final-system-prompt.md") })
-                            .disabled(!canOpenArtifact(named: "final-system-prompt.md"))
-                    }
-                    if canReviewWorktree {
-                        Button("Generate/Open Worktree Patch", action: onOpenWorktreePatch)
-                        Button("Apply Worktree Patch", action: onApplyWorktreePatch)
-                    }
-                    if canDiscardWorktree {
-                        Button("Discard Worktree", role: .destructive, action: onDiscardWorktree)
                     }
                 }
                 .buttonStyle(.bordered)
@@ -368,7 +356,7 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private var hasDetailActions: Bool {
-        !run.artifactDirectory.isEmpty || canReviewWorktree || canDiscardWorktree
+        !run.artifactDirectory.isEmpty
     }
 
     private struct CompactMetadataItem: Identifiable {
@@ -387,10 +375,6 @@ struct PiNativeSubagentRunCard: View {
         }
         if let toolCount {
             items.append(.init(text: "\(toolCount)", icon: "wrench.and.screwdriver"))
-        }
-        items.append(.init(text: run.resolvedContext.rawValue, icon: "viewfinder"))
-        if let expectedOutcome = run.expectedOutcome {
-            items.append(.init(text: shortOutcomeName(expectedOutcome), icon: "target"))
         }
         if let modelName {
             items.append(.init(text: modelName, icon: "cpu"))
@@ -438,15 +422,6 @@ struct PiNativeSubagentRunCard: View {
         }
     }
 
-    private func shortOutcomeName(_ outcome: PiSubagentExpectedOutcome) -> String {
-        switch outcome {
-        case .reportOnly: return "report"
-        case .editFilesInWorktree: return "worktree"
-        case .writeProjectFile: return "file write"
-        case .directProjectWrites: return "direct edit"
-        }
-    }
-
     private func childSummary(_ children: [PiSubagentChildRecord]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(children.sorted { $0.index < $1.index }) { child in
@@ -482,14 +457,6 @@ struct PiNativeSubagentRunCard: View {
 
     private func openArtifact(named fileName: String) {
         NSWorkspace.shared.open(artifactURL(named: fileName))
-    }
-
-    private var canReviewWorktree: Bool {
-        run.isWorktreeIsolated == true && !run.status.isActive && run.worktreeStatus != .discarded
-    }
-
-    private var canDiscardWorktree: Bool {
-        run.isWorktreeIsolated == true && run.worktreeStatus != .discarded
     }
 
     private func formattedDuration(_ milliseconds: Int) -> String {

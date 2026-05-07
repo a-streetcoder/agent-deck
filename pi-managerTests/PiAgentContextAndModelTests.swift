@@ -57,6 +57,33 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
     }
 
     @MainActor
+    func testBuildsPromptCompositionFromCapturedSystemPrompt() {
+        let prompt = """
+        Core guidance.
+
+        Available tools:
+        read: read files
+        bash: run commands
+
+        # Project Context
+        AGENTS.md guidance.
+
+        <available_skills>
+        <skill><name>review</name><description>Review code.</description><location>/tmp/review/SKILL.md</location></skill>
+        </available_skills>
+        """
+
+        let composition = PiAgentContextEstimateBuilder.buildPromptComposition(systemPrompt: prompt)
+
+        XCTAssertNotNil(composition)
+        XCTAssertEqual(composition?.rows.first(where: { $0.key == "promptTools" })?.title, "Tool descriptions")
+        XCTAssertNotNil(composition?.rows.first(where: { $0.key == "promptProjectContext" }))
+        XCTAssertNotNil(composition?.rows.first(where: { $0.key == "promptSkills" }))
+        XCTAssertNotNil(composition?.rows.first(where: { $0.key == "promptCore" }))
+        XCTAssertGreaterThan(composition?.totalTokens ?? 0, 0)
+    }
+
+    @MainActor
     func testParsesCompactTokenCounts() {
         XCTAssertEqual(PiAgentContextEstimateBuilder.parseTokenCount("128k"), 128_000)
         XCTAssertEqual(PiAgentContextEstimateBuilder.parseTokenCount("1.5m"), 1_500_000)

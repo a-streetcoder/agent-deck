@@ -188,6 +188,7 @@ struct ModelsScreen: View {
                 }
 
                 VStack(alignment: .leading, spacing: 20) {
+                    defaultSelectionSection
                     ForEach(groupedModels, id: \.provider) { group in
                         providerSection(group)
                     }
@@ -235,6 +236,62 @@ struct ModelsScreen: View {
                     .stroke(AppTheme.contentStroke, lineWidth: 1)
             )
         }
+    }
+
+    private var defaultSelectionSection: some View {
+        AppCard(title: "Pi Agent Defaults") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 12) {
+                GridRow {
+                    Text("Default model")
+                        .foregroundStyle(AppTheme.mutedText)
+                    Picker("Default model", selection: defaultModelBinding) {
+                        ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
+                            Text(model.identifier).tag(model.identifier)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 360)
+                }
+
+                GridRow {
+                    Text("Default thinking")
+                        .foregroundStyle(AppTheme.mutedText)
+                    Picker("Default thinking", selection: defaultThinkingBinding) {
+                        ForEach(defaultThinkingLevels, id: \.self) { level in
+                            Text(level.capitalized).tag(level)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                }
+            }
+        }
+    }
+
+    private var defaultModelBinding: Binding<String> {
+        Binding(
+            get: {
+                viewModel.defaultPiAgentModel()?.identifier ?? viewModel.enabledAvailableModels.first?.identifier ?? ""
+            },
+            set: { identifier in
+                let model = viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+                viewModel.setDefaultPiAgentModel(model)
+            }
+        )
+    }
+
+    private var defaultThinkingBinding: Binding<String> {
+        Binding(
+            get: {
+                let current = viewModel.piRuntimeDefaultThinkingLevel()
+                return defaultThinkingLevels.contains(current) ? current : "medium"
+            },
+            set: { viewModel.setDefaultPiAgentThinkingLevel($0) }
+        )
+    }
+
+    private var defaultThinkingLevels: [String] {
+        ["off", "minimal", "low", "medium", "high", "xhigh"]
     }
 
     private func modelRow(_ model: AvailableModel) -> some View {

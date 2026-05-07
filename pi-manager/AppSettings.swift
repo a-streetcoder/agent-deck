@@ -88,4 +88,3 @@ final class AppSettingsStore {
         defaults.set(data, forKey: defaultsKey)
     }
 }
-

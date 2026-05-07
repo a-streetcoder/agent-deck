@@ -57,6 +57,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var allProjectSnapshots: [String: ScanSnapshot] = [:]
     @Published var availableModels: [AvailableModel] = []
     @Published var modelsLastUpdatedAt: Date?
+    @Published private var piRuntimeSettingsRevision = 0
     @Published var githubConnectionState: GitHubConnectionState = .checking
     @Published var githubSelectedSection: GitHubSection = .projectBoard
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
@@ -1243,6 +1244,16 @@ final class AppViewModel: NSObject, ObservableObject {
         seedPiAgentSessionsWithAvailableModels(availableModels, overwriteExisting: true)
     }
 
+    func setDefaultPiAgentModel(_ model: AvailableModel?) {
+        guard writePiRuntimeDefaults(provider: model?.provider, model: model?.model, thinkingLevel: nil) else { return }
+        piRuntimeSettingsRevision += 1
+    }
+
+    func setDefaultPiAgentThinkingLevel(_ level: String) {
+        guard writePiRuntimeDefaults(provider: nil, model: nil, thinkingLevel: level) else { return }
+        piRuntimeSettingsRevision += 1
+    }
+
     func acknowledgePiAgentSession(_ id: UUID) {
         pendingPiAgentNotificationTasks[id]?.cancel()
         pendingPiAgentNotificationTasks[id] = nil
@@ -1564,8 +1575,7 @@ final class AppViewModel: NSObject, ObservableObject {
             gate.complete {
                 let status = run.status == .completed ? "completed" : run.status.rawValue
                 let summary = run.summary ?? run.error ?? "No summary returned."
-                let artifact = run.outputPath.map { "\n\nArtifact: \($0)" } ?? ""
-                completion("Native subagent \(run.agentName) \(status).\n\n\(summary)\(artifact)")
+                completion("Native subagent \(run.agentName) \(status).\n\n\(summary)")
             }
         }
         if launchedRun.status.isActive, !gate.isCompleted {
@@ -2184,6 +2194,94 @@ final class AppViewModel: NSObject, ObservableObject {
             return
         }
         piAgentRunner.setThinkingLevel(sessionID: session.id, level: normalized)
+    }
+
+    func defaultPiAgentModel() -> AvailableModel? {
+        _ = piRuntimeSettingsRevision
+        let defaults = readPiRuntimeDefaults()
+        let provider = defaults.provider
+        let model = defaults.model
+        if let provider, let model {
+            return enabledAvailableModels.first { $0.provider == provider && $0.model == model }
+                ?? enabledAvailableModels.first { $0.model == model }
+                ?? enabledAvailableModels.first
+        }
+        if let model {
+            return enabledAvailableModels.first { $0.identifier == model || $0.model == model } ?? enabledAvailableModels.first
+        }
+        return enabledAvailableModels.first
+    }
+
+    func defaultPiAgentThinkingLevel(for levels: [String]) -> String {
+        _ = piRuntimeSettingsRevision
+        let normalized = readPiRuntimeDefaults().thinkingLevel ?? "medium"
+        if levels.contains(normalized) { return normalized }
+        if levels.contains("medium") { return "medium" }
+        return levels.first ?? "off"
+    }
+
+    func piRuntimeDefaultThinkingLevel() -> String {
+        _ = piRuntimeSettingsRevision
+        return readPiRuntimeDefaults().thinkingLevel ?? "medium"
+    }
+
+    private func readPiRuntimeDefaults() -> (provider: String?, model: String?, thinkingLevel: String?) {
+        guard let object = piRuntimeSettingsObject() else { return (nil, nil, nil) }
+        let provider = nonEmptyPiSetting(object["defaultProvider"])
+        var model = nonEmptyPiSetting(object["defaultModel"])
+        var parsedProvider = provider
+        if let rawModel = model, rawModel.contains("/") {
+            let parts = rawModel.split(separator: "/", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                parsedProvider = parsedProvider ?? parts[0]
+                model = parts[1]
+            }
+        }
+        let rawThinking = nonEmptyPiSetting(object["defaultThinkingLevel"])
+        let thinking = (rawThinking ?? "medium") == "none"
+            ? "off"
+            : rawThinking
+        return (parsedProvider, model, thinking)
+    }
+
+    private func writePiRuntimeDefaults(provider: String?, model: String?, thinkingLevel: String?) -> Bool {
+        var object = piRuntimeSettingsObject() ?? [:]
+        if let provider, let model {
+            object["defaultProvider"] = provider
+            object["defaultModel"] = model
+        }
+        if let thinkingLevel {
+            let normalized = thinkingLevel == "none" ? "off" : thinkingLevel.trimmingCharacters(in: .whitespacesAndNewlines)
+            object["defaultThinkingLevel"] = normalized.isEmpty ? "medium" : normalized
+        }
+        do {
+            let url = piRuntimeSettingsURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            githubLastError = "Could not update Pi settings: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func piRuntimeSettingsObject() -> [String: Any]? {
+        guard let data = try? Data(contentsOf: piRuntimeSettingsURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object
+    }
+
+    private var piRuntimeSettingsURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/settings.json")
+    }
+
+    private func nonEmptyPiSetting(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func supportedPiAgentThinkingLevels(session: PiAgentSessionRecord, provider: String?, modelID: String?) -> [String] {

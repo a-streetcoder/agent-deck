@@ -454,6 +454,24 @@ struct PiAgentContextBreakdownEstimate: Hashable {
     var note: String
 }
 
+struct PiAgentPromptCompositionRow: Identifiable, Hashable {
+    var id: String { key }
+
+    var key: String
+    var title: String
+    var tokens: Int
+    var percent: Double
+}
+
+struct PiAgentPromptCompositionEstimate: Hashable {
+    var rows: [PiAgentPromptCompositionRow]
+    var totalTokens: Int
+}
+
+private extension NSRange {
+    var locationOrNil: Int? { location == NSNotFound ? nil : location }
+}
+
 struct PiAgentContextEstimateBuilder {
     static func build(
         session: PiAgentSessionRecord,
@@ -565,6 +583,78 @@ struct PiAgentContextEstimateBuilder {
         )
     }
 
+    static func buildPromptComposition(systemPrompt: String?) -> PiAgentPromptCompositionEstimate? {
+        guard let systemPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), systemPrompt.isEmpty == false else {
+            return nil
+        }
+
+        let prompt = systemPrompt as NSString
+        let lower = systemPrompt.lowercased() as NSString
+        let fullLength = prompt.length
+        let totalTokens = estimatedPromptTokens(systemPrompt)
+        guard totalTokens > 0 else { return nil }
+
+        let skillsRange = blockRange(
+            in: lower,
+            startMarker: "<available_skills>",
+            endMarker: "</available_skills>"
+        )
+        let toolsStart = lower.range(of: "available tools:").locationOrNil
+        let projectStart = lower.range(of: "# project context").locationOrNil
+        let skillsStart = skillsRange?.location
+
+        func nextBoundary(after start: Int, candidates: [Int?]) -> Int {
+            candidates.compactMap { $0 }.filter { $0 > start }.min() ?? fullLength
+        }
+
+        var ranges: [(key: String, title: String, range: NSRange)] = []
+        if let toolsStart {
+            ranges.append((
+                "promptTools",
+                "Tool descriptions",
+                NSRange(location: toolsStart, length: nextBoundary(after: toolsStart, candidates: [projectStart, skillsStart]) - toolsStart)
+            ))
+        }
+        if let projectStart {
+            ranges.append((
+                "promptProjectContext",
+                "Project context",
+                NSRange(location: projectStart, length: nextBoundary(after: projectStart, candidates: [skillsStart]) - projectStart)
+            ))
+        }
+        if let skillsRange {
+            ranges.append(("promptSkills", "Skill catalog", skillsRange))
+        }
+
+        let firstSectionStart = [toolsStart, projectStart, skillsStart].compactMap { $0 }.min() ?? fullLength
+        if firstSectionStart > 0 {
+            ranges.append(("promptCore", "Core instructions", NSRange(location: 0, length: firstSectionStart)))
+        }
+
+        var rows = ranges.compactMap { item -> PiAgentPromptCompositionRow? in
+            guard item.range.location >= 0,
+                  item.range.length > 0,
+                  NSMaxRange(item.range) <= fullLength else { return nil }
+            let tokens = estimatedPromptTokens(prompt.substring(with: item.range))
+            guard tokens > 0 else { return nil }
+            return .init(key: item.key, title: item.title, tokens: tokens, percent: percent(tokens, of: totalTokens))
+        }
+
+        let accounted = rows.reduce(0) { $0 + $1.tokens }
+        let otherTokens = max(totalTokens - accounted, 0)
+        if otherTokens > 50 {
+            rows.append(.init(
+                key: "promptOther",
+                title: "Other prompt content",
+                tokens: otherTokens,
+                percent: percent(otherTokens, of: totalTokens)
+            ))
+        }
+
+        rows.sort { $0.tokens > $1.tokens }
+        return .init(rows: rows, totalTokens: totalTokens)
+    }
+
     static func parseTokenCount(_ value: String) -> Int? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard trimmed.isEmpty == false else { return nil }
@@ -601,6 +691,22 @@ struct PiAgentContextEstimateBuilder {
             guard text.isEmpty == false else { return total }
             return total + Int(ceil(Double(text.count) / 4.0))
         }
+    }
+
+    private static func estimatedPromptTokens(_ text: String) -> Int {
+        guard text.isEmpty == false else { return 0 }
+        return Int(ceil(Double(text.count) / 3.5))
+    }
+
+    private static func blockRange(in text: NSString, startMarker: String, endMarker: String) -> NSRange? {
+        let start = text.range(of: startMarker)
+        guard start.location != NSNotFound else { return nil }
+        let endSearch = NSRange(location: NSMaxRange(start), length: text.length - NSMaxRange(start))
+        let end = text.range(of: endMarker, options: [], range: endSearch)
+        guard end.location != NSNotFound else {
+            return NSRange(location: start.location, length: text.length - start.location)
+        }
+        return NSRange(location: start.location, length: NSMaxRange(end) - start.location)
     }
 
     private static func isProviderVisibleEstimateRole(_ role: PiAgentTranscriptRole) -> Bool {

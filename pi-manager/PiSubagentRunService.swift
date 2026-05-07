@@ -861,7 +861,6 @@ final class PiSubagentRunService {
         let kind = PiSubagentSupervisorRequestKind(rawValue: requestKindRaw) ?? .progressUpdate
         let message = json["message"] as? String ?? ""
         let requestTitle = json["title"] as? String ?? supervisorTitle(for: kind)
-        let now = Date()
         let childID = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.child?.id
         let appRequestID = [runID.uuidString, childID?.uuidString, requestID].compactMap { $0 }.joined(separator: ":")
         let request = PiSubagentSupervisorRequest(
@@ -875,8 +874,8 @@ final class PiSubagentRunService {
             message: message,
             status: kind.isBlocking ? .pending : .answered,
             response: kind.isBlocking ? nil : "Acknowledged.",
-            createdAt: now,
-            updatedAt: now
+            createdAt: Date(),
+            updatedAt: Date()
         )
         store.upsertSupervisorRequest(request)
         store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .status, title: "Supervisor · \(kind.rawValue)", text: message, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
@@ -884,8 +883,8 @@ final class PiSubagentRunService {
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                 run.status = .blocked
                 run.child?.status = .blocked
-                run.updatedAt = now
-                run.child?.updatedAt = now
+                run.updatedAt = Date()
+                run.child?.updatedAt = Date()
             }
             scheduleSupervisorTimeout(requestID: appRequestID, runID: runID, parentSessionID: parentSessionID)
             store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Needs Decision", text: "Request ID: \(appRequestID)\n\n\(message)"))

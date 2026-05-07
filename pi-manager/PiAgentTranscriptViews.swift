@@ -1015,11 +1015,66 @@ private struct SubagentPromptMetadata {
     var finalSystemPromptPath: String
 }
 
-private func promptFileText(path: String) -> String {
+struct PiAgentSystemPromptAuditCard: View {
+    var title: String
+    var subtitle: String
+    var prompt: String
+    @State private var isPromptPresented = false
+
+    var body: some View {
+        AppRowCard {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                    HStack(spacing: 6) {
+                        Text(subtitle)
+                        Text("·")
+                        Image(systemName: "tugriksign.circle")
+                            .font(.caption2.weight(.semibold))
+                        Text("~\(formatPromptTokens(estimatedPromptTokens(prompt)))")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                }
+
+                Spacer(minLength: 0)
+
+                Button("View") {
+                    isPromptPresented = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .popover(isPresented: $isPromptPresented, arrowEdge: .bottom) {
+                    PiAgentPromptAuditPopover(title: title, text: prompt)
+                }
+            }
+        }
+    }
+}
+
+func estimatedPromptTokens(_ text: String) -> Int {
+    guard text.isEmpty == false else { return 0 }
+    return Int(ceil(Double(text.count) / 3.5))
+}
+
+func formatPromptTokens(_ value: Int) -> String {
+    if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+    if value >= 10_000 { return "\(value / 1_000)k" }
+    return value.formatted()
+}
+
+func promptFileText(path: String) -> String {
     (try? String(contentsOfFile: path, encoding: .utf8)) ?? "Prompt file is not available yet:\n\(path)"
 }
 
-private struct PiAgentPromptAuditPopover: View {
+struct PiAgentPromptAuditPopover: View {
     var title: String
     var text: String
 
@@ -1069,6 +1124,7 @@ struct PiAgentTranscriptCard: View {
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
     @State private var isThinkingExpanded = true
+    @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1081,9 +1137,24 @@ struct PiAgentTranscriptCard: View {
                     .fontWidth(.expanded)
                     .foregroundStyle(headerColor)
                 Spacer(minLength: 8)
-                Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(AppTheme.mutedText)
+                if isHovering {
+                    Button {
+                        copyToPasteboard(copyText)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 28, height: 22)
+                            .background(.regularMaterial, in: Capsule(style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy message")
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                } else {
+                    Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .transition(.opacity)
+                }
             }
 
             content
@@ -1099,6 +1170,8 @@ struct PiAgentTranscriptCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(strokeColor, lineWidth: 1)
         )
+        .onHover { isHovering = $0 }
+        .animation(.snappy(duration: 0.16), value: isHovering)
     }
 
     @ViewBuilder
@@ -1263,6 +1336,15 @@ struct PiAgentTranscriptCard: View {
         case .stderr: return .pink
         case .raw: return .secondary
         }
+    }
+
+    private var copyText: String {
+        entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 

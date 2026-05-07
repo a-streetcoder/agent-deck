@@ -839,6 +839,7 @@ struct PiAgentComposerFooterBar: View {
                 session: session,
                 fallbackModels: viewModel.enabledAvailableModels,
                 disabledModelIdentifiers: viewModel.appSettings.disabledModelIdentifiers,
+                defaultModel: viewModel.defaultPiAgentModel(),
                 isRunning: viewModel.isPiAgentSessionRunning(session.id),
                 onRefresh: { viewModel.refreshPiAgentControlsForSelectedSession() },
                 onCycle: { viewModel.cyclePiAgentModelForSelectedSession() },
@@ -853,6 +854,7 @@ struct PiAgentComposerFooterBar: View {
             PiAgentThinkingPicker(
                 level: session.thinkingLevel,
                 supportedLevels: supportedThinkingLevels,
+                defaultLevel: viewModel.defaultPiAgentThinkingLevel(for: supportedThinkingLevels),
                 isRunning: viewModel.isPiAgentSessionRunning(session.id),
                 onCycle: { viewModel.cyclePiAgentThinkingLevelForSelectedSession() },
                 onSelect: { viewModel.setPiAgentThinkingLevelForSelectedSession($0) }
@@ -910,6 +912,10 @@ struct PiAgentContextUsageMeter: View {
                         .font(.caption.monospacedDigit().weight(.semibold))
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(1)
+                    Image(systemName: "info.circle")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .accessibilityLabel("Show context usage details")
                 }
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 9)
@@ -974,6 +980,10 @@ struct PiAgentContextBreakdownPopover: View {
             transcript: transcript,
             fallbackModels: fallbackModels
         )
+    }
+
+    private var promptComposition: PiAgentPromptCompositionEstimate? {
+        PiAgentContextEstimateBuilder.buildPromptComposition(systemPrompt: session.finalSystemPrompt)
     }
 
     private var visibleRows: [PiAgentContextVisualRow] {
@@ -1065,6 +1075,30 @@ struct PiAgentContextBreakdownPopover: View {
                 }
             }
 
+            if let promptComposition, promptComposition.rows.isEmpty == false {
+                Divider()
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 6) {
+                        Text("Prompt composition")
+                            .font(.caption.weight(.bold))
+                        Spacer()
+                        tokenLabel(promptComposition.totalTokens, prefix: "~")
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    Text("Estimated from the captured Pi runtime system prompt.")
+                        .font(.caption2.italic())
+                        .foregroundStyle(AppTheme.mutedText)
+                    ForEach(promptComposition.rows) { row in
+                        PiAgentPromptCompositionRowView(
+                            title: row.title,
+                            tokens: row.tokens,
+                            percent: row.percent,
+                            tint: tint(for: row.key)
+                        )
+                    }
+                }
+            }
+
             if let inputTokens = session.inputTokens,
                let outputTokens = session.outputTokens,
                let toolCalls = session.toolCalls {
@@ -1084,9 +1118,13 @@ struct PiAgentContextBreakdownPopover: View {
         switch key {
         case "systemPrompt", "system_prompt":
             return .purple
-        case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results":
+        case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results", "promptTools":
             return .blue
-        case "messages", "estimatedMessages", "estimatedInputTokens":
+        case "promptSkills":
+            return .purple
+        case "promptProjectContext":
+            return .orange
+        case "promptCore", "messages", "estimatedMessages", "estimatedInputTokens":
             return .accentColor
         case "estimatedOutputTokens":
             return .green
@@ -1111,6 +1149,15 @@ struct PiAgentContextBreakdownPopover: View {
 
     private func formatPercent(_ value: Double) -> String {
         String(format: "%.1f%%", value)
+    }
+
+    private func tokenLabel(_ value: Int, prefix: String = "") -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "tugriksign.circle")
+                .font(.caption2.weight(.semibold))
+            Text("\(prefix)\(format(value))")
+                .font(.caption.monospacedDigit().weight(.semibold))
+        }
     }
 }
 
@@ -1299,6 +1346,59 @@ private struct PiAgentContextDotCellView: View {
     }
 }
 
+private struct PiAgentPromptCompositionRowView: View {
+    let title: String
+    let tokens: Int
+    let percent: Double
+    let tint: Color
+
+    private var clampedPercent: Double {
+        min(max(percent, 0), 100)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                HStack(spacing: 4) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "tugriksign.circle")
+                            .font(.caption2.weight(.semibold))
+                        Text(format(tokens))
+                            .font(.caption2.monospacedDigit().weight(.semibold))
+                    }
+                    Text("· \(formatPercent(percent))")
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                }
+                .foregroundStyle(AppTheme.mutedText)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(AppTheme.contentSubtleFill)
+                    Capsule(style: .continuous)
+                        .fill(tint)
+                        .frame(width: proxy.size.width * clampedPercent / 100)
+                }
+            }
+            .frame(height: 4)
+        }
+    }
+
+    private func format(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 10_000 { return "\(value / 1_000)k" }
+        return value.formatted()
+    }
+
+    private func formatPercent(_ value: Double) -> String {
+        String(format: "%.1f%%", min(max(value, 0), 100))
+    }
+}
+
 private struct PiAgentContextStat: View {
     let label: String
     let value: String
@@ -1430,6 +1530,7 @@ struct PiAgentModelPicker: View {
     let session: PiAgentSessionRecord
     let fallbackModels: [AvailableModel]
     let disabledModelIdentifiers: Set<String>
+    let defaultModel: AvailableModel?
     let isRunning: Bool
     let onRefresh: () -> Void
     let onCycle: () -> Void
@@ -1475,16 +1576,6 @@ struct PiAgentModelPicker: View {
                     .accessibilityLabel("Refresh models")
                 }
 
-                Button {
-                    onSelect(nil)
-                    isPresented = false
-                } label: {
-                    modelRow(title: "Pi Default", subtitle: "Use Pi CLI defaults", isSelected: isUsingPiDefault)
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-
                 ScrollView(showsIndicators: true) {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(groupedModelOptions, id: \.provider) { group in
@@ -1494,12 +1585,6 @@ struct PiAgentModelPicker: View {
                                         .font(.caption.weight(.bold))
                                         .fontWidth(.expanded)
                                         .foregroundStyle(.primary)
-                                    Text("\(group.models.count)")
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(AppTheme.mutedText)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1)
-                                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
                                     Spacer(minLength: 0)
                                 }
                                 .padding(.horizontal, 2)
@@ -1513,7 +1598,7 @@ struct PiAgentModelPicker: View {
                                             modelRow(
                                                 title: model.id,
                                                 subtitle: modelMetadataSubtitle(model),
-                                                isSelected: !isUsingPiDefault && model.provider == effectiveProvider && model.id == effectiveModelID
+                                                isSelected: model.provider == resolvedProvider && model.id == resolvedModelID
                                             )
                                         }
                                         .buttonStyle(.plain)
@@ -1529,7 +1614,7 @@ struct PiAgentModelPicker: View {
             .padding(12)
             .frame(width: 360)
         }
-        .help(isRunning ? "Change this Pi session's model" : "Choose a model override for this session before launch")
+        .help(isRunning ? "Change this Pi session's model" : "Choose a model for this session before launch")
     }
 
     private func modelRow(title: String, subtitle: String, isSelected: Bool) -> some View {
@@ -1551,7 +1636,7 @@ struct PiAgentModelPicker: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill))
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.10) : Color.clear))
     }
 
     private var modelOptions: [PiAgentModelOption] {
@@ -1600,18 +1685,21 @@ struct PiAgentModelPicker: View {
     private var isUsingPiDefault: Bool { session.modelOverrideProvider == nil && session.modelOverrideID == nil }
     private var effectiveProvider: String? { session.modelOverrideProvider ?? session.modelProvider }
     private var effectiveModelID: String? { session.modelOverrideID ?? session.model }
+    private var resolvedProvider: String? { effectiveProvider ?? defaultModel?.provider }
+    private var resolvedModelID: String? { effectiveModelID ?? defaultModel?.model }
 
     private var modelLabel: String {
-        if let provider = effectiveProvider, let model = effectiveModelID {
-            return isUsingPiDefault ? "Default \(provider)/\(model)" : "\(provider)/\(model)"
+        if let provider = resolvedProvider, let model = resolvedModelID {
+            return "\(provider)/\(model)"
         }
-        return "Pi Default"
+        return "Model"
     }
 }
 
 struct PiAgentThinkingPicker: View {
     let level: String?
     let supportedLevels: [String]
+    let defaultLevel: String
     let isRunning: Bool
     let onCycle: () -> Void
     let onSelect: (String) -> Void
@@ -1651,8 +1739,8 @@ struct PiAgentThinkingPicker: View {
                         isPresented = false
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: candidate == normalizedLevel ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(candidate == normalizedLevel ? Color.accentColor : AppTheme.mutedText)
+                            Image(systemName: candidate == resolvedLevel ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(candidate == resolvedLevel ? Color.accentColor : AppTheme.mutedText)
                                 .frame(width: 16)
                             Text(candidate.capitalized)
                                 .font(.caption.weight(.semibold))
@@ -1660,7 +1748,7 @@ struct PiAgentThinkingPicker: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(candidate == normalizedLevel ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill))
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(candidate == resolvedLevel ? Color.accentColor.opacity(0.10) : Color.clear))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1676,8 +1764,11 @@ struct PiAgentThinkingPicker: View {
         return level == "none" ? "off" : level
     }
 
+    private var resolvedLevel: String {
+        normalizedLevel ?? defaultLevel
+    }
+
     private var displayLevel: String {
-        guard let normalizedLevel else { return "default" }
-        return levels.contains(normalizedLevel) ? normalizedLevel : "\(normalizedLevel) unavailable"
+        levels.contains(resolvedLevel) ? resolvedLevel : "\(resolvedLevel) unavailable"
     }
 }

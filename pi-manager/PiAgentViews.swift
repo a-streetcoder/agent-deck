@@ -534,23 +534,18 @@ struct PiAgentScreen: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
+                        if let finalSystemPrompt = session.finalSystemPrompt {
+                            PiAgentSystemPromptAuditCard(
+                                title: "Final System Prompt",
+                                subtitle: session.finalSystemPromptCapturedAt.map { "Captured \($0.formatted(date: .omitted, time: .shortened))" } ?? "Captured from Pi runtime",
+                                prompt: finalSystemPrompt
+                            )
+                        }
                         ForEach(store.supervisorRequests(for: session.id).filter { $0.status == .pending }) { request in
                             PiSubagentSupervisorRequestCard(
                                 request: request,
                                 onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
                                 onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
-                            )
-                        }
-                        ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
-                            PiNativeSubagentRunCard(
-                                run: run,
-                                onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
-                                onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
-                                onReveal: { revealSubagentRun(run) },
-                                onOpenGraph: { selectedSubagentGraphRunID = run.id },
-                                onOpenWorktreePatch: { viewModel.openNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
-                                onApplyWorktreePatch: { viewModel.applyNativeSubagentWorktreePatch(runID: run.id, parentSessionID: session.id) },
-                                onDiscardWorktree: { viewModel.discardNativeSubagentWorktree(runID: run.id, parentSessionID: session.id) }
                             )
                         }
                     }
@@ -583,6 +578,17 @@ struct PiAgentScreen: View {
                         if let processingMessage = selectedSessionProcessingMessage {
                             PiAgentProcessingIndicatorCard(message: processingMessage)
                                 .id("pi-agent-processing")
+                        }
+                        if let session = store.selectedSession {
+                            ForEach(store.subagentRuns(for: session.id).prefix(5)) { run in
+                                PiNativeSubagentRunCard(
+                                    run: run,
+                                    onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: session.id) },
+                                    onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
+                                    onReveal: { revealSubagentRun(run) },
+                                    onOpenGraph: { selectedSubagentGraphRunID = run.id }
+                                )
+                            }
                         }
                     }
 
@@ -970,8 +976,9 @@ struct PiAgentScreen: View {
     }
 
     private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {
-        let provider = session.modelOverrideProvider ?? session.modelProvider
-        let modelID = session.modelOverrideID ?? session.model
+        let defaultModel = viewModel.defaultPiAgentModel()
+        let provider = session.modelOverrideProvider ?? session.modelProvider ?? defaultModel?.provider
+        let modelID = session.modelOverrideID ?? session.model ?? defaultModel?.model
         if let provider, let modelID {
             if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
                 return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : defaultThinkingLevels(provider: provider, modelID: modelID))
