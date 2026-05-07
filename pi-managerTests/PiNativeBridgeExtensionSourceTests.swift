@@ -40,4 +40,17 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains(#"bridge: "pi_manager_native_subagents""#))
         XCTAssertTrue(source.contains("additionalProperties: false"))
     }
+
+    @MainActor
+    func testSystemPromptAuditExtensionIsBundledAndReportsRuntimePrompt() throws {
+        let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL(), encoding: .utf8)
+
+        XCTAssertTrue(source.contains(#"before_agent_start"#))
+        XCTAssertTrue(source.contains(#"PI_MANAGER_BRIDGE system_prompt_audit"#))
+        XCTAssertTrue(source.contains("pi_manager_system_prompt_audit"))
+        XCTAssertTrue(source.contains("event.systemPrompt"))
+        XCTAssertTrue(source.contains("ctx.getSystemPrompt()"))
+        XCTAssertTrue(source.contains("PI_MANAGER_NATIVE_SUBAGENT"))
+        XCTAssertTrue(source.contains("PI_MANAGER_SUBAGENT_RUN_ID"))
+    }
 }

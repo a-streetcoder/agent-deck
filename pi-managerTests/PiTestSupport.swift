@@ -79,6 +79,8 @@ enum PiTestSupport {
             contextWindow: nil,
             contextPercent: nil,
             cost: nil,
+            finalSystemPrompt: nil,
+            finalSystemPromptCapturedAt: nil,
             pendingSteeringMessages: [],
             pendingFollowUpMessages: [],
             subagentsEnabled: subagentsEnabled,

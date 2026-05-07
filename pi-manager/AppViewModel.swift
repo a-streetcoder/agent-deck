@@ -1129,15 +1129,16 @@ final class AppViewModel: NSObject, ObservableObject {
             let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
             if let existing {
                 selectPiAgentSession(existing.id)
-                seedPiAgentModelsIfNeeded(for: existing.id)
+                ensurePiAgentModels(for: existing.id)
             } else {
                 let session = piAgentSessionStore.createSession(
                     kind: .project,
                     title: "Project agent · \(project.name)",
                     project: project,
-                    repository: project.gitHubRemote?.nameWithOwner
+                    repository: project.gitHubRemote?.nameWithOwner,
+                    availableModels: piAgentModelOptionsForNewSession()
                 )
-                seedPiAgentModelsIfNeeded(for: session.id)
+                ensurePiAgentModels(for: session.id)
             }
         } else {
             acknowledgeVisibleSelectedPiAgentSession()
@@ -1152,9 +1153,10 @@ final class AppViewModel: NSObject, ObservableObject {
             kind: .project,
             title: "Draft · \(project.name)",
             project: project,
-            repository: project.gitHubRemote?.nameWithOwner
+            repository: project.gitHubRemote?.nameWithOwner,
+            availableModels: piAgentModelOptionsForNewSession()
         )
-        seedPiAgentModelsIfNeeded(for: session.id)
+        ensurePiAgentModels(for: session.id)
     }
 
     func startPiAgentForSelectedProject(initialInstruction: String) {
@@ -1181,9 +1183,10 @@ final class AppViewModel: NSObject, ObservableObject {
             project: project,
             repository: detail.item.repository,
             issueNumber: detail.item.number,
-            issueURL: detail.item.url
+            issueURL: detail.item.url,
+            availableModels: piAgentModelOptionsForNewSession()
         )
-        seedPiAgentModelsIfNeeded(for: session.id)
+        ensurePiAgentModels(for: session.id)
         piAgentPendingComposerText = PiIssuePromptBuilder.issuePrompt(detail: detail, project: project)
     }
 
@@ -1195,13 +1198,16 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func openPiAgentScreen() {
         selectedSidebarItem = .agent
+        if let sessionID = piAgentSessionStore.selectedSession?.id {
+            ensurePiAgentModels(for: sessionID)
+        }
         acknowledgeVisibleSelectedPiAgentSession()
     }
 
     func selectPiAgentSession(_ id: UUID) {
         piAgentSessionStore.select(id)
         selectedSidebarItem = .agent
-        seedPiAgentModelsIfNeeded(for: id)
+        ensurePiAgentModels(for: id)
         acknowledgePiAgentSession(id)
     }
 
@@ -3553,16 +3559,29 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func seedPiAgentModelsIfNeeded(for sessionID: UUID) {
+    private func ensurePiAgentModels(for sessionID: UUID) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
               session.availableModels?.isEmpty ?? true else { return }
-        guard !availableModels.isEmpty else {
-            refreshAvailableModels()
+        if !availableModels.isEmpty {
+            piAgentSessionStore.updateSession(sessionID) { record in
+                record.availableModels = piAgentModelOptions(from: availableModels)
+            }
             return
         }
-        piAgentSessionStore.updateSession(sessionID) { record in
-            record.availableModels = piAgentModelOptions(from: availableModels)
+
+        Task.detached(priority: .utility) { [weak self] in
+            let models = await PiModelDiscoveryService().loadAvailableModels()
+            await MainActor.run {
+                guard let self, !models.isEmpty else { return }
+                self.availableModels = models
+                self.seedPiAgentSessionsWithAvailableModels(models)
+                self.modelsLastUpdatedAt = Date()
+            }
         }
+    }
+
+    private func piAgentModelOptionsForNewSession() -> [PiAgentModelOption]? {
+        availableModels.isEmpty ? nil : piAgentModelOptions(from: availableModels)
     }
 
     private func seedPiAgentSessionsWithAvailableModels(_ models: [AvailableModel]) {

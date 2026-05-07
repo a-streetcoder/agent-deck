@@ -64,6 +64,11 @@ final class PiSubagentRunService {
         }
         extraArguments.append(contentsOf: toolArguments(for: agent, includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
+        if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
+            extraArguments.append(contentsOf: ["--extension", auditURL.path])
+        } else {
+            bridgeWarnings.append("Pi Manager could not write the system prompt audit extension.")
+        }
         if agent.resolved.inheritSkills != true {
             extraArguments.append("--no-skills")
         }
@@ -803,6 +808,10 @@ final class PiSubagentRunService {
 
     private func handleExtensionUIRequest(_ event: PiAgentRPCEvent, rawLine: String, runID: UUID, parentSessionID: UUID) {
         let title = event.title ?? event.method ?? "extension UI"
+        if title == "PI_MANAGER_BRIDGE system_prompt_audit", let requestID = event.id {
+            handleSystemPromptAuditBridgeRequest(event, requestID: requestID, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
+            return
+        }
         guard title == "PI_MANAGER_BRIDGE contact_supervisor", let requestID = event.id else {
             store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .status, title: title, text: event.message?.compactDescription ?? "Extension UI request", rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             return
@@ -855,6 +864,23 @@ final class PiSubagentRunService {
         if let prefill = event.prefill, !prefill.isEmpty { return prefill }
         if let message = event.message?.stringValue, !message.isEmpty { return message }
         return event.message?.compactDescription
+    }
+
+    private func handleSystemPromptAuditBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, runID: UUID, parentSessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiSystemPromptAuditBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the system prompt audit request.")
+            return
+        }
+
+        let now = Date()
+        if let run = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID }) {
+            let artifactDirectory = URL(fileURLWithPath: run.artifactDirectory)
+            let outputURL = artifactDirectory.appendingPathComponent("final-system-prompt.md")
+            try? request.systemPrompt.write(to: outputURL, atomically: true, encoding: .utf8)
+        }
+        store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .status, title: "System Prompt Captured", text: "Captured \(request.systemPrompt.count) characters from Pi runtime.", rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+        clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "System prompt captured.")
     }
 
     private func supervisorTitle(for kind: PiSubagentSupervisorRequestKind) -> String {

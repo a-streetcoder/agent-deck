@@ -121,6 +121,14 @@ struct PiSessionPlanUpdateBridgeRequest: Codable, Hashable {
     var updates: [PiSessionPlanBridgeUpdate]
 }
 
+struct PiSystemPromptAuditBridgeRequest: Codable, Hashable {
+    var scope: String?
+    var parentSessionID: String?
+    var runID: String?
+    var agent: String?
+    var systemPrompt: String
+}
+
 struct PiSessionPlanBridgeItem: Codable, Hashable {
     var id: String?
     var title: String
@@ -646,6 +654,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var contextPercent: Double?
     var contextBreakdown: [PiAgentContextBreakdownItem]
     var cost: Double?
+    var finalSystemPrompt: String?
+    var finalSystemPromptCapturedAt: Date?
     var pendingSteeringMessages: [String]
     var pendingFollowUpMessages: [String]
     var subagentsEnabled: Bool
@@ -666,6 +676,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, thinkingLevel, launchCommand, branchName, worktreePath
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
+        case finalSystemPrompt, finalSystemPromptCapturedAt
         case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, isCompacting, isTitleUserEdited, createdAt, updatedAt
     }
 
@@ -707,6 +718,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         contextPercent: Double?,
         contextBreakdown: [PiAgentContextBreakdownItem] = [],
         cost: Double?,
+        finalSystemPrompt: String? = nil,
+        finalSystemPromptCapturedAt: Date? = nil,
         pendingSteeringMessages: [String],
         pendingFollowUpMessages: [String],
         subagentsEnabled: Bool,
@@ -752,6 +765,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.contextPercent = contextPercent
         self.contextBreakdown = contextBreakdown
         self.cost = cost
+        self.finalSystemPrompt = finalSystemPrompt
+        self.finalSystemPromptCapturedAt = finalSystemPromptCapturedAt
         self.pendingSteeringMessages = pendingSteeringMessages
         self.pendingFollowUpMessages = pendingFollowUpMessages
         self.subagentsEnabled = subagentsEnabled
@@ -801,6 +816,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             contextPercent: try container.decodeIfPresent(Double.self, forKey: .contextPercent),
             contextBreakdown: try container.decodeIfPresent([PiAgentContextBreakdownItem].self, forKey: .contextBreakdown) ?? [],
             cost: try container.decodeIfPresent(Double.self, forKey: .cost),
+            finalSystemPrompt: try container.decodeIfPresent(String.self, forKey: .finalSystemPrompt),
+            finalSystemPromptCapturedAt: try container.decodeIfPresent(Date.self, forKey: .finalSystemPromptCapturedAt),
             pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
             pendingFollowUpMessages: try container.decodeIfPresent([String].self, forKey: .pendingFollowUpMessages) ?? [],
             subagentsEnabled: try container.decodeIfPresent(Bool.self, forKey: .subagentsEnabled) ?? true,

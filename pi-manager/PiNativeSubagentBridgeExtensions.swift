@@ -1,6 +1,10 @@
 import Foundation
 
 struct PiNativeSubagentBridgeExtensions {
+    static func systemPromptAuditExtensionURL(fileManager: FileManager = .default) throws -> URL {
+        try writeExtension(named: "system-prompt-audit-bridge.ts", content: systemPromptAuditExtensionSource, fileManager: fileManager)
+    }
+
     static func parentExtensionURL(fileManager: FileManager = .default) throws -> URL {
         try writeExtension(named: "managed-subagent-bridge.ts", content: parentExtensionSource, fileManager: fileManager)
     }
@@ -219,6 +223,25 @@ struct PiNativeSubagentBridgeExtensions {
                     const result = await ctx.ui.editor("PI_MANAGER_BRIDGE answer_supervisor_request", payload);
                     return { content: [{ type: "text", text: result || "Supervisor response routed." }] };
                 }
+            });
+        }
+        """
+
+    private static let systemPromptAuditExtensionSource = """
+        import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+
+        export default function (pi: ExtensionAPI) {
+            pi.on("before_agent_start", async (event, ctx) => {
+                const payload = JSON.stringify({
+                    bridge: "pi_manager_system_prompt_audit",
+                    kind: "system_prompt_audit",
+                    scope: process.env.PI_MANAGER_NATIVE_SUBAGENT === "1" ? "child" : "parent",
+                    parentSessionID: process.env.PI_MANAGER_PARENT_SESSION_ID,
+                    runID: process.env.PI_MANAGER_SUBAGENT_RUN_ID,
+                    agent: process.env.PI_MANAGER_SUBAGENT_AGENT,
+                    systemPrompt: event.systemPrompt ?? ctx.getSystemPrompt()
+                });
+                await ctx.ui.editor("PI_MANAGER_BRIDGE system_prompt_audit", payload);
             });
         }
         """

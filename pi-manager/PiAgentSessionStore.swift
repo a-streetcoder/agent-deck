@@ -56,6 +56,20 @@ final class PiAgentSessionStore: ObservableObject {
 
     @discardableResult
     func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil) -> PiAgentSessionRecord {
+        createSession(
+            kind: kind,
+            title: title,
+            project: project,
+            repository: repository,
+            issueNumber: issueNumber,
+            issueURL: issueURL,
+            model: model,
+            availableModels: nil
+        )
+    }
+
+    @discardableResult
+    func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, availableModels: [PiAgentModelOption]?) -> PiAgentSessionRecord {
         let now = Date()
         let record = PiAgentSessionRecord(
             id: UUID(),
@@ -72,7 +86,7 @@ final class PiAgentSessionStore: ObservableObject {
             modelProvider: nil,
             modelOverrideID: nil,
             modelOverrideProvider: nil,
-            availableModels: nil,
+            availableModels: availableModels,
             thinkingLevel: nil,
             launchCommand: nil,
             branchName: nil,
@@ -94,6 +108,8 @@ final class PiAgentSessionStore: ObservableObject {
             contextWindow: nil,
             contextPercent: nil,
             cost: nil,
+            finalSystemPrompt: nil,
+            finalSystemPromptCapturedAt: nil,
             pendingSteeringMessages: [],
             pendingFollowUpMessages: [],
             subagentsEnabled: newSessionSubagentsEnabled,

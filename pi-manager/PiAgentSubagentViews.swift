@@ -348,6 +348,8 @@ struct PiNativeSubagentRunCard: View {
                             .disabled(!canOpenArtifact(named: "input.md"))
                         Button("Open System Prompt", action: { openArtifact(named: "system-prompt.md") })
                             .disabled(!canOpenArtifact(named: "system-prompt.md"))
+                        Button("Open Final System Prompt", action: { openArtifact(named: "final-system-prompt.md") })
+                            .disabled(!canOpenArtifact(named: "final-system-prompt.md"))
                     }
                     if canReviewWorktree {
                         Button("Generate/Open Worktree Patch", action: onOpenWorktreePatch)
@@ -1146,4 +1148,3 @@ struct PiNativeSubagentRunSheet: View {
         }
     }
 }
-

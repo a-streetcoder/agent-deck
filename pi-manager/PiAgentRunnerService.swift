@@ -205,6 +205,9 @@ final class PiAgentRunnerService {
 
         do {
             var extraArguments: [String] = []
+            if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", auditURL.path])
+            }
             if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
                 if let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty {
@@ -925,6 +928,8 @@ final class PiAgentRunnerService {
                 handleSetSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "update_session_plan":
                 handleUpdateSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "system_prompt_audit":
+                handleSystemPromptAuditBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             default:
                 clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager does not support bridge request \(bridgeName).")
                 store.append(.init(sessionID: sessionID, role: .error, title: "Pi Manager Bridge Error", text: "Unsupported bridge request \(bridgeName).", rawJSON: rawLine))
@@ -1046,6 +1051,21 @@ final class PiAgentRunnerService {
         let result = onSessionPlanUpdate?(sessionID, request) ?? "Pi Manager session plan routing is not available."
         store.append(.init(sessionID: sessionID, role: .status, title: "Session Plan Updated", text: "Updated \(request.updates.count) item(s).", rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+    }
+
+    private func handleSystemPromptAuditBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiSystemPromptAuditBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager could not parse the system prompt audit request.")
+            return
+        }
+        let now = Date()
+        store.updateSession(sessionID, bumpUpdatedAt: false) { record in
+            record.finalSystemPrompt = request.systemPrompt
+            record.finalSystemPromptCapturedAt = now
+        }
+        store.append(.init(sessionID: sessionID, role: .status, title: "System Prompt Captured", text: "Captured \(request.systemPrompt.count) characters from Pi runtime.", rawJSON: rawLine))
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "System prompt captured.")
     }
 
     private func bridgePayload(from event: PiAgentRPCEvent) -> String? {

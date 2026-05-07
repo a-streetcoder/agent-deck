@@ -150,6 +150,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
 
         let enabledCommand = try XCTUnwrap(enabledStore.sessions.first(where: { $0.id == enabledSession.id })?.launchCommand)
         XCTAssertTrue(enabledCommand.contains("--extension"))
+        XCTAssertTrue(enabledCommand.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("--append-system-prompt"))
         XCTAssertTrue(enabledCommand.contains("Native catalog prompt."))
@@ -168,9 +169,29 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         defer { disabledRunner.stop(sessionID: disabledSession.id) }
 
         let disabledCommand = try XCTUnwrap(disabledStore.sessions.first(where: { $0.id == disabledSession.id })?.launchCommand)
+        XCTAssertTrue(disabledCommand.contains("system-prompt-audit-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("--append-system-prompt"))
         XCTAssertFalse(disabledCommand.contains("Native catalog prompt."))
+    }
+
+    func testParentSessionCapturesRuntimeSystemPromptAudit() throws {
+        let payload = #"{"scope":"parent","systemPrompt":"Final parent prompt from Pi."}"#
+        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "audit-parent-1", name: "system_prompt_audit", payload: payload))
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Audit", project: try PiTestSupport.makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            store.sessions.first(where: { $0.id == session.id })?.finalSystemPrompt == "Final parent prompt from Pi."
+                && responseValue(id: "audit-parent-1", in: harness.stdinLog) == "System prompt captured."
+        })
+        XCTAssertNotNil(store.sessions.first(where: { $0.id == session.id })?.finalSystemPromptCapturedAt)
     }
 
     func testMalformedBridgeStillRespondsAndDoesNotOpenEditorUI() throws {
