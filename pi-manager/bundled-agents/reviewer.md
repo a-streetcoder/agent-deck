@@ -26,4 +26,4 @@ Return:
 
 For each issue, include evidence: file paths, symbols, commands, or reasoning tied to current code. If there are no material issues, say so clearly.
 
-If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Return routine final reviews normally.
+If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Return routine final reviews normally. Do not send completion handoffs through supervisor tools.

@@ -665,7 +665,7 @@ final class PiAgentRunnerService {
 
     private func parseModelOptions(from value: JSONValue) -> [PiAgentModelOption] {
         guard case let .array(models) = value else { return [] }
-        return models.compactMap { model in
+        return models.compactMap { model -> PiAgentModelOption? in
             let provider = model["provider"]?.stringValue ?? model["providerId"]?.stringValue
             let id = model["id"]?.stringValue ?? model["modelId"]?.stringValue ?? model["model"]?.stringValue
             guard let provider, let id else { return nil }
@@ -682,10 +682,11 @@ final class PiAgentRunnerService {
             let supportsThinking = model["reasoning"]?.boolValue ?? model["supportsThinking"]?.boolValue
             let supportedThinkingLevels: [String]? = {
                 if let levels = stringArray(from: model["supportedThinkingLevels"]) { return levels }
+                if let levels = parseSupportedThinkingLevels(from: model["thinkingLevelMap"]) { return levels }
                 guard supportsThinking == true else { return supportsThinking == false ? ["off"] : nil }
                 return supportsXhigh(provider: provider, modelID: id) ? ["off", "minimal", "low", "medium", "high", "xhigh"] : ["off", "minimal", "low", "medium", "high"]
             }()
-            let supportsImages = model["supportsImages"]?.boolValue ?? model["image"]?.boolValue
+            let supportsImages = model["supportsImages"]?.boolValue ?? model["image"]?.boolValue ?? stringArray(from: model["input"])?.contains("image")
             return PiAgentModelOption(
                 provider: provider,
                 id: id,
@@ -714,6 +715,17 @@ final class PiAgentRunnerService {
         guard case let .array(items)? = value else { return nil }
         let strings = items.compactMap(\.stringValue)
         return strings.isEmpty ? nil : strings
+    }
+
+    private func parseSupportedThinkingLevels(from value: JSONValue?) -> [String]? {
+        let allLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+        guard case let .object(map)? = value else { return nil }
+        let levels = allLevels.filter { level in
+            guard let mapped = map[level] else { return true }
+            if case .null = mapped { return false }
+            return true
+        }
+        return levels.isEmpty ? nil : levels
     }
 
     private func supportsXhigh(provider: String, modelID: String) -> Bool {

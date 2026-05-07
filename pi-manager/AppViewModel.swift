@@ -2119,6 +2119,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func refreshPiAgentControlsForSelectedSession() {
+        refreshAvailableModels()
         guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
         piAgentRunner.refreshPiControls(sessionID: sessionID)
     }

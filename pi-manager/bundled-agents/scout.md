@@ -24,4 +24,4 @@ Return:
 - constraints, risks, and unknowns
 - recommended next files to read, if any
 
-If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Use `kind: "progress_update"` only for meaningful progress or discoveries that change the handoff. Return routine final findings normally.
+If blocked on a product, architecture, or scope decision, call `contact_supervisor` with `kind: "need_decision"`. Use `kind: "progress_update"` only for meaningful progress or discoveries that change the handoff. Return routine final findings normally. Do not send completion handoffs through supervisor tools.

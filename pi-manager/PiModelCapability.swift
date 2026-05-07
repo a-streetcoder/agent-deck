@@ -1,7 +1,7 @@
 import Foundation
 
 enum PiModelCapability {
-    /// Mirrors @mariozechner/pi-ai supportsXhigh(model) for Pi's current model families.
+    /// Conservative fallback when Pi RPC/CLI metadata does not report exact thinking levels.
     /// Keep this small and conservative; explicit runtime metadata still wins when present.
     static func supportsXhigh(modelID: String) -> Bool {
         let id = modelID.lowercased()

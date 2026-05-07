@@ -34,18 +34,33 @@ struct PiModelDiscoveryService: Sendable {
         }
 
         let script = #"""
-import { getModel, supportsXhigh } from '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js';
+import { existsSync } from 'node:fs';
+
+const candidates = [
+  '/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/models.js',
+  '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js',
+];
+const modulePath = candidates.find((path) => existsSync(path));
+if (!modulePath) throw new Error('Could not locate pi-ai models.js');
+
+const models = await import(modulePath);
 const input = JSON.parse(process.env.PI_MANAGER_MODEL_INPUT ?? '[]');
 const result = {};
 for (const item of input) {
-  const model = getModel(item.provider, item.model);
+  const model = models.getModel(item.provider, item.model);
   if (!model || !model.reasoning) {
     result[`${item.provider}/${item.model}`] = ['off'];
     continue;
   }
-  result[`${item.provider}/${item.model}`] = supportsXhigh(model)
-    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-    : ['off', 'minimal', 'low', 'medium', 'high'];
+  if (typeof models.getSupportedThinkingLevels === 'function') {
+    result[`${item.provider}/${item.model}`] = models.getSupportedThinkingLevels(model);
+  } else if (typeof models.supportsXhigh === 'function') {
+    result[`${item.provider}/${item.model}`] = models.supportsXhigh(model)
+      ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+      : ['off', 'minimal', 'low', 'medium', 'high'];
+  } else {
+    result[`${item.provider}/${item.model}`] = ['off', 'minimal', 'low', 'medium', 'high'];
+  }
 }
 process.stdout.write(JSON.stringify(result));
 """#

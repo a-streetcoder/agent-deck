@@ -24,8 +24,8 @@ struct PiNativeSubagentBridgeExtensions {
     }
 
     private static let parentExtensionSource = """
-        import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-        import { StringEnum } from "@mariozechner/pi-ai";
+        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+        import { StringEnum } from "@earendil-works/pi-ai";
         import { Type } from "typebox";
 
         const ManagedSubagentParams = Type.Object({
@@ -224,8 +224,8 @@ struct PiNativeSubagentBridgeExtensions {
         """
 
     private static let childExtensionSource = """
-        import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-        import { StringEnum } from "@mariozechner/pi-ai";
+        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+        import { StringEnum } from "@earendil-works/pi-ai";
         import { Type } from "typebox";
 
         const ContactSupervisorParams = Type.Object({

@@ -15,7 +15,7 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .executableNotFound:
-                return "Could not find the pi CLI. Install it with `npm install -g @mariozechner/pi-coding-agent` or configure PI_MANAGER_PI_PATH."
+                return "Could not find the pi CLI. Install it with `npm install -g @earendil-works/pi-coding-agent` or configure PI_MANAGER_PI_PATH."
             case let .launchFailed(error):
                 return "Failed to launch pi: \(error.localizedDescription)"
             case .stdinUnavailable:

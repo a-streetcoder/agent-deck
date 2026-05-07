@@ -202,7 +202,7 @@ Decision: **use only as a fallback/debug action: “Open in External Terminal”
 
 ### Option D — Node/TypeScript agent host using Pi SDK
 
-Bundle a small Node helper using `@mariozechner/pi-coding-agent` SDK directly instead of spawning `pi --mode rpc`.
+Bundle a small Node helper using `@earendil-works/pi-coding-agent` SDK directly instead of spawning `pi --mode rpc`.
 
 Pros:
 
