@@ -206,11 +206,6 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func refresh(includeModels: Bool = false, scanAllProjects: Bool = true) {
-        let previousAgentID = selectedAgentID
-        let previousChainID = selectedChainID
-        let previousSkillID = selectedSkillID
-        let previousCommandItemID = selectedCommandItemID
-        let previousExtensionID = selectedExtensionID
         let selectedProjectPath = selectedProjectPath
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let rootURL = configuredProjectsRootURL
@@ -231,11 +226,6 @@ final class AppViewModel: NSObject, ObservableObject {
                 guard !Task.isCancelled, requestID == viewModel.refreshRequestID else { return }
                 viewModel.applyRefreshSnapshot(
                     result,
-                    previousAgentID: previousAgentID,
-                    previousChainID: previousChainID,
-                    previousSkillID: previousSkillID,
-                    previousCommandItemID: previousCommandItemID,
-                    previousExtensionID: previousExtensionID,
                     includeModels: includeModels
                 )
             }
@@ -244,11 +234,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func applyRefreshSnapshot(
         _ result: AppRefreshSnapshot,
-        previousAgentID: EffectiveAgentRecord.ID?,
-        previousChainID: ChainRecord.ID?,
-        previousSkillID: SkillRecord.ID?,
-        previousCommandItemID: String?,
-        previousExtensionID: PiExtensionRecord.ID?,
         includeModels: Bool
     ) {
         projectPreferencesByPath = result.projectPreferencesByPath
@@ -271,12 +256,18 @@ final class AppViewModel: NSObject, ObservableObject {
             snapshot = makeAggregateSnapshot()
         }
 
-        selectedAgentID = filteredAgents.contains(where: { $0.id == previousAgentID }) ? previousAgentID : filteredAgents.first?.id
-        selectedChainID = allVisibleChainRecords.contains(where: { $0.id == previousChainID }) ? previousChainID : allVisibleChainRecords.first?.id
-        selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == previousSkillID }) ? previousSkillID : allVisibleSkillRecords.first?.id
-        selectedExtensionID = visibleExtensions.contains(where: { $0.id == previousExtensionID }) ? previousExtensionID : visibleExtensions.first?.id
+        let currentAgentID = selectedAgentID
+        let currentChainID = selectedChainID
+        let currentSkillID = selectedSkillID
+        let currentExtensionID = selectedExtensionID
+        let currentCommandItemID = selectedCommandItemID
+
+        selectedAgentID = filteredAgents.contains(where: { $0.id == currentAgentID }) ? currentAgentID : filteredAgents.first?.id
+        selectedChainID = allVisibleChainRecords.contains(where: { $0.id == currentChainID }) ? currentChainID : allVisibleChainRecords.first?.id
+        selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == currentSkillID }) ? currentSkillID : allVisibleSkillRecords.first?.id
+        selectedExtensionID = visibleExtensions.contains(where: { $0.id == currentExtensionID }) ? currentExtensionID : visibleExtensions.first?.id
         let availableCommandItemIDs = Set(snapshot.commands.map(\.id) + allVisiblePromptTemplateRecords.map(\.id))
-        selectedCommandItemID = availableCommandItemIDs.contains(previousCommandItemID ?? "") ? previousCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
+        selectedCommandItemID = availableCommandItemIDs.contains(currentCommandItemID ?? "") ? currentCommandItemID : (snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id)
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
         if includeModels {
@@ -2671,7 +2662,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let assignedNames = Set(allProjectSnapshots.values.flatMap(\.projectAgents).map(\.name))
         let libraryNames = Set(snapshot.libraryAgents.map(\.name))
         return assignedNames
-            .filter { !effectiveNames.contains($0) && !libraryNames.contains($0) }
+            .filter { !effectiveNames.contains($0) && libraryNames.contains($0) }
             .compactMap { libraryByName[$0] }
             .map { libraryDisplayAgent(from: $0, projectRoot: nil) }
     }

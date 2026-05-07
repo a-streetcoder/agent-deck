@@ -24,24 +24,20 @@ struct CommandsAndPromptsScreen: View {
         AppPage("Prompts", subtitle: pageSubtitle) {
             VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                 if let selectedProject = viewModel.selectedDiscoveredProject {
-                    AppCard(title: "Active in \(selectedProject.name)") {
-                        promptGrid(activePrompts, emptyText: "No prompt templates are active for this project.")
-                    }
-
-                    if !libraryPrompts.isEmpty {
-                        AppCard(title: "Library Prompts") {
+                    if !projectPrompts.isEmpty {
+                        AppCard(title: "Project Prompts") {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("Library prompts are centrally stored and only become active when assigned to this project or enabled globally.")
+                                Text("Loaded from \(selectedProject.name)'s .pi/prompts directory or project settings.")
                                     .foregroundStyle(AppTheme.mutedText)
-                                promptGrid(libraryPrompts, emptyText: "No library prompts.")
+                                promptGrid(projectPrompts, emptyText: "No project prompt templates.")
                             }
                         }
                     }
-                } else {
+
                     if !globalPrompts.isEmpty {
                         AppCard(title: "Global Prompts") {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("Select a project to see exactly which prompt templates are active there and to manage project assignment.")
+                                Text("Loaded from global prompt locations and available in every project.")
                                     .foregroundStyle(AppTheme.mutedText)
                                 promptGrid(globalPrompts, emptyText: "No global prompt templates.")
                             }
@@ -49,8 +45,26 @@ struct CommandsAndPromptsScreen: View {
                     }
 
                     if !libraryPrompts.isEmpty {
-                        AppCard(title: "Library Prompts") {
-                            promptGrid(libraryPrompts, emptyText: "No library prompts.")
+                        AppCard(title: "Prompt Library") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Loaded from ~/.pi/agent/prompt-library as reusable prompt templates.")
+                                    .foregroundStyle(AppTheme.mutedText)
+                                promptGrid(libraryPrompts, emptyText: "No library prompts.")
+                            }
+                        }
+                    }
+                } else {
+                    promptSourceSection("Global Prompts", prompts: globalPrompts, emptyText: "No global prompt templates.")
+                    promptSourceSection("Project Prompts", prompts: projectPrompts, emptyText: "No project prompt templates.")
+                    promptSourceSection("Prompt Library", prompts: libraryPrompts, emptyText: "No library prompts.")
+                }
+
+                if !settingsPrompts.isEmpty {
+                    AppCard(title: "Settings Prompts") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Loaded from explicit settings.json prompt paths.")
+                                .foregroundStyle(AppTheme.mutedText)
+                            promptGrid(settingsPrompts, emptyText: "No settings prompts.")
                         }
                     }
                 }
@@ -76,44 +90,42 @@ struct CommandsAndPromptsScreen: View {
 
     private var pageSubtitle: String {
         if let selectedProject = viewModel.selectedDiscoveredProject {
-            return "Active prompts for \(selectedProject.name), plus central library assignment"
+            return "Prompt template locations active for \(selectedProject.name)"
         }
         return "Reusable prompt templates and extension commands"
     }
 
-    private var managedPrompts: [PromptTemplateRecord] {
-        Dictionary(grouping: viewModel.allVisiblePromptTemplateRecords, by: \.name).values.compactMap(preferredPromptRecord)
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    private var visiblePrompts: [PromptTemplateRecord] {
+        viewModel.allVisiblePromptTemplateRecords
     }
 
-    private var activePrompts: [PromptTemplateRecord] {
-        managedPrompts.filter { promptIsActiveForCurrentProject($0) }
+    private var projectPrompts: [PromptTemplateRecord] {
+        visiblePrompts.filter { $0.source.kind == .project && $0.discoveryKind == .standardDirectory }
     }
 
     private var globalPrompts: [PromptTemplateRecord] {
-        managedPrompts.filter { viewModel.promptIsEnabledGlobally($0) && $0.source.kind != .package }
+        visiblePrompts.filter { $0.source.kind == .global && $0.discoveryKind == .standardDirectory }
     }
 
     private var libraryPrompts: [PromptTemplateRecord] {
-        managedPrompts.filter { $0.source.kind == .library && !viewModel.promptIsEnabledGlobally($0) }
+        visiblePrompts.filter { $0.source.kind == .library }
+    }
+
+    private var settingsPrompts: [PromptTemplateRecord] {
+        visiblePrompts.filter { $0.discoveryKind == .settings }
     }
 
     private var packagePrompts: [PromptTemplateRecord] {
-        managedPrompts.filter { $0.source.kind == .package }
+        visiblePrompts.filter { $0.source.kind == .package }
     }
 
-    private func preferredPromptRecord(_ records: [PromptTemplateRecord]) -> PromptTemplateRecord? {
-        records.first { $0.source.kind == .library }
-        ?? records.first { $0.source.kind == .global }
-        ?? records.first { $0.source.kind == .project }
-        ?? records.first { $0.source.kind == .package }
-        ?? records.first
-    }
-
-    private func promptIsActiveForCurrentProject(_ prompt: PromptTemplateRecord) -> Bool {
-        if viewModel.promptIsEnabledGlobally(prompt) { return true }
-        if let selectedProject = viewModel.selectedDiscoveredProject, viewModel.prompt(prompt, isEnabledFor: selectedProject) { return true }
-        return prompt.source.kind == .package && viewModel.selectedDiscoveredProject != nil
+    @ViewBuilder
+    private func promptSourceSection(_ title: String, prompts: [PromptTemplateRecord], emptyText: String) -> some View {
+        if !prompts.isEmpty {
+            AppCard(title: title) {
+                promptGrid(prompts, emptyText: emptyText)
+            }
+        }
     }
 
     private func promptGrid(_ prompts: [PromptTemplateRecord], emptyText: String) -> some View {
@@ -123,7 +135,7 @@ struct CommandsAndPromptsScreen: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(prompts, id: \.name) { prompt in
+                ForEach(prompts) { prompt in
                     promptTile(prompt)
                 }
             }
@@ -141,7 +153,7 @@ struct CommandsAndPromptsScreen: View {
     }
 
     private func promptTile(_ prompt: PromptTemplateRecord) -> some View {
-        Button { viewModel.selectedCommandItemID = prompt.id } label: {
+        return Button { viewModel.selectedCommandItemID = prompt.id } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: promptIcon(prompt))
@@ -175,8 +187,6 @@ struct CommandsAndPromptsScreen: View {
                     .fill(viewModel.selectedCommandItemID == prompt.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
                     .stroke(viewModel.selectedCommandItemID == prompt.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
             )
-            .opacity(promptIsUnusedLibraryPrompt(prompt) ? 0.62 : 1)
-            .saturation(promptIsUnusedLibraryPrompt(prompt) ? 0.25 : 1)
         }
         .buttonStyle(.plain)
     }
@@ -211,21 +221,20 @@ struct CommandsAndPromptsScreen: View {
 
     private func promptIcon(_ prompt: PromptTemplateRecord) -> String {
         if prompt.source.kind == .package { return "shippingbox" }
-        if viewModel.promptIsEnabledGlobally(prompt) { return "globe" }
         if prompt.source.kind == .library { return "building.columns" }
+        if prompt.source.kind == .project { return "checkmark.circle" }
+        if prompt.discoveryKind == .settings { return "gearshape" }
+        if prompt.source.kind == .global { return "globe" }
         return "doc.text"
     }
 
     private func promptColor(_ prompt: PromptTemplateRecord) -> Color {
         if prompt.source.kind == .package { return .orange }
-        if viewModel.promptIsEnabledGlobally(prompt) { return .blue }
         if prompt.source.kind == .library { return .purple }
-        if viewModel.selectedProjectPath != nil, promptIsActiveForCurrentProject(prompt) { return .green }
+        if prompt.source.kind == .project { return .green }
+        if prompt.discoveryKind == .settings { return .indigo }
+        if prompt.source.kind == .global { return .blue }
         return .blue
-    }
-
-    private func promptIsUnusedLibraryPrompt(_ prompt: PromptTemplateRecord) -> Bool {
-        prompt.source.kind == .library && !viewModel.promptIsEnabledGlobally(prompt) && viewModel.assignedProjects(for: prompt).isEmpty
     }
 
     private func commandDetail(_ command: CommandRecord) -> some View {
@@ -252,33 +261,22 @@ struct CommandsAndPromptsScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                AppCard(title: "Library & Visibility") {
+                AppCard(title: "Location") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Reusable prompts live in ~/.pi/agent/prompt-library. Pi only sees them when Pi Manager links them globally or into a project.")
+                        Text("Pi loads prompt templates from global, project, library, package, and settings-declared prompt locations.")
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                         AppKeyValueList(rows: [
-                            ("In Library", canonicalPrompt(prompt).source.kind == .library ? "Yes" : "No"),
-                            ("Active Globally", viewModel.promptIsEnabledGlobally(prompt) ? "Yes" : "No"),
-                            ("Assigned Projects", assignedProjectSummary(prompt)),
-                            ("Path", canonicalPrompt(prompt).filePath)
+                            ("Source", prompt.source.kind.rawValue),
+                            ("Discovery", prompt.discoveryKind.rawValue),
+                            ("Path", prompt.filePath)
                         ])
                         HStack(spacing: 10) {
-                            if canonicalPrompt(prompt).source.kind != .library {
+                            if prompt.source.kind != .library {
                                 Button("Move to Library") { do { try viewModel.movePromptToLibrary(prompt) } catch { NSSound.beep() } }
-                            }
-                            if viewModel.promptIsEnabledGlobally(prompt) {
-                                Button("Disable Globally") { do { try viewModel.disablePromptGlobally(prompt) } catch { NSSound.beep() } }
-                            } else {
-                                Button("Enable Globally") { do { try viewModel.enablePromptGlobally(prompt) } catch { NSSound.beep() } }
-                                    .buttonStyle(.borderedProminent)
                             }
                         }
                     }
-                }
-
-                AppCard(title: "Project Assignment") {
-                    projectAssignmentList(for: prompt)
                 }
             }
 
@@ -286,43 +284,6 @@ struct CommandsAndPromptsScreen: View {
                 MarkdownDocumentView(source: prompt.body, minimumHeight: 120)
             }
         }
-    }
-
-    private func canonicalPrompt(_ prompt: PromptTemplateRecord) -> PromptTemplateRecord {
-        viewModel.snapshot.libraryPromptTemplates.first { $0.name == prompt.name } ?? prompt
-    }
-
-    private func projectAssignmentList(for prompt: PromptTemplateRecord) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Check each project that should expose this prompt template. Assigning to a project removes managed global visibility, like Skills.")
-                .foregroundStyle(AppTheme.mutedText)
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(viewModel.enabledProjects) { project in
-                    Toggle(isOn: Binding(
-                        get: { viewModel.prompt(prompt, isEnabledFor: project) },
-                        set: { enabled in do { try viewModel.setPrompt(prompt, enabled: enabled, for: project) } catch { NSSound.beep() } }
-                    )) {
-                        HStack(spacing: 10) {
-                            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(project.name).font(.body.weight(.semibold))
-                                Text(project.repositoryName ?? project.path).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(1).truncationMode(.middle)
-                            }
-                        }
-                        .frame(height: 46, alignment: .center)
-                    }
-                    .toggleStyle(.checkbox)
-                    .controlSize(.large)
-                    .padding(.vertical, 8)
-                    if project.id != viewModel.enabledProjects.last?.id { Divider() }
-                }
-            }
-        }
-    }
-
-    private func assignedProjectSummary(_ prompt: PromptTemplateRecord) -> String {
-        let projects = viewModel.assignedProjects(for: prompt).map(\.name)
-        return projects.isEmpty ? "—" : projects.joined(separator: ", ")
     }
 }
 
