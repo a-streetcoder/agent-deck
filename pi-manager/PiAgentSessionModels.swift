@@ -488,7 +488,7 @@ struct PiAgentContextEstimateBuilder {
                 title: "Prompt input",
                 tokens: tokens,
                 percent: percent(tokens, of: contextWindow),
-                detail: "RPC input tokens. Includes system prompt, tools, and conversation content sent to the model.",
+                detail: nil,
                 source: .rpcAggregate
             ))
         }
@@ -501,7 +501,7 @@ struct PiAgentContextEstimateBuilder {
                 title: "Model output",
                 tokens: tokens,
                 percent: percent(tokens, of: contextWindow),
-                detail: "RPC output tokens from the latest reported assistant response.",
+                detail: nil,
                 source: .rpcAggregate
             ))
         }
@@ -514,7 +514,7 @@ struct PiAgentContextEstimateBuilder {
                 title: "Cache read/write",
                 tokens: tokens,
                 percent: percent(tokens, of: contextWindow),
-                detail: "RPC cache read/write tokens. This is token accounting, not a separate prompt/tools category.",
+                detail: nil,
                 source: .rpcAggregate
             ))
         }
@@ -544,7 +544,7 @@ struct PiAgentContextEstimateBuilder {
                 title: "Unattributed used context",
                 tokens: otherUsedTokens,
                 percent: percent(otherUsedTokens, of: contextWindow),
-                detail: "RPC used tokens not covered by the token categories Pi reported.",
+                detail: nil,
                 source: .rpcAggregate
             ))
         }
@@ -561,7 +561,7 @@ struct PiAgentContextEstimateBuilder {
 
         return PiAgentContextBreakdownEstimate(
             rows: rows,
-            note: "Estimated from Pi RPC token totals. Exact system prompt, tool schema, and message category data is not exposed by current Pi RPC."
+            note: "Estimated from Pi RPC token totals; exact prompt, tool, and message categories aren’t exposed."
         )
     }
 

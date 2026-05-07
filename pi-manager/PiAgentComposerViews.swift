@@ -917,11 +917,8 @@ struct PiAgentContextUsageMeter: View {
                 .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
                 .fixedSize(horizontal: true, vertical: false)
                 .contentShape(Capsule(style: .continuous))
-                .onHover { hovering in
-                    isBreakdownPresented = hovering
-                }
                 .onTapGesture {
-                    isBreakdownPresented = true
+                    isBreakdownPresented.toggle()
                 }
                 .popover(isPresented: $isBreakdownPresented, arrowEdge: .bottom) {
                     PiAgentContextBreakdownPopover(
@@ -1062,7 +1059,7 @@ struct PiAgentContextBreakdownPopover: View {
                         }
                     }
                     Text(estimate.note)
-                        .font(.caption)
+                        .font(.caption.italic())
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1073,9 +1070,9 @@ struct PiAgentContextBreakdownPopover: View {
                let toolCalls = session.toolCalls {
                 Divider()
                 HStack(spacing: 12) {
-                    PiAgentContextStat(label: "Input", value: format(inputTokens))
-                    PiAgentContextStat(label: "Output", value: format(outputTokens))
-                    PiAgentContextStat(label: "Tools", value: "\(toolCalls)")
+                    PiAgentContextStat(label: "Input", value: format(inputTokens), icon: "tugriksign.circle")
+                    PiAgentContextStat(label: "Output", value: format(outputTokens), icon: "tugriksign.circle")
+                    PiAgentContextStat(label: "Tools", value: "\(toolCalls)", icon: "wrench.and.screwdriver")
                 }
             }
         }
@@ -1135,8 +1132,7 @@ private struct PiAgentContextBreakdownRow: View {
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                Text(summary)
-                    .font(.caption.monospacedDigit().weight(.semibold))
+                summaryView
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
             }
@@ -1159,16 +1155,32 @@ private struct PiAgentContextBreakdownRow: View {
         }
     }
 
-    private var summary: String {
+    @ViewBuilder
+    private var summaryView: some View {
         switch (tokens, percent) {
         case let (tokens?, percent?):
-            return "\(format(tokens)) · \(formatPercent(percent))"
+            HStack(spacing: 4) {
+                tokenValue(tokens)
+                Text("· \(formatPercent(percent))")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+            }
         case let (tokens?, nil):
-            return format(tokens)
+            tokenValue(tokens)
         case let (nil, percent?):
-            return formatPercent(percent)
+            Text(formatPercent(percent))
+                .font(.caption.monospacedDigit().weight(.semibold))
         default:
-            return "Unavailable"
+            Text("Unavailable")
+                .font(.caption.monospacedDigit().weight(.semibold))
+        }
+    }
+
+    private func tokenValue(_ value: Int) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "tugriksign.circle")
+                .font(.caption2.weight(.semibold))
+            Text(format(value))
+                .font(.caption.monospacedDigit().weight(.semibold))
         }
     }
 
@@ -1290,14 +1302,19 @@ private struct PiAgentContextDotCellView: View {
 private struct PiAgentContextStat: View {
     let label: String
     let value: String
+    let icon: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
-            Text(value)
-                .font(.caption.monospacedDigit().weight(.bold))
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.caption2.weight(.semibold))
+                Text(value)
+                    .font(.caption.monospacedDigit().weight(.bold))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1469,23 +1486,45 @@ struct PiAgentModelPicker: View {
                 Divider()
 
                 ScrollView(showsIndicators: true) {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(modelOptions) { model in
-                            Button {
-                                onSelect(.init(provider: model.provider, modelID: model.id))
-                                isPresented = false
-                            } label: {
-                                modelRow(
-                                    title: model.id,
-                                    subtitle: model.provider,
-                                    isSelected: !isUsingPiDefault && model.provider == effectiveProvider && model.id == effectiveModelID
-                                )
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(groupedModelOptions, id: \.provider) { group in
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 6) {
+                                    Text(group.provider)
+                                        .font(.caption.weight(.bold))
+                                        .fontWidth(.expanded)
+                                        .foregroundStyle(.primary)
+                                    Text("\(group.models.count)")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 2)
+
+                                VStack(spacing: 3) {
+                                    ForEach(group.models) { model in
+                                        Button {
+                                            onSelect(.init(provider: model.provider, modelID: model.id))
+                                            isPresented = false
+                                        } label: {
+                                            modelRow(
+                                                title: model.id,
+                                                subtitle: modelMetadataSubtitle(model),
+                                                isSelected: !isUsingPiDefault && model.provider == effectiveProvider && model.id == effectiveModelID
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(.vertical, 2)
                 }
-                .frame(maxHeight: 320)
+                .frame(maxHeight: 340)
             }
             .padding(12)
             .frame(width: 360)
@@ -1530,6 +1569,32 @@ struct PiAgentModelPicker: View {
                 supportsImages: model.supportsImages
             )
         }
+    }
+
+    private var groupedModelOptions: [(provider: String, models: [PiAgentModelOption])] {
+        Dictionary(grouping: modelOptions, by: \.provider)
+            .map { provider, models in
+                (
+                    provider: provider,
+                    models: models.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+                )
+            }
+            .sorted { $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending }
+    }
+
+    private func modelMetadataSubtitle(_ model: PiAgentModelOption) -> String {
+        var badges: [String] = []
+        if let contextWindow = model.contextWindow { badges.append("ctx \(compactModelNumber(contextWindow))") }
+        if let maxOutput = model.maxOutput { badges.append("out \(compactModelNumber(maxOutput))") }
+        badges.append(model.supportsThinking == false ? "no thinking" : "thinking")
+        if model.supportsImages == true { badges.append("images") }
+        return badges.joined(separator: " · ")
+    }
+
+    private func compactModelNumber(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return "\(value / 1_000)K" }
+        return "\(value)"
     }
 
     private var isUsingPiDefault: Bool { session.modelOverrideProvider == nil && session.modelOverrideID == nil }
