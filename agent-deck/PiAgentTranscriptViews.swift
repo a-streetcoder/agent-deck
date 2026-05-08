@@ -207,20 +207,29 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
     private static func webLinks(for name: String, entries: [PiAgentTranscriptEntry]) -> [PiAgentWebLink] {
         switch name.lowercased() {
         case "web_search":
-            let details = entries.lazy.compactMap(toolDetails).last
-            let curated = curatedSourceLinks(from: details)
-            if !curated.isEmpty { return Array(curated.prefix(20)) }
-            return parseSourceLinks(from: entries.last?.text ?? "")
+            let curated = entries.flatMap { entry in
+                curatedSourceLinks(from: toolDetails(from: entry))
+            }
+            if !curated.isEmpty { return Array(uniqueLinks(curated).prefix(20)) }
+            return Array(uniqueLinks(entries.flatMap { parseSourceLinks(from: $0.text) }).prefix(20))
         case "fetch_content":
-            let details = entries.lazy.compactMap(toolDetails).last
-            let args = entries.lazy.compactMap(toolArgs).last
-            let title = details?["title"]?.stringValue
-            let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
-            return urls.prefix(20).map { PiAgentWebLink(title: title?.isEmpty == false ? title! : (domain(from: $0) ?? $0), url: $0) }
+            let links = entries.flatMap { entry -> [PiAgentWebLink] in
+                let details = toolDetails(from: entry)
+                let args = toolArgs(from: entry)
+                let title = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
+                return urls.map { url in
+                    PiAgentWebLink(title: title?.isEmpty == false ? title! : (domain(from: url) ?? url), url: url)
+                }
+            }
+            return Array(uniqueLinks(links).prefix(20))
         case "get_search_content":
-            let details = entries.lazy.compactMap(toolDetails).last
-            guard let url = details?["url"]?.stringValue else { return [] }
-            return [PiAgentWebLink(title: details?["title"]?.stringValue ?? domain(from: url) ?? url, url: url)]
+            let links = entries.compactMap { entry -> PiAgentWebLink? in
+                let details = toolDetails(from: entry)
+                guard let url = details?["url"]?.stringValue else { return nil }
+                return PiAgentWebLink(title: details?["title"]?.stringValue ?? domain(from: url) ?? url, url: url)
+            }
+            return Array(uniqueLinks(links).prefix(20))
         default:
             return []
         }
@@ -333,6 +342,13 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
 
     nonisolated private static func curatedSourceURLs(from details: JSONValue?) -> [String] {
         curatedSourceLinks(from: details).map(\.url)
+    }
+
+    nonisolated private static func uniqueLinks(_ links: [PiAgentWebLink]) -> [PiAgentWebLink] {
+        var seen = Set<String>()
+        return links.filter { link in
+            seen.insert(link.url).inserted
+        }
     }
 
     nonisolated private static func curatedSourceLinks(from details: JSONValue?) -> [PiAgentWebLink] {

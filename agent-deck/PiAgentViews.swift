@@ -542,10 +542,7 @@ struct PiAgentScreen: View {
                 .padding(18)
                 Spacer()
             } else {
-                VStack(spacing: 10) {
-                    PiAgentSessionSearchField(text: $sessionSearchText)
-                        .padding(.horizontal, 14)
-
+                VStack(spacing: 0) {
                     if visibleSessions.isEmpty {
                         ContentUnavailableView("No sessions found", systemImage: "magnifyingglass", description: Text("Try another search."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -575,8 +572,8 @@ struct PiAgentScreen: View {
                                     onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
                                     onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) }
                                 )
-                                .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
-                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
+                                .listRowSeparator(.automatic)
                                 .listRowBackground(Color.clear)
                                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                     Button {
@@ -607,7 +604,8 @@ struct PiAgentScreen: View {
                                 }
                             }
                         }
-                        .listStyle(.plain)
+                        .listStyle(.inset)
+                        .searchable(text: $sessionSearchText, prompt: "Search all sessions")
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
                         .animation(.snappy(duration: 0.24), value: visibleSessionIDs)

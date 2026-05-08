@@ -125,7 +125,8 @@ struct PiAgentSessionRow: View {
             .foregroundStyle(AppTheme.mutedText)
             .padding(.leading, 14)
         }
-        .padding(14)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sessionRowBackground)
         .contentShape(Rectangle())
@@ -159,19 +160,13 @@ struct PiAgentSessionRow: View {
     }
 
     private var sessionRowBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return shape
-            .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill)
+            .fill(isSelected ? AppTheme.selectionFill.opacity(0.82) : Color.clear)
             .overlay {
                 if isRunning {
-                    shape.fill(activeBackgroundGradient)
+                    shape.fill(activeBackgroundGradient.opacity(isSelected ? 0.55 : 1))
                 }
-            }
-            .overlay {
-                shape.stroke(
-                    isRunning || isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke,
-                    lineWidth: isRunning ? 2.2 : 1
-                )
             }
     }
 

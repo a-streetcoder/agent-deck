@@ -19,6 +19,7 @@ struct PiAgentRepoChangesPanel: View {
     @Binding var isPresented: Bool
     @State private var filterText = ""
     @State private var selectedSection: PiAgentGitHubPanelSection = .changes
+    @State private var presentedIssue: GitHubWorkItem?
 
     private var snapshot: RepositoryChangesSnapshot? { viewModel.githubRepositoryChanges }
 
@@ -39,18 +40,13 @@ struct PiAgentRepoChangesPanel: View {
 
                 Divider()
 
-                Picker("GitHub section", selection: $selectedSection) {
-                    ForEach(PiAgentGitHubPanelSection.allCases) { section in
-                        Text(section.title).tag(section)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
+                sectionControls
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
 
                 panelContent
-                    .padding(16)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
@@ -71,6 +67,63 @@ struct PiAgentRepoChangesPanel: View {
             repositoryState
         } else {
             issuesState
+        }
+    }
+
+    private var sectionControls: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Picker("GitHub section", selection: $selectedSection) {
+                ForEach(PiAgentGitHubPanelSection.allCases) { section in
+                    Text(section.title).tag(section)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 150)
+
+            Spacer(minLength: 12)
+
+            switch selectedSection {
+            case .changes:
+                changesControls
+            case .issues:
+                issuesControls
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var changesControls: some View {
+        if let snapshot {
+            TextField("Filter files", text: $filterText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 120)
+            Button("Include All") { viewModel.stageAllChanges() }
+                .disabled(!snapshot.canStageAll)
+            Button("Exclude All") { viewModel.unstageAllChanges() }
+                .disabled(!snapshot.canUnstageAll)
+            Text("\(snapshot.staged.count)/\(snapshot.totalChangeCount)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+
+    @ViewBuilder
+    private var issuesControls: some View {
+        if let board = viewModel.githubProjectBoard, board.shownCount < board.totalCount {
+            Text("\(board.shownCount)/\(board.totalCount)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+        }
+        Picker("State", selection: $viewModel.githubIssueStateFilter) {
+            ForEach(GitHubIssueStateFilter.allCases) { state in
+                Text(state.rawValue).tag(state)
+            }
+        }
+        .labelsHidden()
+        .frame(width: 110)
+        .onChange(of: viewModel.githubIssueStateFilter) { _, _ in
+            viewModel.refreshProjectBoard(force: true)
         }
     }
 
@@ -230,20 +283,6 @@ struct PiAgentRepoChangesPanel: View {
     private func changesContent(_ snapshot: RepositoryChangesSnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Button("Include All") { viewModel.stageAllChanges() }
-                        .disabled(!snapshot.canStageAll)
-                    Button("Exclude All") { viewModel.unstageAllChanges() }
-                        .disabled(!snapshot.canUnstageAll)
-                    Spacer()
-                    Text("\(snapshot.staged.count)/\(snapshot.totalChangeCount) included")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-
-                TextField("Filter files", text: $filterText)
-                    .textFieldStyle(.roundedBorder)
-
                 LazyVStack(alignment: .leading, spacing: 5) {
                     ForEach(items) { item in
                         PiAgentGitChangeRow(
@@ -264,27 +303,6 @@ struct PiAgentRepoChangesPanel: View {
 
     private func issuesContent(_ board: GitHubBoardSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Picker("State", selection: $viewModel.githubIssueStateFilter) {
-                    ForEach(GitHubIssueStateFilter.allCases) { state in
-                        Text(state.rawValue).tag(state)
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 160)
-                .onChange(of: viewModel.githubIssueStateFilter) { _, _ in
-                    viewModel.refreshProjectBoard(force: true)
-                }
-
-                Spacer()
-
-                if board.shownCount < board.totalCount {
-                    Text("\(board.shownCount)/\(board.totalCount)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-            }
-
             if board.allItems.isEmpty {
                 ContentUnavailableView("No matching issues", systemImage: "checkmark.circle", description: Text("There are no issues matching the current filter."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -295,39 +313,65 @@ struct PiAgentRepoChangesPanel: View {
                             GitHubIssueListRow(
                                 item: item,
                                 isSelected: viewModel.githubSelectedWorkItem == item,
-                                onSelect: { viewModel.selectWorkItem(item) }
+                                onSelect: {
+                                    viewModel.selectWorkItem(item)
+                                    presentedIssue = item
+                                }
                             )
                         }
                     }
                     .padding(.bottom, 8)
                 }
 
-                if let selected = viewModel.githubSelectedWorkItem {
-                    Divider()
-                    HStack(spacing: 10) {
-                        Text("#\(selected.number)")
-                            .font(.caption.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(AppTheme.mutedText)
-                        Text(selected.title)
-                            .font(.footnote.weight(.semibold))
-                            .lineLimit(1)
-                        Spacer()
-                        Button {
-                            viewModel.openRepoChangesForSelectedPiAgentSession()
-                            viewModel.githubSelectedSection = .projectBoard
-                        } label: {
-                            Label("Open", systemImage: "sidebar.right")
-                        }
-                        .buttonStyle(.borderless)
-                        Link(destination: selected.url) {
-                            Image(systemName: "arrow.up.forward.square")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .popover(item: $presentedIssue, arrowEdge: .trailing) { issue in
+            issuePopover(issue)
+        }
+    }
+
+    private func issuePopover(_ issue: GitHubWorkItem) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                AppLabelTag(text: issue.state.capitalized, color: issue.state.lowercased() == "open" ? .green : .secondary)
+                Spacer()
+                Text("#\(issue.number)")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+
+            Text(issue.title)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !issue.labels.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(issue.labels.prefix(6), id: \.self) { label in
+                            AppLabelTag(text: label, color: .secondary)
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    presentedIssue = nil
+                    viewModel.openRepoChangesForSelectedPiAgentSession()
+                    viewModel.githubSelectedSection = .projectBoard
+                } label: {
+                    Label("Open in GitHub View", systemImage: "sidebar.right")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Link(destination: issue.url) {
+                    Label("Browser", systemImage: "arrow.up.forward.square")
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 340, alignment: .leading)
     }
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
