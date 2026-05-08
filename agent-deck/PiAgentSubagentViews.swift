@@ -664,7 +664,7 @@ struct PiNativeSubagentTranscriptSheet: View {
             ? entry.title.replacingOccurrences(of: "Tool: ", with: "")
             : entry.title
         switch name.lowercased() {
-        case "web_search", "fetch_content", "get_search_content", "code_search":
+        case "web_search", "fetch_content", "get_search_content":
             return true
         default:
             return false

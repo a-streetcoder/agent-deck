@@ -72,8 +72,7 @@ struct PiAgentCommandSuggestions: View {
                 }
             }
         }
-        .frame(maxWidth: 520, alignment: .leading)
-        .shadow(color: .black.opacity(0.12), radius: 18, x: 0, y: 10)
+        .frame(width: 520, alignment: .leading)
     }
 
     private func commandRows(_ items: [String]) -> some View {
@@ -100,8 +99,8 @@ struct PiAgentCommandSuggestions: View {
 
     private func suggestionSection(title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(.caption2.weight(.bold))
-            .textCase(.uppercase)
+            .font(.caption.monospaced().italic())
+            .fontWidth(.condensed)
             .foregroundStyle(AppTheme.brandAccent)
             .padding(.horizontal, 4)
             .padding(.top, 2)

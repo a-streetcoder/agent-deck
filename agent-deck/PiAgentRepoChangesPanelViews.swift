@@ -480,13 +480,17 @@ private struct PiAgentGitChangeListItem: Identifiable, Hashable {
 
     static func items(from snapshot: RepositoryChangesSnapshot) -> [PiAgentGitChangeListItem] {
         let paths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
+        let stagedByPath = Dictionary(snapshot.staged.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let unstagedByPath = Dictionary(snapshot.unstaged.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let untrackedByPath = Dictionary(snapshot.untracked.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let conflictedByPath = Dictionary(snapshot.conflicted.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         return paths.sorted().map { path in
             PiAgentGitChangeListItem(
                 path: path,
-                staged: snapshot.staged.first(where: { $0.path == path }),
-                unstaged: snapshot.unstaged.first(where: { $0.path == path }),
-                untracked: snapshot.untracked.first(where: { $0.path == path }),
-                conflicted: snapshot.conflicted.first(where: { $0.path == path })
+                staged: stagedByPath[path],
+                unstaged: unstagedByPath[path],
+                untracked: untrackedByPath[path],
+                conflicted: conflictedByPath[path]
             )
         }
     }

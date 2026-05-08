@@ -133,7 +133,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(run.launchCommand?.contains("--provider zai") == true)
         XCTAssertTrue(run.launchCommand?.contains("--model glm-5.1:low") == true)
 
-        let artifactDirectory = try XCTUnwrap(run.artifactDirectory).asFileURL
+        let artifactDirectory = run.artifactDirectory.asFileURL
         XCTAssertTrue(FileManager.default.fileExists(atPath: artifactDirectory.appendingPathComponent("input.md").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: artifactDirectory.appendingPathComponent("system-prompt.md").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: artifactDirectory.appendingPathComponent("output.md").path))
@@ -163,7 +163,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
         XCTAssertEqual(run.readFirstPaths, ["README.md", "agent-deck/AppViewModel.swift"])
-        let input = try String(contentsOf: try XCTUnwrap(run.artifactDirectory).asFileURL.appendingPathComponent("input.md"), encoding: .utf8)
+        let input = try String(contentsOf: run.artifactDirectory.asFileURL.appendingPathComponent("input.md"), encoding: .utf8)
         XCTAssertTrue(input.contains("README.md"))
         XCTAssertTrue(input.contains("agent-deck/AppViewModel.swift"))
         XCTAssertFalse(input.contains("/etc/passwd"))
@@ -190,7 +190,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
-        let artifactDirectory = try XCTUnwrap(run.artifactDirectory).asFileURL
+        let artifactDirectory = run.artifactDirectory.asFileURL
         let forkContext = try String(contentsOf: artifactDirectory.appendingPathComponent("fork-context.jsonl"), encoding: .utf8)
 
         XCTAssertEqual(run.resolvedContext, .fork)
@@ -231,6 +231,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(command.contains("--no-extensions"))
         XCTAssertTrue(command.contains("--extension"))
         XCTAssertTrue(command.contains("contact-supervisor-bridge.ts"))
+        XCTAssertTrue(command.contains("agent-deck-web-access.ts"))
         XCTAssertTrue(command.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(command.contains(customExtension))
         XCTAssertTrue(command.contains("--tools shell,contact_supervisor"))
@@ -255,7 +256,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
-        let finalPromptURL = try XCTUnwrap(run.artifactDirectory).asFileURL.appendingPathComponent("final-system-prompt.md")
+        let finalPromptURL = run.artifactDirectory.asFileURL.appendingPathComponent("final-system-prompt.md")
         XCTAssertTrue(PiTestSupport.waitUntil {
             (try? String(contentsOf: finalPromptURL, encoding: .utf8)) == "Final child prompt from Pi."
                 && responseValue(id: "audit-child-1", in: harness.stdinLog) == "System prompt captured."
@@ -289,7 +290,6 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             libraryChains: [],
             skills: [],
             librarySkills: [skill],
-            commands: [],
             promptTemplates: [],
             libraryPromptTemplates: [],
             settings: [],
@@ -309,10 +309,10 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
-        let authoredPrompt = try String(contentsOf: try XCTUnwrap(run.artifactDirectory).asFileURL.appendingPathComponent("system-prompt.md"), encoding: .utf8)
+        let authoredPrompt = try String(contentsOf: run.artifactDirectory.asFileURL.appendingPathComponent("system-prompt.md"), encoding: .utf8)
         XCTAssertTrue(authoredPrompt.contains(#"<skill name="private-skill""#))
         XCTAssertTrue(authoredPrompt.contains("# Skill\nUse this private skill."))
-        XCTAssertTrue(try XCTUnwrap(run.launchCommand).contains("--no-skills"))
+        XCTAssertTrue(run.launchCommand?.contains("--no-skills") == true)
     }
 
     func testExplicitPrivateSkillsCanCoexistWithAmbientPiSkillListingWhenInheritanceIsExplicitlyEnabled() throws {

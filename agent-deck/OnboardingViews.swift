@@ -306,7 +306,7 @@ struct SetupDependencyService {
         async let models = modelCheck()
         let github = await githubCheck(account: githubAccount)
         let project = projectRootCheck(path: projectRootPath)
-        let web = packageCheck(name: "pi-web-access", title: "Web Access Tools", installCommand: "pi install npm:pi-web-access")
+        let web = exaAPIKeyCheck(projectRootPath: selectedProjectPath ?? projectRootPath)
 
         if github.status == .passed {
             let selectedProject = selectedProjectCheck(selectedProjectPath: selectedProjectPath)
@@ -439,25 +439,19 @@ struct SetupDependencyService {
         )
     }
 
-    private func packageCheck(name: String, title: String, installCommand: String) -> SetupCheckItem {
-        let installed = isPackageInstalled(name)
+    private func exaAPIKeyCheck(projectRootPath: String?) -> SetupCheckItem {
+        let projectRoot = projectRootPath.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectRoot)
+        let hasKey = environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         return SetupCheckItem(
-            id: name,
-            title: title,
-            detail: installed ? "\(name) is installed." : "Optional Pi extension. Install with `\(installCommand)` if you want this tool in Pi.",
-            status: installed ? .passed : .warning,
-            recovery: installed ? nil : installCommand
+            id: "exa-api-key",
+            title: "Exa API Key",
+            detail: hasKey
+                ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions."
+                : "Required for bundled web_search, fetch_content, and get_search_content tools.",
+            status: hasKey ? .passed : .warning,
+            recovery: hasKey ? nil : "Add EXA_API_KEY to ~/.pi/agent/.env or the selected project's .pi/.env."
         )
-    }
-
-    private func isPackageInstalled(_ name: String) -> Bool {
-        let candidates = [
-            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(name)"),
-            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(name)"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/lib/node_modules/\(name)"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("node_modules/\(name)")
-        ]
-        return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private static func modelRowCount(fromPiListOutput text: String) -> Int {

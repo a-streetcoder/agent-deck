@@ -9,6 +9,7 @@ final class PiSubagentRunService {
     private var assistantTextByRunID: [UUID: String] = [:]
     private var thinkingEntryIDsByRunID: [UUID: UUID] = [:]
     private var thinkingTextByRunID: [UUID: String] = [:]
+    private var toolEntryIDsByCallID: [String: UUID] = [:]
     private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
     private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
     private var streamFlushTasksByRunID: [UUID: Task<Void, Never>] = [:]
@@ -69,6 +70,11 @@ final class PiSubagentRunService {
         }
         extraArguments.append(contentsOf: toolArguments(for: agent, includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
+        if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+            extraArguments.append(contentsOf: ["--extension", webURL.path])
+        } else {
+            bridgeWarnings.append("\(AppBrand.displayName) could not write the web access extension.")
+        }
         if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", auditURL.path])
         } else {
@@ -249,7 +255,7 @@ final class PiSubagentRunService {
         clientsByRunID[request.runID]?.cancelExtensionUI(id: request.bridgeRequestID ?? requestID)
     }
 
-    func stop(runID: UUID, parentSessionID: UUID) {
+    func stop(runID: UUID, parentSessionID: UUID, recordTranscript: Bool = true) {
         guard let client = clientsByRunID.removeValue(forKey: runID) else { return }
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
         clearStreamingState(for: runID)
@@ -268,7 +274,28 @@ final class PiSubagentRunService {
             }
         }
         notifyCompletion(runID: runID, parentSessionID: parentSessionID)
-        store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Stopped", text: "Subagent run stopped."))
+        if recordTranscript {
+            store.append(.init(sessionID: parentSessionID, role: .status, title: "Subagent Stopped", text: "Subagent run stopped."))
+        }
+    }
+
+    func stopAll(recordTranscript: Bool = true) {
+        for (parentSessionID, runs) in store.subagentRunsBySessionID {
+            for run in runs where clientsByRunID[run.id] != nil {
+                stop(runID: run.id, parentSessionID: parentSessionID, recordTranscript: recordTranscript)
+            }
+        }
+
+        for runID in Array(clientsByRunID.keys) {
+            clientsByRunID.removeValue(forKey: runID)?.stop()
+            clearStreamingState(for: runID)
+        }
+
+        for task in supervisorTimeoutTasksByRequestID.values {
+            task.cancel()
+        }
+        supervisorTimeoutTasksByRequestID.removeAll()
+        completionHandlersByRunID.removeAll()
     }
 
     private func handle(rawLine: String, event: PiAgentRPCEvent?, runID: UUID, parentSessionID: UUID) {
@@ -294,7 +321,15 @@ final class PiSubagentRunService {
         case "tool_execution_start", "tool_execution_update", "tool_execution_end":
             let toolName = event.toolName ?? "tool"
             let toolText = event.args?.compactDescription ?? event.partialResult?.compactDescription ?? event.result?.compactDescription ?? event.error?.compactDescription ?? event.type ?? "tool"
-            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .tool, title: "Tool: \(toolName)", text: toolText, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+            let transcript = PiAgentTranscriptEntry(sessionID: parentSessionID, role: .tool, title: "Tool: \(toolName)", text: toolText, rawJSON: rawLine)
+            if let toolCallID = event.toolCallId {
+                let key = "\(runID.uuidString):\(toolCallID)"
+                let entryID = toolEntryIDsByCallID[key] ?? UUID()
+                toolEntryIDsByCallID[key] = event.type == "tool_execution_end" ? nil : entryID
+                store.upsertSubagentTranscript(.init(id: entryID, sessionID: transcript.sessionID, role: transcript.role, title: transcript.title, text: transcript.text, rawJSON: transcript.rawJSON), runID: runID, parentSessionID: parentSessionID)
+            } else {
+                store.appendSubagentTranscript(transcript, runID: runID, parentSessionID: parentSessionID)
+            }
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                 run.child?.currentTool = event.type == "tool_execution_end" ? nil : toolName
                 run.child?.updatedAt = Date()
@@ -379,6 +414,8 @@ final class PiSubagentRunService {
         assistantTextByRunID[runID] = nil
         thinkingEntryIDsByRunID[runID] = nil
         thinkingTextByRunID[runID] = nil
+        let keyPrefix = "\(runID.uuidString):"
+        toolEntryIDsByCallID = toolEntryIDsByCallID.filter { !$0.key.hasPrefix(keyPrefix) }
     }
 
     private func resolvedModelName(from data: JSONValue) -> String? {
@@ -560,6 +597,7 @@ final class PiSubagentRunService {
         let client = clientsByRunID.removeValue(forKey: runID)
         client?.stop()
         cancelSupervisorTimeouts(for: runID, parentSessionID: parentSessionID)
+        clearStreamingState(for: runID)
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             guard run.status.isActive else { return }
             let completedAt = Date()

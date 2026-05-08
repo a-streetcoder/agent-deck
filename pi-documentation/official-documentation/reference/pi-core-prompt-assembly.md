@@ -64,7 +64,7 @@ The instruction inspector edits file-based custom instruction sources for the se
 - project and global `APPEND_SYSTEM.md`
 - global, ancestor, and project `AGENTS.md` / `CLAUDE.md` context files
 
-Its preview approximates Pi's final prompt from the current editor contents. Runtime-generated pieces such as the built-in Pi prompt, tool-aware guidance, extension prompt changes, and skill catalog can appear as placeholders when Agent Deck cannot know the exact Pi runtime text.
+Its preview approximates Pi's final prompt from the current editor contents. Runtime-generated pieces such as explicit `--append-system-prompt` values, the built-in Pi prompt, tool-aware guidance, extension prompt changes, and skill catalog can appear as placeholders when Agent Deck cannot know the exact Pi runtime text.
 
 ## Why this matters
 

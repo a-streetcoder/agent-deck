@@ -66,4 +66,22 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("allowComment"))
         XCTAssertTrue(source.contains("User answered:"))
     }
+
+    @MainActor
+    func testWebAccessExtensionRegistersOnlyBundledExaTools() throws {
+        let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.webAccessExtensionURL(), encoding: .utf8)
+
+        for toolName in ["web_search", "fetch_content", "get_search_content"] {
+            XCTAssertTrue(source.contains(#"name: "\#(toolName)""#), "Missing registered web tool \(toolName)")
+        }
+
+        XCTAssertTrue(source.contains("https://api.exa.ai/"))
+        XCTAssertTrue(source.contains("EXA_API_KEY"))
+        XCTAssertTrue(source.contains(#""x-api-key""#))
+        XCTAssertTrue(source.contains("contents: { text: true }"))
+        XCTAssertTrue(source.contains("responseId"))
+        XCTAssertFalse(source.contains(["code", "search"].joined(separator: "_")))
+        XCTAssertFalse(source.contains(["PER", "PLEXITY"].joined()))
+        XCTAssertFalse(source.contains(["GEM", "INI"].joined()))
+    }
 }

@@ -512,44 +512,10 @@ struct DiagnosticsScreen: View {
         viewModel.snapshot
     }
 
-    private struct PackageInfo {
-        let name: String
-        let displayName: String
-        let description: String
-        let repoURL: String?
-        let homepageURL: String?
-        let author: String
-        let installCommand: String
-        let category: Category
-        let isInstalled: Bool
-        let installedVersion: String?
-
-        enum Category {
-            case essential, recommended, niceToHave
-        }
-    }
-
-    private var packages: [PackageInfo] {
-        return [
-            PackageInfo(
-                name: "pi-web-access",
-                displayName: "pi-web-access",
-                description: "Web search, URL fetching, GitHub repo cloning, PDF extraction, and YouTube/local video analysis.",
-                repoURL: "https://github.com/nicobailon/pi-web-access",
-                homepageURL: "https://github.com/nicobailon/pi-web-access#readme",
-                author: "Nico Bailon",
-                installCommand: "pi install npm:pi-web-access",
-                category: .essential,
-                isInstalled: isPackageInstalled("pi-web-access"),
-                installedVersion: installedPackageVersion("pi-web-access")
-            )
-        ]
-    }
-
     var body: some View {
         AppPage("Doctor", subtitle: "Check what \(AppBrand.displayName) is missing and fix the essentials faster") {
             setupChecksSection
-            packageSection
+            webAccessSection
             settingsSection
             warningsSection
         }
@@ -647,129 +613,52 @@ struct DiagnosticsScreen: View {
         )
     }
 
-    // MARK: - Packages
+    // MARK: - Web Access
 
-    private var packageSection: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Essential") {
-                packageRows(packages.filter { $0.category == .essential })
-            }
+    private var webAccessSection: some View {
+        AppCard(title: "Web Access") {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: hasExaAPIKey ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(hasExaAPIKey ? .green : .orange)
+                    .frame(width: 24)
 
-            let recommended = packages.filter { $0.category == .recommended }
-            if !recommended.isEmpty {
-                AppCard(title: "Recommended") {
-                    packageRows(recommended)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Exa API Key")
+                        .font(.body.weight(.semibold))
+                        .fontWidth(.expanded)
+
+                    Text(hasExaAPIKey
+                         ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Bundled web tools are loaded by the app."
+                         : "Bundled web_search, fetch_content, and get_search_content use Exa and require EXA_API_KEY.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("EXA_API_KEY=...")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
                 }
-            }
 
-            let optional = packages.filter { $0.category == .niceToHave }
-            if !optional.isEmpty {
-                AppCard(title: "Nice to Have") {
-                    packageRows(optional)
-                }
+                Spacer(minLength: 8)
+
+                AppLabelTag(
+                    text: hasExaAPIKey ? "Configured" : "Missing",
+                    color: hasExaAPIKey ? .green : .orange
+                )
             }
+            .padding(.vertical, 12)
         }
     }
 
-    private func packageRows(_ items: [PackageInfo]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.name) { index, pkg in
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: pkg.isInstalled ? "checkmark.circle.fill" : "xmark.circle")
-                        .font(.title3)
-                        .foregroundStyle(pkg.isInstalled ? .green : .red)
-                        .frame(width: 24)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(pkg.displayName)
-                                .font(.body.weight(.semibold))
-                                .fontWidth(.expanded)
-
-                            if let version = pkg.installedVersion {
-                                Text(version)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(AppTheme.mutedText)
-                            }
-                        }
-
-                        Text(pkg.description)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        HStack(spacing: 8) {
-                            if !pkg.author.isEmpty {
-                                doctorMetaChip("Author", value: pkg.author)
-                            }
-                            if let repoURL = pkg.repoURL {
-                                doctorLinkChip("GitHub", url: repoURL)
-                            }
-                            if let homepageURL = pkg.homepageURL {
-                                doctorLinkChip("Docs", url: homepageURL)
-                            }
-                        }
-
-                        HStack(spacing: 8) {
-                            Text(pkg.installCommand)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(AppTheme.mutedText)
-                                .textSelection(.enabled)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-
-                            AppCopyTextButton(text: pkg.installCommand)
-                            .controlSize(.small)
-                        }
-                    }
-
-                    Spacer(minLength: 8)
-
-                    AppLabelTag(
-                        text: pkg.isInstalled ? "Installed" : "Missing",
-                        color: pkg.isInstalled ? .green : .red
-                    )
-                }
-                .padding(.vertical, 12)
-
-                if index < items.count - 1 {
-                    Divider()
-                }
-            }
+    private var hasExaAPIKey: Bool {
+        snapshot.envKeys.contains {
+            $0.key == "EXA_API_KEY" && ($0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
         }
-    }
-
-    // MARK: - Helpers
-
-    private func doctorMetaChip(_ title: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .foregroundStyle(AppTheme.mutedText)
-            Text(value)
-        }
-        .font(.caption)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-    }
-
-    private func doctorLinkChip(_ title: String, url: String) -> some View {
-        Button {
-            guard let resolvedURL = URL(string: url) else { return }
-            NSWorkspace.shared.open(resolvedURL)
-        } label: {
-            HStack(spacing: 6) {
-                Text(title)
-                Image(systemName: "arrow.up.right.square")
-            }
-            .font(.caption)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-        }
-        .buttonStyle(.plain)
-        .help(url)
     }
 
     // MARK: - Settings
@@ -892,36 +781,6 @@ struct DiagnosticsScreen: View {
         }
     }
 
-    // MARK: - Helpers
-
-    private func installedPackageVersion(_ name: String) -> String? {
-        let candidates = [
-            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(name)/package.json"),
-            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(name)/package.json"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/lib/node_modules/\(name)/package.json"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("node_modules/\(name)/package.json")
-        ]
-
-        for candidate in candidates {
-            guard let data = try? Data(contentsOf: candidate),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let version = json["version"] as? String,
-                  !version.isEmpty else { continue }
-            return version
-        }
-
-        return nil
-    }
-
-    private func isPackageInstalled(_ name: String) -> Bool {
-        let candidates = [
-            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(name)"),
-            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(name)"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/lib/node_modules/\(name)"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("node_modules/\(name)")
-        ]
-        return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
-    }
 }
 
 @ViewBuilder

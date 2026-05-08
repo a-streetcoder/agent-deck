@@ -167,7 +167,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
     nonisolated var count: Int { entries.count }
     nonisolated var isWebActivity: Bool {
         switch name.lowercased() {
-        case "web_search", "fetch_content", "get_search_content", "code_search": return true
+        case "web_search", "fetch_content", "get_search_content": return true
         default: return false
         }
     }
@@ -215,11 +215,6 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text)
             }
             return Array(uniqueLinks(links).prefix(20))
-        case "code_search":
-            let links = entries.flatMap { entry in
-                extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text)
-            }
-            return Array(uniqueLinks(links).prefix(20))
         case "fetch_content":
             let links = entries.flatMap(fetchContentLinks)
             return Array(uniqueLinks(links).prefix(20))
@@ -246,8 +241,6 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
             return fetchContentDetail(from: entries)
         case "get_search_content":
             return retrievedContentDetail(from: entries)
-        case "code_search":
-            return codeSearchDetail(from: entries)
         default:
             return nil
         }
@@ -268,26 +261,6 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
         }
         if let resultCount {
             parts.append(resultCount == 1 ? "1 result" : "\(resultCount) results")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    @MainActor
-    private static func codeSearchDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
-        let details = entries.lazy.compactMap(toolDetails).last
-        let args = entries.lazy.compactMap(toolArgs).last
-        let query = details?["query"]?.stringValue ?? args?["query"]?.stringValue
-        let resultCount = intValue(details?["totalResults"]) ?? intValue(details?["resultCount"]) ?? intValue(details?["count"])
-        let links = uniqueLinks(entries.flatMap { entry in extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text) })
-
-        var parts: [String] = []
-        if let query, !query.isEmpty {
-            parts.append("“\(query.truncatedMiddle(max: 56))”")
-        }
-        if let resultCount {
-            parts.append(resultCount == 1 ? "1 result" : "\(resultCount) results")
-        } else if !links.isEmpty {
-            parts.append(links.count == 1 ? "1 source" : "\(links.count) sources")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -1070,7 +1043,6 @@ struct PiAgentWebActivitySummaryView: View {
             case "web_search": return "Web search"
             case "fetch_content": return "Fetch content"
             case "get_search_content": return "Read web content"
-            case "code_search": return "Code search"
             default: break
             }
         }
@@ -1110,7 +1082,6 @@ struct PiAgentWebActivitySummaryView: View {
             case "web_search": return "Search"
             case "fetch_content": return "Fetched"
             case "get_search_content": return "Read content"
-            case "code_search": return "Code search"
             default: return name.replacingOccurrences(of: "_", with: " ").capitalized
             }
         }
@@ -1119,7 +1090,6 @@ struct PiAgentWebActivitySummaryView: View {
             switch name.lowercased() {
             case "web_search": return "magnifyingglass"
             case "fetch_content", "get_search_content": return "doc.text.magnifyingglass"
-            case "code_search": return "curlybraces.square"
             default: return "globe"
             }
         }
@@ -1193,7 +1163,6 @@ struct PiAgentActivitySummaryView: View {
         case "subagent": return count == 1 ? "Subagent" : "Subagents"
         case "web_search": return "Web search"
         case "fetch_content", "get_search_content": return "Web content"
-        case "code_search": return "Code search"
         default:
             return name
                 .replacingOccurrences(of: "_", with: " ")
@@ -1212,7 +1181,6 @@ struct PiAgentActivitySummaryView: View {
         case "set_session_plan", "update_session_plan": return "checklist"
         case "subagent": return "person.2.wave.2"
         case "web_search", "fetch_content", "get_search_content": return "globe"
-        case "code_search": return "curlybraces.square"
         default: return "wrench.and.screwdriver"
         }
     }
@@ -1757,6 +1725,9 @@ private enum AttachmentPreview: Identifiable, Hashable {
 
 private struct AttachmentPreviewPopover: View {
     let attachment: AttachmentPreview
+    @State private var filePreviewPath: String?
+    @State private var filePreviewText: String?
+    @State private var isLoadingFilePreview = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1792,35 +1763,59 @@ private struct AttachmentPreviewPopover: View {
                 empty("Preview is not available for this image.")
             }
         case .file(let file):
-            if let path = file.path, let text = Self.textPreview(atPath: path) {
-                ScrollView {
-                    Text(String(text.prefix(12_000)))
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                }
-                .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
-            } else if let path = file.path {
-                VStack(spacing: 8) {
-                    Image(systemName: "doc")
-                        .font(.title2)
-                        .foregroundStyle(AppTheme.mutedText)
-                    Text("Preview is not available for this file type.")
-                    Text(path)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(3)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let path = file.path {
+                filePreviewBody(path: path)
+                    .task(id: path) {
+                        await loadTextPreview(atPath: path)
+                    }
             } else {
                 empty("Preview is not available for this attachment.")
             }
         case .missing:
             empty("Preview is not available for older attachment metadata.")
         }
+    }
+
+    @ViewBuilder private func filePreviewBody(path: String) -> some View {
+        if isLoadingFilePreview || filePreviewPath != path {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let text = filePreviewText {
+            ScrollView {
+                Text(String(text.prefix(12_000)))
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+            .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "doc")
+                    .font(.title2)
+                    .foregroundStyle(AppTheme.mutedText)
+                Text("Preview is not available for this file type.")
+                Text(path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(3)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func loadTextPreview(atPath path: String) async {
+        filePreviewPath = path
+        filePreviewText = nil
+        isLoadingFilePreview = true
+        let text = await Task.detached(priority: .utility) {
+            Self.textPreview(atPath: path)
+        }.value
+        guard !Task.isCancelled, filePreviewPath == path else { return }
+        filePreviewText = text
+        isLoadingFilePreview = false
     }
 
     private var title: String {
@@ -1838,10 +1833,11 @@ private struct AttachmentPreviewPopover: View {
         }
     }
 
-    private static func textPreview(atPath path: String) -> String? {
+    private nonisolated static func textPreview(atPath path: String) -> String? {
         let url = URL(fileURLWithPath: path)
-        if let utf8 = try? String(contentsOf: url, encoding: .utf8) { return utf8 }
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 64 * 1024), !data.isEmpty else { return nil }
         return String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .isoLatin1)
             ?? String(data: data, encoding: .macOSRoman)

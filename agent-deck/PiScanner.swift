@@ -751,8 +751,8 @@ nonisolated struct PiScanner {
             for skill in agent.resolved.skills where !skillNames.contains(skill) {
                 warnings.append(.init(id: "skill:\(agent.name):\(skill)", message: "Agent \(agent.name) references missing skill \(skill)."))
             }
-            if let tools = agent.resolved.tools, tools.contains("web_search") && !envNames.contains("EXA_API_KEY") && !envNames.contains("GEMINI_API_KEY") && !envNames.contains("PERPLEXITY_API_KEY") {
-                warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses web search tools but no known web provider API key was found."))
+            if let tools = agent.resolved.tools, tools.contains("web_search") && !envNames.contains("EXA_API_KEY") {
+                warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses bundled web tools but EXA_API_KEY was not found."))
             }
             if let extensions = agent.resolved.extensions, !extensions.isEmpty,
                ((agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty) {

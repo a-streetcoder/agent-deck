@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 
-let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "code_search"]
+let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "get_search_content"]
 
 @MainActor
 enum PiAgentRPCEventRenderCache {
@@ -38,6 +38,25 @@ enum PiAgentRPCEventRenderCache {
         return "\(rawJSON.count):\(hasher.finalize())"
     }
 }
+
+struct PiAgentTranscriptStack<Content: View>: View {
+    let alignment: HorizontalAlignment
+    let spacing: CGFloat?
+    @ViewBuilder let content: () -> Content
+
+    init(alignment: HorizontalAlignment = .leading, spacing: CGFloat? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.alignment = alignment
+        self.spacing = spacing
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: spacing) {
+            content()
+        }
+    }
+}
+
 @MainActor
 final class PiAgentTranscriptRenderCache: ObservableObject {
     @Published private(set) var entries: [PiAgentTranscriptEntry] = []
@@ -709,7 +728,7 @@ struct PiAgentScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                         if let finalSystemPrompt = session.finalSystemPrompt {
@@ -1005,20 +1024,21 @@ struct PiAgentScreen: View {
             onStop: { viewModel.stopSelectedPiAgentSession() },
             onClear: clearComposerInput
         )
-        .overlay(alignment: .topLeading) {
-            if hasComposerSuggestions {
-                PiAgentCommandSuggestions(
-                    commands: slashSuggestions,
-                    skills: skillSlashSuggestions,
-                    fileSuggestions: fileSuggestions,
-                    onSelectFile: insertFileSuggestion,
-                    onSelectCommand: insertSlashSuggestion
-                )
-                .padding(.horizontal, 24)
-                .offset(y: -236)
-                .zIndex(10)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
+        .popover(
+            isPresented: Binding(
+                get: { hasComposerSuggestions },
+                set: { _ in }
+            ),
+            arrowEdge: .bottom
+        ) {
+            PiAgentCommandSuggestions(
+                commands: slashSuggestions,
+                skills: skillSlashSuggestions,
+                fileSuggestions: fileSuggestions,
+                onSelectFile: insertFileSuggestion,
+                onSelectCommand: insertSlashSuggestion
+            )
+            .padding(6)
         }
         .zIndex(hasComposerSuggestions ? 20 : 0)
     }

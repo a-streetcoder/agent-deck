@@ -678,7 +678,7 @@ private struct PiSystemInstructionsInfoPopover: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 infoRow("Base prompt", "Project `.pi/SYSTEM.md` replaces the base prompt. If it does not exist, Pi uses global `~/.pi/agent/SYSTEM.md`; otherwise it uses the built-in Pi prompt.")
-                infoRow("Append prompt", "Only one append file is used: project `.pi/APPEND_SYSTEM.md` first, then global `~/.pi/agent/APPEND_SYSTEM.md`. The two file-based append prompts do not stack.")
+                infoRow("Append prompt", "Explicit `--append-system-prompt` values win first. Without those, only one append file is used: project `.pi/APPEND_SYSTEM.md`, then global `~/.pi/agent/APPEND_SYSTEM.md`. The two file-based append prompts do not stack.")
                 infoRow("Context files", "Pi loads one global `AGENTS.md`/`CLAUDE.md`, then walks from filesystem root to the project directory. In each directory, `AGENTS.md` wins over `CLAUDE.md`.")
                 infoRow("Runtime pieces", "Tools, extension prompt changes, skill catalogs, date, and working directory are runtime-specific. The preview includes placeholders where Agent Deck cannot know the exact Pi runtime text.")
             }
@@ -855,7 +855,13 @@ private struct PiInstructionFile: Identifiable, Hashable {
 
     static func activeContextFiles(for projectURL: URL, existingPaths: Set<String>) -> [URL] {
         let directories = [globalAgentDirectory] + contextDirectories(for: projectURL.standardizedFileURL)
-        return directories.compactMap { activeContextFile(in: $0, existingPaths: existingPaths) }
+        var seenPaths = Set<String>()
+        return directories.compactMap { directory in
+            guard let url = activeContextFile(in: directory, existingPaths: existingPaths), seenPaths.insert(url.path).inserted else {
+                return nil
+            }
+            return url
+        }
     }
 
     private static func contextFiles(for projectURL: URL, existingPaths: Set<String>) -> [PiInstructionFile] {

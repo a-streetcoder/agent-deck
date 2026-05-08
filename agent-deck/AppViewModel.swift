@@ -131,6 +131,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
+    private var didShutdown = false
 
     private var piAgentNotificationDelay: TimeInterval {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
@@ -193,11 +194,26 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     deinit {
-        watchFingerprintTask?.cancel()
-        Task { @MainActor [piSessionTitleGenerator] in
-            piSessionTitleGenerator.cancelAll()
-        }
         NotificationCenter.default.removeObserver(self)
+    }
+
+    private func shutdown(recordTranscript: Bool) {
+        guard !didShutdown else { return }
+        didShutdown = true
+        autoRefreshCancellable?.cancel()
+        autoRefreshCancellable = nil
+        watchFingerprintTask?.cancel()
+        watchFingerprintTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        for task in pendingPiAgentNotificationTasks.values {
+            task.cancel()
+        }
+        pendingPiAgentNotificationTasks.removeAll()
+        piSessionTitleGenerator.cancelAll()
+        piAgentRunner.stopAll(recordTranscript: recordTranscript)
+        nativeSubagentRunner.stopAll(recordTranscript: recordTranscript)
+        nativeParallelSchedulersByID.removeAll()
     }
 
     private func cleanupOrphanedNativeSubagentArtifacts(retentionDays: Int = 30) {
@@ -2772,6 +2788,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     @objc private func handleAppWillTerminateNotification(_ notification: Notification) {
+        shutdown(recordTranscript: false)
         piAgentSessionStore.flushPendingSave()
     }
 
@@ -2984,14 +3001,11 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func availableToolNames(for target: AgentEditingTarget) -> [String] {
         let scopeSnapshot = scopeSnapshot(for: target)
-        var tools = [
+        let tools = [
             "read", "grep", "find", "ls", "bash",
-            "edit", "write", "ask_user"
+            "edit", "write", "ask_user",
+            "web_search", "fetch_content", "get_search_content"
         ]
-
-        if isPackageInstalled("pi-web-access") {
-            tools += ["web_search", "fetch_content", "get_search_content", "code_search"]
-        }
 
         let explicitTools = scopeSnapshot.effectiveAgents.flatMap { $0.resolved.tools ?? [] }
         return Array(Set(tools + explicitTools))
@@ -3995,16 +4009,6 @@ final class AppViewModel: NSObject, ObservableObject {
                 self.refresh(includeModels: false, scanAllProjects: shouldScanAllProjects)
             }
         }
-    }
-
-    private func isPackageInstalled(_ name: String) -> Bool {
-        let candidates = [
-            URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/\(name)"),
-            URL(fileURLWithPath: "/usr/local/lib/node_modules/\(name)"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".npm-global/lib/node_modules/\(name)"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("node_modules/\(name)")
-        ]
-        return candidates.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 
 }

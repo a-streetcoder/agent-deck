@@ -134,13 +134,12 @@ final class PiAgentRunnerService {
     }
 
     func stop(sessionID: UUID, recordTranscript: Bool = true) {
-        streamFlushTasksBySessionID[sessionID]?.cancel()
-        streamFlushTasksBySessionID[sessionID] = nil
+        clearStreamingState(sessionID: sessionID)
         guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
         client.stop()
+        mark(sessionID, status: .stopped, error: nil)
         if recordTranscript {
             store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. Pi Agent received abort and the process is terminating."))
-            mark(sessionID, status: .stopped, error: nil)
         }
     }
 
@@ -191,9 +190,9 @@ final class PiAgentRunnerService {
         client.cycleThinkingLevel()
     }
 
-    func stopAll() {
+    func stopAll(recordTranscript: Bool = true) {
         for id in Array(clientsBySessionID.keys) {
-            stop(sessionID: id)
+            stop(sessionID: id, recordTranscript: recordTranscript)
         }
     }
 
@@ -213,6 +212,9 @@ final class PiAgentRunnerService {
             }
             if let askURL = try? PiNativeSubagentBridgeExtensions.askUserExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", askURL.path])
+            }
+            if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", webURL.path])
             }
             if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
@@ -812,6 +814,18 @@ final class PiAgentRunnerService {
         }
     }
 
+    private func clearStreamingState(sessionID: UUID) {
+        streamFlushTasksBySessionID[sessionID]?.cancel()
+        streamFlushTasksBySessionID[sessionID] = nil
+        assistantEntryIDsBySessionID[sessionID] = nil
+        assistantTextBySessionID[sessionID] = nil
+        thinkingEntryIDsBySessionID[sessionID] = nil
+        thinkingTextBySessionID[sessionID] = nil
+        pendingFreeformResponsesBySessionID[sessionID] = nil
+        let keyPrefix = "\(sessionID.uuidString):"
+        toolEntryIDsByCallID = toolEntryIDsByCallID.filter { !$0.key.hasPrefix(keyPrefix) }
+    }
+
     private func handleMessageEnd(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
         guard let message = event.message else { return }
         let text = extractText(from: message)
@@ -845,8 +859,9 @@ final class PiAgentRunnerService {
 
     private func handleToolExecution(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
         guard let toolCallId = event.toolCallId else { return }
-        let entryID = toolEntryIDsByCallID[toolCallId] ?? UUID()
-        toolEntryIDsByCallID[toolCallId] = entryID
+        let toolKey = "\(sessionID.uuidString):\(toolCallId)"
+        let entryID = toolEntryIDsByCallID[toolKey] ?? UUID()
+        toolEntryIDsByCallID[toolKey] = entryID
         let toolName = event.toolName ?? "tool"
         let title = "Tool: \(toolName)"
         let text: String
@@ -858,7 +873,7 @@ final class PiAgentRunnerService {
         case "tool_execution_end":
             let resultText = extractText(from: event.result ?? .null)
             text = resultText.isEmpty ? (event.result?.compactDescription ?? "Completed.") : resultText
-            toolEntryIDsByCallID[toolCallId] = nil
+            toolEntryIDsByCallID[toolKey] = nil
         default:
             text = rawLine
         }
@@ -1301,8 +1316,7 @@ final class PiAgentRunnerService {
     }
 
     private func handleTermination(exitCode: Int32, sessionID: UUID) {
-        streamFlushTasksBySessionID[sessionID]?.cancel()
-        streamFlushTasksBySessionID[sessionID] = nil
+        clearStreamingState(sessionID: sessionID)
         clientsBySessionID[sessionID] = nil
         let status: PiAgentRunStatus = exitCode == 0 ? .completed : .stopped
         mark(sessionID, status: status, error: nil)

@@ -69,6 +69,10 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         }
     }
 
+    deinit {
+        terminate()
+    }
+
     var isRunning: Bool { process.isRunning }
 
     func writeJSONLine(_ json: String) {
@@ -214,6 +218,10 @@ private nonisolated final class LineStreamReader: @unchecked Sendable {
         self.callback = callback
     }
 
+    deinit {
+        stop()
+    }
+
     func start() {
         handle.readabilityHandler = { [weak self] handle in
             self?.append(handle.availableData)
@@ -244,12 +252,22 @@ private nonisolated final class LineStreamReader: @unchecked Sendable {
         }
         buffer.append(data)
         var lines: [String] = []
-        while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
-            let lineData = buffer[..<newlineRange.lowerBound]
-            buffer.removeSubrange(..<newlineRange.upperBound)
+        var lineStart = buffer.startIndex
+        var index = lineStart
+        while index < buffer.endIndex {
+            guard buffer[index] == 0x0A else {
+                index = buffer.index(after: index)
+                continue
+            }
+            let lineData = buffer[lineStart..<index]
             if let line = Self.normalizedLine(from: lineData) {
                 lines.append(line)
             }
+            index = buffer.index(after: index)
+            lineStart = index
+        }
+        if lineStart > buffer.startIndex {
+            buffer.removeSubrange(..<lineStart)
         }
         lock.unlock()
 
