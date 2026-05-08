@@ -71,70 +71,73 @@ struct PiAgentSessionRow: View {
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            PiAgentProjectIcon(project: project, session: session)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .center, spacing: 8) {
+                selectedSessionIndicator
+                    .opacity(isSelected ? 1 : 0)
 
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .center, spacing: 5) {
+                    PiAgentProjectIcon(project: project, session: session)
+
                     titleView
                         .layoutPriority(1)
-                    Spacer(minLength: 0)
-                    Button(action: onTogglePinned) {
-                        Image(systemName: session.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(session.isPinned ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.75))
-                            .frame(width: 24, height: 24)
-                            .background(Circle().fill(session.isPinned ? AppTheme.brandAccent.opacity(0.14) : AppTheme.contentSubtleFill.opacity(0.8)))
-                    }
-                    .buttonStyle(.plain)
-                    .help(session.isPinned ? "Unpin session" : "Pin session")
-                    if session.needsAttention {
-                        Image(systemName: "bell.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(AppTheme.brandAccent)
-                            .help("Pi Agent finished and needs review")
-                    }
                 }
+                .layoutPriority(1)
 
-                HStack(spacing: 6) {
-                    Image("github")
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .frame(width: 13, height: 13)
-                    Text(subtitle)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+
+                Button(action: onTogglePinned) {
+                    Image(systemName: session.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(session.isPinned ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.75))
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(session.isPinned ? AppTheme.brandAccent.opacity(0.14) : AppTheme.contentSubtleFill.opacity(0.8)))
                 }
-                .font(.footnote)
-                .foregroundStyle(AppTheme.mutedText)
+                .buttonStyle(.plain)
+                .help(session.isPinned ? "Unpin session" : "Pin session")
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-
-                    Spacer(minLength: 0)
-
-                    if isRunning {
-                        activeStatusLabel
-                            .transition(.opacity)
-                    }
+                if session.needsAttention {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(AppTheme.brandAccent)
+                        .help("Pi Agent finished and needs review")
                 }
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
             }
+
+            HStack(spacing: 6) {
+                Image("github")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: 13, height: 13)
+                Text(subtitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .minimumScaleFactor(0.8)
+            }
+            .font(.footnote)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.leading, 14)
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Spacer(minLength: 0)
+
+                if isRunning {
+                    activeStatusLabel
+                        .transition(.opacity)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.leading, 14)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sessionRowBackground)
-        .overlay(alignment: .leading) {
-            if isSelected {
-                selectedSessionIndicator
-                    .padding(.leading, 5)
-            }
-        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
@@ -158,10 +161,9 @@ struct PiAgentSessionRow: View {
     }
 
     private var selectedSessionIndicator: some View {
-        Image(systemName: "chevron.right")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
-            .frame(width: 10, height: 18)
+        Circle()
+            .fill(AppTheme.brandAccent.opacity(0.72))
+            .frame(width: 6, height: 6)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -356,19 +358,19 @@ struct PiAgentProjectIcon: View {
                 fallback
             }
         }
-        .frame(width: 34, height: 34)
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(width: 22, height: 22)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
     private var fallback: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(AppTheme.contentSubtleFill)
             .overlay {
                 Image(session.kind == .issue ? "github" : "pi")
                     .resizable()
                     .renderingMode(.template)
                     .scaledToFit()
-                    .padding(8)
+                    .padding(5)
                     .foregroundStyle(AppTheme.mutedText)
             }
     }
