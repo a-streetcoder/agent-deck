@@ -154,6 +154,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         defer { enabledRunner.stop(sessionID: enabledSession.id) }
 
         let enabledCommand = try XCTUnwrap(enabledStore.sessions.first(where: { $0.id == enabledSession.id })?.launchCommand)
+        XCTAssertTrue(enabledCommand.contains("--no-extensions"))
         XCTAssertTrue(enabledCommand.contains("--extension"))
         XCTAssertTrue(enabledCommand.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("pi-manager-ask-user-bridge.ts"))
@@ -177,6 +178,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         defer { disabledRunner.stop(sessionID: disabledSession.id) }
 
         let disabledCommand = try XCTUnwrap(disabledStore.sessions.first(where: { $0.id == disabledSession.id })?.launchCommand)
+        XCTAssertTrue(disabledCommand.contains("--no-extensions"))
         XCTAssertTrue(disabledCommand.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(disabledCommand.contains("pi-manager-ask-user-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("managed-subagent-bridge.ts"))

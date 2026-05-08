@@ -36,6 +36,23 @@ struct PiExtensionRecord: Identifiable, Hashable {
             return packageSource ?? "Package"
         }
     }
+
+    func withEnabled(_ isEnabled: Bool) -> PiExtensionRecord {
+        PiExtensionRecord(
+            id: id,
+            displayName: displayName,
+            path: path,
+            relativePattern: relativePattern,
+            enabled: isEnabled,
+            scope: scope,
+            origin: origin,
+            settingsPath: settingsPath,
+            packageSource: packageSource,
+            packageName: packageName,
+            packageDescription: packageDescription,
+            repositoryURL: repositoryURL
+        )
+    }
 }
 
 struct PiExtensionManagementService {

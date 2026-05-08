@@ -5,11 +5,11 @@ struct ExtensionsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        AppPage("Extensions", subtitle: "Enable or disable Pi extensions without deleting extension files") {
+        AppPage("Extensions", subtitle: "Choose which discovered extensions Pi Manager injects into managed sessions") {
             AppCard(title: "Safety") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Pi Manager only writes explicit + / - entries to Pi settings. It does not delete extension files, package folders, or unrelated settings keys.")
-                    Text("Changes affect new Pi sessions in Pi Manager and the CLI/TUI. Existing TUI sessions can pick them up with `/reload`; existing app sessions need a new session.")
+                    Text("Pi Manager stores these choices in app preferences. It does not modify Pi settings, extension files, package folders, or CLI/TUI behavior.")
+                    Text("Changes affect new Pi sessions launched from Pi Manager. Existing app sessions need a new session.")
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -129,7 +129,7 @@ struct ExtensionsScreen: View {
                 set: { viewModel.setExtension(record, enabled: $0) }
             ))
             .labelsHidden()
-            .help(record.enabled ? "Disable this extension in settings" : "Enable this extension in settings")
+                        .help(record.enabled ? "Do not inject this extension into Pi Manager sessions" : "Inject this extension into Pi Manager sessions")
         }
         .padding(.vertical, 10)
     }
@@ -139,7 +139,7 @@ struct ExtensionsScreen: View {
         if let packageName = record.packageName, !packageName.isEmpty, record.origin == .package {
             parts.append(packageName)
         }
-        parts.append("writes to \(record.settingsPath)")
+        parts.append(record.enabled ? "injected by Pi Manager" : "not injected")
         return parts.joined(separator: " · ")
     }
 

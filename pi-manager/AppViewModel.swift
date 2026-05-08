@@ -145,6 +145,9 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         refresh(includeModels: true)
+        piAgentRunner.enabledExtensionPathProvider = { [weak self] _ in
+            self?.appSettings.enabledExtensionPaths ?? []
+        }
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -2682,7 +2685,12 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var visibleExtensions: [PiExtensionRecord] {
-        extensionManagementService.scan(projectRoot: projectRootURL)
+        let enabledPaths = appSettings.enabledExtensionPaths
+        return extensionManagementService.scan(projectRoot: projectRootURL)
+            .map { record in
+                let normalizedPath = URL(fileURLWithPath: record.path).standardizedFileURL.path
+                return record.withEnabled(enabledPaths.contains(normalizedPath))
+            }
     }
 
     var selectedExtension: PiExtensionRecord? {
@@ -2690,12 +2698,9 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func setExtension(_ extensionRecord: PiExtensionRecord, enabled: Bool) {
-        do {
-            try extensionManagementService.setEnabled(extensionRecord, enabled: enabled)
-            refresh(includeModels: false)
-        } catch {
-            NSSound.beep()
-        }
+        guard appSettingsController.setExtensionEnabled(path: extensionRecord.path, isEnabled: enabled) else { return }
+        appSettings = appSettingsController.settings
+        refresh(includeModels: false)
     }
 
     var areSubagentsEnabledForNewSessions: Bool {

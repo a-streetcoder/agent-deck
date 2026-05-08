@@ -46,6 +46,7 @@ struct AppSettings: Codable, Hashable {
     var nativeSubagentsEnabledForNewSessions: Bool = true
     var showContextSmartZoneHint: Bool = false
     var disabledModelIdentifiers: Set<String> = []
+    var enabledExtensionPaths: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
         case gitHubBoardCacheLifetimeMinutes
@@ -58,6 +59,7 @@ struct AppSettings: Codable, Hashable {
         case nativeSubagentsEnabledForNewSessions
         case showContextSmartZoneHint
         case disabledModelIdentifiers
+        case enabledExtensionPaths
     }
 
     init() {}
@@ -74,6 +76,7 @@ struct AppSettings: Codable, Hashable {
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         showContextSmartZoneHint = try container.decodeIfPresent(Bool.self, forKey: .showContextSmartZoneHint) ?? false
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
+        enabledExtensionPaths = try container.decodeIfPresent(Set<String>.self, forKey: .enabledExtensionPaths) ?? []
     }
 }
 
