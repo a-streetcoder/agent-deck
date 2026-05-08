@@ -172,8 +172,8 @@ struct PromptsScreen: View {
             .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedCommandItemID == prompt.id ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentSubtleFill)
-                    .stroke(viewModel.selectedCommandItemID == prompt.id ? AppTheme.brandAccent.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
+                    .fill(viewModel.selectedCommandItemID == prompt.id ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
+                    .stroke(viewModel.selectedCommandItemID == prompt.id ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -285,7 +285,7 @@ struct ExtensionCommandsScreen: View {
         Button { viewModel.selectedCommandItemID = command.id } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "terminal")
-                    .foregroundStyle(AppTheme.brandAccentDeep)
+                    .foregroundStyle(.blue)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(command.invocation)
                         .font(.headline)
@@ -302,8 +302,8 @@ struct ExtensionCommandsScreen: View {
             .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedCommandItemID == command.id ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentSubtleFill)
-                    .stroke(viewModel.selectedCommandItemID == command.id ? AppTheme.brandAccent.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
+                    .fill(viewModel.selectedCommandItemID == command.id ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
+                    .stroke(viewModel.selectedCommandItemID == command.id ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

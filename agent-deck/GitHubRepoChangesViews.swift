@@ -111,7 +111,7 @@ private struct GitHubDesktopChangesView: View {
 
     private var repositorySummary: some View {
         HStack(spacing: 10) {
-            AppLabelTag(text: snapshot.branchName, color: AppTheme.brandAccentDeep)
+            AppLabelTag(text: snapshot.branchName, color: .blue)
             if let upstream = snapshot.upstreamBranch {
                 AppLabelTag(text: upstream, color: .gray)
             }
@@ -321,8 +321,8 @@ private struct GitChangeFileRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isSelected ? AppTheme.brandAccent.opacity(0.16) : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isSelected ? AppTheme.selectionFill : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(isSelected ? AppTheme.selectionStroke : Color.clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

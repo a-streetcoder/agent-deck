@@ -214,12 +214,12 @@ struct PiDocsScreen: View {
                             Text(tab.rawValue)
                                 .font(.subheadline.weight(.semibold))
                                 .fontWidth(.expanded)
-                                .foregroundStyle(selectedTab == tab ? Color.white : .primary)
+                                .foregroundStyle(.primary)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? AppTheme.brandAccent : AppTheme.contentSubtleFill)
+                                        .fill(selectedTab == tab ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)

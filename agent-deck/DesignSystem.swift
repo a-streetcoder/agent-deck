@@ -12,17 +12,19 @@ enum AppTheme {
     static let brandAccentBright = adaptiveColor(light: RGB(44, 205, 199), dark: RGB(96, 232, 224))
     static let brandAccentDeep = adaptiveColor(light: RGB(13, 132, 129), dark: RGB(49, 122, 121))
     static let brandAccentShadow = adaptiveColor(light: RGB(207, 245, 243), dark: RGB(37, 72, 74))
-    static let assistantAccent = adaptiveColor(light: RGB(28, 157, 153), dark: RGB(104, 224, 216))
+    static let assistantAccent = Color.purple
 
-    static let windowBackground = adaptiveColor(light: RGB(244, 247, 247), dark: RGB(16, 22, 23))
-    static let panelFill = adaptiveColor(light: RGB(255, 255, 255), dark: RGB(24, 33, 35))
-    static let contentFill = adaptiveColor(light: RGB(249, 251, 251), dark: RGB(32, 42, 45))
-    static let textContentFill = adaptiveColor(light: RGB(255, 255, 255), dark: RGB(19, 27, 29))
-    static let contentStroke = adaptiveColor(light: RGB(216, 230, 229), dark: RGB(61, 76, 80)).opacity(0.82)
-    static let contentSubtleFill = adaptiveColor(light: RGB(234, 248, 247), dark: RGB(39, 53, 56)).opacity(0.88)
-    static let selectionFill = brandAccent.opacity(0.12)
-    static let selectionStroke = brandAccent.opacity(0.38)
-    static let selectionGlow = brandAccent.opacity(0.22)
+    static let windowBackground = Color(nsColor: .windowBackgroundColor)
+    static let panelFill = Color(nsColor: .windowBackgroundColor)
+    static let contentFill = Color(nsColor: .controlBackgroundColor)
+    static let textContentFill = Color(nsColor: .textBackgroundColor)
+    static let contentStroke = Color(nsColor: .separatorColor).opacity(0.55)
+    static let contentSubtleFill = Color(nsColor: .controlColor).opacity(0.62)
+    static let selectionFill = Color.primary.opacity(0.055)
+    static let selectionStroke = brandAccent.opacity(0.24)
+    static let selectionGlow = Color.clear
+    static let accentSelectionFill = brandAccent.opacity(0.10)
+    static let accentSelectionStroke = brandAccent.opacity(0.32)
     static let mutedText = Color.secondary
 
     private struct RGB {
@@ -66,7 +68,6 @@ struct AppContentSurface: ViewModifier {
                     .overlay(shape.fill(isSelected ? AppTheme.selectionFill : Color.clear))
                     .overlay(shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
             )
-            .shadow(color: isSelected ? AppTheme.selectionGlow : .clear, radius: isSelected ? 10 : 0, y: 0)
     }
 }
 
@@ -81,7 +82,6 @@ struct AppPanelSurface: ViewModifier {
                     .fill(AppTheme.panelFill)
                     .overlay(shape.stroke(AppTheme.contentStroke, lineWidth: 1))
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 10, y: 1)
     }
 }
 
@@ -136,7 +136,7 @@ struct AppPrimaryButtonStyle: ButtonStyle {
                 Capsule(style: .continuous)
                     .stroke(AppTheme.brandAccentBright.opacity(configuration.isPressed ? 0.45 : 0.65), lineWidth: 1)
             )
-            .shadow(color: AppTheme.selectionGlow.opacity(configuration.isPressed ? 0.35 : 0.8), radius: configuration.isPressed ? 3 : 8, y: 0)
+            .shadow(color: AppTheme.brandAccent.opacity(configuration.isPressed ? 0.10 : 0.18), radius: configuration.isPressed ? 2 : 5, y: 0)
             .opacity(configuration.isPressed ? 0.86 : 1)
     }
 }
@@ -145,11 +145,11 @@ struct AppSecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .fontWeight(.medium)
-            .foregroundStyle(AppTheme.brandAccent)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-            .overlay(Capsule(style: .continuous).stroke(AppTheme.selectionStroke, lineWidth: 1))
+            .overlay(Capsule(style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
             .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }

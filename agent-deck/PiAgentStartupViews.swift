@@ -56,7 +56,7 @@ struct PiAgentStartupResourcesCard: View {
                 if isExpanded {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 10) {
-                            resourceSection("Context", count: contextItems.count, icon: "doc.text", color: AppTheme.brandAccentDeep, items: contextItems, columns: 2)
+                            resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
                             resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
                         }
                         resourceSection("Agents", count: effectiveResourceCount(agentItems), icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)

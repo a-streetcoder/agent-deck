@@ -229,7 +229,7 @@ struct PiNativeSubagentRunCard: View {
             Label("Task", systemImage: "arrowshape.turn.up.forward.circle")
                 .font(.caption.weight(.semibold))
                 .fontWidth(.expanded)
-                .foregroundStyle(AppTheme.brandAccent)
+                .foregroundStyle(AppTheme.mutedText)
 
             MarkdownTextView(source: run.task)
                 .lineLimit(3)
@@ -241,8 +241,8 @@ struct PiNativeSubagentRunCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(AppTheme.brandAccent.opacity(0.08))
-                .stroke(AppTheme.brandAccent.opacity(0.18), lineWidth: 1)
+                .fill(AppTheme.contentSubtleFill.opacity(0.65))
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
         .help(run.task)
     }

@@ -180,7 +180,7 @@ struct PiAgentRepoChangesPanel: View {
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
         HStack(spacing: 7) {
-            gitTag(snapshot.branchName, systemImage: "arrow.trianglehead.branch", color: AppTheme.brandAccentDeep)
+            gitTag(snapshot.branchName, systemImage: "arrow.trianglehead.branch", color: .blue)
             if let upstream = snapshot.upstreamBranch {
                 gitTag(upstream, systemImage: "arrow.up.right", color: .gray)
             }
@@ -320,7 +320,7 @@ private struct PiAgentGitChangeRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(item.isIncluded ? AppTheme.brandAccent.opacity(0.10) : Color.clear))
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(item.isIncluded ? AppTheme.selectionFill : Color.clear))
         }
         .buttonStyle(.plain)
         .help(item.isIncluded ? "Exclude from commit" : "Include in commit")

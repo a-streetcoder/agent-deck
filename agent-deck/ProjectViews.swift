@@ -342,8 +342,8 @@ struct ProjectsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? AppTheme.brandAccent.opacity(0.08) : AppTheme.contentFill)
-                    .stroke(isSelected ? AppTheme.brandAccent.opacity(0.28) : AppTheme.contentStroke, lineWidth: 1)
+                    .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill)
+                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity(preference.isEnabled ? 1 : 0.58)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

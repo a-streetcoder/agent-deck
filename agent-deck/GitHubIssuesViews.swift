@@ -56,11 +56,11 @@ private struct GitHubIssueListRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? AppTheme.brandAccent.opacity(0.14) : Color.clear)
+                    .fill(isSelected ? AppTheme.selectionFill : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

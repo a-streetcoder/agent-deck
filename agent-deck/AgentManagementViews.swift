@@ -270,8 +270,8 @@ private struct AgentLibraryPane: View {
         .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(viewModel.selectedAgentID == agent.id ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentSubtleFill)
-                .stroke(viewModel.selectedAgentID == agent.id ? AppTheme.brandAccent.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
+                .fill(viewModel.selectedAgentID == agent.id ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
+                .stroke(viewModel.selectedAgentID == agent.id ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
         )
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
@@ -284,7 +284,7 @@ private struct AgentLibraryPane: View {
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
         HStack(spacing: 6) {
             if agent.resolutionKind == .globalReplacement || agent.resolutionKind == .projectReplacement {
-                capabilityPill("Replacement", symbol: "arrow.triangle.2.circlepath", color: AppTheme.brandAccentDeep)
+                capabilityPill("Replacement", symbol: "arrow.triangle.2.circlepath", color: .blue)
             }
             if !agent.resolved.skills.isEmpty {
                 capabilityPill("Skills", symbol: "sparkles", color: .green)
@@ -293,7 +293,7 @@ private struct AgentLibraryPane: View {
                 capabilityPill("Inherits", symbol: "square.stack.3d.up", color: .mint)
             }
             if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
-                capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: AppTheme.brandAccentDeep)
+                capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: .blue)
             }
             if agent.resolved.disabled == true {
                 capabilityPill("Disabled", symbol: "nosign", color: .red)
@@ -408,12 +408,12 @@ private struct AgentDetailView: View {
                             Text(tab.rawValue)
                                 .font(.subheadline.weight(.semibold))
                                 .fontWidth(.expanded)
-                                .foregroundStyle(selectedTab == tab ? Color.white : .primary)
+                                .foregroundStyle(.primary)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? AppTheme.brandAccent : AppTheme.contentSubtleFill)
+                                        .fill(selectedTab == tab ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -799,7 +799,7 @@ private struct AgentDetailView: View {
                                 ForEach(tools, id: \.self) { tool in
                                     HStack(spacing: 10) {
                                         Image(systemName: "wrench.and.screwdriver")
-                                            .foregroundStyle(AppTheme.brandAccentDeep)
+                                            .foregroundStyle(.blue)
                                         Text(tool)
                                     }
                                 }

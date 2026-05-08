@@ -1091,7 +1091,7 @@ struct PiAgentContextBreakdownPopover: View {
         case "systemPrompt", "system_prompt":
             return AppTheme.assistantAccent
         case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results", "promptTools":
-            return AppTheme.brandAccentDeep
+            return .blue
         case "promptSkills":
             return AppTheme.assistantAccent
         case "promptProjectContext":
@@ -1101,7 +1101,7 @@ struct PiAgentContextBreakdownPopover: View {
         case "estimatedOutputTokens":
             return .green
         case "estimatedCachedPromptTools", "estimatedCacheTokens":
-            return AppTheme.brandAccentDeep
+            return .blue
         case "estimatedOtherUsedContext":
             return .orange
         case "freeSpace", "free_space", "estimatedFreeSpace":
@@ -1672,7 +1672,7 @@ struct PiAgentModelPicker: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? AppTheme.brandAccent.opacity(0.10) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? AppTheme.selectionFill : Color.clear))
     }
 
     private var modelOptions: [PiAgentModelOption] {
@@ -1784,7 +1784,7 @@ struct PiAgentThinkingPicker: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(candidate == resolvedLevel ? AppTheme.brandAccent.opacity(0.10) : Color.clear))
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(candidate == resolvedLevel ? AppTheme.selectionFill : Color.clear))
                     }
                     .buttonStyle(.plain)
                 }

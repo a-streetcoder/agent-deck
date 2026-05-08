@@ -662,7 +662,7 @@ struct PiAgentScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                         if let finalSystemPrompt = session.finalSystemPrompt {

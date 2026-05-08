@@ -200,7 +200,7 @@ struct PiAgentSessionRow: View {
         }
         activeBorderDashPhase = 0
         DispatchQueue.main.async {
-            withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
+            withAnimation(.linear(duration: 4.2).repeatForever(autoreverses: false)) {
                 activeBorderDashPhase = -56
             }
         }
@@ -289,8 +289,8 @@ struct PiAgentSessionRow: View {
 
     private var statusColor: Color {
         switch session.status {
-        case .running, .starting: return .green
-        case .idle, .completed: return AppTheme.brandAccentDeep
+        case .running, .starting: return AppTheme.brandAccent
+        case .idle, .completed: return .secondary
         case .failed: return .red
         case .stopped: return .orange
         case .draft: return .secondary
@@ -365,14 +365,14 @@ struct PiAgentProjectIcon: View {
 
     private var fallback: some View {
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(AppTheme.brandAccent.opacity(0.14))
+            .fill(AppTheme.contentSubtleFill)
             .overlay {
                 Image(session.kind == .issue ? "github" : "pi")
                     .resizable()
                     .renderingMode(.template)
                     .scaledToFit()
                     .padding(8)
-                    .foregroundStyle(AppTheme.brandAccent)
+                    .foregroundStyle(AppTheme.mutedText)
             }
     }
 }

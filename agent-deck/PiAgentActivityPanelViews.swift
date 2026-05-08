@@ -805,7 +805,7 @@ private struct PiAgentActivityRow: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(isSelected ? AppTheme.contentSubtleFill.opacity(0.9) : AppTheme.contentSubtleFill.opacity(0.55)).stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(isSelected ? AppTheme.selectionFill : AppTheme.contentSubtleFill.opacity(0.55)).stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
     }
 }
 

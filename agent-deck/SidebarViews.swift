@@ -51,7 +51,7 @@ struct PiAgentSidebarButton: View {
                     .renderingMode(.template)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 18, height: 18)
-                    .foregroundStyle(isSelected ? AppTheme.brandAccent : .secondary)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pi Agent")
@@ -390,11 +390,11 @@ struct ProjectSidebarRow: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? AppTheme.brandAccent.opacity(0.12) : AppTheme.contentSubtleFill.opacity(0.22))
+                        .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentSubtleFill.opacity(0.22))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
+                        .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
