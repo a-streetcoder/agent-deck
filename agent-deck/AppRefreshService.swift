@@ -74,17 +74,42 @@ nonisolated struct AppRefreshService: Sendable {
     }
 
     static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot) -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let globalAgentRoot = home.appendingPathComponent(".pi/agent", isDirectory: true)
+        let legacyGlobalAgentRoot = home.appendingPathComponent(".agents", isDirectory: true)
         var urls: [URL] = [
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent", isDirectory: true),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
+            globalAgentRoot.appendingPathComponent("agents", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("chains", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("agent-library/agents", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("agent-library/chains", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("settings.json"),
+            globalAgentRoot.appendingPathComponent(".env"),
+            globalAgentRoot.appendingPathComponent("skills", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("skill-library", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("prompts", isDirectory: true),
+            globalAgentRoot.appendingPathComponent("prompt-library", isDirectory: true),
+            legacyGlobalAgentRoot,
+            legacyGlobalAgentRoot.appendingPathComponent("skills", isDirectory: true)
         ]
 
         for project in projects {
-            urls.append(project.url.appendingPathComponent(".pi", isDirectory: true))
+            let piRoot = project.url.appendingPathComponent(".pi", isDirectory: true)
+            urls.append(piRoot.appendingPathComponent("agents", isDirectory: true))
+            urls.append(piRoot.appendingPathComponent("chains", isDirectory: true))
+            urls.append(piRoot.appendingPathComponent("settings.json"))
+            urls.append(piRoot.appendingPathComponent(".env"))
+            urls.append(piRoot.appendingPathComponent("skills", isDirectory: true))
+            urls.append(piRoot.appendingPathComponent("prompts", isDirectory: true))
             urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))
         }
 
-        urls += snapshot.promptTemplates.map { URL(fileURLWithPath: $0.filePath) }
+        urls += snapshot.effectiveAgents.compactMap(\.sourcePath).map { URL(fileURLWithPath: $0) }
+        urls += snapshot.chains.map { URL(fileURLWithPath: $0.filePath) }
+        urls += snapshot.libraryAgents.map { URL(fileURLWithPath: $0.filePath) }
+        urls += snapshot.libraryChains.map { URL(fileURLWithPath: $0.filePath) }
+        urls += snapshot.skills.map { URL(fileURLWithPath: $0.filePath) }
+        urls += snapshot.librarySkills.map { URL(fileURLWithPath: $0.filePath) }
+        urls += (snapshot.promptTemplates + snapshot.libraryPromptTemplates).map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.settings.flatMap(\.prompts).map { URL(fileURLWithPath: $0) }
 
         var seen: Set<String> = []
@@ -98,11 +123,22 @@ nonisolated struct FileWatchFingerprint: Sendable {
         let entries: [String] = urls.flatMap { url in
             if let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey]),
                values.isDirectory == true {
-                let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey])
+                let enumerator = fileManager.enumerator(
+                    at: url,
+                    includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .isDirectoryKey],
+                    options: [.skipsPackageDescendants]
+                )
                 var children: [String] = []
                 while let child = enumerator?.nextObject() as? URL {
-                    guard watchedFileName(child.lastPathComponent) else { continue }
-                    let date = (try? child.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
+                    let childValues = try? child.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey, .isDirectoryKey])
+                    if childValues?.isDirectory == true {
+                        if shouldSkipDirectory(child.lastPathComponent) {
+                            enumerator?.skipDescendants()
+                        }
+                        continue
+                    }
+                    guard childValues?.isRegularFile == true, watchedFile(child) else { continue }
+                    let date = childValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
                     children.append("\(child.path)::\(date)")
                 }
                 return children
@@ -113,7 +149,29 @@ nonisolated struct FileWatchFingerprint: Sendable {
         return entries.sorted().joined(separator: "|")
     }
 
-    private static func watchedFileName(_ name: String) -> Bool {
-        name.hasSuffix(".md") || name.hasSuffix(".json") || name == ".env" || name == "SKILL.md"
+    private static func watchedFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        if name == ".env" || name == "SKILL.md" { return true }
+        switch url.pathExtension.lowercased() {
+        case "md", "json":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func shouldSkipDirectory(_ name: String) -> Bool {
+        let skipped: Set<String> = [
+            ".git",
+            ".hg",
+            ".svn",
+            ".build",
+            "node_modules",
+            "DerivedData",
+            "Subagent Runs",
+            "sessions",
+            "logs"
+        ]
+        return skipped.contains(name)
     }
 }

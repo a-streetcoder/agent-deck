@@ -223,25 +223,6 @@ nonisolated struct PromptTemplateRecord: Identifiable, Hashable, Sendable {
     var invocation: String { "/\(name)" }
 }
 
-nonisolated enum CommandRecordKind: String, Hashable, Sendable {
-    case builtIn = "Built-in Command"
-    case `extension` = "Extension Command"
-}
-
-nonisolated struct CommandRecord: Identifiable, Hashable, Sendable {
-    let id: String
-    let name: String
-    let description: String
-    let kind: CommandRecordKind
-    let packageName: String?
-    let notes: String?
-    let sourcePath: String?
-    let sourceScope: String?
-    let sourceOrigin: String?
-
-    var invocation: String { "/\(name)" }
-}
-
 nonisolated struct DiagnosticWarning: Identifiable, Hashable, Sendable {
     let id: String
     let message: String
@@ -297,7 +278,6 @@ nonisolated struct ScanSnapshot: Hashable, Sendable {
     let libraryChains: [ChainRecord]
     let skills: [SkillRecord]
     let librarySkills: [SkillRecord]
-    let commands: [CommandRecord]
     let promptTemplates: [PromptTemplateRecord]
     let libraryPromptTemplates: [PromptTemplateRecord]
     let settings: [SettingsSummary]
@@ -316,7 +296,6 @@ nonisolated struct ScanSnapshot: Hashable, Sendable {
         libraryChains: [],
         skills: [],
         librarySkills: [],
-        commands: [],
         promptTemplates: [],
         libraryPromptTemplates: [],
         settings: [],

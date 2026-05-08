@@ -19,12 +19,11 @@ The app sidebar is organized around these concepts:
 - **Agents** — builtin, global, project, library, and overridden agents
 - **Chains** — app-managed `.chain.md` workflows
 - **Skills** — active and library skills, including project assignment
-- **Prompts** — prompt templates and extension slash commands
+- **Prompts** — file-backed prompt templates
 - **Subagents** — subagent configuration and native-run behavior
 
 ### Runtime
 
-- **Extensions** — local/package extensions and enable/disable state
 - **Models** — available Pi models and capabilities
 - **Settings** — app settings and selected Pi-related preferences
 - **Environment** — global/project `.env` keys, with secret values hidden by default

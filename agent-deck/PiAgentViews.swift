@@ -306,6 +306,7 @@ struct PiAgentScreen: View {
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
     @State private var transcriptAutoScrollSuppressed = false
+    @State private var showArchivedPreCompactionTranscript = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
     @AppStorage("piAgentSessionSortOrder") private var sessionSortOrder: PiAgentSessionSortOrder = .created
@@ -368,6 +369,7 @@ struct PiAgentScreen: View {
             loadComposerDraft(for: newID)
             transcriptIsPinnedToBottom = true
             transcriptAutoScrollSuppressed = false
+            showArchivedPreCompactionTranscript = false
             syncRuntimeFooterSnapshot()
             scheduleTranscriptCacheUpdate()
         }
@@ -707,7 +709,7 @@ struct PiAgentScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                         if let finalSystemPrompt = session.finalSystemPrompt {
@@ -726,7 +728,10 @@ struct PiAgentScreen: View {
                         }
                     }
 
-                    let timelineItems = transcriptTimelineItems
+                    let timelineItems = visibleTranscriptTimelineItems
+                    if let archive = preCompactionArchiveNotice {
+                        preCompactionArchiveCard(archive)
+                    }
                     if timelineItems.isEmpty {
                         AppRowCard {
                             HStack(spacing: 12) {
@@ -779,6 +784,9 @@ struct PiAgentScreen: View {
                     onPinnedToBottomChange: { isPinnedToBottom in
                         transcriptIsPinnedToBottom = isPinnedToBottom
                     },
+                    onUserScrollIntent: {
+                        transcriptAutoScrollSuppressed = true
+                    },
                     onUserScrolledAwayFromBottom: {
                         transcriptAutoScrollSuppressed = true
                     }
@@ -823,6 +831,60 @@ struct PiAgentScreen: View {
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
             return lhs.id < rhs.id
         }
+    }
+
+    private var visibleTranscriptTimelineItems: [PiAgentTranscriptTimelineItem] {
+        let items = transcriptTimelineItems
+        guard !showArchivedPreCompactionTranscript,
+              let archive = preCompactionArchiveRange(in: items) else { return items }
+        return Array(items[archive.visibleStartIndex...])
+    }
+
+    private var preCompactionArchiveNotice: (hiddenCount: Int, compactedAt: Date)? {
+        let items = transcriptTimelineItems
+        guard let archive = preCompactionArchiveRange(in: items), archive.visibleStartIndex > 0 else { return nil }
+        return (archive.visibleStartIndex, archive.compactedAt)
+    }
+
+    private func preCompactionArchiveRange(in items: [PiAgentTranscriptTimelineItem]) -> (visibleStartIndex: Int, compactedAt: Date)? {
+        guard let index = items.indices.last(where: { index in
+            guard case let .thread(thread) = items[index].kind else { return false }
+            return thread.statuses.contains(where: isCompletedCompactionEntry)
+        }) else { return nil }
+        return (index, items[index].timestamp)
+    }
+
+    private func isCompletedCompactionEntry(_ entry: PiAgentTranscriptEntry) -> Bool {
+        guard entry.title == "Compaction" else { return false }
+        let text = entry.text.localizedLowercase
+        return (text.contains("context compacted") || text.contains("compaction complete") || text.contains("compaction finished"))
+            && !text.contains("nothing to compact")
+            && !text.contains("compacting")
+    }
+
+    @ViewBuilder
+    private func preCompactionArchiveCard(_ archive: (hiddenCount: Int, compactedAt: Date)) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: showArchivedPreCompactionTranscript ? "tray.and.arrow.up" : "archivebox")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            Text(showArchivedPreCompactionTranscript ? "Showing pre-compaction transcript" : "Pre-compaction transcript hidden")
+                .font(.caption.weight(.semibold))
+            Text("\(archive.hiddenCount) earlier item\(archive.hiddenCount == 1 ? "" : "s") before \(archive.compactedAt.formatted(date: .omitted, time: .shortened))")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+            Spacer(minLength: 0)
+            Button(showArchivedPreCompactionTranscript ? "Hide" : "Load Earlier") {
+                withAnimation(.snappy(duration: 0.18)) {
+                    showArchivedPreCompactionTranscript.toggle()
+                }
+            }
+            .buttonStyle(.borderless)
+            .font(.caption.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.8)).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private func planEvents(for thread: PiAgentTranscriptThread, in timelineItems: [PiAgentTranscriptTimelineItem]) -> [PiSessionPlanEventRecord] {
@@ -884,11 +946,11 @@ struct PiAgentScreen: View {
     }
 
     private func scrollToLatestThread(proxy: ScrollViewProxy) {
-        scrollToConversationBottom(proxy: proxy, animated: false)
+        scrollToConversationBottom(proxy: proxy, animated: false, respectSuppression: true)
     }
 
     private func scrollToProcessingIndicator(proxy: ScrollViewProxy) {
-        scrollToConversationBottom(proxy: proxy, animated: false)
+        scrollToConversationBottom(proxy: proxy, animated: false, respectSuppression: true)
     }
 
     private func requestTranscriptBottomScroll() {
@@ -898,13 +960,14 @@ struct PiAgentScreen: View {
     private func scrollToRequestedBottom(proxy: ScrollViewProxy) {
         transcriptIsPinnedToBottom = true
         transcriptAutoScrollSuppressed = false
-        scrollToConversationBottom(proxy: proxy, animated: true)
+        scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false)
     }
 
-    private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool) {
+    private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool, respectSuppression: Bool) {
         lastStreamingScrollAt = Date()
         Task { @MainActor in
             await Task.yield()
+            guard !respectSuppression || !transcriptAutoScrollSuppressed else { return }
             withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
                 proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
             }
@@ -1004,7 +1067,7 @@ struct PiAgentScreen: View {
     private var slashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
         guard !query.hasPrefix("skill:") else { return [] }
-        let all = Array(Set(viewModel.snapshot.commands.map(\.invocation) + viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
+        let all = Array(Set(viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
         return all.filter { query.isEmpty || $0.dropFirst().lowercased().hasPrefix(query) }.prefix(8).map { $0 }
     }
 
@@ -1158,7 +1221,7 @@ struct PiAgentScreen: View {
                 let relative = String(part.dropFirst())
                 let url = rootURL.appendingPathComponent(relative)
                 guard FileManager.default.fileExists(atPath: url.path) else { return String(part) }
-                return fileTag(for: url) ?? String(part)
+                return fileTag(for: url)
             }
             .joined(separator: " ")
     }
@@ -1166,21 +1229,13 @@ struct PiAgentScreen: View {
     private func attachedFilePayload() -> String? {
         var tags: [String] = []
         for file in composerFiles {
-            guard let tag = fileTag(for: file.url) else {
-                composerAttachmentError = "Only images and UTF-8 text files are supported. \(file.url.lastPathComponent) is not readable as text."
-                return nil
-            }
-            tags.append(tag)
+            tags.append(fileTag(for: file.url))
         }
         return tags.joined(separator: "\n")
     }
 
-    private func fileTag(for url: URL) -> String? {
-        if PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) != nil {
-            return "<file name=\"\(url.path)\"></file>"
-        }
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return "<file name=\"\(url.path)\">\n\(content)\n</file>"
+    private func fileTag(for url: URL) -> String {
+        "<file name=\"\(url.path)\"></file>"
     }
 
     private var runningCount: Int {
@@ -1347,11 +1402,13 @@ struct PiAgentScreen: View {
 
 private struct PiAgentScrollPositionObserver: NSViewRepresentable {
     let onPinnedToBottomChange: (Bool) -> Void
+    let onUserScrollIntent: () -> Void
     let onUserScrolledAwayFromBottom: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onPinnedToBottomChange: onPinnedToBottomChange,
+            onUserScrollIntent: onUserScrollIntent,
             onUserScrolledAwayFromBottom: onUserScrolledAwayFromBottom
         )
     }
@@ -1366,6 +1423,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
+        context.coordinator.onUserScrollIntent = onUserScrollIntent
         context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         DispatchQueue.main.async {
             context.coordinator.attach(to: view.enclosingScrollView)
@@ -1376,6 +1434,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var onPinnedToBottomChange: (Bool) -> Void
+        var onUserScrollIntent: () -> Void
         var onUserScrolledAwayFromBottom: () -> Void
         private weak var scrollView: NSScrollView?
         private var lastPinnedState: Bool?
@@ -1384,9 +1443,11 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
         init(
             onPinnedToBottomChange: @escaping (Bool) -> Void,
+            onUserScrollIntent: @escaping () -> Void,
             onUserScrolledAwayFromBottom: @escaping () -> Void
         ) {
             self.onPinnedToBottomChange = onPinnedToBottomChange
+            self.onUserScrollIntent = onUserScrollIntent
             self.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         }
 
@@ -1435,6 +1496,8 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
             let location = scrollView.convert(event.locationInWindow, from: nil)
             guard scrollView.bounds.contains(location) else { return }
+
+            onUserScrollIntent()
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

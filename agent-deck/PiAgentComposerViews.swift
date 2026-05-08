@@ -63,7 +63,7 @@ struct PiAgentComposerBox: View {
                     onDropTargeted: { isDropTargeted = $0 },
                     onImages: addImages,
                     onFiles: onFiles,
-                    onUnsupportedDrop: { attachmentError = "Drop images or UTF-8 text files." },
+                    onUnsupportedDrop: { attachmentError = "Drop images or files." },
                     onSend: onSend,
                     onClear: onClear,
                     isDisabled: isDisabled
@@ -145,7 +145,7 @@ struct PiAgentComposerBox: View {
         .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image, .plainText, .utf8PlainText], isTargeted: $isDropTargeted) { providers in
             PiAgentComposerImageLoader.loadDropItems(from: providers) { attachments, files in
                 if attachments.isEmpty && files.isEmpty {
-                    attachmentError = "Drop images or UTF-8 text files."
+                    attachmentError = "Drop images or files."
                 } else {
                     addImages(attachments)
                     onFiles(files)
@@ -166,9 +166,9 @@ struct PiAgentComposerBox: View {
             }
             .buttonStyle(.plain)
             .appControlSurface(cornerRadius: 15)
-            .help("Attach images or UTF-8 text files")
+            .help("Attach files")
             .accessibilityLabel("Attach files")
-            .accessibilityHint("Attach images or UTF-8 text files")
+            .accessibilityHint("Attach images, text files, or local file paths")
         }
     }
 
@@ -625,6 +625,8 @@ enum PiAgentComposerImageLoader {
         case "jpg", "jpeg": return "image/jpeg"
         case "gif": return "image/gif"
         case "webp": return "image/webp"
+        case "tif", "tiff": return "image/tiff"
+        case "heic": return "image/heic"
         default: return nil
         }
     }

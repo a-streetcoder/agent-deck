@@ -91,14 +91,9 @@ struct PiAgentInspectorPanel: View {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
                         guard !isCompacting else { return }
-                        let filePayload = composerFiles.compactMap { file -> String? in
-                            guard let content = try? String(contentsOf: file.url, encoding: .utf8) else { return nil }
-                            return "<file name=\"\(file.url.path)\">\n\(content)\n</file>"
+                        let filePayload = composerFiles.map { file -> String in
+                            "<file name=\"\(file.url.path)\"></file>"
                         }.joined(separator: "\n")
-                        if !composerFiles.isEmpty && filePayload.isEmpty {
-                            composerAttachmentError = "Only images and UTF-8 text files are supported."
-                            return
-                        }
                         let combined = [message, filePayload].filter { !$0.isEmpty }.joined(separator: "\n\n")
                         viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
                         composerText = ""

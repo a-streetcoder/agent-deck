@@ -1638,7 +1638,10 @@ private struct PiAgentUserMessageContent: View {
             return .init(name: line, path: nil)
         }
         let tagged = inlineFileTags.filter { !Self.isImageName($0.name) }
-        return uniqueFiles(listed + tagged)
+        // Prefer inline <file name="/path"> tags because they preserve the local path
+        // needed by the popover preview. The human-readable "Attached files:"
+        // list only contains display names, so de-duping it first drops previews.
+        return uniqueFiles(tagged + listed)
     }
 
     private var legacyImageNames: [String] {
@@ -1789,7 +1792,7 @@ private struct AttachmentPreviewPopover: View {
                 empty("Preview is not available for this image.")
             }
         case .file(let file):
-            if let path = file.path, let text = try? String(contentsOfFile: path, encoding: .utf8) {
+            if let path = file.path, let text = Self.textPreview(atPath: path) {
                 ScrollView {
                     Text(String(text.prefix(12_000)))
                         .font(.caption.monospaced())
@@ -1798,6 +1801,20 @@ private struct AttachmentPreviewPopover: View {
                         .padding(8)
                 }
                 .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+            } else if let path = file.path {
+                VStack(spacing: 8) {
+                    Image(systemName: "doc")
+                        .font(.title2)
+                        .foregroundStyle(AppTheme.mutedText)
+                    Text("Preview is not available for this file type.")
+                    Text(path)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 empty("Preview is not available for this attachment.")
             }
@@ -1819,6 +1836,15 @@ private struct AttachmentPreviewPopover: View {
         case .image, .missing: return "photo"
         case .file: return "doc.text"
         }
+    }
+
+    private static func textPreview(atPath path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        if let utf8 = try? String(contentsOf: url, encoding: .utf8) { return utf8 }
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        return String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1)
+            ?? String(data: data, encoding: .macOSRoman)
     }
 
     private func empty(_ text: String) -> some View {

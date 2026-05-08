@@ -55,7 +55,6 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var selectedChainID: ChainRecord.ID?
     @Published var selectedSkillID: SkillRecord.ID?
     @Published var selectedCommandItemID: String?
-    @Published var selectedExtensionID: PiExtensionRecord.ID?
     @Published var selectedAgentFilter: AgentFilter = .all
     @Published var discoveredProjects: [DiscoveredProject] = []
     @Published var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
@@ -103,7 +102,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private let agentPersistence = AgentPersistence()
     private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
-    private let extensionManagementService = PiExtensionManagementService()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsController = AppSettingsController()
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
@@ -147,12 +145,8 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
-        let hasRestoredProject = selectedProjectPath != nil
-        shouldWarmAllProjectSnapshotsAfterInitialLoad = hasRestoredProject
-        refresh(includeModels: true, scanAllProjects: !hasRestoredProject)
-        piAgentRunner.enabledExtensionPathProvider = { [weak self] _ in
-            self?.appSettings.enabledExtensionPaths ?? []
-        }
+        shouldWarmAllProjectSnapshotsAfterInitialLoad = false
+        refresh(includeModels: true, scanAllProjects: false)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -227,7 +221,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func refresh(includeModels: Bool = false, scanAllProjects: Bool = true, extraProjectPathsToScan: Set<String> = []) {
+    func refresh(includeModels: Bool = false, scanAllProjects: Bool = false, extraProjectPathsToScan: Set<String> = []) {
         let selectedProjectPath = selectedProjectPath
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let rootURL = configuredProjectsRootURL
@@ -284,22 +278,16 @@ final class AppViewModel: NSObject, ObservableObject {
         let currentAgentID = selectedAgentID
         let currentChainID = selectedChainID
         let currentSkillID = selectedSkillID
-        let currentExtensionID = selectedExtensionID
         let currentCommandItemID = selectedCommandItemID
 
         selectedAgentID = filteredAgents.contains(where: { $0.id == currentAgentID }) ? currentAgentID : filteredAgents.first?.id
         selectedChainID = allVisibleChainRecords.contains(where: { $0.id == currentChainID }) ? currentChainID : allVisibleChainRecords.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == currentSkillID }) ? currentSkillID : allVisibleSkillRecords.first?.id
-        selectedExtensionID = visibleExtensions.contains(where: { $0.id == currentExtensionID }) ? currentExtensionID : visibleExtensions.first?.id
         let availablePromptIDs = Set(allVisiblePromptTemplateRecords.map(\.id))
-        let availableCommandIDs = Set(snapshot.commands.map(\.id))
-        let availableCommandItemIDs = availableCommandIDs.union(availablePromptIDs)
-        if availableCommandItemIDs.contains(currentCommandItemID ?? "") {
+        if availablePromptIDs.contains(currentCommandItemID ?? "") {
             selectedCommandItemID = currentCommandItemID
-        } else if selectedSidebarItem == .commands {
-            selectedCommandItemID = snapshot.commands.first?.id ?? allVisiblePromptTemplateRecords.first?.id
         } else {
-            selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id ?? snapshot.commands.first?.id
+            selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
@@ -1324,7 +1312,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var piAgentRunningSessionCount: Int {
-        piAgentSessionStore.sessions.filter { $0.status.isActive }.count
+        piAgentSessionStore.sessions.filter { $0.status.isActive && !$0.needsAttention }.count
     }
 
     func isModelEnabled(_ model: AvailableModel) -> Bool {
@@ -1371,6 +1359,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
         guard !session.needsAttention else { return }
         piAgentSessionStore.updateSession(sessionID) { record in
+            record.status = .idle
             record.needsAttention = true
         }
         schedulePiAgentCompletionNotification(for: sessionID)
@@ -2786,25 +2775,6 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentSessionStore.flushPendingSave()
     }
 
-    var visibleExtensions: [PiExtensionRecord] {
-        let enabledPaths = appSettings.enabledExtensionPaths
-        return extensionManagementService.scan(projectRoot: projectRootURL)
-            .map { record in
-                let normalizedPath = URL(fileURLWithPath: record.path).standardizedFileURL.path
-                return record.withEnabled(enabledPaths.contains(normalizedPath))
-            }
-    }
-
-    var selectedExtension: PiExtensionRecord? {
-        visibleExtensions.first(where: { $0.id == selectedExtensionID }) ?? visibleExtensions.first
-    }
-
-    func setExtension(_ extensionRecord: PiExtensionRecord, enabled: Bool) {
-        guard appSettingsController.setExtensionEnabled(path: extensionRecord.path, isEnabled: enabled) else { return }
-        appSettings = appSettingsController.settings
-        refresh(includeModels: false)
-    }
-
     var areSubagentsEnabledForNewSessions: Bool {
         appSettingsController.areSubagentsEnabledForNewSessions
     }
@@ -2981,10 +2951,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func scopedStartupSnapshot(projectSnapshot: ScanSnapshot) -> ScanSnapshot {
         projectSnapshot
-    }
-
-    var selectedCommand: CommandRecord? {
-        snapshot.commands.first(where: { $0.id == selectedCommandItemID })
     }
 
     var selectedPromptTemplate: PromptTemplateRecord? {
@@ -3791,7 +3757,6 @@ final class AppViewModel: NSObject, ObservableObject {
         let libraryChains = deduplicateByID(globalSnapshot.libraryChains + projectSnapshots.flatMap(\.libraryChains))
         let skills = deduplicateByID(globalSnapshot.skills + projectSnapshots.flatMap(\.skills))
         let librarySkills = deduplicateByID(globalSnapshot.librarySkills + projectSnapshots.flatMap(\.librarySkills))
-        let commands = deduplicateByID(globalSnapshot.commands + projectSnapshots.flatMap(\.commands))
         let promptTemplates = deduplicateByID(globalSnapshot.promptTemplates + projectSnapshots.flatMap(\.promptTemplates))
         let libraryPromptTemplates = deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshots.flatMap(\.libraryPromptTemplates))
         let envKeys = deduplicateByID(globalSnapshot.envKeys + projectSnapshots.flatMap(\.envKeys))
@@ -3810,7 +3775,6 @@ final class AppViewModel: NSObject, ObservableObject {
             libraryChains: libraryChains,
             skills: skills,
             librarySkills: librarySkills,
-            commands: commands,
             promptTemplates: promptTemplates,
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
@@ -4019,8 +3983,8 @@ final class AppViewModel: NSObject, ObservableObject {
     private func refreshIfWatchedFilesChanged() {
         guard watchFingerprintTask == nil else { return }
         let previousFingerprint = lastWatchFingerprint
-        let shouldScanAllProjects = selectedProjectPath == nil
-        let projectsToWatch = shouldScanAllProjects ? enabledProjects : selectedDiscoveredProject.map { [$0] } ?? []
+        let shouldScanAllProjects = false
+        let projectsToWatch = selectedDiscoveredProject.map { [$0] } ?? []
         let urls = AppRefreshService.watchedURLs(projects: projectsToWatch, snapshot: snapshot)
         watchFingerprintTask = Task.detached(priority: .utility) {
             let fingerprint = FileWatchFingerprint.make(urls: urls)

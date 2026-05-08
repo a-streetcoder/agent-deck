@@ -22,7 +22,6 @@ final class PiAgentRunnerService {
     var onSessionPlanSet: ((UUID, PiSessionPlanSetBridgeRequest) -> String)?
     var onSessionPlanUpdate: ((UUID, PiSessionPlanUpdateBridgeRequest) -> String)?
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
-    var enabledExtensionPathProvider: ((URL) -> Set<String>)?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -209,9 +208,6 @@ final class PiAgentRunnerService {
 
         do {
             var extraArguments: [String] = ["--no-extensions"]
-            for extensionPath in managedExtensionPaths(projectURL: projectURL) {
-                extraArguments.append(contentsOf: ["--extension", extensionPath])
-            }
             if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", auditURL.path])
             }
@@ -665,7 +661,9 @@ final class PiAgentRunnerService {
             }
             record.thinkingLevel = data["thinkingLevel"]?.stringValue ?? record.thinkingLevel
             if let streaming = data["isStreaming"]?.compactDescription, streaming == "true" {
-                record.status = .running
+                if !record.needsAttention {
+                    record.status = .running
+                }
             } else if record.status.isActive {
                 record.status = .idle
             }
@@ -1121,14 +1119,6 @@ final class PiAgentRunnerService {
         if let message = event.message?.stringValue, !message.isEmpty { return message }
         if let message = extensionUIString("message", from: event) { return message }
         return event.message?.compactDescription
-    }
-
-    private func managedExtensionPaths(projectURL: URL) -> [String] {
-        guard let enabledPaths = enabledExtensionPathProvider?(projectURL), !enabledPaths.isEmpty else { return [] }
-        return PiExtensionManagementService()
-            .scan(projectRoot: projectURL)
-            .filter { enabledPaths.contains(URL(fileURLWithPath: $0.path).standardizedFileURL.path) }
-            .map(\.path)
     }
 
     private func agentDeckBridgeName(from event: PiAgentRPCEvent) -> String? {

@@ -54,6 +54,18 @@ Agent Deck native children follow Pi's model, but the app controls the child lau
 5. If `inheritSkills` is false, Agent Deck passes `--no-skills`.
 6. Native child sessions disable ambient extension discovery and load only configured extensions plus app bridge extensions when needed.
 
+## Agent Deck Projects view
+
+The Projects view shows enabled projects by default. Selecting a project in that list only changes the instruction inspector on the right; it does not change the active project used for new sessions.
+
+The instruction inspector edits file-based custom instruction sources for the selected project:
+
+- project and global `SYSTEM.md`
+- project and global `APPEND_SYSTEM.md`
+- global, ancestor, and project `AGENTS.md` / `CLAUDE.md` context files
+
+Its preview approximates Pi's final prompt from the current editor contents. Runtime-generated pieces such as the built-in Pi prompt, tool-aware guidance, extension prompt changes, and skill catalog can appear as placeholders when Agent Deck cannot know the exact Pi runtime text.
+
 ## Why this matters
 
 When debugging “why did Pi behave this way?”, separate:

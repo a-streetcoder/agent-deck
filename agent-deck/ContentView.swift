@@ -476,18 +476,6 @@ struct ContentView: View {
                 }
             }
 
-            if viewModel.selectedSidebarItem == .commands {
-                ToolbarItemGroup {
-                    if let command = viewModel.selectedCommand {
-                        AppCopyTextButton(
-                            title: "Copy",
-                            text: command.invocation,
-                            help: "Copy command invocation"
-                        )
-                    }
-                }
-            }
-
             if viewModel.selectedSidebarItem == .skills {
                 ToolbarItem {
                     Button {
@@ -698,11 +686,9 @@ struct ContentView: View {
         let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
         let selectedPrompt = viewModel.selectedPromptTemplate
-        let selectedCommand = viewModel.selectedCommand
         let selectedAgent = viewModel.selectedAgent
         let selectedAgentPath = selectedAgentFilePath
         let promptsAreVisible = viewModel.selectedSidebarItem == .prompts
-        let extensionCommandsAreVisible = viewModel.selectedSidebarItem == .commands
 
         return AgentDeckCommandContext(
             canCreatePiAgentSession: true,
@@ -722,7 +708,6 @@ struct ContentView: View {
             canCopyPromptInvocation: promptsAreVisible && selectedPrompt != nil,
             canOpenPromptFile: promptsAreVisible && selectedPrompt != nil,
             canRevealPromptFile: promptsAreVisible && selectedPrompt != nil,
-            canCopyCommandInvocation: extensionCommandsAreVisible && selectedCommand != nil,
             canOpenSelectedAgentFile: selectedAgentPath != nil,
             canRevealSelectedAgentFile: selectedAgentPath != nil,
             canEditSelectedAgent: selectedAgent != nil,
@@ -776,10 +761,6 @@ struct ContentView: View {
             revealPromptFile: {
                 guard let selectedPrompt else { return }
                 revealPromptFile(selectedPrompt.filePath)
-            },
-            copyCommandInvocation: {
-                guard let selectedCommand else { return }
-                copyCommandValue(selectedCommand.invocation)
             },
             openSelectedAgentFile: { openSelectedAgentFile() },
             revealSelectedAgentFile: { revealSelectedAgentFile() },
@@ -863,8 +844,6 @@ struct ContentView: View {
             )
         case .prompts:
             PromptsScreen(viewModel: viewModel)
-        case .commands:
-            ExtensionCommandsScreen(viewModel: viewModel)
         case .github:
             GitHubScreen(viewModel: viewModel)
         case .agent:
@@ -872,8 +851,6 @@ struct ContentView: View {
                 viewModel: viewModel,
                 store: viewModel.piAgentSessionStore
             )
-        case .extensions:
-            ExtensionsScreen(viewModel: viewModel)
         case .models:
             ModelsScreen(viewModel: viewModel)
         case .subagents:
@@ -930,8 +907,6 @@ struct ContentView: View {
             return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
         case .skills:
             return viewModel.selectedSkill?.name ?? "Skills"
-        case .extensions:
-            return viewModel.selectedExtension?.displayName ?? "Extensions"
         default:
             return viewModel.selectedSidebarItem.rawValue
         }

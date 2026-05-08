@@ -69,7 +69,6 @@ nonisolated struct PiScanner {
             projectSettings: projectSettingsSummary
         )
         let libraryPromptTemplates = scanPromptTemplates(at: libraryPrompts, scope: .library, discoveryKind: .standardDirectory, packageName: nil)
-        let commands = scanRuntimeExtensionCommands(projectRoot: projectRoot)
 
         let effectiveAgents = resolveAgents(
             projectRoot: projectRoot?.path,
@@ -109,7 +108,6 @@ nonisolated struct PiScanner {
             libraryChains: libraryChains,
             skills: skills,
             librarySkills: librarySkills,
-            commands: commands,
             promptTemplates: promptScan.templates,
             libraryPromptTemplates: libraryPromptTemplates,
             settings: settings,
@@ -311,140 +309,6 @@ nonisolated struct PiScanner {
             filePath: file.path,
             body: text
         )
-    }
-
-    private func scanRuntimeExtensionCommands(projectRoot: URL?) -> [CommandRecord] {
-        // Avoid blocking SwiftUI's startup/render path with an interactive RPC probe.
-        // The main scan runs on the main actor during app initialization, so doing
-        // synchronous process I/O here causes priority inversion warnings and can
-        // make the app appear hung while launching.
-        guard !Thread.isMainThread else {
-            return []
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "if command -v pi >/dev/null 2>&1; then pi --mode rpc; elif [ -x /opt/homebrew/bin/pi ]; then /opt/homebrew/bin/pi --mode rpc; elif [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --mode rpc; else exit 127; fi"]
-        if let projectRoot {
-            process.currentDirectoryURL = projectRoot
-        }
-
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            return []
-        }
-
-        defer {
-            process.terminate()
-        }
-
-        let request = "{\"type\":\"get_commands\"}\n"
-        inputPipe.fileHandleForWriting.write(Data(request.utf8))
-        inputPipe.fileHandleForWriting.closeFile()
-
-        let responseState = RuntimeCommandResponseState()
-
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else {
-                responseState.finish()
-                return
-            }
-
-            responseState.append(chunk)
-        }
-
-        responseState.wait(timeout: 5)
-        outputPipe.fileHandleForReading.readabilityHandler = nil
-
-        guard let responseLine = responseState.responseLine,
-              let data = responseLine.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let payload = root["data"] as? [String: Any],
-              let commands = payload["commands"] as? [[String: Any]] else {
-            return []
-        }
-
-        return commands.compactMap { command in
-            guard (command["source"] as? String) == "extension",
-                  let name = command["name"] as? String,
-                  !name.isEmpty else { return nil }
-
-            let sourceInfo = command["sourceInfo"] as? [String: Any]
-            let sourcePath = sourceInfo?["path"] as? String
-            let source = sourceInfo?["source"] as? String
-            let scope = sourceInfo?["scope"] as? String
-            let origin = sourceInfo?["origin"] as? String
-            let packageName = source.map(SlashCommandCatalog.normalizePackageReference)
-
-            return CommandRecord(
-                id: "extension:\(scope ?? "unknown"):\(name):\(sourcePath ?? source ?? name)",
-                name: name,
-                description: (command["description"] as? String) ?? "No description",
-                kind: .extension,
-                packageName: packageName == "auto" ? nil : packageName,
-                notes: "Discovered from Pi runtime slash command inventory.",
-                sourcePath: sourcePath,
-                sourceScope: scope,
-                sourceOrigin: origin
-            )
-        }
-        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private final class RuntimeCommandResponseState: @unchecked Sendable {
-        private let semaphore = DispatchSemaphore(value: 0)
-        private let lock = NSLock()
-        private var buffer = ""
-        private var didFinish = false
-        private var matchedLine: String?
-
-        var responseLine: String? {
-            lock.lock()
-            let line = matchedLine
-            lock.unlock()
-            return line
-        }
-
-        func append(_ chunk: String) {
-            lock.lock()
-            guard !didFinish else {
-                lock.unlock()
-                return
-            }
-            buffer += chunk
-            let lines = buffer.split(whereSeparator: \.isNewline).map(String.init)
-            if let match = lines.first(where: { $0.contains("\"command\":\"get_commands\"") }) {
-                matchedLine = match
-                didFinish = true
-                lock.unlock()
-                semaphore.signal()
-                return
-            }
-            lock.unlock()
-        }
-
-        func finish() {
-            lock.lock()
-            let shouldSignal = !didFinish
-            didFinish = true
-            lock.unlock()
-            if shouldSignal {
-                semaphore.signal()
-            }
-        }
-
-        func wait(timeout: TimeInterval) {
-            _ = semaphore.wait(timeout: .now() + timeout)
-            finish()
-        }
     }
 
     private func scanPromptTemplates(

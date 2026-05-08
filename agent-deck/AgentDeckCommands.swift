@@ -113,7 +113,6 @@ struct AgentDeckCommandContext {
     var canCopyPromptInvocation = false
     var canOpenPromptFile = false
     var canRevealPromptFile = false
-    var canCopyCommandInvocation = false
     var canOpenSelectedAgentFile = false
     var canRevealSelectedAgentFile = false
     var canEditSelectedAgent = false
@@ -140,7 +139,6 @@ struct AgentDeckCommandContext {
     var copyPromptInvocation: () -> Void = {}
     var openPromptFile: () -> Void = {}
     var revealPromptFile: () -> Void = {}
-    var copyCommandInvocation: () -> Void = {}
     var openSelectedAgentFile: () -> Void = {}
     var revealSelectedAgentFile: () -> Void = {}
     var editSelectedAgent: () -> Void = {}
@@ -321,11 +319,6 @@ struct AgentDeckCommands: Commands {
                 context?.revealPromptFile()
             }
             .disabled(context?.canRevealPromptFile != true)
-
-            Button("Copy Command Invocation") {
-                context?.copyCommandInvocation()
-            }
-            .disabled(context?.canCopyCommandInvocation != true)
         }
     }
 }

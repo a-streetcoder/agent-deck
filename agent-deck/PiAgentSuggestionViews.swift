@@ -49,27 +49,23 @@ struct PiAgentCommandSuggestions: View {
             if !fileSuggestions.isEmpty {
                 suggestionPanel(title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files", icon: "paperclip", scrollable: true) {
                     ForEach(fileSuggestions.prefix(10)) { suggestion in
-                        Button { onSelectFile(suggestion) } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
-                                    .frame(width: 14)
-                                Text(suggestion.relativePath)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer(minLength: 0)
-                            }
+                        suggestionRow(action: { onSelectFile(suggestion) }) {
+                            Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
+                                .frame(width: 14)
+                            Text(suggestion.relativePath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             } else if !commands.isEmpty || !skills.isEmpty {
-                suggestionPanel(title: "Suggestions", icon: "command", scrollable: true) {
+                suggestionPanel(scrollable: true) {
                     if !commands.isEmpty {
                         suggestionSection(title: "Slash commands", icon: "terminal")
                         commandRows(commands)
                     }
                     if !skills.isEmpty {
-                        if !commands.isEmpty { Divider().padding(.vertical, 4) }
+                        if !commands.isEmpty { Divider().padding(.vertical, 3) }
                         suggestionSection(title: "Skills", icon: "sparkles")
                         skillRows(skills)
                     }
@@ -82,43 +78,57 @@ struct PiAgentCommandSuggestions: View {
 
     private func commandRows(_ items: [String]) -> some View {
         ForEach(items, id: \.self) { command in
-            Button { onSelectCommand(command) } label: {
+            suggestionRow(action: { onSelectCommand(command) }) {
                 Text(command)
                     .font(.caption.monospaced())
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
         }
     }
 
     private func skillRows(_ items: [String]) -> some View {
         ForEach(items, id: \.self) { command in
-            Button { onSelectCommand(command) } label: {
+            suggestionRow(action: { onSelectCommand(command) }) {
                 Text(command.replacingOccurrences(of: "/skill:", with: ""))
                     .font(.caption.monospaced())
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
         }
     }
 
     private func suggestionSection(title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(AppTheme.mutedText)
-            .padding(.horizontal, 8)
+            .font(.caption2.weight(.bold))
+            .textCase(.uppercase)
+            .foregroundStyle(AppTheme.brandAccent)
+            .padding(.horizontal, 4)
             .padding(.top, 2)
+            .padding(.bottom, 1)
     }
 
-    private func suggestionPanel<Content: View>(title: String, icon: String, scrollable: Bool = false, @ViewBuilder content: @escaping () -> Content) -> some View {
+    private func suggestionRow<Content: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Content) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                label()
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.contentSubtleFill))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func suggestionPanel<Content: View>(title: String? = nil, icon: String? = nil, scrollable: Bool = false, @ViewBuilder content: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
+            if let title, let icon {
+                Label(title, systemImage: icon)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
             if scrollable {
                 ScrollView {
                     suggestionRows(content: content)
@@ -137,13 +147,9 @@ struct PiAgentCommandSuggestions: View {
     }
 
     private func suggestionRows<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             content()
                 .font(.caption)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.contentSubtleFill))
         }
     }
 }

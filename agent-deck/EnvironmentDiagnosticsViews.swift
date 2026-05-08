@@ -335,17 +335,17 @@ struct PiDocsScreen: View {
         }
     }
 
-    // MARK: - Prompts & Commands
+    // MARK: - Prompts
 
     private var promptsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Slash Entries") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("In Pi, many things start with `/` but they are not all the same:")
-                    Text("• **Built-in commands** — app actions like `/settings`, `/model`, `/reload`, `/quit`")
-                    Text("• **Commands** — registered by packages, e.g. `/agents`, `/subagents-status`")
-                    Text("• **Prompt templates** — file-backed `.md` templates that expand into the composer")
-                    Text("• **Skill commands** — invoke a skill by name")
+                    Text("In Pi, many things start with `/` but Agent Deck only treats file-backed prompt templates as prompt resources.")
+                    Text("• **Built-in commands** — app actions like `/settings`, `/model`, `/reload`, `/quit`; Agent Deck uses RPC APIs instead.")
+                    Text("• **Extension commands** — package/extension code actions; Agent Deck-managed sessions run with discovered extensions disabled.")
+                    Text("• **Prompt templates** — file-backed `.md` templates that expand into the composer.")
+                    Text("• **Skill commands** — invoke a skill by name.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

@@ -38,7 +38,6 @@ This is the canonical starting point for Agent Deck's official documentation.
 This official set includes or summarizes the important current information from these pre-existing docs:
 
 - [`../native-subagents.md`](../native-subagents.md)
-- [`../pi-commands-and-prompt-templates.md`](../pi-commands-and-prompt-templates.md)
 - [`../pi-core-system-reference-and-subagents.md`](../pi-core-system-reference-and-subagents.md)
 - [`../agent-deck-resource-management.md`](../agent-deck-resource-management.md)
 - [`../pi-skills-discovery.md`](../pi-skills-discovery.md)

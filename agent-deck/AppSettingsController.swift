@@ -95,10 +95,6 @@ final class AppSettingsController {
         settings.disabledModelIdentifiers
     }
 
-    var enabledExtensionPaths: Set<String> {
-        settings.enabledExtensionPaths
-    }
-
     var shouldShowContextSmartZoneHint: Bool {
         settings.showContextSmartZoneHint
     }
@@ -315,22 +311,6 @@ final class AppSettingsController {
     func enableAllModels() -> Bool {
         guard !settings.disabledModelIdentifiers.isEmpty else { return false }
         settings.disabledModelIdentifiers = []
-        persist()
-        return true
-    }
-
-    @discardableResult
-    func setExtensionEnabled(path: String, isEnabled: Bool) -> Bool {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        var enabled = settings.enabledExtensionPaths
-        let changed: Bool
-        if isEnabled {
-            changed = enabled.insert(normalized).inserted
-        } else {
-            changed = enabled.remove(normalized) != nil
-        }
-        guard changed else { return false }
-        settings.enabledExtensionPaths = enabled
         persist()
         return true
     }
