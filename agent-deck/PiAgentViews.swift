@@ -352,7 +352,7 @@ struct PiAgentScreen: View {
             loadComposerDraft(for: store.selectedSession?.id)
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
-            store.requestSelectedTranscriptLoad()
+            requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
         }
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
@@ -391,7 +391,7 @@ struct PiAgentScreen: View {
             transcriptAutoScrollSuppressed = false
             showArchivedPreCompactionTranscript = false
             syncRuntimeFooterSnapshot()
-            store.requestSelectedTranscriptLoad()
+            requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
         }
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
@@ -416,10 +416,13 @@ struct PiAgentScreen: View {
         .sheet(item: selectedSubagentTranscriptBinding) { run in
             PiNativeSubagentTranscriptSheet(
                 run: run,
-                entries: store.subagentTranscript(for: run.id),
+                entries: store.cachedSubagentTranscript(for: run.id),
                 thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
                 visibility: viewModel.appSettings.piAgentTranscriptVisibility
             )
+            .onAppear {
+                requestSubagentTranscriptLoadAfterViewUpdate(runID: run.id)
+            }
         }
         .sheet(item: selectedSubagentGraphBinding) { run in
             PiNativeSubagentGraphSheet(
@@ -978,6 +981,20 @@ struct PiAgentScreen: View {
             revision: store.selectedTranscriptRevision,
             rawEntries: store.selectedTranscript
         )
+    }
+
+    private func requestSelectedTranscriptLoadAfterViewUpdate() {
+        Task { @MainActor in
+            await Task.yield()
+            store.requestSelectedTranscriptLoad()
+        }
+    }
+
+    private func requestSubagentTranscriptLoadAfterViewUpdate(runID: UUID) {
+        Task { @MainActor in
+            await Task.yield()
+            store.requestSubagentTranscriptLoad(for: runID)
+        }
     }
 
     private func scrollToLatestThread(proxy: ScrollViewProxy) {

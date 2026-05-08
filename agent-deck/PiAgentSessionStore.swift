@@ -40,6 +40,7 @@ final class PiAgentSessionStore: ObservableObject {
     private var loadedTranscriptSessionOrder: [UUID] = []
     private var loadedSubagentTranscriptOrder: [UUID] = []
     private var transcriptLoadTasksBySessionID: [UUID: Task<Void, Never>] = [:]
+    private var subagentTranscriptLoadTasksByRunID: [UUID: Task<Void, Never>] = [:]
 
     init(fileManager: FileManager = .default) {
         let settings = AppSettingsStore.shared.settings
@@ -299,6 +300,10 @@ final class PiAgentSessionStore: ObservableObject {
         return subagentTranscriptsByRunID[runID] ?? []
     }
 
+    func cachedSubagentTranscript(for runID: UUID) -> [PiAgentTranscriptEntry] {
+        subagentTranscriptsByRunID[runID] ?? []
+    }
+
     func transcript(for sessionID: UUID) -> [PiAgentTranscriptEntry] {
         loadTranscriptIfNeeded(sessionID)
         markTranscriptSessionUsed(sessionID)
@@ -331,6 +336,29 @@ final class PiAgentSessionStore: ObservableObject {
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.finishRequestedTranscriptLoad(sessionID, entries: entries)
+            }
+        }
+    }
+
+    func requestSubagentTranscriptLoad(for runID: UUID) {
+        guard lazyTranscriptLoadingEnabled else {
+            _ = subagentTranscript(for: runID)
+            return
+        }
+        guard subagentTranscriptsByRunID[runID] == nil else {
+            markSubagentTranscriptUsed(runID)
+            evictTranscriptsIfNeeded(protectingSubagentRunID: runID)
+            return
+        }
+        guard persistedSubagentTranscriptRunIDs.contains(runID) else { return }
+        guard subagentTranscriptLoadTasksByRunID[runID] == nil else { return }
+
+        let fileURL = subagentTranscriptURL(runID)
+        subagentTranscriptLoadTasksByRunID[runID] = Task.detached(priority: .utility) { [weak self] in
+            let entries = (try? Self.readSubagentTranscript(from: fileURL)) ?? []
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.finishRequestedSubagentTranscriptLoad(runID, entries: entries)
             }
         }
     }
@@ -595,6 +623,7 @@ final class PiAgentSessionStore: ObservableObject {
             transcriptRevisionsBySessionID[sessionID] = nil
             let runIDs = subagentRunsBySessionID[sessionID]?.map(\.id) ?? []
             for runID in runIDs {
+                cancelSubagentTranscriptLoadTask(for: runID)
                 subagentTranscriptsByRunID[runID] = nil
                 persistedSubagentTranscriptRunIDs.remove(runID)
                 loadedSubagentTranscriptOrder.removeAll { $0 == runID }
@@ -907,17 +936,38 @@ final class PiAgentSessionStore: ObservableObject {
         evictTranscriptsIfNeeded(protectingSessionID: sessionID)
     }
 
+    private func finishRequestedSubagentTranscriptLoad(_ runID: UUID, entries: [PiAgentTranscriptEntry]) {
+        guard subagentTranscriptLoadTasksByRunID[runID] != nil else { return }
+        subagentTranscriptLoadTasksByRunID[runID] = nil
+        guard persistedSubagentTranscriptRunIDs.contains(runID) else { return }
+
+        if subagentTranscriptsByRunID[runID] == nil {
+            subagentTranscriptsByRunID[runID] = entries
+        }
+        markSubagentTranscriptUsed(runID)
+        evictTranscriptsIfNeeded(protectingSubagentRunID: runID)
+    }
+
     private func cancelTranscriptLoadTask(for sessionID: UUID) {
         transcriptLoadTasksBySessionID[sessionID]?.cancel()
         transcriptLoadTasksBySessionID[sessionID] = nil
         transcriptLoadingSessionIDs.remove(sessionID)
     }
 
+    private func cancelSubagentTranscriptLoadTask(for runID: UUID) {
+        subagentTranscriptLoadTasksByRunID[runID]?.cancel()
+        subagentTranscriptLoadTasksByRunID[runID] = nil
+    }
+
     private func cancelAllTranscriptLoadTasks() {
         for task in transcriptLoadTasksBySessionID.values {
             task.cancel()
         }
+        for task in subagentTranscriptLoadTasksByRunID.values {
+            task.cancel()
+        }
         transcriptLoadTasksBySessionID = [:]
+        subagentTranscriptLoadTasksByRunID = [:]
         transcriptLoadingSessionIDs = []
     }
 

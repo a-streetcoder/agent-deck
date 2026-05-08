@@ -55,9 +55,13 @@ struct PiAgentActivityPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .onAppear(perform: rebuildActivityCache)
+        .onAppear {
+            requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
+            rebuildActivityCache()
+        }
         .onChange(of: store.selectedSession?.id) { _, _ in
             selectedID = nil
+            requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
             rebuildActivityCache()
         }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in
@@ -66,7 +70,10 @@ struct PiAgentActivityPanel: View {
                 rebuildActivityCache()
             }
         }
-        .onReceive(store.$subagentRunsBySessionID) { _ in rebuildActivityCache() }
+        .onReceive(store.$subagentRunsBySessionID) { _ in
+            requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
+            rebuildActivityCache()
+        }
         .onReceive(store.$subagentTranscriptsByRunID) { _ in rebuildActivityCache() }
         .onReceive(activityCache.$changes) { changes in
             let diffs = changes.compactMap(\.diff)
@@ -126,7 +133,7 @@ struct PiAgentActivityPanel: View {
 
     private var selectedSubagentTranscripts: [UUID: [PiAgentTranscriptEntry]] {
         Dictionary(uniqueKeysWithValues: selectedSubagentRuns.map { run in
-            (run.id, store.subagentTranscript(for: run.id))
+            (run.id, store.cachedSubagentTranscript(for: run.id))
         })
     }
 
@@ -137,6 +144,17 @@ struct PiAgentActivityPanel: View {
             subagentRuns: selectedSubagentRuns,
             subagentTranscripts: selectedSubagentTranscripts
         )
+    }
+
+    private func requestSelectedSubagentTranscriptLoadsAfterViewUpdate() {
+        let runIDs = selectedSubagentRuns.map(\.id)
+        guard !runIDs.isEmpty else { return }
+        Task { @MainActor in
+            await Task.yield()
+            for runID in runIDs {
+                store.requestSubagentTranscriptLoad(for: runID)
+            }
+        }
     }
 
     @ViewBuilder
