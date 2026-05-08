@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private struct GitHubIssueListRow: View {
+struct GitHubIssueListRow: View {
     let item: GitHubWorkItem
     let isSelected: Bool
     let onSelect: () -> Void
@@ -54,6 +54,7 @@ private struct GitHubIssueListRow: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected ? AppTheme.selectionFill : Color.clear)
@@ -64,6 +65,7 @@ private struct GitHubIssueListRow: View {
             )
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .contextMenu {
             Link("Open in Browser", destination: item.url)
         }

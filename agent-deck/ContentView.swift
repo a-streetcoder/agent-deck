@@ -531,8 +531,8 @@ struct ContentView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 16, height: 16)
                     }
-                    .help("Show repo changes panel")
-                    .accessibilityLabel("Show repo changes panel")
+                    .help("Show GitHub panel")
+                    .accessibilityLabel("Show GitHub panel")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
                     PiAgentOpenTerminalToolbarButton(

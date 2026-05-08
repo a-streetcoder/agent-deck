@@ -1,10 +1,24 @@
 import AppKit
 import SwiftUI
 
+private enum PiAgentGitHubPanelSection: String, CaseIterable, Identifiable {
+    case changes
+    case issues
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .changes: return "Changes"
+        case .issues: return "Issues"
+        }
+    }
+}
+
 struct PiAgentRepoChangesPanel: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isPresented: Bool
     @State private var filterText = ""
+    @State private var selectedSection: PiAgentGitHubPanelSection = .changes
 
     private var snapshot: RepositoryChangesSnapshot? { viewModel.githubRepositoryChanges }
 
@@ -17,7 +31,7 @@ struct PiAgentRepoChangesPanel: View {
     }
 
     var body: some View {
-        AppSidebarPane(title: "Repo Changes", subtitle: snapshot.map { "\($0.totalChangeCount) changes" }) {
+        AppSidebarPane(title: "GitHub", subtitle: panelSubtitle) {
             VStack(alignment: .leading, spacing: 0) {
                 header
                     .padding(.horizontal, 16)
@@ -25,12 +39,23 @@ struct PiAgentRepoChangesPanel: View {
 
                 Divider()
 
+                Picker("GitHub section", selection: $selectedSection) {
+                    ForEach(PiAgentGitHubPanelSection.allCases) { section in
+                        Text(section.title).tag(section)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+
                 panelContent
                     .padding(16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .task { viewModel.prepareRepoChangesForSelectedPiAgentSession() }
+        .task { preparePanel() }
+        .onChange(of: selectedSection) { _, _ in preparePanel() }
     }
 
     @ViewBuilder
@@ -40,10 +65,12 @@ struct PiAgentRepoChangesPanel: View {
                 Text(error)
                     .font(.footnote)
                     .foregroundStyle(.red)
-                repositoryState
+                selectedSection == .changes ? AnyView(repositoryState) : AnyView(issuesState)
             }
-        } else {
+        } else if selectedSection == .changes {
             repositoryState
+        } else {
+            issuesState
         }
     }
 
@@ -60,6 +87,25 @@ struct PiAgentRepoChangesPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView("No repository data", systemImage: "arrow.triangle.branch", description: Text("Refresh to inspect changes for this Pi Agent session."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var issuesState: some View {
+        if viewModel.githubIsLoadingProjectBoard {
+            ProgressView("Loading issues…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if !viewModel.githubConnectionState.isConnected {
+            ContentUnavailableView("Connect GitHub", systemImage: "person.crop.circle.badge.questionmark", description: Text("Connect your GitHub CLI session to browse repository issues."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewModel.selectedGitHubProject?.gitHubRemote == nil {
+            ContentUnavailableView("No GitHub repository", systemImage: "tray", description: Text("The selected Pi Agent session is not linked to a GitHub remote."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let board = viewModel.githubProjectBoard {
+            issuesContent(board)
+        } else {
+            ContentUnavailableView("No issues loaded", systemImage: "circle.dashed", description: Text("Refresh to load issues for this repository."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -95,14 +141,14 @@ struct PiAgentRepoChangesPanel: View {
                 }
 
                 Button {
-                    viewModel.prepareRepoChangesForSelectedPiAgentSession()
+                    refreshSelectedSection(force: true)
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.borderless)
-                .help("Refresh changes")
-                .accessibilityLabel("Refresh changes")
+                .help(selectedSection == .changes ? "Refresh changes" : "Refresh issues")
+                .accessibilityLabel(selectedSection == .changes ? "Refresh changes" : "Refresh issues")
 
                 Button {
                     isPresented = false
@@ -111,14 +157,52 @@ struct PiAgentRepoChangesPanel: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.borderless)
-                .help("Close repo changes")
-                .accessibilityLabel("Close repo changes")
+                .help("Close GitHub panel")
+                .accessibilityLabel("Close GitHub panel")
             }
         }
     }
 
     private var repositoryDisplayName: String {
         viewModel.piAgentSessionStore.selectedSession?.projectName ?? viewModel.selectedDiscoveredProject?.name ?? "Pi Agent repository"
+    }
+
+    private var panelSubtitle: String? {
+        switch selectedSection {
+        case .changes:
+            return snapshot.map { "\($0.totalChangeCount) changes" }
+        case .issues:
+            if let board = viewModel.githubProjectBoard {
+                return "\(board.allItems.count) issues"
+            }
+            return "Issues"
+        }
+    }
+
+    private func preparePanel() {
+        viewModel.prepareRepoChangesForSelectedPiAgentSession()
+        if selectedSection == .issues {
+            Task {
+                await viewModel.prepareGitHubScreen()
+                await MainActor.run {
+                    viewModel.refreshProjectBoard(force: false)
+                }
+            }
+        }
+    }
+
+    private func refreshSelectedSection(force: Bool) {
+        switch selectedSection {
+        case .changes:
+            viewModel.prepareRepoChangesForSelectedPiAgentSession()
+        case .issues:
+            Task {
+                await viewModel.prepareGitHubScreen()
+                await MainActor.run {
+                    viewModel.refreshProjectBoard(force: force)
+                }
+            }
+        }
     }
 
     private func cleanRepositoryState(_ snapshot: RepositoryChangesSnapshot) -> some View {
@@ -176,6 +260,74 @@ struct PiAgentRepoChangesPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+    }
+
+    private func issuesContent(_ board: GitHubBoardSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Picker("State", selection: $viewModel.githubIssueStateFilter) {
+                    ForEach(GitHubIssueStateFilter.allCases) { state in
+                        Text(state.rawValue).tag(state)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 160)
+                .onChange(of: viewModel.githubIssueStateFilter) { _, _ in
+                    viewModel.refreshProjectBoard(force: true)
+                }
+
+                Spacer()
+
+                if board.shownCount < board.totalCount {
+                    Text("\(board.shownCount)/\(board.totalCount)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            if board.allItems.isEmpty {
+                ContentUnavailableView("No matching issues", systemImage: "checkmark.circle", description: Text("There are no issues matching the current filter."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(board.allItems) { item in
+                            GitHubIssueListRow(
+                                item: item,
+                                isSelected: viewModel.githubSelectedWorkItem == item,
+                                onSelect: { viewModel.selectWorkItem(item) }
+                            )
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
+
+                if let selected = viewModel.githubSelectedWorkItem {
+                    Divider()
+                    HStack(spacing: 10) {
+                        Text("#\(selected.number)")
+                            .font(.caption.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(AppTheme.mutedText)
+                        Text(selected.title)
+                            .font(.footnote.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            viewModel.openRepoChangesForSelectedPiAgentSession()
+                            viewModel.githubSelectedSection = .projectBoard
+                        } label: {
+                            Label("Open", systemImage: "sidebar.right")
+                        }
+                        .buttonStyle(.borderless)
+                        Link(destination: selected.url) {
+                            Image(systemName: "arrow.up.forward.square")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {

@@ -86,16 +86,6 @@ struct PiAgentSessionRow: View {
 
                 Spacer(minLength: 0)
 
-                Button(action: onTogglePinned) {
-                    Image(systemName: session.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(session.isPinned ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.75))
-                        .frame(width: 24, height: 24)
-                        .background(Circle().fill(session.isPinned ? AppTheme.brandAccent.opacity(0.14) : AppTheme.contentSubtleFill.opacity(0.8)))
-                }
-                .buttonStyle(.plain)
-                .help(session.isPinned ? "Unpin session" : "Pin session")
-
                 if session.needsAttention {
                     Image(systemName: "bell.fill")
                         .font(.system(size: 11, weight: .semibold))

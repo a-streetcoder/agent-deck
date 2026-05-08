@@ -550,50 +550,67 @@ struct PiAgentScreen: View {
                         ContentUnavailableView("No sessions found", systemImage: "magnifyingglass", description: Text("Try another search."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ScrollView(showsIndicators: false) {
-                            LazyVStack(alignment: .leading, spacing: 10) {
-                                ForEach(visibleSessions) { session in
-                                    PiAgentSessionRow(
-                                        session: session,
-                                        project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
-                                        isSelected: selectedSessionIDs.contains(session.id),
-                                        isRunning: session.status.isActive,
-                                        isRenaming: renamingSessionID == session.id,
-                                        isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
-                                        onSelect: {
-                                            renamingSessionID = nil
-                                            withAnimation(.snappy(duration: 0.22)) {
-                                                selectSessionFromList(session)
-                                            }
-                                        },
-                                        onBeginRename: {
-                                            withAnimation(.snappy(duration: 0.22)) {
-                                                selectSessionFromList(session, forceSingle: true)
-                                            }
-                                            renamingSessionID = session.id
-                                        },
-                                        onEndRename: { renamingSessionID = nil },
-                                        onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
-                                        onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) }
-                                    )
-                                    .contextMenu {
-                                        Button {
-                                            viewModel.togglePiAgentSessionPinned(session.id)
-                                        } label: {
-                                            Label(session.isPinned ? "Unpin Session" : "Pin Session", systemImage: session.isPinned ? "pin.slash" : "pin")
+                        List {
+                            ForEach(visibleSessions) { session in
+                                PiAgentSessionRow(
+                                    session: session,
+                                    project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
+                                    isSelected: selectedSessionIDs.contains(session.id),
+                                    isRunning: session.status.isActive,
+                                    isRenaming: renamingSessionID == session.id,
+                                    isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
+                                    onSelect: {
+                                        renamingSessionID = nil
+                                        withAnimation(.snappy(duration: 0.22)) {
+                                            selectSessionFromList(session)
                                         }
-                                        Button(role: .destructive) {
-                                            requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
-                                        } label: {
-                                            Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
+                                    },
+                                    onBeginRename: {
+                                        withAnimation(.snappy(duration: 0.22)) {
+                                            selectSessionFromList(session, forceSingle: true)
                                         }
+                                        renamingSessionID = session.id
+                                    },
+                                    onEndRename: { renamingSessionID = nil },
+                                    onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
+                                    onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) }
+                                )
+                                .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                    Button {
+                                        viewModel.togglePiAgentSessionPinned(session.id)
+                                    } label: {
+                                        Label(session.isPinned ? "Unpin" : "Pin", systemImage: session.isPinned ? "pin.slash" : "pin")
+                                    }
+                                    .tint(AppTheme.brandAccent)
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
+                                    } label: {
+                                        Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected" : "Delete", systemImage: "trash")
+                                    }
+                                }
+                                .contextMenu {
+                                    Button {
+                                        viewModel.togglePiAgentSessionPinned(session.id)
+                                    } label: {
+                                        Label(session.isPinned ? "Unpin Session" : "Pin Session", systemImage: session.isPinned ? "pin.slash" : "pin")
+                                    }
+                                    Button(role: .destructive) {
+                                        requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
+                                    } label: {
+                                        Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
                                     }
                                 }
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 18)
-                            .animation(.snappy(duration: 0.24), value: visibleSessionIDs)
                         }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                        .animation(.snappy(duration: 0.24), value: visibleSessionIDs)
                     }
                 }
             }
