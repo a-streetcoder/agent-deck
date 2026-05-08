@@ -5,11 +5,11 @@ struct ExtensionsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        AppPage("Extensions", subtitle: "Choose which discovered extensions Agent Deck injects into managed sessions") {
+        AppPage("Extensions", subtitle: "Choose which discovered extensions \(AppBrand.displayName) injects into managed sessions") {
             AppCard(title: "Safety") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Agent Deck stores these choices in app preferences. It does not modify Pi settings, extension files, package folders, or CLI/TUI behavior.")
-                    Text("Changes affect new Pi sessions launched from Agent Deck. Existing app sessions need a new session.")
+                    Text("\(AppBrand.displayName) stores these choices in app preferences. It does not modify Pi settings, extension files, package folders, or CLI/TUI behavior.")
+                    Text("Changes affect new Pi sessions launched from \(AppBrand.displayName). Existing app sessions need a new session.")
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -17,7 +17,7 @@ struct ExtensionsScreen: View {
 
             let extensions = viewModel.visibleExtensions
             if extensions.isEmpty {
-                ContentUnavailableView("No Extensions Found", systemImage: "puzzlepiece.extension", description: Text("Agent Deck did not find auto-discovered, settings, or package extensions for the current scope."))
+                ContentUnavailableView("No Extensions Found", systemImage: "puzzlepiece.extension", description: Text("\(AppBrand.displayName) did not find auto-discovered, settings, or package extensions for the current scope."))
             } else {
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     let packageExtensions = extensions.filter { $0.origin == .package }
@@ -129,7 +129,7 @@ struct ExtensionsScreen: View {
                 set: { viewModel.setExtension(record, enabled: $0) }
             ))
             .labelsHidden()
-                        .help(record.enabled ? "Do not inject this extension into Agent Deck sessions" : "Inject this extension into Agent Deck sessions")
+                        .help(record.enabled ? "Do not inject this extension into \(AppBrand.displayName) sessions" : "Inject this extension into \(AppBrand.displayName) sessions")
         }
         .padding(.vertical, 10)
     }
@@ -139,7 +139,7 @@ struct ExtensionsScreen: View {
         if let packageName = record.packageName, !packageName.isEmpty, record.origin == .package {
             parts.append(packageName)
         }
-        parts.append(record.enabled ? "injected by Agent Deck" : "not injected")
+        parts.append(record.enabled ? "injected by \(AppBrand.displayName)" : "not injected")
         return parts.joined(separator: " · ")
     }
 
@@ -174,7 +174,7 @@ struct ModelsScreen: View {
                 }
             } else {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Pi’s model catalog, grouped by provider. Disable models to hide them from Agent Deck model pickers.")
+                    Text("Pi’s model catalog, grouped by provider. Disable models to hide them from \(AppBrand.displayName) model pickers.")
                         .foregroundStyle(AppTheme.mutedText)
                     Spacer()
                     Text("\(viewModel.enabledAvailableModels.count) of \(viewModel.availableModels.count) enabled")
@@ -355,9 +355,9 @@ struct SubagentsScreen: View {
     private var nativeRuntimeCard: some View {
         AppCard(title: "Native Runtime") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("• Agent Deck launches child Pi sessions itself and keeps parent, child, transcript, artifact, and supervisor state in the app.")
+                Text("• \(AppBrand.displayName) launches child Pi sessions itself and keeps parent, child, transcript, artifact, and supervisor state in the app.")
                 Text("• Parent sessions receive app-provided managed tools for single, chain, and parallel delegation.")
-                Text("• Child sessions can contact the supervisor through Agent Deck's native request cards.")
+                Text("• Child sessions can contact the supervisor through \(AppBrand.displayName)'s native request cards.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -412,7 +412,7 @@ struct SubagentsScreen: View {
         AppCard(title: "Safety") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("• Writer-like native runs use isolated worktrees unless direct project writes are explicitly allowed.")
-                Text("• Parent and child transcript state is persisted by Agent Deck.")
+                Text("• Parent and child transcript state is persisted by \(AppBrand.displayName).")
                 Text("• Supervisor questions stay scoped to the owning parent session and window.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

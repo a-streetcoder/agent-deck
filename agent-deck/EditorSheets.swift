@@ -87,7 +87,7 @@ struct AgentEditorSheet: View {
                                 TextField("", text: binding(for: \ .model))
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Model", help: "Default model for this agent. Agent Deck reads these from `pi --list-models`, and saved configs usually use `provider/model`.")
+                                editorFieldLabel("Model", help: "Default model for this agent. \(AppBrand.displayName) reads these from `pi --list-models`, and saved configs usually use `provider/model`.")
                             }
 
                             LabeledContent {
@@ -184,7 +184,7 @@ struct AgentEditorSheet: View {
                                 TextField("Comma-separated tools", text: toolsBinding())
                                     .labelsHidden()
                             } label: {
-                                editorFieldLabel("Tool List", help: "You can edit tool names directly here. Agent Deck stores them as a comma-separated list in frontmatter.")
+                                editorFieldLabel("Tool List", help: "You can edit tool names directly here. \(AppBrand.displayName) stores them as a comma-separated list in frontmatter.")
                             }
 
                             selectedListView(title: "Selected Tools", values: selectedToolValues, remove: removeTool)

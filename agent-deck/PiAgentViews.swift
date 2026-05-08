@@ -386,8 +386,8 @@ struct PiAgentScreen: View {
 
     private var deleteSessionsAlertMessage: String {
         pendingDeleteSessionIDs.count == 1
-            ? "This removes the selected Pi Agent session and its local transcript from Agent Deck."
-            : "This removes the selected Pi Agent sessions and their local transcripts from Agent Deck."
+            ? "This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName)."
+            : "This removes the selected Pi Agent sessions and their local transcripts from \(AppBrand.displayName)."
     }
 
     private var sessionDeleteTargets: Set<UUID> {

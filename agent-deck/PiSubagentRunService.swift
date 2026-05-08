@@ -64,7 +64,7 @@ final class PiSubagentRunService {
             if let bridgeURL = try? PiNativeSubagentBridgeExtensions.childExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
             } else {
-                bridgeWarnings.append("contact_supervisor was requested, but Agent Deck could not write the child bridge extension.")
+                bridgeWarnings.append("contact_supervisor was requested, but \(AppBrand.displayName) could not write the child bridge extension.")
             }
         }
         extraArguments.append(contentsOf: toolArguments(for: agent, includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty))
@@ -72,7 +72,7 @@ final class PiSubagentRunService {
         if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", auditURL.path])
         } else {
-            bridgeWarnings.append("Agent Deck could not write the system prompt audit extension.")
+            bridgeWarnings.append("\(AppBrand.displayName) could not write the system prompt audit extension.")
         }
         if agent.resolved.inheritSkills != true {
             extraArguments.append("--no-skills")
@@ -614,7 +614,7 @@ final class PiSubagentRunService {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let directory = appSupport
-            .appendingPathComponent("Agent Deck", isDirectory: true)
+            .appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
             .appendingPathComponent("Subagent Runs", isDirectory: true)
             .appendingPathComponent(runID.uuidString, isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -714,7 +714,7 @@ final class PiSubagentRunService {
         var entry: [String: Any] = [
             "type": "custom_message",
             "customType": "agent-deck-native-subagent-boundary",
-            "content": "Agent Deck native subagent boundary: all previous forked messages are read-only reference. Do not continue a previous parent tool request or launch another managed_subagent. The next user message is the child subagent's authoritative task.",
+            "content": "\(AppBrand.displayName) native subagent boundary: all previous forked messages are read-only reference. Do not continue a previous parent tool request or launch another managed_subagent. The next user message is the child subagent's authoritative task.",
             "display": false,
             "id": UUID().uuidString.prefix(8).lowercased(),
             "timestamp": ISO8601DateFormatter().string(from: Date())
@@ -798,7 +798,7 @@ final class PiSubagentRunService {
 
     private func nativeBoundaryPrompt(agent: EffectiveAgentRecord) -> String {
         var lines = [
-            "You are Agent Deck native subagent `\(agent.name)` in a separate child Pi session. Complete only the assigned task; the parent/user remain decision authority.",
+            "You are \(AppBrand.displayName) native subagent `\(agent.name)` in a separate child Pi session. Complete only the assigned task; the parent/user remain decision authority.",
             "",
             "Boundaries:",
             "- Do not launch subagents.",
@@ -825,7 +825,7 @@ final class PiSubagentRunService {
 
     private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String], resolvedContext: PiSubagentContextMode) -> String {
         var lines: [String] = []
-        lines.append("Native subagent assignment: you are already running as Agent Deck native subagent `\(agent.name)`. The task below is the only active assignment. Do not call `managed_subagent` or continue a previous parent tool request.")
+        lines.append("Native subagent assignment: you are already running as \(AppBrand.displayName) native subagent `\(agent.name)`. The task below is the only active assignment. Do not call `managed_subagent` or continue a previous parent tool request.")
         if resolvedContext == .fork {
             lines.append("Forked context rule: previous messages are read-only background. Ignore earlier requests to launch, retry, inspect, or summarize a subagent unless repeated in the Task section below.")
         }
@@ -841,14 +841,14 @@ final class PiSubagentRunService {
         case .reportOnly:
             lines.append("Write the final answer normally. Do not create, edit, delete, or overwrite project files.")
         case .editFilesInWorktree:
-            lines.append("Edit project files only in the current isolated worktree. Do not attempt to apply changes back to the parent checkout; Agent Deck will review/apply/discard the worktree diff.")
+            lines.append("Edit project files only in the current isolated worktree. Do not attempt to apply changes back to the parent checkout; \(AppBrand.displayName) will review/apply/discard the worktree diff.")
         case .writeProjectFile:
             if let requestedOutputPath, !requestedOutputPath.isEmpty {
                 lines.append("Write/update exactly this project-relative output file: \(requestedOutputPath).")
             }
             lines.append(allowOverwrite ? "Overwrite policy: overwriting that exact file is allowed if needed." : "Overwrite policy: do not overwrite an existing file; if it exists, report that instead of modifying it.")
             if useWorktreeIsolation {
-                lines.append("Write this file in the isolated worktree only; Agent Deck will review/apply/discard the patch.")
+                lines.append("Write this file in the isolated worktree only; \(AppBrand.displayName) will review/apply/discard the patch.")
             }
         case .directProjectWrites:
             lines.append("Direct project writes were explicitly allowed by the user for this run. Keep edits limited to the task scope and mention every changed path in the final response.")
@@ -949,7 +949,7 @@ final class PiSubagentRunService {
         guard let payload = bridgePayload(from: event),
               let data = payload.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse supervisor request.")
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse supervisor request.")
             return
         }
         let requestKindRaw = json["requestKind"] as? String ?? "progress_update"
@@ -998,7 +998,7 @@ final class PiSubagentRunService {
     private func handleSystemPromptAuditBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, runID: UUID, parentSessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiSystemPromptAuditBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the system prompt audit request.")
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the system prompt audit request.")
             return
         }
 

@@ -23,7 +23,7 @@
 
 /* Begin PBXFileReference section */
 		4E1F0B28C6D84725B47F2D75 /* bundled-agents */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-agents"; path = "agent-deck/bundled-agents"; sourceTree = SOURCE_ROOT; };
-		6572B16B2FA2391500596CE4 /* Agent Deck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "$(APP_PRODUCT_NAME).app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6572B16B2FA2391500596CE4 /* $(APP_PRODUCT_NAME).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "$(APP_PRODUCT_NAME).app"; path = "$(APP_PRODUCT_NAME).app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B7E7C862FA60178000A7C01 /* agent-deckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "agent-deckTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -72,7 +72,7 @@
 		6572B16C2FA2391500596CE4 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6572B16B2FA2391500596CE4 /* Agent Deck.app */,
+				6572B16B2FA2391500596CE4 /* $(APP_PRODUCT_NAME).app */,
 				7B7E7C862FA60178000A7C01 /* agent-deckTests.xctest */,
 			);
 			name = Products;
@@ -101,7 +101,7 @@
 				24B3A7709E2E4A2A89175011 /* TourKit */,
 			);
 			productName = "agent-deck";
-			productReference = 6572B16B2FA2391500596CE4 /* Agent Deck.app */;
+			productReference = 6572B16B2FA2391500596CE4 /* $(APP_PRODUCT_NAME).app */;
 			productType = "com.apple.product-type.application";
 		};
 		7B7E7C8D2FA60178000A7C01 /* agent-deckTests */ = {
@@ -336,6 +336,7 @@
 		6572B1772FA2391600596CE4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_PRODUCT_NAME = "Agent Deck";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "agent-deck/agent-deck.entitlements";
@@ -359,15 +360,14 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.8;
 				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deck";
-				APP_PRODUCT_NAME = "Agent Deck";
 				PRODUCT_MODULE_NAME = agent_deck;
 				PRODUCT_NAME = "$(APP_PRODUCT_NAME)";
-				SWIFT_MODULE_NAME = agent_deck;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_MODULE_NAME = agent_deck;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 			};
@@ -376,6 +376,7 @@
 		6572B1782FA2391600596CE4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_PRODUCT_NAME = "Agent Deck";
 				ASSETCATALOG_COMPILER_APPICON_NAME = "agent-deck-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "agent-deck/agent-deck.entitlements";
@@ -399,15 +400,14 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.8;
 				PRODUCT_BUNDLE_IDENTIFIER = "streetcoding.agent-deck";
-				APP_PRODUCT_NAME = "Agent Deck";
 				PRODUCT_MODULE_NAME = agent_deck;
 				PRODUCT_NAME = "$(APP_PRODUCT_NAME)";
-				SWIFT_MODULE_NAME = agent_deck;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_MODULE_NAME = agent_deck;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 			};
@@ -416,6 +416,7 @@
 		7B7E7C882FA60178000A7C01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_PRODUCT_NAME = "Agent Deck";
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -432,7 +433,6 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_VERSION = 6.0;
-				APP_PRODUCT_NAME = "Agent Deck";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/$(APP_PRODUCT_NAME).app/Contents/MacOS/$(APP_PRODUCT_NAME)";
 			};
 			name = Debug;
@@ -440,6 +440,7 @@
 		7B7E7C892FA60178000A7C01 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_PRODUCT_NAME = "Agent Deck";
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -456,7 +457,6 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_VERSION = 6.0;
-				APP_PRODUCT_NAME = "Agent Deck";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/$(APP_PRODUCT_NAME).app/Contents/MacOS/$(APP_PRODUCT_NAME)";
 			};
 			name = Release;

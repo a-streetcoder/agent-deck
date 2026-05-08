@@ -954,9 +954,9 @@ struct PiAgentStatusTranscriptRow: View {
         guard entry.title == "Subagent Started", let metadata = subagentPromptMetadata else { return [] }
         return [
             PromptAuditAction(
-                title: "Agent Deck Authored System Prompt",
+                title: "\(AppBrand.displayName) Authored System Prompt",
                 icon: "doc.text",
-                help: "Show system prompt Agent Deck passed to the child",
+                help: "Show system prompt \(AppBrand.displayName) passed to the child",
                 isEnabled: true,
                 text: { promptFileText(path: metadata.authoredSystemPromptPath) }
             ),

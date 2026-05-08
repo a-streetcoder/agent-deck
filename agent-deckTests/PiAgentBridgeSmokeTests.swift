@@ -303,7 +303,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         defer { runner.stop(sessionID: session.id) }
 
         XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "bridge-plan-bad", in: harness.stdinLog) != nil })
-        XCTAssertEqual(responseValue(id: "bridge-plan-bad", in: harness.stdinLog), "Agent Deck could not parse the session plan request.")
+        XCTAssertEqual(responseValue(id: "bridge-plan-bad", in: harness.stdinLog), "\(AppBrand.displayName) could not parse the session plan request.")
         XCTAssertNil(store.uiRequestsBySessionID[session.id])
     }
 

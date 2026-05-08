@@ -170,13 +170,13 @@ final class AppViewModel: NSObject, ObservableObject {
             self?.pendingSupervisorRequestsJSON(parentSessionID: sessionID) ?? "[]"
         }
         piAgentRunner.onSupervisorRequestAnswer = { [weak self] sessionID, requestID, response in
-            self?.answerSupervisorRequestFromParentAgent(parentSessionID: sessionID, requestID: requestID, response: response) ?? "Agent Deck could not route the supervisor response."
+            self?.answerSupervisorRequestFromParentAgent(parentSessionID: sessionID, requestID: requestID, response: response) ?? "\(AppBrand.displayName) could not route the supervisor response."
         }
         piAgentRunner.onSessionPlanSet = { [weak self] sessionID, request in
-            self?.setSessionPlanFromParentAgent(sessionID: sessionID, request: request) ?? "Agent Deck could not update the session plan."
+            self?.setSessionPlanFromParentAgent(sessionID: sessionID, request: request) ?? "\(AppBrand.displayName) could not update the session plan."
         }
         piAgentRunner.onSessionPlanUpdate = { [weak self] sessionID, request in
-            self?.updateSessionPlanFromParentAgent(sessionID: sessionID, request: request) ?? "Agent Deck could not update the session plan."
+            self?.updateSessionPlanFromParentAgent(sessionID: sessionID, request: request) ?? "\(AppBrand.displayName) could not update the session plan."
         }
         piAgentRunner.nativeSubagentCatalogProvider = { [weak self] session in
             self?.nativeSubagentCatalogPrompt(for: session)
@@ -207,7 +207,7 @@ final class AppViewModel: NSObject, ObservableObject {
             let fileManager = FileManager.default
             let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-            let runsDirectory = appSupport.appendingPathComponent("Agent Deck", isDirectory: true).appendingPathComponent("Subagent Runs", isDirectory: true)
+            let runsDirectory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true).appendingPathComponent("Subagent Runs", isDirectory: true)
             guard let entries = try? fileManager.contentsOfDirectory(at: runsDirectory, includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey]) else { return }
             for url in entries {
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey])
@@ -303,7 +303,7 @@ final class AppViewModel: NSObject, ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Add Project"
-        panel.message = "Choose a repo or project root to add to Agent Deck."
+        panel.message = "Choose a repo or project root to add to \(AppBrand.displayName)."
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         addProject(url)
@@ -341,7 +341,7 @@ final class AppViewModel: NSObject, ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Skills Folder"
-        panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to import into the Agent Deck library."
+        panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to import into the \(AppBrand.displayName) library."
         panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
         let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -1605,11 +1605,11 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func runManagedNativeSubagent(parentSessionID: UUID, request: PiManagedSubagentBridgeRequest, completion: @escaping (String) -> Void) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
-            completion("Agent Deck could not find the parent session.")
+            completion("\(AppBrand.displayName) could not find the parent session.")
             return
         }
         guard session.subagentsEnabled else {
-            completion("Native subagents are disabled for this Agent Deck session.")
+            completion("Native subagents are disabled for this \(AppBrand.displayName) session.")
             return
         }
         let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
@@ -1641,15 +1641,15 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func runManagedNativeChain(parentSessionID: UUID, request: PiManagedChainBridgeRequest, completion: @escaping (String) -> Void) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
-            completion("Agent Deck could not find the parent session.")
+            completion("\(AppBrand.displayName) could not find the parent session.")
             return
         }
         guard session.subagentsEnabled else {
-            completion("Native subagents are disabled for this Agent Deck session.")
+            completion("Native subagents are disabled for this \(AppBrand.displayName) session.")
             return
         }
         guard let chain = allVisibleChainRecords.first(where: { $0.name == request.chain }) else {
-            completion("Agent Deck could not find a native chain named `\(request.chain)`." )
+            completion("\(AppBrand.displayName) could not find a native chain named `\(request.chain)`." )
             return
         }
         let useWorktreeIsolation = request.worktree == true
@@ -1661,11 +1661,11 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func runManagedNativeParallel(parentSessionID: UUID, request: PiManagedParallelBridgeRequest, completion: @escaping (String) -> Void) {
         guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
-            completion("Agent Deck could not find the parent session.")
+            completion("\(AppBrand.displayName) could not find the parent session.")
             return
         }
         guard session.subagentsEnabled else {
-            completion("Native subagents are disabled for this Agent Deck session.")
+            completion("Native subagents are disabled for this \(AppBrand.displayName) session.")
             return
         }
         let tasks = request.tasks.map { (agentName: $0.agent, task: $0.task) }
@@ -1928,7 +1928,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private func nativeGraphArtifactDirectory(for runID: UUID) -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        let directory = appSupport.appendingPathComponent("Agent Deck", isDirectory: true).appendingPathComponent("Subagent Runs", isDirectory: true).appendingPathComponent(runID.uuidString, isDirectory: true)
+        let directory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true).appendingPathComponent("Subagent Runs", isDirectory: true).appendingPathComponent(runID.uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: directory.appendingPathComponent("chain_dir", isDirectory: true), withIntermediateDirectories: true)
         return directory
@@ -2013,7 +2013,7 @@ final class AppViewModel: NSObject, ObservableObject {
             .joined(separator: "\n")
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native Agent Deck tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent. For multi-step work, keep a short session plan updated on meaningful transitions. Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
+        Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent. For multi-step work, keep a short session plan updated on meaningful transitions. Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
         \(lines.joined(separator: "\n"))\(chainSection)
         """
     }

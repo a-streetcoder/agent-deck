@@ -23,7 +23,7 @@ final class PiAgentSessionStore: ObservableObject {
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        let directory = appSupport.appendingPathComponent("Agent Deck", isDirectory: true)
+        let directory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("agent-sessions.json")
         load()
@@ -454,7 +454,7 @@ final class PiAgentSessionStore: ObservableObject {
                 var session = session
                 if session.status.isActive {
                     session.status = .stopped
-                    session.lastError = session.lastError ?? "Stopped because Agent Deck was restarted."
+                    session.lastError = session.lastError ?? "Stopped because \(AppBrand.displayName) was restarted."
                 }
                 session.isCompacting = false
                 return session
@@ -468,7 +468,7 @@ final class PiAgentSessionStore: ObservableObject {
                     if run.status.isActive {
                         let completedAt = Date()
                         run.status = .disconnected
-                        run.error = run.error ?? "Disconnected because Agent Deck was restarted."
+                        run.error = run.error ?? "Disconnected because \(AppBrand.displayName) was restarted."
                         run.updatedAt = completedAt
                         run.completedAt = run.completedAt ?? completedAt
                         run.durationMs = run.durationMs ?? max(0, Int((completedAt.timeIntervalSince(run.createdAt) * 1000).rounded()))

@@ -48,7 +48,7 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
                 HStack {
-                    Text("Agent Deck")
+                    Text("\(AppBrand.displayName)")
                         .font(AppFonts.kemcoPixelBold(size: 18))
                         .foregroundStyle(.primary)
                 }
@@ -122,13 +122,13 @@ struct ContentView: View {
             Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will enable every project currently in Agent Deck.")
+            Text("This will enable every project currently in \(AppBrand.displayName).")
         }
         .alert("Disable all projects?", isPresented: $showingDisableAllProjectsAlert) {
             Button("Disable All", role: .destructive) { viewModel.setAllProjectsEnabled(false) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will disable every project currently in Agent Deck and clear the active project selection.")
+            Text("This will disable every project currently in \(AppBrand.displayName) and clear the active project selection.")
         }
         .alert("Delete Pi Agent session?", isPresented: $showingPiAgentDeleteAlert) {
             Button("Delete", role: .destructive) {
@@ -138,7 +138,7 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the selected Pi Agent session and its local transcript from Agent Deck.")
+            Text("This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName).")
         }
         .toolbar {
             ToolbarSpacer(.flexible)
@@ -333,7 +333,7 @@ struct ContentView: View {
                         } label: {
                             Label("Run", systemImage: "play.circle")
                         }
-                        .help("Run this chain as a Agent Deck native chain")
+                        .help("Run this chain as a \(AppBrand.displayName) native chain")
 
                         Button {
                             openChainFile(selectedChain.filePath)
@@ -467,7 +467,7 @@ struct ContentView: View {
                     } label: {
                         Label("Import Skills", systemImage: "plus")
                     }
-                    .help("Import skill folders from an external source into the Agent Deck library")
+                    .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
                 }
 
                 ToolbarItemGroup {

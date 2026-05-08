@@ -16,13 +16,13 @@ struct PiAgentOpenTerminalToolbarButton: View {
         } label: {
             Label("Resume in Terminal", systemImage: "terminal")
         }
-        .help("Opens a terminal continuation from this session file. Terminal messages do not sync back into Agent Deck yet.")
+        .help("Opens a terminal continuation from this session file. Terminal messages do not sync back into \(AppBrand.displayName) yet.")
         .disabled(!canOpen)
         .alert("Resume in Terminal?", isPresented: $isParallelContinuationWarningPresented) {
             Button("Resume in Terminal") { viewModel.openSelectedPiAgentSessionInTerminal() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This opens a parallel terminal continuation from the session file. Messages sent in Terminal do not sync back into Agent Deck yet.")
+            Text("This opens a parallel terminal continuation from the session file. Messages sent in Terminal do not sync back into \(AppBrand.displayName) yet.")
         }
     }
 

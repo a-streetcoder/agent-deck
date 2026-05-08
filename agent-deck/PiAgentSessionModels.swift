@@ -553,7 +553,7 @@ struct PiAgentContextEstimateBuilder {
         guard let contextWindow = positive(session.contextWindow) else {
             return PiAgentContextBreakdownEstimate(
                 rows: [],
-                note: "Estimated rows need RPC context totals before Agent Deck can derive a useful breakdown."
+                note: "Estimated rows need RPC context totals before \(AppBrand.displayName) can derive a useful breakdown."
             )
         }
 

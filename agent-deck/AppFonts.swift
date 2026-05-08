@@ -33,6 +33,9 @@ enum AppFonts {
         guard CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) else {
             if let error {
                 let cfError = error.takeRetainedValue()
+                if CFErrorGetCode(cfError) == CTFontManagerError.alreadyRegistered.rawValue {
+                    return
+                }
                 logger.warning("Bundled font \(name).\(ext) could not be registered: \(String(describing: cfError))")
             }
             return

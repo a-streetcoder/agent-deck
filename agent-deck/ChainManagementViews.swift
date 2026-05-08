@@ -40,7 +40,7 @@ struct ChainsScreen: View {
 
                     AppCard(title: "Library & Source") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Reusable chains live in ~/.pi/agent/agent-library/chains. Pi only sees them when Agent Deck links them globally or into a project.")
+                            Text("Reusable chains live in ~/.pi/agent/agent-library/chains. Pi only sees them when \(AppBrand.displayName) links them globally or into a project.")
                                 .foregroundStyle(AppTheme.mutedText)
                                 .fixedSize(horizontal: false, vertical: true)
 
@@ -162,7 +162,7 @@ struct SubagentsInfoPopover: View {
                 infoRow("Chain Library", "Central storage in ~/.pi/agent/agent-library/chains. Pi does not load these until linked.")
                 infoRow("Global", "Agent links are created in the standard global agent locations (~/.agents when present, otherwise ~/.pi/agent/agents). Chain links use ~/.pi/agent/chains.")
                 infoRow("Project", "Links are created in PROJECT/.pi/agents and PROJECT/.pi/chains.")
-                infoRow("Builtins", "Agent Deck bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
+                infoRow("Builtins", "\(AppBrand.displayName) bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
             }
         }
         .padding(16)
@@ -201,7 +201,7 @@ struct SubagentsProjectRecapPanel: View {
             Divider()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the native agents and chains Agent Deck discovers for this project, after global/project precedence and builtin overrides.")
+                    Text("These are the native agents and chains \(AppBrand.displayName) discovers for this project, after global/project precedence and builtin overrides.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)

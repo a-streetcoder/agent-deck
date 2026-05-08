@@ -915,7 +915,7 @@ final class PiAgentRunnerService {
 
         if let bridgeName = agentDeckBridgeName(from: event) {
             guard let requestID = extensionUIRequestID(from: event) else {
-                store.append(.init(sessionID: sessionID, role: .error, title: "Agent Deck Bridge Error", text: "Bridge request \(bridgeName) did not include a request id.", rawJSON: rawLine))
+                store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Bridge request \(bridgeName) did not include a request id.", rawJSON: rawLine))
                 return
             }
 
@@ -940,8 +940,8 @@ final class PiAgentRunnerService {
             case "ask_user":
                 handleNativeAskUserBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             default:
-                clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck does not support bridge request \(bridgeName).")
-                store.append(.init(sessionID: sessionID, role: .error, title: "Agent Deck Bridge Error", text: "Unsupported bridge request \(bridgeName).", rawJSON: rawLine))
+                clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) does not support bridge request \(bridgeName).")
+                store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Unsupported bridge request \(bridgeName).", rawJSON: rawLine))
             }
             return
         }
@@ -978,12 +978,12 @@ final class PiAgentRunnerService {
     private func handleManagedSubagentBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiManagedSubagentBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the managed_subagent request.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the managed_subagent request.")
             return
         }
         store.append(.init(sessionID: sessionID, role: .status, title: "Native Subagent Requested", text: "\(request.agent): \(request.task)", rawJSON: rawLine))
         guard let onManagedSubagentRequest else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck native subagent bridge is not available.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) native subagent bridge is not available.")
             return
         }
         onManagedSubagentRequest(sessionID, request) { [weak self] result in
@@ -996,12 +996,12 @@ final class PiAgentRunnerService {
     private func handleManagedChainBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiManagedChainBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the managed_chain request.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the managed_chain request.")
             return
         }
         store.append(.init(sessionID: sessionID, role: .status, title: "Native Chain Requested", text: "\(request.chain): \(request.task)", rawJSON: rawLine))
         guard let onManagedChainRequest else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck native chain bridge is not available.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) native chain bridge is not available.")
             return
         }
         onManagedChainRequest(sessionID, request) { [weak self] result in
@@ -1014,12 +1014,12 @@ final class PiAgentRunnerService {
     private func handleManagedParallelBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiManagedParallelBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the managed_parallel request.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the managed_parallel request.")
             return
         }
         store.append(.init(sessionID: sessionID, role: .status, title: "Native Parallel Requested", text: "\(request.tasks.count) task(s)", rawJSON: rawLine))
         guard let onManagedParallelRequest else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck native parallel bridge is not available.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) native parallel bridge is not available.")
             return
         }
         onManagedParallelRequest(sessionID, request) { [weak self] result in
@@ -1032,10 +1032,10 @@ final class PiAgentRunnerService {
     private func handleAnswerSupervisorBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiSupervisorAnswerBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the supervisor response request.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the supervisor response request.")
             return
         }
-        let result = onSupervisorRequestAnswer?(sessionID, request.requestID, request.response) ?? "Agent Deck supervisor routing is not available."
+        let result = onSupervisorRequestAnswer?(sessionID, request.requestID, request.response) ?? "\(AppBrand.displayName) supervisor routing is not available."
         store.append(.init(sessionID: sessionID, role: .status, title: "Supervisor Response Routed", text: request.requestID, rawJSON: rawLine))
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
@@ -1043,27 +1043,27 @@ final class PiAgentRunnerService {
     private func handleSetSessionPlanBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiSessionPlanSetBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the session plan request.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the session plan request.")
             return
         }
-        let result = onSessionPlanSet?(sessionID, request) ?? "Agent Deck session plan routing is not available."
+        let result = onSessionPlanSet?(sessionID, request) ?? "\(AppBrand.displayName) session plan routing is not available."
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
     private func handleUpdateSessionPlanBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiSessionPlanUpdateBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the session plan update.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the session plan update.")
             return
         }
-        let result = onSessionPlanUpdate?(sessionID, request) ?? "Agent Deck session plan routing is not available."
+        let result = onSessionPlanUpdate?(sessionID, request) ?? "\(AppBrand.displayName) session plan routing is not available."
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
     private func handleSystemPromptAuditBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiSystemPromptAuditBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Agent Deck could not parse the system prompt audit request.")
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the system prompt audit request.")
             return
         }
         let now = Date()
@@ -1078,7 +1078,7 @@ final class PiAgentRunnerService {
     private func handleNativeAskUserBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let request = try? JSONDecoder().decode(PiNativeAskBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: #"{"cancelled":true,"error":"Agent Deck could not parse the ask_user request."}"#)
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: #"{"cancelled":true,"error":"\#(AppBrand.displayName) could not parse the ask_user request."}"#)
             return
         }
 

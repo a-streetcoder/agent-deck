@@ -750,7 +750,7 @@ struct PiNativeSubagentRunSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Run Subagent")
                         .font(.title3.bold())
-                    Text("Launches a separate Pi RPC child session managed by Agent Deck. This does not insert or send a raw /run command.")
+                    Text("Launches a separate Pi RPC child session managed by \(AppBrand.displayName). This does not insert or send a raw /run command.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -838,7 +838,7 @@ struct PiNativeSubagentRunSheet: View {
                             .padding(.horizontal, 6)
                     }
                 }
-                Text("Use this for files the caller knows are relevant now. Type @ to search project files, use the paperclip, or drag files here. Defaults from the agent are treated as hints only; Agent Deck does not inject stale file contents.")
+                Text("Use this for files the caller knows are relevant now. Type @ to search project files, use the paperclip, or drag files here. Defaults from the agent are treated as hints only; \(AppBrand.displayName) does not inject stale file contents.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -859,7 +859,7 @@ struct PiNativeSubagentRunSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Native run", systemImage: "checkmark.seal")
                     .font(.subheadline.weight(.semibold))
-                Text("Agent Deck starts and tracks the child session directly, records artifacts under Application Support, and posts a status/result entry back to the parent transcript.")
+                Text("\(AppBrand.displayName) starts and tracks the child session directly, records artifacts under Application Support, and posts a status/result entry back to the parent transcript.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Picker("Expected outcome", selection: $expectedOutcome) {

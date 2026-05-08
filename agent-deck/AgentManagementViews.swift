@@ -156,7 +156,7 @@ private struct AgentLibraryPane: View {
 
                 AppCard(title: "Builtin Agents") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Builtins are bundled with Agent Deck and customized through settings overrides or replacement files.")
+                        Text("Builtins are bundled with \(AppBrand.displayName) and customized through settings overrides or replacement files.")
                             .foregroundStyle(AppTheme.mutedText)
                         agentGrid(builtinAgents, emptyText: "No builtin agents discovered.")
                     }
@@ -1489,7 +1489,7 @@ private struct AgentDetailView: View {
         case "Selected":
             return "Current explicit values for this field. Remove any item with the x button."
         case "Add Extension":
-            return "Choose from installed Pi package references already visible to Agent Deck."
+            return "Choose from installed Pi package references already visible to \(AppBrand.displayName)."
         case "Add Skill":
             return "Choose from skills visible in this agent’s current scope."
         case "Skill Catalog":

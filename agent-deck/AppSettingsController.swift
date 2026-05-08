@@ -124,7 +124,7 @@ final class AppSettingsController {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Folder"
-        panel.message = "Choose the folder Agent Deck should scan for projects and use for projectless Pi Agent sessions."
+        panel.message = "Choose the folder \(AppBrand.displayName) should scan for projects and use for projectless Pi Agent sessions."
         panel.directoryURL = configuredProjectsRootURL
 
         guard panel.runModal() == .OK, let url = panel.url else { return false }
@@ -155,7 +155,7 @@ final class AppSettingsController {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Folder"
-        panel.message = "Choose the default folder Agent Deck should open when importing skills."
+        panel.message = "Choose the default folder \(AppBrand.displayName) should open when importing skills."
         panel.directoryURL = url
 
         guard panel.runModal() == .OK, let url = panel.url else { return false }
@@ -192,7 +192,7 @@ final class AppSettingsController {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.application]
         panel.prompt = "Choose App"
-        panel.message = "Choose the terminal app Agent Deck should use when resuming a Pi session in the CLI."
+        panel.message = "Choose the terminal app \(AppBrand.displayName) should use when resuming a Pi session in the CLI."
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
 
         guard panel.runModal() == .OK, let url = panel.url else { return false }

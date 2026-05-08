@@ -231,7 +231,7 @@ private struct GeneralSettingsTab: View {
                     title: "Skill import folder:",
                     placeholder: "Default import folder",
                     text: defaultSkillsImportRootPathBinding,
-                    note: "Agent Deck falls back to the last used folder, then Documents."
+                    note: "\(AppBrand.displayName) falls back to the last used folder, then Documents."
                 )
 
                 SettingsButtonRow {

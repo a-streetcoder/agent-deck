@@ -6,7 +6,7 @@ private enum WelcomeTourContent {
         [
             TourPage(
                 imageName: "pi",
-                title: "Welcome to Agent Deck",
+                title: "Welcome to \(AppBrand.displayName)",
                 description: "A native macOS workspace for Pi Agent sessions, projects, agents, prompts, skills, models, and GitHub work."
             ),
             TourPage(
@@ -99,7 +99,7 @@ struct SetupChecklistView: View {
                     Text("Setup Check")
                         .font(.title2.bold())
                         .fontWidth(.expanded)
-                    Text("Agent Deck works best after these checks pass.")
+                    Text("\(AppBrand.displayName) works best after these checks pass.")
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
@@ -181,7 +181,7 @@ struct SetupChecklistView: View {
                 Text("Checking setup")
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
-                Text("Agent Deck is checking Pi, models, project settings, and integrations.")
+                Text("\(AppBrand.displayName) is checking Pi, models, project settings, and integrations.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
@@ -307,7 +307,7 @@ struct SetupDependencyService {
                 id: "pi-cli",
                 title: "Pi CLI",
                 detail: result.exitCode == 0
-                    ? "Pi is installed and available to Agent Deck."
+                    ? "Pi is installed and available to \(AppBrand.displayName)."
                     : "`pi --help` exited with code \(result.exitCode).",
                 status: result.exitCode == 0 ? .passed : .failed,
                 recovery: result.exitCode == 0 ? nil : "Install Pi, then verify `pi --help` works in Terminal."
@@ -329,7 +329,7 @@ struct SetupDependencyService {
             return SetupCheckItem(
                 id: "pi-models",
                 title: "Pi Models",
-                detail: "\(models.count) models are available to Agent Deck.",
+                detail: "\(models.count) models are available to \(AppBrand.displayName).",
                 status: .passed,
                 recovery: nil
             )
@@ -370,7 +370,7 @@ struct SetupDependencyService {
         return SetupCheckItem(
             id: "project-root",
             title: "Projects Folder",
-            detail: isDirectory ? path : "Choose a folder Agent Deck can scan for projects.",
+            detail: isDirectory ? path : "Choose a folder \(AppBrand.displayName) can scan for projects.",
             status: isDirectory ? .passed : .failed,
             recovery: isDirectory ? nil : "Open Settings > Projects and choose an existing projects folder."
         )

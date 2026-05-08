@@ -21,7 +21,7 @@ struct PiNativeSubagentBridgeExtensions {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let directory = appSupport
-            .appendingPathComponent("Agent Deck", isDirectory: true)
+            .appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
             .appendingPathComponent("Native Subagent Extensions", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(fileName)
@@ -72,7 +72,7 @@ struct PiNativeSubagentBridgeExtensions {
                         cancelled: false
                     };
                 }
-                return { response: null, cancelled: true, error: "Agent Deck returned an invalid ask_user response." };
+                return { response: null, cancelled: true, error: "\(AppBrand.displayName) returned an invalid ask_user response." };
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 return { response: null, cancelled: true, error: message };
@@ -89,13 +89,13 @@ struct PiNativeSubagentBridgeExtensions {
             pi.registerTool({
                 name: "ask_user",
                 label: "Ask User",
-                description: "Ask the user one focused question with optional multiple-choice answers. Agent Deck renders this as a native macOS decision card.",
+                description: "Ask the user one focused question with optional multiple-choice answers. \(AppBrand.displayName) renders this as a native macOS decision card.",
                 promptSnippet: "Ask the user one focused question with optional multiple-choice answers to gather information interactively",
                 promptGuidelines: [
                     "Before calling ask_user, gather context with tools and pass a short summary via the context field.",
                     "Use ask_user when the user's intent is ambiguous, when a decision requires explicit user input, or when multiple valid options exist.",
                     "Ask exactly one focused question per ask_user call.",
-                    "Agent Deck always shows an inline optional comment field for choice questions."
+                    "\(AppBrand.displayName) always shows an inline optional comment field for choice questions."
                 ],
                 parameters: Type.Object({
                     question: Type.String({ description: "The question to ask the user." }),
@@ -109,8 +109,8 @@ struct PiNativeSubagentBridgeExtensions {
                     ]), { description: "List of options for the user to choose from." })),
                     allowMultiple: Type.Optional(Type.Boolean({ description: "Allow selecting multiple options. Default: false." })),
                     allowFreeform: Type.Optional(Type.Boolean({ description: "Allow a custom freeform answer for choice prompts. Default: true." })),
-                    allowComment: Type.Optional(Type.Boolean({ description: "Compatibility field. Agent Deck always shows an inline optional comment field for choice prompts." })),
-                    timeout: Type.Optional(Type.Number({ description: "Reserved for compatibility. Agent Deck native prompts do not auto-dismiss yet." }))
+                    allowComment: Type.Optional(Type.Boolean({ description: "Compatibility field. \(AppBrand.displayName) always shows an inline optional comment field for choice prompts." })),
+                    timeout: Type.Optional(Type.Number({ description: "Reserved for compatibility. \(AppBrand.displayName) native prompts do not auto-dismiss yet." }))
                 }, { additionalProperties: false }),
                 async execute(toolCallId, params, signal, onUpdate, ctx) {
                     const question = String((params as any).question ?? "").trim();
@@ -214,9 +214,9 @@ struct PiNativeSubagentBridgeExtensions {
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "managed_subagent",
-                description: "Delegate a bounded task to a Agent Deck native subagent. Use this when a specialized subagent can work separately and return a compact result.",
+                description: "Delegate a bounded task to a \(AppBrand.displayName) native subagent. Use this when a specialized subagent can work separately and return a compact result.",
                 parameters: ManagedSubagentParams,
-                promptSnippet: "managed_subagent(agent, task, context?): delegate to a Agent Deck native subagent and get a compact result.",
+                promptSnippet: "managed_subagent(agent, task, context?): delegate to a \(AppBrand.displayName) native subagent and get a compact result.",
                 promptGuidelines: [
                     "Use managed_subagent for separable specialist work; keep tasks narrow and include expected output.",
                     "Do not call managed_subagent just to continue normal conversation."
@@ -239,9 +239,9 @@ struct PiNativeSubagentBridgeExtensions {
 
             pi.registerTool({
                 name: "managed_chain",
-                description: "Run a Agent Deck native chain as a supervised sequential workflow.",
+                description: "Run a \(AppBrand.displayName) native chain as a supervised sequential workflow.",
                 parameters: ManagedChainParams,
-                promptSnippet: "managed_chain(chain, task, worktree?): run a native Agent Deck chain and get an aggregate result.",
+                promptSnippet: "managed_chain(chain, task, worktree?): run a native \(AppBrand.displayName) chain and get an aggregate result.",
                 promptGuidelines: ["Use managed_chain for multi-step workflows where each step depends on previous output."],
                 async execute(toolCallId, params, _signal, onUpdate, ctx) {
                     const payload = JSON.stringify({
@@ -260,7 +260,7 @@ struct PiNativeSubagentBridgeExtensions {
 
             pi.registerTool({
                 name: "managed_parallel",
-                description: "Run multiple Agent Deck native subagents concurrently and return an aggregate result.",
+                description: "Run multiple \(AppBrand.displayName) native subagents concurrently and return an aggregate result.",
                 parameters: ManagedParallelParams,
                 promptSnippet: "managed_parallel(tasks, concurrency?, worktree?): run bounded native subagent tasks concurrently.",
                 promptGuidelines: ["Use managed_parallel for independent advisory/research tasks. Use worktree isolation for writer tasks."],
@@ -282,7 +282,7 @@ struct PiNativeSubagentBridgeExtensions {
 
             pi.registerTool({
                 name: "list_supervisor_requests",
-                description: "List pending Agent Deck native child supervisor requests for this parent session.",
+                description: "List pending \(AppBrand.displayName) native child supervisor requests for this parent session.",
                 parameters: Type.Object({}, { additionalProperties: false }),
                 promptSnippet: "list_supervisor_requests(): list pending native child questions awaiting a supervisor response.",
                 promptGuidelines: ["Use list_supervisor_requests before answer_supervisor_request when a child needs a decision."],
@@ -294,9 +294,9 @@ struct PiNativeSubagentBridgeExtensions {
 
             pi.registerTool({
                 name: "set_session_plan",
-                description: "Set or replace the short Agent Deck current plan for this parent session.",
+                description: "Set or replace the short \(AppBrand.displayName) current plan for this parent session.",
                 parameters: SetSessionPlanParams,
-                promptSnippet: "set_session_plan(items): show a short current-plan checklist in Agent Deck.",
+                promptSnippet: "set_session_plan(items): show a short current-plan checklist in \(AppBrand.displayName).",
                 promptGuidelines: [
                     "Use set_session_plan for multi-step implementation/debugging work, not trivial one-shot answers.",
                     "Keep plans short: 3-8 items when possible; use stable ids and update only on meaningful transitions."
@@ -319,9 +319,9 @@ struct PiNativeSubagentBridgeExtensions {
 
             pi.registerTool({
                 name: "update_session_plan",
-                description: "Update statuses/titles for existing Agent Deck current-plan items.",
+                description: "Update statuses/titles for existing \(AppBrand.displayName) current-plan items.",
                 parameters: UpdateSessionPlanParams,
-                promptSnippet: "update_session_plan(updates): update current-plan checklist statuses in Agent Deck.",
+                promptSnippet: "update_session_plan(updates): update current-plan checklist statuses in \(AppBrand.displayName).",
                 promptGuidelines: ["Update only when a step starts, completes, blocks, skips, or materially changes."],
                 async execute(toolCallId, params, _signal, _onUpdate, ctx) {
                     const rawUpdates = Array.isArray((params as any).updates) ? (params as any).updates : [];
@@ -341,7 +341,7 @@ struct PiNativeSubagentBridgeExtensions {
 
             pi.registerTool({
                 name: "answer_supervisor_request",
-                description: "Answer a pending Agent Deck native child supervisor request.",
+                description: "Answer a pending \(AppBrand.displayName) native child supervisor request.",
                 parameters: AnswerSupervisorParams,
                 promptSnippet: "answer_supervisor_request(requestID, response): answer a blocked native child subagent.",
                 promptGuidelines: ["Use answer_supervisor_request only for pending request ids returned by list_supervisor_requests."],
@@ -394,9 +394,9 @@ struct PiNativeSubagentBridgeExtensions {
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "contact_supervisor",
-                description: "Contact the Agent Deck supervisor for progress updates or blocking decisions.",
+                description: "Contact the \(AppBrand.displayName) supervisor for progress updates or blocking decisions.",
                 parameters: ContactSupervisorParams,
-                promptSnippet: "contact_supervisor(kind, message, title?): update or ask the Agent Deck supervisor.",
+                promptSnippet: "contact_supervisor(kind, message, title?): update or ask the \(AppBrand.displayName) supervisor.",
                 promptGuidelines: [
                     "Use progress_update sparingly for meaningful progress.",
                     "Use need_decision only when blocked on a user/product/scope decision.",

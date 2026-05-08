@@ -177,7 +177,7 @@ struct PiAgentSkillUsePill: View {
                 }
                 Divider()
                 ScrollView {
-                    Text(skill?.body.isEmpty == false ? skill!.body : (skill?.filePath ?? "Skill details are not available in Agent Deck's current scan snapshot."))
+                    Text(skill?.body.isEmpty == false ? skill!.body : (skill?.filePath ?? "Skill details are not available in \(AppBrand.displayName)'s current scan snapshot."))
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)

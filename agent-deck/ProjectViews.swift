@@ -335,7 +335,7 @@ struct ProjectsScreen: View {
                         .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.plain)
-                .help("Remove from Agent Deck")
+                .help("Remove from \(AppBrand.displayName)")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

@@ -7,7 +7,7 @@ struct CreditsScreen: View {
             AppCard(title: "App") {
                 VStack(alignment: .leading, spacing: 10) {
                     creditRow(
-                        title: "Agent Deck icon",
+                        title: "\(AppBrand.displayName) icon",
                         detail: "Custom macOS 26 Liquid Glass app icon created with Icon Composer.",
                         url: nil
                     )

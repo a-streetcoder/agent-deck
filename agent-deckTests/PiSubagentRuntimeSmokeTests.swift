@@ -164,7 +164,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(run.launchCommand?.contains("--fork") == true)
         XCTAssertFalse(run.launchCommand?.contains(parentSessionFile.path) == true)
         XCTAssertTrue(forkContext.contains("Earlier useful context"))
-        XCTAssertTrue(forkContext.contains("Agent Deck native subagent boundary"))
+        XCTAssertTrue(forkContext.contains("\(AppBrand.displayName) native subagent boundary"))
         XCTAssertFalse(forkContext.contains("Use managed_subagent with agent scout"))
         XCTAssertFalse(forkContext.contains("\"name\":\"managed_subagent\""))
     }
@@ -312,7 +312,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         let worktree = try promptSentForOutcome(.editFilesInWorktree)
         XCTAssertTrue(worktree.contains("Expected outcome: Edit files in worktree"))
         XCTAssertTrue(worktree.contains("Edit project files only in the current isolated worktree."))
-        XCTAssertTrue(worktree.contains("Agent Deck will review/apply/discard the worktree diff."))
+        XCTAssertTrue(worktree.contains("\(AppBrand.displayName) will review/apply/discard the worktree diff."))
 
         let projectFile = try promptSentForOutcome(.writeProjectFile, requestedOutputPath: "docs/result.md")
         XCTAssertTrue(projectFile.contains("Expected outcome: Write/update project file"))

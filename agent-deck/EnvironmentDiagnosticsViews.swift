@@ -253,7 +253,7 @@ struct PiDocsScreen: View {
 
             AppCard(title: "Agent Resolution") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("1. Bundled agents are discovered from Agent Deck's app resources.")
+                    Text("1. Bundled agents are discovered from \(AppBrand.displayName)'s app resources.")
                     Text("2. Global custom agents in `~/.pi/agent/agents/` or `~/.agents/` override builtins by name.")
                     Text("3. Project agents in `.pi/agents/` override both global and builtin.")
                     Text("4. Settings overrides (`subagents.agentOverrides`) patch any agent's fields without creating a file.")
@@ -429,7 +429,7 @@ struct PiDocsScreen: View {
             AppCard(title: "Entry Points") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Four entry points can trigger a subagent:")
-                    Text("• **Managed tools** — parent sessions call Agent Deck bridge tools for single, chain, and parallel delegation")
+                    Text("• **Managed tools** — parent sessions call \(AppBrand.displayName) bridge tools for single, chain, and parallel delegation")
                     Text("• **Manual run picker** — users start native child sessions from the composer or inspector")
                     Text("• **Chains** — app-managed sequential workflows where each step receives previous output")
                     Text("• **Parallel runs** — app-managed concurrent child sessions with optional worktree isolation")
@@ -530,7 +530,7 @@ struct DiagnosticsScreen: View {
     }
 
     var body: some View {
-        AppPage("Doctor", subtitle: "Check what Agent Deck is missing and fix the essentials faster") {
+        AppPage("Doctor", subtitle: "Check what \(AppBrand.displayName) is missing and fix the essentials faster") {
             setupChecksSection
             packageSection
             settingsSection
@@ -566,7 +566,7 @@ struct DiagnosticsScreen: View {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Checking Agent Deck setup...")
+                        Text("Checking \(AppBrand.displayName) setup...")
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     .padding(.vertical, 8)

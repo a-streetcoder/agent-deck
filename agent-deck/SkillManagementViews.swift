@@ -232,7 +232,7 @@ struct SkillsScreen: View {
             if !packageSkills.isEmpty {
                 AppCard(title: "Package Skills") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Package skills are active by default when their package is discovered. They are package-managed, so Agent Deck does not assign or unlink them per project.")
+                        Text("Package skills are active by default when their package is discovered. They are package-managed, so \(AppBrand.displayName) does not assign or unlink them per project.")
                             .foregroundStyle(AppTheme.mutedText)
                         skillGrid(packageSkills, emptyText: "No package skills.")
                     }
@@ -547,7 +547,7 @@ struct SkillsScreen: View {
                 AppCard(title: "Skills") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .center, spacing: 12) {
-                            Text("Select one or more skill roots to import into the Agent Deck library.")
+                            Text("Select one or more skill roots to import into the \(AppBrand.displayName) library.")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                             Spacer()
@@ -725,9 +725,9 @@ struct SkillsScreen: View {
         let target = project.map { "project \($0.name)" } ?? "global skills"
         let conflictPath = project.map { "\($0.path)/.pi/skills/\(skill.name)" } ?? "~/.pi/agent/skills/\(skill.name)"
         skillActionErrorMessage = """
-        Agent Deck could not \(action) for "\(skill.name)" in \(target).
+        \(AppBrand.displayName) could not \(action) for "\(skill.name)" in \(target).
 
-        If a skill with this name already exists at \(conflictPath), Agent Deck will not overwrite it automatically. Remove or rename the existing skill, then try again.
+        If a skill with this name already exists at \(conflictPath), \(AppBrand.displayName) will not overwrite it automatically. Remove or rename the existing skill, then try again.
 
         \(error.localizedDescription)
         """
