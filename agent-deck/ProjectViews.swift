@@ -196,10 +196,10 @@ struct ProjectsScreen: View {
                 }
                 .padding(AppTheme.pagePadding)
             }
-            .frame(minWidth: 360, idealWidth: 460, maxWidth: 560)
+            .frame(minWidth: 460, idealWidth: 540, maxWidth: 700)
 
             PiSystemInstructionsProjectDetail(project: selectedInstructionProject)
-                .frame(minWidth: 520)
+                .frame(minWidth: 420)
         }
         .task(id: searchText) {
             let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -545,7 +545,7 @@ private struct PiSystemInstructionsProjectDetail: View {
                         ),
                         isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
                         save: { save(file) },
-                        delete: { delete(file) }
+                        revealInFinder: { revealInFinder(file) }
                     )
                 }
             }
@@ -583,17 +583,12 @@ private struct PiSystemInstructionsProjectDetail: View {
         }
     }
 
-    private func delete(_ file: PiInstructionFile) {
-        do {
-            if FileManager.default.fileExists(atPath: file.url.path) {
-                try FileManager.default.removeItem(at: file.url)
-            }
-            existingPaths.remove(file.id)
-            drafts[file.id] = ""
-            originals[file.id] = ""
-            statusMessage = "Removed \(file.displayPath)."
-        } catch {
-            statusMessage = "Could not remove \(file.displayPath): \(error.localizedDescription)"
+    private func revealInFinder(_ file: PiInstructionFile) {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: file.url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([file.url])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([file.url.deletingLastPathComponent()])
         }
     }
 
@@ -607,7 +602,7 @@ private struct PiInstructionFileEditor: View {
     @Binding var text: String
     let isDirty: Bool
     let save: () -> Void
-    let delete: () -> Void
+    let revealInFinder: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -629,14 +624,17 @@ private struct PiInstructionFileEditor: View {
                 Spacer()
 
                 Button("Save") { save() }
-                    .disabled(!isDirty && file.exists)
+                    .controlSize(.small)
+                    .opacity(isDirty ? 1 : 0)
+                    .disabled(!isDirty)
+                    .accessibilityHidden(!isDirty)
 
-                Button(role: .destructive) { delete() } label: {
-                    Image(systemName: "trash")
+                Button { revealInFinder() } label: {
+                    Image(systemName: "folder")
                 }
                 .buttonStyle(.plain)
-                .disabled(!file.exists)
-                .help("Remove this file")
+                .controlSize(.small)
+                .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
             }
 
             Text(file.note)
@@ -843,10 +841,10 @@ private struct PiInstructionFile: Identifiable, Hashable {
             if fileManager.fileExists(atPath: url.path) { paths.insert(url.path) }
         }
 
+        var seenContextFileIdentifiers = Set<String>()
         for directory in [globalDir] + contextDirectories(for: projectURL) {
             for filename in contextCandidateNames {
-                let url = directory.appendingPathComponent(filename)
-                if fileManager.fileExists(atPath: url.path) { paths.insert(url.path) }
+                addExistingContextPath(directory.appendingPathComponent(filename), to: &paths, seenFileIdentifiers: &seenContextFileIdentifiers)
             }
         }
 
@@ -953,6 +951,15 @@ private struct PiInstructionFile: Identifiable, Hashable {
     }
 
     private static let contextCandidateNames = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
+
+    private static func addExistingContextPath(_ url: URL, to paths: inout Set<String>, seenFileIdentifiers: inout Set<String>) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        if let identifier = (try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier {
+            let key = String(describing: identifier)
+            guard seenFileIdentifiers.insert(key).inserted else { return }
+        }
+        paths.insert(url.path)
+    }
 
     private static func activeContextFile(in directory: URL, existingPaths: Set<String>) -> URL? {
         for filename in contextCandidateNames {

@@ -797,19 +797,19 @@ struct PiAgentScreen: View {
                         .id("pi-agent-bottom-anchor")
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .background {
-                PiAgentScrollPositionObserver(
-                    onPinnedToBottomChange: { isPinnedToBottom in
-                        transcriptIsPinnedToBottom = isPinnedToBottom
-                    },
-                    onUserScrollIntent: {
-                        transcriptAutoScrollSuppressed = true
-                    },
-                    onUserScrolledAwayFromBottom: {
-                        transcriptAutoScrollSuppressed = true
-                    }
-                )
+                .background {
+                    PiAgentScrollPositionObserver(
+                        onPinnedToBottomChange: { isPinnedToBottom in
+                            transcriptIsPinnedToBottom = isPinnedToBottom
+                        },
+                        onUserScrollIntent: {
+                            transcriptAutoScrollSuppressed = true
+                        },
+                        onUserScrolledAwayFromBottom: {
+                            transcriptAutoScrollSuppressed = true
+                        }
+                    )
+                }
             }
             .onChange(of: transcriptCache.renderRevision) { _, _ in
                 guard transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
@@ -1029,6 +1029,7 @@ struct PiAgentScreen: View {
                 get: { hasComposerSuggestions },
                 set: { _ in }
             ),
+            attachmentAnchor: .point(UnitPoint(x: 0.04, y: 0.12)),
             arrowEdge: .bottom
         ) {
             PiAgentCommandSuggestions(
@@ -1435,9 +1436,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
-            context.coordinator.attach(to: view.enclosingScrollView)
-        }
+        context.coordinator.scheduleAttach(from: view)
         return view
     }
 
@@ -1445,10 +1444,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
         context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
         context.coordinator.onUserScrollIntent = onUserScrollIntent
         context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
-        DispatchQueue.main.async {
-            context.coordinator.attach(to: view.enclosingScrollView)
-            context.coordinator.reportPinnedState()
-        }
+        context.coordinator.scheduleAttach(from: view)
     }
 
     @MainActor
@@ -1478,17 +1474,29 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
             }
         }
 
-        func attach(to newScrollView: NSScrollView?) {
+        func scheduleAttach(from hostView: NSView, attempt: Int = 0) {
+            let delay = attempt == 0 ? 0 : 0.05
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak hostView] in
+                guard let self, let hostView else { return }
+                let newScrollView = hostView.enclosingScrollView
+                self.attach(to: newScrollView)
+                self.reportPinnedState()
+                if newScrollView == nil && attempt < 20 {
+                    self.scheduleAttach(from: hostView, attempt: attempt + 1)
+                }
+            }
+        }
+
+        private func attach(to newScrollView: NSScrollView?) {
             guard scrollView !== newScrollView else { return }
             if let scrollView {
                 NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
             }
             scrollView = newScrollView
+            guard let newScrollView else { return }
             installScrollWheelMonitorIfNeeded()
-            newScrollView?.contentView.postsBoundsChangedNotifications = true
-            if let contentView = newScrollView?.contentView {
-                NotificationCenter.default.addObserver(self, selector: #selector(boundsDidChange), name: NSView.boundsDidChangeNotification, object: contentView)
-            }
+            newScrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(boundsDidChange), name: NSView.boundsDidChangeNotification, object: newScrollView.contentView)
             reportPinnedState()
         }
 

@@ -34,7 +34,7 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
     private var didTerminate = false
     private var didCleanupIO = false
 
-    init(configuration: Configuration, onStdoutLine: @escaping @Sendable (String) -> Void, onStderrLine: @escaping @Sendable (String) -> Void, onTermination: @escaping @Sendable (Int32) -> Void) throws {
+    init(configuration: Configuration, onStdoutLines: @escaping @Sendable ([String]) -> Void, onStderrLines: @escaping @Sendable ([String]) -> Void, onTermination: @escaping @Sendable (Int32) -> Void) throws {
         let executable = try Self.resolvePiExecutable()
         let process = Process()
         process.executableURL = executable
@@ -49,8 +49,8 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         self.stdin = stdinPipe.fileHandleForWriting
-        self.stdoutReader = LineStreamReader(handle: stdoutPipe.fileHandleForReading, callback: onStdoutLine)
-        self.stderrReader = LineStreamReader(handle: stderrPipe.fileHandleForReading, callback: onStderrLine)
+        self.stdoutReader = LineStreamReader(handle: stdoutPipe.fileHandleForReading, callback: onStdoutLines)
+        self.stderrReader = LineStreamReader(handle: stderrPipe.fileHandleForReading, callback: onStderrLines)
         self.process = process
         self.launchCommand = ([executable.path] + configuration.arguments).map(Self.shellEscape).joined(separator: " ")
 
@@ -208,12 +208,12 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
 
 private nonisolated final class LineStreamReader: @unchecked Sendable {
     private let handle: FileHandle
-    private let callback: @Sendable (String) -> Void
+    private let callback: @Sendable ([String]) -> Void
     private let lock = NSLock()
     private var buffer = Data()
     private var isStopped = false
 
-    init(handle: FileHandle, callback: @escaping @Sendable (String) -> Void) {
+    init(handle: FileHandle, callback: @escaping @Sendable ([String]) -> Void) {
         self.handle = handle
         self.callback = callback
     }
@@ -271,8 +271,8 @@ private nonisolated final class LineStreamReader: @unchecked Sendable {
         }
         lock.unlock()
 
-        for line in lines {
-            callback(line)
+        if !lines.isEmpty {
+            callback(lines)
         }
     }
 
@@ -282,7 +282,7 @@ private nonisolated final class LineStreamReader: @unchecked Sendable {
         buffer.removeAll()
         lock.unlock()
         if let line {
-            callback(line)
+            callback([line])
         }
     }
 

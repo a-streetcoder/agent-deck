@@ -25,7 +25,9 @@ final class PiAgentSessionStore: ObservableObject {
     private let defaultSaveDebounceNanoseconds: UInt64 = 450_000_000
     private let structuralSaveDebounceNanoseconds: UInt64 = 50_000_000
     private let fileURL: URL
+    private let saveQueue = DispatchQueue(label: "agent-deck.pi-agent-session-store.save", qos: .utility)
     private var pendingSaveTask: Task<Void, Never>?
+    private var saveSequence = 0
     private var pendingTranscriptRevisionSessionIDs: Set<UUID> = []
     private var pendingTranscriptRevisionTask: Task<Void, Never>?
 
@@ -660,32 +662,61 @@ final class PiAgentSessionStore: ObservableObject {
             try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                self?.saveNow()
+                self?.saveNowAsync()
+            }
+        }
+    }
+
+    private func makePersistedStateSnapshot() -> (sequence: Int, state: PersistedState) {
+        saveSequence &+= 1
+        let persisted = PersistedState(
+            sessions: sessions,
+            transcripts: transcriptsBySessionID.map { PersistedTranscript(sessionID: $0.key, entries: $0.value) },
+            selectedSessionID: selectedSessionID,
+            subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
+            subagentTranscripts: subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
+            supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
+            sessionPlans: Array(sessionPlansBySessionID.values),
+            sessionPlanEvents: Array(sessionPlanEventsBySessionID.values.joined())
+        )
+        return (saveSequence, persisted)
+    }
+
+    private func saveNowAsync() {
+        let fileURL = fileURL
+        let (sequence, persisted) = makePersistedStateSnapshot()
+        saveQueue.async { [weak self, fileURL, persisted, sequence] in
+            do {
+                try Self.write(persisted, to: fileURL)
+            } catch {
+                let message = "Could not save Pi Agent sessions: \(error.localizedDescription)"
+                Task { @MainActor [weak self] in
+                    guard let self, self.saveSequence == sequence else { return }
+                    self.lastError = message
+                }
             }
         }
     }
 
     private func saveNow() {
+        let fileURL = fileURL
+        let (_, persisted) = makePersistedStateSnapshot()
         do {
-            let persisted = PersistedState(
-                sessions: sessions,
-                transcripts: transcriptsBySessionID.map { PersistedTranscript(sessionID: $0.key, entries: $0.value) },
-                selectedSessionID: selectedSessionID,
-                subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
-                subagentTranscripts: subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
-                supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
-                sessionPlans: Array(sessionPlansBySessionID.values),
-                sessionPlanEvents: Array(sessionPlanEventsBySessionID.values.joined())
-            )
-            let data = try JSONEncoder.piAgent.encode(persisted)
-            try data.write(to: fileURL, options: .atomic)
+            try saveQueue.sync {
+                try Self.write(persisted, to: fileURL)
+            }
         } catch {
             lastError = "Could not save Pi Agent sessions: \(error.localizedDescription)"
         }
     }
+
+    private nonisolated static func write(_ persisted: PersistedState, to fileURL: URL) throws {
+        let data = try JSONEncoder.piAgent.encode(persisted)
+        try data.write(to: fileURL, options: .atomic)
+    }
 }
 
-private struct PersistedState: Codable {
+private nonisolated struct PersistedState: Codable {
     var sessions: [PiAgentSessionRecord]
     var transcripts: [PersistedTranscript]
     var selectedSessionID: UUID?
@@ -696,27 +727,27 @@ private struct PersistedState: Codable {
     var sessionPlanEvents: [PiSessionPlanEventRecord]?
 }
 
-private struct PersistedTranscript: Codable {
+private nonisolated struct PersistedTranscript: Codable {
     var sessionID: UUID
     var entries: [PiAgentTranscriptEntry]
 }
 
-private struct PersistedSubagentRuns: Codable {
+private nonisolated struct PersistedSubagentRuns: Codable {
     var sessionID: UUID
     var runs: [PiSubagentRunRecord]
 }
 
-private struct PersistedSubagentTranscript: Codable {
+private nonisolated struct PersistedSubagentTranscript: Codable {
     var runID: UUID
     var entries: [PiAgentTranscriptEntry]
 }
 
-private struct PersistedSupervisorRequests: Codable {
+private nonisolated struct PersistedSupervisorRequests: Codable {
     var sessionID: UUID
     var requests: [PiSubagentSupervisorRequest]
 }
 
-private extension JSONEncoder {
+private nonisolated extension JSONEncoder {
     static var piAgent: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -725,7 +756,7 @@ private extension JSONEncoder {
     }
 }
 
-private extension JSONDecoder {
+private nonisolated extension JSONDecoder {
     static var piAgent: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

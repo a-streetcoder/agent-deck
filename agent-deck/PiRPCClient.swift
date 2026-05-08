@@ -1,8 +1,13 @@
 import Foundation
 
 final class PiRPCClient: @unchecked Sendable {
-    typealias EventHandler = @Sendable (_ rawLine: String, _ event: PiAgentRPCEvent?) -> Void
-    typealias StderrHandler = @Sendable (_ line: String) -> Void
+    struct EventLine: Sendable {
+        let rawLine: String
+        let event: PiAgentRPCEvent?
+    }
+
+    typealias EventHandler = @Sendable (_ lines: [EventLine]) -> Void
+    typealias StderrHandler = @Sendable (_ lines: [String]) -> Void
     typealias TerminationHandler = @Sendable (_ exitCode: Int32) -> Void
 
     private let process: PiAgentProcess
@@ -35,12 +40,15 @@ final class PiRPCClient: @unchecked Sendable {
 
         process = try PiAgentProcess(
             configuration: .init(arguments: args, currentDirectoryURL: cwd, environment: environment),
-            onStdoutLine: { line in
-                let data = Data(line.utf8)
-                let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
-                onEvent(line, event)
+            onStdoutLines: { lines in
+                let events = lines.map { line in
+                    let data = Data(line.utf8)
+                    let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
+                    return EventLine(rawLine: line, event: event)
+                }
+                onEvent(events)
             },
-            onStderrLine: onStderr,
+            onStderrLines: onStderr,
             onTermination: onTermination
         )
     }
