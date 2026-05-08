@@ -146,8 +146,7 @@ struct PiAgentCompactTranscriptCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
+                headerIcon
                 Text(entry.title)
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
@@ -168,10 +167,25 @@ struct PiAgentCompactTranscriptCard: View {
         )
     }
 
+    @ViewBuilder
+    private var headerIcon: some View {
+        if entry.role == .assistant {
+            Image("pi")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(color)
+                .frame(width: 14, height: 14)
+        } else {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+        }
+    }
+
     private var icon: String {
         switch entry.role {
         case .user: return "person.crop.circle"
-        case .assistant: return "sparkles"
+        case .assistant: return "pi"
         case .thinking: return "brain.head.profile"
         case .tool: return "hammer"
         case .status: return "info.circle"

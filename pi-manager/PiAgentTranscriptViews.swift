@@ -1137,9 +1137,7 @@ struct PiAgentTranscriptCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-                    .frame(width: 16)
+                headerIcon
                 Text(headerTitle)
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
@@ -1179,6 +1177,22 @@ struct PiAgentTranscriptCard: View {
         )
         .onHover { isHovering = $0 }
         .animation(.snappy(duration: 0.16), value: isHovering)
+    }
+
+    @ViewBuilder
+    private var headerIcon: some View {
+        if entry.role == .assistant {
+            Image("pi")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(color)
+                .frame(width: 16, height: 16)
+        } else {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .frame(width: 16)
+        }
     }
 
     @ViewBuilder
@@ -1322,7 +1336,7 @@ struct PiAgentTranscriptCard: View {
     private var icon: String {
         switch entry.role {
         case .user: return entry.title == "Steering" ? "arrowshape.turn.up.forward.circle" : "person.crop.circle"
-        case .assistant: return "sparkles"
+        case .assistant: return "pi"
         case .thinking: return "brain.head.profile"
         case .tool: return entry.title.localizedCaseInsensitiveContains("subagent") ? "person.2.wave.2" : "hammer"
         case .status: return "info.circle"

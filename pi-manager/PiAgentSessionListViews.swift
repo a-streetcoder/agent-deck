@@ -275,8 +275,12 @@ struct PiAgentProcessingIndicatorCard: View {
     var body: some View {
         AppRowCard {
             HStack(spacing: 10) {
-                Image(systemName: "sparkles")
+                Image("pi")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
                     .foregroundStyle(Color.purple)
+                    .frame(width: 16, height: 16)
                 Text(message)
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.primary)

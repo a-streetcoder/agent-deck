@@ -461,9 +461,12 @@ struct PiAgentScreen: View {
 
             if scopedSessions.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    Image(systemName: "sparkles.rectangle.stack")
-                        .font(.title2)
+                    Image("pi")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
                         .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 24, height: 24)
                     Text("No sessions yet")
                         .font(.headline)
                     Text(emptySessionsMessage)
