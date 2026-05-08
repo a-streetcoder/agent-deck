@@ -85,7 +85,7 @@ struct PiAgentInspectorPanel: View {
                     viewModel: viewModel,
                     footerSession: session,
                     transcript: store.selectedTranscript,
-                    supportedThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+                    supportedThinkingLevels: supportedThinkingLevels(for: session),
                     metricsSession: session,
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -124,6 +124,21 @@ struct PiAgentInspectorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {
+        let defaultModel = viewModel.defaultPiAgentModel()
+        let provider = session.modelOverrideProvider ?? session.modelProvider ?? defaultModel?.provider
+        let modelID = session.modelOverrideID ?? session.model ?? defaultModel?.model
+        if let provider, let modelID {
+            if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
+                return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : [])
+            }
+            if let cached = viewModel.enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+                return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? [] : ["off"]) : cached.supportedThinkingLevels
+            }
+        }
+        return []
     }
 
     private func isCompactTranscriptEntry(_ entry: PiAgentTranscriptEntry) -> Bool {

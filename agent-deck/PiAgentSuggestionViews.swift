@@ -45,40 +45,39 @@ struct PiAgentCommandSuggestions: View {
     let onSelectCommand: (String) -> Void
 
     var body: some View {
-        if !fileSuggestions.isEmpty {
-            suggestionPanel(title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files", icon: "paperclip", scrollable: true) {
-                ForEach(fileSuggestions.prefix(10)) { suggestion in
-                    Button { onSelectFile(suggestion) } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
-                                .frame(width: 14)
-                            Text(suggestion.relativePath)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 0)
+        Group {
+            if !fileSuggestions.isEmpty {
+                suggestionPanel(title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files", icon: "paperclip", scrollable: true) {
+                    ForEach(fileSuggestions.prefix(10)) { suggestion in
+                        Button { onSelectFile(suggestion) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
+                                    .frame(width: 14)
+                                Text(suggestion.relativePath)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 0)
+                            }
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
-        } else if !commands.isEmpty || !skills.isEmpty {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+            } else if !commands.isEmpty || !skills.isEmpty {
+                suggestionPanel(title: "Suggestions", icon: "command", scrollable: true) {
                     if !commands.isEmpty {
-                        suggestionPanel(title: "Slash commands", icon: "terminal") {
-                            commandRows(commands)
-                        }
+                        suggestionSection(title: "Slash commands", icon: "terminal")
+                        commandRows(commands)
                     }
                     if !skills.isEmpty {
-                        suggestionPanel(title: "Skills", icon: "sparkles") {
-                            skillRows(skills)
-                        }
+                        if !commands.isEmpty { Divider().padding(.vertical, 4) }
+                        suggestionSection(title: "Skills", icon: "sparkles")
+                        skillRows(skills)
                     }
                 }
             }
-            .scrollIndicators(.visible)
-            .frame(maxHeight: 220)
         }
+        .frame(maxWidth: 520, alignment: .leading)
+        .shadow(color: .black.opacity(0.12), radius: 18, x: 0, y: 10)
     }
 
     private func commandRows(_ items: [String]) -> some View {
@@ -105,6 +104,14 @@ struct PiAgentCommandSuggestions: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private func suggestionSection(title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.horizontal, 8)
+            .padding(.top, 2)
     }
 
     private func suggestionPanel<Content: View>(title: String, icon: String, scrollable: Bool = false, @ViewBuilder content: @escaping () -> Content) -> some View {

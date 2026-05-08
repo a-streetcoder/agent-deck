@@ -898,6 +898,7 @@ struct PiAgentScreen: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
+        .zIndex(hasComposerSuggestions ? 20 : 0)
     }
 
     private var activeSuggestionToken: (token: String, range: Range<String.Index>)? {
@@ -1149,20 +1150,13 @@ struct PiAgentScreen: View {
         let modelID = session.modelOverrideID ?? session.model ?? defaultModel?.model
         if let provider, let modelID {
             if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
-                return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : defaultThinkingLevels(provider: provider, modelID: modelID))
+                return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : [])
             }
             if let cached = viewModel.enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
-                return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? defaultThinkingLevels(provider: provider, modelID: modelID) : ["off"]) : cached.supportedThinkingLevels
+                return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? [] : ["off"]) : cached.supportedThinkingLevels
             }
         }
-        // Unknown/default model: keep the conservative standard Pi levels, but do not offer xhigh unless a model confirms it.
-        return ["off", "minimal", "low", "medium", "high"]
-    }
-
-    private func defaultThinkingLevels(provider: String, modelID: String) -> [String] {
-        PiModelCapability.supportsXhigh(modelID: modelID)
-            ? ["off", "minimal", "low", "medium", "high", "xhigh"]
-            : ["off", "minimal", "low", "medium", "high"]
+        return []
     }
 
     private func syncVisibleSessionSelection() {

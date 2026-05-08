@@ -54,12 +54,6 @@ for (const item of input) {
   }
   if (typeof models.getSupportedThinkingLevels === 'function') {
     result[`${item.provider}/${item.model}`] = models.getSupportedThinkingLevels(model);
-  } else if (typeof models.supportsXhigh === 'function') {
-    result[`${item.provider}/${item.model}`] = models.supportsXhigh(model)
-      ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-      : ['off', 'minimal', 'low', 'medium', 'high'];
-  } else {
-    result[`${item.provider}/${item.model}`] = ['off', 'minimal', 'low', 'medium', 'high'];
   }
 }
 process.stdout.write(JSON.stringify(result));
@@ -109,7 +103,7 @@ process.stdout.write(JSON.stringify(result));
                     maxOutput: parts[3],
                     supportsThinking: supportsThinking,
                     supportsImages: parts[5].lowercased() == "yes",
-                    supportedThinkingLevels: exactThinkingLevels[identifier] ?? (supportsThinking ? ["off", "minimal", "low", "medium", "high"] : ["off"])
+                    supportedThinkingLevels: exactThinkingLevels[identifier] ?? (supportsThinking ? [] : ["off"])
                 )
             }
     }

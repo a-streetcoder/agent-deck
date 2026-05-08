@@ -1077,7 +1077,7 @@ private struct AgentDetailView: View {
     }
 
     private var inlineAvailableThinkingLevels: [String] {
-        selectedInlineModel?.supportedThinkingLevels ?? ["off", "minimal", "low", "medium", "high", "xhigh"]
+        selectedInlineModel?.supportedThinkingLevels ?? []
     }
 
     private var inlineModelSelectionBinding: Binding<String> {

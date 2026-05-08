@@ -291,7 +291,9 @@ struct ModelsScreen: View {
     }
 
     private var defaultThinkingLevels: [String] {
-        ["off", "minimal", "low", "medium", "high", "xhigh"]
+        viewModel.enabledAvailableModels.flatMap(\.supportedThinkingLevels).reduce(into: []) { levels, level in
+            if !levels.contains(level) { levels.append(level) }
+        }
     }
 
     private func modelRow(_ model: AvailableModel) -> some View {
@@ -658,7 +660,7 @@ struct AgentModelQuickEditRow: View {
     }
 
     private var availableThinkingLevels: [String] {
-        selectedModel?.supportedThinkingLevels ?? ["off", "minimal", "low", "medium", "high", "xhigh"]
+        selectedModel?.supportedThinkingLevels ?? []
     }
 
     private var modelSelectionBinding: Binding<String> {

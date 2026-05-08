@@ -520,8 +520,8 @@ struct PiAgentThreadDiffSummaryView: View {
     @State private var isLoading = true
 
     var body: some View {
-        let paths = Self.changedPaths(from: activities)
-        if !paths.isEmpty && (isLoading || !rows.isEmpty) {
+        let changes = Self.changedFiles(from: activities)
+        if !changes.isEmpty && (isLoading || !rows.isEmpty) {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text.magnifyingglass")
@@ -529,7 +529,7 @@ struct PiAgentThreadDiffSummaryView: View {
                         .foregroundStyle(AppTheme.mutedText)
                     Text("Changes")
                         .font(.caption.weight(.semibold))
-                    Text(paths.count == 1 ? "1 file" : "\(paths.count) files")
+                    Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                     Spacer(minLength: 0)
@@ -552,47 +552,152 @@ struct PiAgentThreadDiffSummaryView: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.65)).stroke(AppTheme.contentStroke, lineWidth: 1))
-            .task(id: paths.joined(separator: "\u{0}")) { await loadRows(paths: paths) }
+            .task(id: Self.signature(for: changes)) { await loadRows(changes: changes) }
         }
     }
 
     @MainActor
     static func changedPaths(from activities: [PiAgentTranscriptActivity]) -> [String] {
-        var seen = Set<String>()
-        var paths: [String] = []
-        for entry in activities.flatMap(\.entries) {
-            let name = PiAgentTranscriptActivity.toolName(for: entry).lowercased()
-            guard name == "edit" || name == "write" else { continue }
-            guard let event = PiAgentRPCEventRenderCache.event(from: entry.rawJSON) else { continue }
-            let path = event.args?["path"]?.stringValue ?? event.args?["file_path"]?.stringValue
-            guard let path, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, seen.insert(path).inserted else { continue }
-            paths.append(path)
-        }
-        return paths
+        changedFiles(from: activities).map(\.path)
     }
 
-    private func loadRows(paths: [String]) async {
-        isLoading = true
-        guard let projectPath, !projectPath.isEmpty else { rows = [] ; isLoading = false ; return }
-        let repositoryURL = URL(fileURLWithPath: projectPath)
-        let service = GitRepositoryService()
-        var loaded: [Row] = []
-        for path in paths.prefix(8) {
-            let staged = (try? await service.loadDiff(for: path, kind: .staged, in: repositoryURL)).map(Self.trimDiff) ?? ""
-            let unstaged = (try? await service.loadDiff(for: path, kind: .unstaged, in: repositoryURL)).map(Self.trimDiff) ?? ""
-            let untracked = staged.isEmpty && unstaged.isEmpty ? ((try? await service.loadDiff(for: path, kind: .untracked, in: repositoryURL)).map(Self.trimDiff) ?? "") : ""
-            let diff = [staged, unstaged, untracked].filter { !$0.isEmpty }.joined(separator: "\n")
-            if !diff.isEmpty {
-                loaded.append(Row(path: path, diff: diff))
+    @MainActor
+    private static func changedFiles(from activities: [PiAgentTranscriptActivity]) -> [ChangedFile] {
+        var orderedPaths: [String] = []
+        var diffsByPath: [String: [String]] = [:]
+        for entry in activities.flatMap(\.entries) {
+            let name = normalizedToolName(PiAgentTranscriptActivity.toolName(for: entry))
+            guard name == "edit" || name == "write" else { continue }
+            let event = PiAgentRPCEventRenderCache.event(from: entry.rawJSON)
+            guard let path = path(from: event, entry: entry) else { continue }
+            if diffsByPath[path] == nil { orderedPaths.append(path) }
+            if let diff = diff(from: event, toolName: name), !diff.isEmpty {
+                diffsByPath[path, default: []].append(diff)
             }
-            if Task.isCancelled { return }
         }
-        rows = loaded
+        return orderedPaths.map { path in
+            ChangedFile(path: path, diff: diffsByPath[path, default: []].joined(separator: "\n\n"))
+        }
+    }
+
+    private func loadRows(changes: [ChangedFile]) async {
+        isLoading = true
+        rows = changes.prefix(8).compactMap { change in
+            guard !change.diff.isEmpty else { return nil }
+            return Row(path: change.path, diff: change.diff)
+        }
         isLoading = false
+    }
+
+    private static func normalizedToolName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(separator: ".").last.map(String.init) ?? name.lowercased()
+    }
+
+    private static func path(from event: PiAgentRPCEvent?, entry: PiAgentTranscriptEntry) -> String? {
+        let path = event?.args?["path"]?.stringValue
+            ?? event?.args?["file_path"]?.stringValue
+            ?? event?.result?["details"]?["path"]?.stringValue
+            ?? event?.result?["details"]?["file_path"]?.stringValue
+            ?? event?.result?["path"]?.stringValue
+            ?? event?.result?["file_path"]?.stringValue
+            ?? pathFromDiff(event?.result?["details"]?["diff"]?.stringValue ?? event?.result?["diff"]?.stringValue)
+            ?? pathFromText(entry.text)
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func diff(from event: PiAgentRPCEvent?, toolName: String) -> String? {
+        let payloadDiff = event?.result?["details"]?["diff"]?.stringValue
+            ?? event?.result?["diff"]?.stringValue
+        if let payloadDiff = trimDiff(payloadDiff ?? "").nilIfEmpty { return payloadDiff }
+        guard toolName == "edit" else { return nil }
+        return trimDiff(syntheticDiff(from: event?.args) ?? "").nilIfEmpty
+    }
+
+    private static func pathFromDiff(_ diff: String?) -> String? {
+        guard let diff else { return nil }
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.hasPrefix("diff --git a/") {
+                let parts = line.split(separator: " ")
+                if parts.count >= 4 { return stripDiffPrefix(String(parts[3])) }
+            }
+            if line.hasPrefix("+++") {
+                let value = line.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines)
+                if value != "/dev/null" { return stripDiffPrefix(value) }
+            }
+        }
+        return nil
+    }
+
+    private static func stripDiffPrefix(_ path: String) -> String {
+        if path.hasPrefix("a/") || path.hasPrefix("b/") { return String(path.dropFirst(2)) }
+        return path
+    }
+
+    private static func pathFromText(_ text: String) -> String? {
+        let patterns = [#"in ([^\n]+)$"#, #"to ([^\n]+)$"#, #"from ([^\n]+)$"#]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
+                  match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: text) else { continue }
+            return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        }
+        return nil
+    }
+
+    private static func syntheticDiff(from args: JSONValue?) -> String? {
+        guard let editsValue = args?["edits"] else {
+            if let oldText = args?["oldText"]?.stringValue ?? args?["old_text"]?.stringValue,
+               let newText = args?["newText"]?.stringValue ?? args?["new_text"]?.stringValue {
+                return syntheticDiff(edits: [(oldText, newText)])
+            }
+            return nil
+        }
+        let edits: [(String, String)]
+        switch editsValue {
+        case let .array(values):
+            edits = values.compactMap { value in
+                guard let old = value["oldText"]?.stringValue ?? value["old_text"]?.stringValue,
+                      let new = value["newText"]?.stringValue ?? value["new_text"]?.stringValue else { return nil }
+                return (old, new)
+            }
+        case let .string(raw):
+            guard let data = raw.data(using: .utf8),
+                  let decoded = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+            edits = decoded.compactMap { dict in
+                guard let old = dict["oldText"] as? String ?? dict["old_text"] as? String,
+                      let new = dict["newText"] as? String ?? dict["new_text"] as? String else { return nil }
+                return (old, new)
+            }
+        default:
+            edits = []
+        }
+        return syntheticDiff(edits: edits)
+    }
+
+    private static func syntheticDiff(edits: [(String, String)]) -> String? {
+        guard !edits.isEmpty else { return nil }
+        var lines: [String] = []
+        for (index, edit) in edits.enumerated() {
+            if index > 0 { lines.append("  ...") }
+            lines.append(contentsOf: edit.0.split(separator: "\n", omittingEmptySubsequences: false).map { "-  \($0)" })
+            lines.append(contentsOf: edit.1.split(separator: "\n", omittingEmptySubsequences: false).map { "+  \($0)" })
+        }
+        return lines.joined(separator: "\n")
     }
 
     private static func trimDiff(_ diff: String) -> String {
         diff.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func signature(for changes: [ChangedFile]) -> String {
+        changes.map { "\($0.path):\($0.diff.count)" }.joined(separator: "\u{0}")
+    }
+
+    private struct ChangedFile: Hashable {
+        let path: String
+        let diff: String
     }
 
     struct Row: Identifiable, Hashable {
@@ -606,6 +711,12 @@ struct PiAgentThreadDiffSummaryView: View {
             if added == 0 && removed == 0 { return "modified" }
             return "+\(added) −\(removed)"
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

@@ -2411,20 +2411,14 @@ final class AppViewModel: NSObject, ObservableObject {
             if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
                 if let levels = runtimeModel.supportedThinkingLevels, !levels.isEmpty { return levels }
                 if runtimeModel.supportsThinking == false { return ["off"] }
-                return defaultPiAgentThinkingLevels(provider: provider, modelID: modelID)
+                return []
             }
             if let cached = enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
                 if !cached.supportedThinkingLevels.isEmpty { return cached.supportedThinkingLevels }
-                return cached.supportsThinking ? defaultPiAgentThinkingLevels(provider: provider, modelID: modelID) : ["off"]
+                return cached.supportsThinking ? [] : ["off"]
             }
         }
-        return ["off", "minimal", "low", "medium", "high"]
-    }
-
-    private func defaultPiAgentThinkingLevels(provider: String, modelID: String) -> [String] {
-        PiModelCapability.supportsXhigh(modelID: modelID)
-            ? ["off", "minimal", "low", "medium", "high", "xhigh"]
-            : ["off", "minimal", "low", "medium", "high"]
+        return []
     }
 
     func cyclePiAgentThinkingLevelForSelectedSession() {

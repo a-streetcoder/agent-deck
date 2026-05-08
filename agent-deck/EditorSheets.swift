@@ -364,7 +364,7 @@ struct AgentEditorSheet: View {
         if let model = selectedAvailableModel {
             return model.supportedThinkingLevels
         }
-        return ["off", "minimal", "low", "medium", "high", "xhigh"]
+        return []
     }
 
     private var thinkingSelectionBinding: Binding<String> {

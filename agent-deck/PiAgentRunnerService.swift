@@ -702,7 +702,7 @@ final class PiAgentRunnerService {
                 if let levels = stringArray(from: model["supportedThinkingLevels"]) { return levels }
                 if let levels = parseSupportedThinkingLevels(from: model["thinkingLevelMap"]) { return levels }
                 guard supportsThinking == true else { return supportsThinking == false ? ["off"] : nil }
-                return supportsXhigh(provider: provider, modelID: id) ? ["off", "minimal", "low", "medium", "high", "xhigh"] : ["off", "minimal", "low", "medium", "high"]
+                return nil
             }()
             let supportsImages = model["supportsImages"]?.boolValue ?? model["image"]?.boolValue ?? stringArray(from: model["input"])?.contains("image")
             return PiAgentModelOption(
@@ -744,10 +744,6 @@ final class PiAgentRunnerService {
             return true
         }
         return levels.isEmpty ? nil : levels
-    }
-
-    private func supportsXhigh(provider: String, modelID: String) -> Bool {
-        PiModelCapability.supportsXhigh(modelID: modelID)
     }
 
     private func handleMessageUpdate(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {

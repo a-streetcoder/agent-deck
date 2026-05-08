@@ -66,14 +66,20 @@ struct PiAgentSessionRow: View {
     let onRename: (String) -> Void
     let onTogglePinned: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draftTitle = ""
     @State private var isTitleHovered = false
-    @State private var activeBorderDashPhase: CGFloat = 0
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: isSelected ? 10 : 12) {
+            if isSelected {
+                selectedSessionIndicator
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.85, anchor: .leading)),
+                        removal: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.85, anchor: .leading))
+                    ))
+            }
+
             PiAgentProjectIcon(project: project, session: session)
 
             VStack(alignment: .leading, spacing: 7) {
@@ -129,14 +135,16 @@ struct PiAgentSessionRow: View {
             }
         }
         .padding(14)
+        .padding(.leading, isSelected ? 6 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sessionRowBackground)
+        .padding(.leading, isSelected ? 10 : 0)
+        .animation(.snappy(duration: 0.24, extraBounce: 0.08), value: isSelected)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
         .onAppear {
             draftTitle = sessionTitle
-            updateActiveBorderAnimation()
         }
         .onChange(of: session.id) { _, _ in resetRenameState() }
         .onChange(of: session.title) { _, _ in draftTitle = sessionTitle }
@@ -151,8 +159,25 @@ struct PiAgentSessionRow: View {
         .onChange(of: isTitleFocused) { _, focused in
             if !focused && isRenaming { commitRename() }
         }
-        .onChange(of: isRunning) { _, _ in updateActiveBorderAnimation() }
         .onDisappear(perform: commitRename)
+    }
+
+    private var selectedSessionIndicator: some View {
+        Capsule(style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        AppTheme.brandAccentBright.opacity(0.95),
+                        AppTheme.brandAccent.opacity(0.82),
+                        AppTheme.brandAccentDeep.opacity(0.72)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 4, height: 48)
+            .shadow(color: AppTheme.brandAccent.opacity(0.24), radius: 4, y: 1)
+            .accessibilityHidden(true)
     }
 
     private var sessionRowBackground: some View {
@@ -161,14 +186,14 @@ struct PiAgentSessionRow: View {
             .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill)
             .overlay {
                 if isRunning {
-                    shape.stroke(
-                        activeBorderGradient,
-                        style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round, dash: [7, 7], dashPhase: activeBorderDashPhase)
-                    )
-                    .shadow(color: AppTheme.brandAccent.opacity(0.22), radius: 5, y: 0)
-                } else {
-                    shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                    shape.fill(activeBackgroundGradient)
                 }
+            }
+            .overlay {
+                shape.stroke(
+                    isRunning || isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke,
+                    lineWidth: isRunning ? 2.2 : 1
+                )
             }
     }
 
@@ -180,30 +205,16 @@ struct PiAgentSessionRow: View {
             .accessibilityHidden(true)
     }
 
-    private var activeBorderGradient: LinearGradient {
+    private var activeBackgroundGradient: LinearGradient {
         LinearGradient(
             colors: [
-                AppTheme.brandAccentBright.opacity(0.86),
-                AppTheme.brandAccent.opacity(0.9),
-                AppTheme.brandAccentDeep.opacity(0.72),
-                AppTheme.brandAccent.opacity(0.9)
+                AppTheme.brandAccentBright.opacity(0.10),
+                AppTheme.brandAccent.opacity(0.045),
+                AppTheme.brandAccentDeep.opacity(0.08)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-    }
-
-    private func updateActiveBorderAnimation() {
-        guard isRunning, !reduceMotion else {
-            activeBorderDashPhase = 0
-            return
-        }
-        activeBorderDashPhase = 0
-        DispatchQueue.main.async {
-            withAnimation(.linear(duration: 4.2).repeatForever(autoreverses: false)) {
-                activeBorderDashPhase = -56
-            }
-        }
     }
 
     @ViewBuilder
