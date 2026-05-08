@@ -19,6 +19,12 @@ private extension View {
             }
         }
     }
+
+    func toolbarNeutralChrome() -> some View {
+        symbolRenderingMode(.monochrome)
+            .foregroundStyle(.primary)
+            .tint(.primary)
+    }
 }
 
 struct ContentView: View {
@@ -95,6 +101,7 @@ struct ContentView: View {
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
+                .tint(AppTheme.brandAccent)
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
@@ -176,6 +183,7 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: "trash")
                     }
+                    .toolbarNeutralChrome()
                     .help("Delete the current Pi Agent session")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
@@ -185,125 +193,140 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .projects {
                 ToolbarItemGroup {
-                    Button("Enable All") {
-                        showingEnableAllProjectsAlert = true
-                    }
-                    .help("Enable all discovered projects")
+                    Group {
+                        Button("Enable All") {
+                            showingEnableAllProjectsAlert = true
+                        }
+                        .help("Enable all discovered projects")
 
-                    Button("Disable All") {
-                        showingDisableAllProjectsAlert = true
-                    }
-                    .help("Disable all discovered projects")
+                        Button("Disable All") {
+                            showingDisableAllProjectsAlert = true
+                        }
+                        .help("Disable all discovered projects")
 
-                    Button {
-                        viewModel.chooseProjectRoot()
-                    } label: {
-                        Image(systemName: "plus")
+                        Button {
+                            viewModel.chooseProjectRoot()
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .help("Add project manually")
                     }
-                    .help("Add project manually")
+                    .toolbarNeutralChrome()
                 }
             }
 
             if viewModel.selectedSidebarItem == .agents {
                 ToolbarItemGroup {
-                    Menu {
-                        ForEach(AgentFilter.allCases) { filter in
-                            Button {
-                                viewModel.selectedAgentFilter = filter
-                            } label: {
-                                if viewModel.selectedAgentFilter == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(filter.rawValue)
+                    Group {
+                        Menu {
+                            ForEach(AgentFilter.allCases) { filter in
+                                Button {
+                                    viewModel.selectedAgentFilter = filter
+                                } label: {
+                                    if viewModel.selectedAgentFilter == filter {
+                                        Label(filter.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Text(filter.rawValue)
+                                    }
                                 }
                             }
+                        } label: {
+                            Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
                         }
-                    } label: {
-                        Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+                        .help("Filter agents")
                     }
-                    .help("Filter agents")
+                    .toolbarNeutralChrome()
                 }
 
                 ToolbarItemGroup {
-                    Button {
-                        agentModelQuickEditor = currentAgentModelQuickEditorContext
-                    } label: {
-                        Image(systemName: "cpu")
-                    }
-                    .help("Quick edit agent models and thinking")
-                    .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
+                    Group {
+                        Button {
+                            agentModelQuickEditor = currentAgentModelQuickEditorContext
+                        } label: {
+                            Image(systemName: "cpu")
+                        }
+                        .help("Quick edit agent models and thinking")
+                        .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
 
-                    Menu {
-                        Button("New Library Agent") {
-                            editingAgent = nil
-                            agentDraft = viewModel.makeNewAgentDraft(scope: .library)
-                        }
-                        if viewModel.selectedProjectPath != nil {
-                            Button("New Project Agent") {
+                        Menu {
+                            Button("New Library Agent") {
                                 editingAgent = nil
-                                agentDraft = viewModel.makeNewAgentDraft(scope: .project)
+                                agentDraft = viewModel.makeNewAgentDraft(scope: .library)
                             }
+                            if viewModel.selectedProjectPath != nil {
+                                Button("New Project Agent") {
+                                    editingAgent = nil
+                                    agentDraft = viewModel.makeNewAgentDraft(scope: .project)
+                                }
+                            }
+                        } label: {
+                            Label("New", systemImage: "plus")
                         }
-                    } label: {
-                        Label("New", systemImage: "plus")
+                        .help("Create a library agent, then choose global or project visibility")
                     }
-                    .help("Create a library agent, then choose global or project visibility")
+                    .toolbarNeutralChrome()
                 }
 
                 if let agent = viewModel.selectedAgent {
                     ToolbarItemGroup {
-                        Button {
-                            editingAgent = nil
-                            agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
-                        } label: {
-                            Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .help("Create a global replacement for this builtin agent")
-                        .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
-
-                        Button {
-                            agentDetailEditCommand += 1
-                        } label: {
-                            Label(agentDetailIsEditing ? "Done" : "Edit", systemImage: agentDetailIsEditing ? "checkmark" : "pencil")
-                        }
-                        .help(agentDetailIsEditing ? "Finish editing selected agent" : "Edit selected agent")
-
-                        Menu {
-                            Button("Open Raw File") { openSelectedAgentFile() }
-                                .disabled(selectedAgentFilePath == nil)
-                            Button("Reveal in Finder") { revealSelectedAgentFile() }
-                                .disabled(selectedAgentFilePath == nil)
-                            Divider()
-                            if agent.resolved.disabled == true {
-                                Button("Enable Agent") { setSelectedAgentDisabled(false) }
-                            } else {
-                                Button("Disable Agent", role: .destructive) { setSelectedAgentDisabled(true) }
+                        Group {
+                            Button {
+                                editingAgent = nil
+                                agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
+                            } label: {
+                                Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
                             }
-                        } label: {
-                            Label("More", systemImage: "ellipsis.circle")
+                            .help("Create a global replacement for this builtin agent")
+                            .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
+
+                            Button {
+                                agentDetailEditCommand += 1
+                            } label: {
+                                Label(agentDetailIsEditing ? "Done" : "Edit", systemImage: agentDetailIsEditing ? "checkmark" : "pencil")
+                            }
+                            .help(agentDetailIsEditing ? "Finish editing selected agent" : "Edit selected agent")
+
+                            Menu {
+                                Button("Open Raw File") { openSelectedAgentFile() }
+                                    .disabled(selectedAgentFilePath == nil)
+                                Button("Reveal in Finder") { revealSelectedAgentFile() }
+                                    .disabled(selectedAgentFilePath == nil)
+                                Divider()
+                                if agent.resolved.disabled == true {
+                                    Button("Enable Agent") { setSelectedAgentDisabled(false) }
+                                } else {
+                                    Button("Disable Agent", role: .destructive) { setSelectedAgentDisabled(true) }
+                                }
+                            } label: {
+                                Label("More", systemImage: "ellipsis.circle")
+                            }
+                            .help("More actions for the selected agent")
                         }
-                        .help("More actions for the selected agent")
+                        .toolbarNeutralChrome()
                     }
                 }
 
                 ToolbarItemGroup {
-                    Button {
-                        isSubagentsRecapPresented.toggle()
-                    } label: {
-                        Label("Project Recap", systemImage: "sidebar.right")
-                    }
-                    .help("Show subagents available for the selected project")
-                    .disabled(viewModel.selectedProjectPath == nil)
+                    Group {
+                        Button {
+                            isSubagentsRecapPresented.toggle()
+                        } label: {
+                            Label("Project Recap", systemImage: "sidebar.right")
+                        }
+                        .help("Show subagents available for the selected project")
+                        .disabled(viewModel.selectedProjectPath == nil)
 
-                    Button {
-                        isSubagentsInfoPresented.toggle()
-                    } label: {
-                        Label("Info", systemImage: "info.circle")
+                        Button {
+                            isSubagentsInfoPresented.toggle()
+                        } label: {
+                            Label("Info", systemImage: "info.circle")
+                        }
+                        .help("Explain subagent library visibility")
+                        .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+                            SubagentsInfoPopover()
+                        }
                     }
-                    .help("Explain subagent library visibility")
-                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
-                        SubagentsInfoPopover()
-                    }
+                    .toolbarNeutralChrome()
                 }
             }
 
@@ -314,7 +337,7 @@ struct ContentView: View {
                     } label: {
                         Label("New Key", systemImage: "plus")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .toolbarNeutralChrome()
                     .help("Create a new environment key")
                 }
             }
@@ -363,6 +386,7 @@ struct ContentView: View {
                     } label: {
                         Label("New", systemImage: "plus")
                     }
+                    .toolbarNeutralChrome()
                 }
 
                 if let selectedChain = viewModel.selectedChain {
@@ -373,6 +397,7 @@ struct ContentView: View {
                         } label: {
                             Label("Run", systemImage: "play.circle")
                         }
+                        .toolbarNeutralChrome()
                         .help("Run this chain as a \(AppBrand.displayName) native chain")
 
                         Button {
@@ -380,6 +405,7 @@ struct ContentView: View {
                         } label: {
                             Label("Open", systemImage: "folder")
                         }
+                        .toolbarNeutralChrome()
                         .help("Open the selected chain file")
 
                         Button {
@@ -387,6 +413,7 @@ struct ContentView: View {
                         } label: {
                             Label("Reveal", systemImage: "arrow.up.forward.app")
                         }
+                        .toolbarNeutralChrome()
                         .help("Reveal the selected chain file in Finder")
 
                         Menu {
@@ -420,6 +447,7 @@ struct ContentView: View {
                         } label: {
                             Label("More", systemImage: "ellipsis.circle")
                         }
+                        .toolbarNeutralChrome()
                         .help("More chain actions")
 
                         Button {
@@ -427,6 +455,7 @@ struct ContentView: View {
                         } label: {
                             Label("Edit", systemImage: "pencil")
                         }
+                        .toolbarNeutralChrome()
                         .help("Edit selected chain")
                     }
                 }
@@ -437,6 +466,7 @@ struct ContentView: View {
                     } label: {
                         Label("Info", systemImage: "info.circle")
                     }
+                    .toolbarNeutralChrome()
                     .help("Explain subagent library visibility")
                     .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
                         SubagentsInfoPopover()
@@ -447,6 +477,7 @@ struct ContentView: View {
                     } label: {
                         Label("Project Recap", systemImage: "sidebar.right")
                     }
+                    .toolbarNeutralChrome()
                     .help("Show subagents available for the selected project")
                     .disabled(viewModel.selectedProjectPath == nil)
                 }
@@ -460,6 +491,7 @@ struct ContentView: View {
                     } label: {
                         Label("New", systemImage: "plus")
                     }
+                    .toolbarNeutralChrome()
                     .help("Create a new library prompt template")
 
                     if let prompt = viewModel.selectedPromptTemplate {
@@ -471,6 +503,7 @@ struct ContentView: View {
                         } label: {
                             Label("More", systemImage: "ellipsis.circle")
                         }
+                        .toolbarNeutralChrome()
                         .help("More actions for the selected prompt")
                     }
                 }
@@ -483,6 +516,7 @@ struct ContentView: View {
                     } label: {
                         Label("Info", systemImage: "info.circle")
                     }
+                    .toolbarNeutralChrome()
                     .help("Explain Pi skill visibility")
                     .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
                         SkillsInfoPopover()
@@ -495,6 +529,7 @@ struct ContentView: View {
                     } label: {
                         Label("Import Skills", systemImage: "plus")
                     }
+                    .toolbarNeutralChrome()
                     .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
                 }
 
@@ -504,6 +539,7 @@ struct ContentView: View {
                     } label: {
                         Label("Project Recap", systemImage: "sidebar.right")
                     }
+                    .toolbarNeutralChrome()
                     .help("Show skills Pi will load for the selected project")
                     .disabled(viewModel.selectedProjectPath == nil)
                 }

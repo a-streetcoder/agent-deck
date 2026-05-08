@@ -295,24 +295,9 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
 
     @MainActor
     private static func retrievedContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
-        let details = entries.lazy.compactMap(toolDetails).last
-        let title = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let url = details?["url"]?.stringValue
-        let query = details?["query"]?.stringValue
-        let resultCount = intValue(details?["resultCount"])
-
-        var parts: [String] = []
-        if let title, !title.isEmpty {
-            parts.append(title.truncatedMiddle(max: 44))
-        } else if let url, let domain = domain(from: url) {
-            parts.append(domain)
-        } else if let query, !query.isEmpty {
-            parts.append("“\(query.truncatedMiddle(max: 44))”")
-        }
-        if let resultCount {
-            parts.append(resultCount == 1 ? "1 source" : "\(resultCount) sources")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        // The inline source bullets already show what was read. Keep this row quiet
+        // instead of adding a redundant title/source-count summary after "Read content".
+        return nil
     }
 
     @MainActor
@@ -960,12 +945,6 @@ struct PiAgentWebActivitySummaryView: View {
                                     .truncationMode(.middle)
                             }
                             Spacer(minLength: 0)
-                            if row.count > 1 {
-                                Text("×\(row.count)")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .monospacedDigit()
-                            }
                         }
 
                         if !row.links.isEmpty {
@@ -1063,7 +1042,6 @@ struct PiAgentWebActivitySummaryView: View {
         let title: String
         let detail: String?
         let icon: String
-        let count: Int
         let isError: Bool
         let links: [PiAgentWebLink]
 
@@ -1072,7 +1050,6 @@ struct PiAgentWebActivitySummaryView: View {
             title = Self.title(for: activity.name)
             detail = activity.compactDetail
             icon = Self.icon(for: activity.name)
-            count = activity.count
             isError = activity.isError
             links = activity.webLinks
         }

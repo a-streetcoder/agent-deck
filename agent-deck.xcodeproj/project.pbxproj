@@ -351,6 +351,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_CFBundleName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSAccentColorName = AccentColor;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to open Terminal or iTerm and resume agent sessions.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -391,6 +392,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_CFBundleName = "$(APP_PRODUCT_NAME)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSAccentColorName = AccentColor;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to open Terminal or iTerm and resume agent sessions.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

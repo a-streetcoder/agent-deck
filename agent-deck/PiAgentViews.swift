@@ -51,7 +51,7 @@ struct PiAgentTranscriptStack<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: alignment, spacing: spacing) {
+        LazyVStack(alignment: alignment, spacing: spacing) {
             content()
         }
     }

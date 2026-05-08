@@ -10,17 +10,6 @@ import SwiftUI
 import UserNotifications
 
 private extension AppAppearanceMode {
-    var preferredColorScheme: ColorScheme? {
-        switch self {
-        case .system:
-            return nil
-        case .light:
-            return .light
-        case .dark:
-            return .dark
-        }
-    }
-
     var nsAppearanceName: NSAppearance.Name? {
         switch self {
         case .system:
@@ -33,10 +22,11 @@ private extension AppAppearanceMode {
     }
 
     func applyApplicationAppearance() {
-        if let nsAppearanceName {
-            NSApp.appearance = NSAppearance(named: nsAppearanceName)
-        } else {
-            NSApp.appearance = nil
+        let appearance = nsAppearanceName.flatMap(NSAppearance.init(named:))
+        NSApp.appearance = appearance
+
+        for window in NSApp.windows {
+            window.appearance = nil
         }
     }
 }
@@ -87,9 +77,6 @@ struct agent_deckApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
-                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
-                .tint(AppTheme.brandAccent)
-                .accentColor(AppTheme.brandAccent)
                 .onAppear { viewModel.appSettings.appearanceMode.applyApplicationAppearance() }
                 .onChange(of: viewModel.appSettings.appearanceMode) { _, mode in
                     mode.applyApplicationAppearance()
@@ -101,9 +88,6 @@ struct agent_deckApp: App {
         Settings {
             SettingsSceneContent()
                 .environmentObject(viewModel)
-                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
-                .tint(AppTheme.brandAccent)
-                .accentColor(AppTheme.brandAccent)
                 .onAppear { viewModel.appSettings.appearanceMode.applyApplicationAppearance() }
                 .onChange(of: viewModel.appSettings.appearanceMode) { _, mode in
                     mode.applyApplicationAppearance()
