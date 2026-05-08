@@ -1741,6 +1741,7 @@ struct PiAgentThinkingPicker: View {
     let onSelect: (String) -> Void
 
     @State private var isPresented = false
+    @State private var hoveredLevel: String?
 
     private var levels: [String] { supportedLevels.isEmpty ? ["off"] : supportedLevels }
 
@@ -1770,29 +1771,53 @@ struct PiAgentThinkingPicker: View {
                     .foregroundStyle(AppTheme.mutedText)
 
                 ForEach(levels, id: \.self) { candidate in
-                    Button {
-                        onSelect(candidate)
-                        isPresented = false
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: candidate == resolvedLevel ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(candidate == resolvedLevel ? AppTheme.brandAccent : AppTheme.mutedText)
-                                .frame(width: 16)
-                            Text(candidate.capitalized)
-                                .font(.caption.weight(.semibold))
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(candidate == resolvedLevel ? AppTheme.selectionFill : Color.clear))
-                    }
-                    .buttonStyle(.plain)
+                    thinkingLevelRow(candidate)
                 }
             }
             .padding(12)
             .frame(width: 220)
         }
         .help(isRunning ? "Change thinking level" : "Choose thinking level for this session before launch")
+    }
+
+    private func thinkingLevelRow(_ candidate: String) -> some View {
+        let isSelected = candidate == resolvedLevel
+        let isHovered = hoveredLevel == candidate
+        let rowShape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+
+        return Button {
+            onSelect(candidate)
+            isPresented = false
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
+                    .frame(width: 18, height: 18)
+
+                Text(candidate.capitalized)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+            .padding(.horizontal, 10)
+            .background(rowShape.fill(rowFill(isSelected: isSelected, isHovered: isHovered)))
+            .contentShape(rowShape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            hoveredLevel = hovering ? candidate : (hoveredLevel == candidate ? nil : hoveredLevel)
+        }
+        .accessibilityLabel("Thinking \(candidate.capitalized)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    private func rowFill(isSelected: Bool, isHovered: Bool) -> Color {
+        if isSelected { return AppTheme.selectionFill }
+        if isHovered { return AppTheme.contentSubtleFill }
+        return .clear
     }
 
     private var normalizedLevel: String? {

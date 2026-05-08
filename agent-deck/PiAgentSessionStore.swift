@@ -16,8 +16,14 @@ final class PiAgentSessionStore: ObservableObject {
     @Published var lastError: String?
     var newSessionSubagentsEnabled = true
 
+    private var composerTextDraftsBySessionID: [UUID: String] = [:]
+    private var composerImageDraftsBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
+    private var composerFileDraftsBySessionID: [UUID: [PiAgentFileAttachment]] = [:]
+
     private let maxTranscriptEntriesPerSession = 500
     private let transcriptRevisionCoalesceNanoseconds: UInt64 = 33_000_000
+    private let defaultSaveDebounceNanoseconds: UInt64 = 450_000_000
+    private let structuralSaveDebounceNanoseconds: UInt64 = 50_000_000
     private let fileURL: URL
     private var pendingSaveTask: Task<Void, Never>?
     private var pendingTranscriptRevisionSessionIDs: Set<UUID> = []
@@ -56,6 +62,30 @@ final class PiAgentSessionStore: ObservableObject {
     var selectedUIRequest: PiAgentUIRequest? {
         guard let session = selectedSession else { return nil }
         return uiRequestsBySessionID[session.id]
+    }
+
+    func composerDraft(for sessionID: UUID) -> (text: String, images: [PiAgentImageAttachment], files: [PiAgentFileAttachment]) {
+        (
+            composerTextDraftsBySessionID[sessionID] ?? "",
+            composerImageDraftsBySessionID[sessionID] ?? [],
+            composerFileDraftsBySessionID[sessionID] ?? []
+        )
+    }
+
+    func saveComposerDraft(text: String, images: [PiAgentImageAttachment], files: [PiAgentFileAttachment], for sessionID: UUID) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty && files.isEmpty {
+            clearComposerDraft(for: sessionID)
+        } else {
+            composerTextDraftsBySessionID[sessionID] = text
+            composerImageDraftsBySessionID[sessionID] = images
+            composerFileDraftsBySessionID[sessionID] = files
+        }
+    }
+
+    func clearComposerDraft(for sessionID: UUID) {
+        composerTextDraftsBySessionID.removeValue(forKey: sessionID)
+        composerImageDraftsBySessionID.removeValue(forKey: sessionID)
+        composerFileDraftsBySessionID.removeValue(forKey: sessionID)
     }
 
     @discardableResult
@@ -130,19 +160,19 @@ final class PiAgentSessionStore: ObservableObject {
         sessionPlansBySessionID[record.id] = nil
         sessionPlanEventsBySessionID[record.id] = []
         selectedSessionID = record.id
-        save()
+        saveStructuralChange()
         return record
     }
 
     func select(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         selectedSessionID = id
-        save()
+        saveStructuralChange()
     }
 
     func clearSelection() {
         selectedSessionID = nil
-        save()
+        saveStructuralChange()
     }
 
     func updateSession(_ id: UUID, bumpUpdatedAt: Bool = false, mutate: (inout PiAgentSessionRecord) -> Void) {
@@ -151,6 +181,20 @@ final class PiAgentSessionStore: ObservableObject {
         if bumpUpdatedAt {
             sessions[index].updatedAt = Date()
         }
+        sortSessions()
+        save()
+    }
+
+    func updateAvailableModelsForSessions(_ sessionIDs: Set<UUID>? = nil, options: [PiAgentModelOption], overwriteExisting: Bool = false) {
+        var changed = false
+        for index in sessions.indices {
+            let session = sessions[index]
+            if let sessionIDs, !sessionIDs.contains(session.id) { continue }
+            guard overwriteExisting || (session.availableModels?.isEmpty ?? true) else { continue }
+            sessions[index].availableModels = options
+            changed = true
+        }
+        guard changed else { return }
         sortSessions()
         save()
     }
@@ -458,7 +502,7 @@ final class PiAgentSessionStore: ObservableObject {
         if let currentSelectedSessionID = selectedSessionID, existingIDs.contains(currentSelectedSessionID) {
             selectedSessionID = sessions.first?.id
         }
-        save()
+        saveStructuralChange()
     }
 
     func clearTranscript(for sessionID: UUID) {
@@ -603,9 +647,17 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     private func save() {
+        scheduleSave(after: defaultSaveDebounceNanoseconds)
+    }
+
+    private func saveStructuralChange() {
+        scheduleSave(after: structuralSaveDebounceNanoseconds)
+    }
+
+    private func scheduleSave(after nanoseconds: UInt64) {
         pendingSaveTask?.cancel()
         pendingSaveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 450_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.saveNow()

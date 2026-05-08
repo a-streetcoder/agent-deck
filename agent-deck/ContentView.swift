@@ -672,6 +672,7 @@ struct ContentView: View {
         let extensionCommandsAreVisible = viewModel.selectedSidebarItem == .commands
 
         return AgentDeckCommandContext(
+            canCreatePiAgentSession: true,
             canCreateAgent: true,
             canDeletePiAgentSession: selectedSession != nil,
             canStopPiAgentSession: selectedSessionIsRunning,
@@ -698,6 +699,7 @@ struct ContentView: View {
                 openSettings()
             },
             refresh: { viewModel.refreshEverything() },
+            createPiAgentSession: { viewModel.createPiAgentDraftForSelectedProject() },
             createAgent: {
                 editingAgent = nil
                 agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .library : .project)

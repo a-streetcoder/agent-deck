@@ -134,13 +134,15 @@ final class PiAgentRunnerService {
         store.clearUIRequest(sessionID: sessionID, id: requestID)
     }
 
-    func stop(sessionID: UUID) {
+    func stop(sessionID: UUID, recordTranscript: Bool = true) {
         streamFlushTasksBySessionID[sessionID]?.cancel()
         streamFlushTasksBySessionID[sessionID] = nil
         guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
         client.stop()
-        store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. Pi Agent received abort and the process is terminating."))
-        mark(sessionID, status: .stopped, error: nil)
+        if recordTranscript {
+            store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. Pi Agent received abort and the process is terminating."))
+            mark(sessionID, status: .stopped, error: nil)
+        }
     }
 
     func refreshPiControls(sessionID: UUID) {

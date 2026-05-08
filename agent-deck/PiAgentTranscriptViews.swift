@@ -445,6 +445,9 @@ struct PiAgentTranscriptThreadCard: View {
                         if visibility.showToolCalls && !toolActivities.isEmpty {
                             PiAgentActivitySummaryView(activities: toolActivities)
                         }
+                        if visibility.showDiffs {
+                            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+                        }
                         if visibility.showPlans {
                             ForEach(latestPlanEvents) { event in
                                 PiAgentCurrentPlanCard(event: event)
@@ -463,9 +466,6 @@ struct PiAgentTranscriptThreadCard: View {
                         ForEach(thread.assistantMessages) { entry in
                             PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(entry.id)
-                        }
-                        if visibility.showDiffs {
-                            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
                         }
                         if visibility.showErrors {
                             ForEach(thread.errors) { entry in

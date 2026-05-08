@@ -20,6 +20,10 @@ struct SettingsSceneContent: View {
             Tab("Subagents", systemImage: "slider.horizontal.3") {
                 SubagentsSettingsTab(viewModel: viewModel)
             }
+
+            Tab("Shortcuts", systemImage: "keyboard") {
+                ShortcutsSettingsTab()
+            }
         }
         .frame(minWidth: 660, idealWidth: 760, minHeight: 440, idealHeight: 520)
         .background(AppTheme.windowBackground)
@@ -414,6 +418,137 @@ private struct AgentSettingsTab: View {
 
     private var selectedTerminalPathText: String {
         viewModel.appSettings.piAgentTerminalApplicationPath ?? "macOS default"
+    }
+}
+
+// MARK: - Shortcuts
+
+private struct ShortcutsSettingsTab: View {
+    private let sections = AgentDeckShortcutSection.all
+
+    var body: some View {
+        SettingsForm {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Keyboard Shortcuts")
+                    .font(.title2.weight(.semibold))
+                Text("These shortcuts mirror the app menus and update from the same shortcut catalog used by Agent Deck.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 2)
+
+            ForEach(sections) { section in
+                SettingsSection {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(section.title)
+                            .font(.headline)
+
+                        VStack(spacing: 0) {
+                            ForEach(section.items) { item in
+                                ShortcutRow(item: item)
+
+                                if item.id != section.items.last?.id {
+                                    Divider()
+                                        .padding(.leading, 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ShortcutRow: View {
+    let item: AgentDeckShortcutItem
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(item.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 16)
+
+            ShortcutKeyChord(item: item)
+        }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.title), \(accessibilityShortcutText)")
+    }
+
+    private var accessibilityShortcutText: String {
+        item.displayParts.joined(separator: " ")
+    }
+}
+
+private struct ShortcutKeyChord: View {
+    let item: AgentDeckShortcutItem
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(item.displayParts, id: \.self) { part in
+                ShortcutKeyCap(part)
+            }
+        }
+        .fixedSize()
+    }
+}
+
+private struct ShortcutKeyCap: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.primary)
+            .frame(minWidth: 24, minHeight: 24)
+            .padding(.horizontal, text.count > 1 ? 6 : 0)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(AppTheme.contentSubtleFill)
+                    .shadow(color: .black.opacity(0.08), radius: 0, x: 0, y: 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(AppTheme.contentStroke, lineWidth: 1)
+            }
+    }
+}
+
+private extension AgentDeckShortcutItem {
+    var displayParts: [String] {
+        modifierDisplayParts + [keyDisplayText]
+    }
+
+    private var modifierDisplayParts: [String] {
+        var parts: [String] = []
+        if modifiers.contains(.control) { parts.append("⌃") }
+        if modifiers.contains(.option) { parts.append("⌥") }
+        if modifiers.contains(.shift) { parts.append("⇧") }
+        if modifiers.contains(.command) { parts.append("⌘") }
+        return parts
+    }
+
+    private var keyDisplayText: String {
+        switch key {
+        case "delete": return "⌫"
+        case "escape": return "Esc"
+        case "return": return "↩"
+        case " ": return "Space"
+        default: return key.uppercased()
+        }
     }
 }
 

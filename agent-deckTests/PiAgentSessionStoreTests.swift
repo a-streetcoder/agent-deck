@@ -64,6 +64,24 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
     }
 
+    func testAvailableModelSeedingBatchesSessionUpdatesWithoutOverwritingExistingByDefault() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let project = try PiTestSupport.makeProject()
+        let first = store.createSession(kind: .project, title: "First", project: project, repository: nil)
+        let second = store.createSession(kind: .project, title: "Second", project: project, repository: nil)
+        let original = PiAgentModelOption(provider: "openai", id: "old", name: nil, contextWindow: nil, maxOutput: nil, supportsThinking: false, supportedThinkingLevels: nil, supportsImages: false)
+        let seeded = PiAgentModelOption(provider: "anthropic", id: "new", name: nil, contextWindow: nil, maxOutput: nil, supportsThinking: true, supportedThinkingLevels: ["low"], supportsImages: true)
+
+        store.updateAvailableModelsForSessions([first.id], options: [original], overwriteExisting: true)
+        store.updateAvailableModelsForSessions(options: [seeded])
+
+        XCTAssertEqual(store.sessions.first(where: { $0.id == first.id })?.availableModels?.map(\.id), ["old"])
+        XCTAssertEqual(store.sessions.first(where: { $0.id == second.id })?.availableModels?.map(\.id), ["new"])
+
+        store.updateAvailableModelsForSessions(options: [seeded], overwriteExisting: true)
+        XCTAssertEqual(store.sessions.first(where: { $0.id == first.id })?.availableModels?.map(\.id), ["new"])
+    }
+
     func testSupervisorRequestAnswerAndCancelStateTransitions() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "Supervisor", project: try PiTestSupport.makeProject(), repository: nil)

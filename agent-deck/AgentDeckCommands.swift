@@ -1,6 +1,102 @@
 import SwiftUI
 
+enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
+    case newSession
+    case newAgent
+    case refresh
+    case stopSession
+    case deleteSession
+    case showRepoChanges
+    case toggleInspector
+    case resumeInTerminal
+    case editAgent
+    case refreshGitHub
+    case commitChanges
+    case pushBranch
+    case addProject
+    case importSkills
+    case newPrompt
+
+    var id: String { rawValue }
+}
+
+struct AgentDeckShortcutItem: Identifiable {
+    let action: AgentDeckShortcutAction
+    let title: String
+    let key: String
+    let modifiers: EventModifiers
+    let description: String
+
+    var id: AgentDeckShortcutAction { action }
+}
+
+struct AgentDeckShortcutSection: Identifiable {
+    let title: String
+    let items: [AgentDeckShortcutItem]
+
+    var id: String { title }
+}
+
+extension AgentDeckShortcutItem {
+    init(_ action: AgentDeckShortcutAction, _ title: String, key: String, modifiers: EventModifiers, description: String) {
+        self.action = action
+        self.title = title
+        self.key = key
+        self.modifiers = modifiers
+        self.description = description
+    }
+}
+
+extension AgentDeckShortcutSection {
+    static let all: [AgentDeckShortcutSection] = [
+        AgentDeckShortcutSection(title: "Session", items: [
+            .init(.newSession, "New Session", key: "n", modifiers: [.command], description: "Create a new Pi Agent session for the current project."),
+            .init(.stopSession, "Stop Session", key: ".", modifiers: [.command], description: "Stop the currently running session."),
+            .init(.deleteSession, "Delete Session", key: "delete", modifiers: [.command], description: "Delete the selected session."),
+            .init(.showRepoChanges, "Show Repo Changes", key: "2", modifiers: [.command, .option], description: "Open repository changes for the selected session."),
+            .init(.toggleInspector, "Toggle Inspector", key: "i", modifiers: [.command, .option], description: "Show or hide the session inspector."),
+            .init(.resumeInTerminal, "Resume in Terminal", key: "t", modifiers: [.command, .option], description: "Resume the selected session in your configured terminal.")
+        ]),
+        AgentDeckShortcutSection(title: "Agents", items: [
+            .init(.newAgent, "New Agent", key: "n", modifiers: [.command, .shift], description: "Create a new custom agent."),
+            .init(.editAgent, "Edit Agent", key: "e", modifiers: [.command, .option], description: "Edit the selected agent.")
+        ]),
+        AgentDeckShortcutSection(title: "App", items: [
+            .init(.refresh, "Refresh", key: "r", modifiers: [.command], description: "Refresh projects, agents, prompts, and GitHub data.")
+        ]),
+        AgentDeckShortcutSection(title: "GitHub", items: [
+            .init(.refreshGitHub, "Refresh GitHub", key: "g", modifiers: [.command, .shift], description: "Refresh GitHub issue and repository data."),
+            .init(.commitChanges, "Commit Changes", key: "c", modifiers: [.command, .option], description: "Commit the prepared GitHub changes."),
+            .init(.pushBranch, "Push Branch", key: "p", modifiers: [.command, .option], description: "Push the current GitHub branch.")
+        ]),
+        AgentDeckShortcutSection(title: "Projects & Resources", items: [
+            .init(.addProject, "Add Project…", key: "o", modifiers: [.command, .option], description: "Add a project folder."),
+            .init(.importSkills, "Import Skills…", key: "i", modifiers: [.command, .shift], description: "Import agent skills."),
+            .init(.newPrompt, "New Prompt", key: "n", modifiers: [.command, .option], description: "Create a new prompt template.")
+        ])
+    ]
+
+    static func item(for action: AgentDeckShortcutAction) -> AgentDeckShortcutItem {
+        all.flatMap(\.items).first { $0.action == action }!
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func agentDeckShortcut(_ action: AgentDeckShortcutAction) -> some View {
+        let item = AgentDeckShortcutSection.item(for: action)
+        if item.key == "delete" {
+            keyboardShortcut(.delete, modifiers: item.modifiers)
+        } else if let character = item.key.first {
+            keyboardShortcut(KeyEquivalent(character), modifiers: item.modifiers)
+        } else {
+            self
+        }
+    }
+}
+
 struct AgentDeckCommandContext {
+    var canCreatePiAgentSession = false
     var canCreateAgent = false
     var canDeletePiAgentSession = false
     var canStopPiAgentSession = false
@@ -26,6 +122,7 @@ struct AgentDeckCommandContext {
 
     var openSettings: () -> Void = {}
     var refresh: () -> Void = {}
+    var createPiAgentSession: () -> Void = {}
     var createAgent: () -> Void = {}
     var deletePiAgentSession: () -> Void = {}
     var stopPiAgentSession: () -> Void = {}
@@ -77,10 +174,16 @@ struct AgentDeckCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
+            Button("New Session") {
+                context?.createPiAgentSession()
+            }
+            .agentDeckShortcut(.newSession)
+            .disabled(context?.canCreatePiAgentSession != true)
+
             Button("New Agent") {
                 context?.createAgent()
             }
-            .keyboardShortcut("n", modifiers: [.command])
+            .agentDeckShortcut(.newAgent)
             .disabled(context?.canCreateAgent != true)
         }
 
@@ -88,7 +191,7 @@ struct AgentDeckCommands: Commands {
             Button("Refresh") {
                 context?.refresh()
             }
-            .keyboardShortcut("r", modifiers: [.command])
+            .agentDeckShortcut(.refresh)
             .disabled(context == nil)
         }
 
@@ -96,13 +199,13 @@ struct AgentDeckCommands: Commands {
             Button("Stop Session") {
                 context?.stopPiAgentSession()
             }
-            .keyboardShortcut(".", modifiers: [.command])
+            .agentDeckShortcut(.stopSession)
             .disabled(context?.canStopPiAgentSession != true)
 
             Button("Delete Session") {
                 context?.deletePiAgentSession()
             }
-            .keyboardShortcut(.delete, modifiers: [.command])
+            .agentDeckShortcut(.deleteSession)
             .disabled(context?.canDeletePiAgentSession != true)
 
             Divider()
@@ -110,19 +213,19 @@ struct AgentDeckCommands: Commands {
             Button("Show Repo Changes") {
                 context?.showPiAgentRepoChanges()
             }
-            .keyboardShortcut("2", modifiers: [.command, .option])
+            .agentDeckShortcut(.showRepoChanges)
             .disabled(context?.canOpenPiAgentRepoChanges != true)
 
             Button("Toggle Inspector") {
                 context?.togglePiAgentInspector()
             }
-            .keyboardShortcut("i", modifiers: [.command, .option])
+            .agentDeckShortcut(.toggleInspector)
             .disabled(context?.canTogglePiAgentInspector != true)
 
             Button("Resume in Terminal") {
                 context?.resumePiAgentInTerminal()
             }
-            .keyboardShortcut("t", modifiers: [.command, .option])
+            .agentDeckShortcut(.resumeInTerminal)
             .disabled(context?.canOpenPiAgentInTerminal != true)
 
             Divider()
@@ -130,7 +233,7 @@ struct AgentDeckCommands: Commands {
             Button("Edit Agent") {
                 context?.editSelectedAgent()
             }
-            .keyboardShortcut("e", modifiers: [.command, .option])
+            .agentDeckShortcut(.editAgent)
             .disabled(context?.canEditSelectedAgent != true)
 
             Button("Open Agent File") {
@@ -153,19 +256,19 @@ struct AgentDeckCommands: Commands {
             Button("Refresh GitHub") {
                 context?.refreshGitHub()
             }
-            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .agentDeckShortcut(.refreshGitHub)
             .disabled(context == nil)
 
             Button("Commit Changes") {
                 context?.commitGitHubChanges()
             }
-            .keyboardShortcut("c", modifiers: [.command, .option])
+            .agentDeckShortcut(.commitChanges)
             .disabled(context?.canCommitGitHubChanges != true)
 
             Button("Push Branch") {
                 context?.pushGitHubBranch()
             }
-            .keyboardShortcut("p", modifiers: [.command, .option])
+            .agentDeckShortcut(.pushBranch)
             .disabled(context?.canPushGitHubBranch != true)
         }
 
@@ -173,7 +276,7 @@ struct AgentDeckCommands: Commands {
             Button("Add Project…") {
                 context?.addProject()
             }
-            .keyboardShortcut("o", modifiers: [.command, .option])
+            .agentDeckShortcut(.addProject)
             .disabled(context?.canAddProject != true)
 
             Divider()
@@ -193,7 +296,7 @@ struct AgentDeckCommands: Commands {
             Button("Import Skills…") {
                 context?.importSkills()
             }
-            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .agentDeckShortcut(.importSkills)
             .disabled(context?.canImportSkills != true)
 
             Divider()
@@ -201,7 +304,7 @@ struct AgentDeckCommands: Commands {
             Button("New Prompt") {
                 context?.createPrompt()
             }
-            .keyboardShortcut("n", modifiers: [.command, .option])
+            .agentDeckShortcut(.newPrompt)
             .disabled(context?.canCreatePrompt != true)
 
             Button("Copy Prompt Invocation") {

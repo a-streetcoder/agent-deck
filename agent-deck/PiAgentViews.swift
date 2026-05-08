@@ -288,9 +288,6 @@ struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
-    @State private var composerTextBySessionID: [UUID: String] = [:]
-    @State private var composerImagesBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
-    @State private var composerFilesBySessionID: [UUID: [PiAgentFileAttachment]] = [:]
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
@@ -307,6 +304,7 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
+    @State private var transcriptIsPinnedToBottom = true
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
     @State private var sessionSortOrder: PiAgentSessionSortOrder = .created
@@ -365,6 +363,7 @@ struct PiAgentScreen: View {
                 lastSelectedSessionID = nil
             }
             loadComposerDraft(for: newID)
+            transcriptIsPinnedToBottom = true
             syncRuntimeFooterSnapshot()
             scheduleTranscriptCacheUpdate()
         }
@@ -729,20 +728,27 @@ struct PiAgentScreen: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .background {
+                PiAgentScrollPositionObserver { isPinnedToBottom in
+                    transcriptIsPinnedToBottom = isPinnedToBottom
+                }
+            }
             .onChange(of: transcriptCache.renderRevision) { _, _ in
+                guard transcriptIsPinnedToBottom else { return }
                 Task { @MainActor in
                     await Task.yield()
                     scrollToLatestThread(proxy: proxy)
                 }
             }
             .onChange(of: transcriptCache.streamingRevision) { _, _ in
+                guard transcriptIsPinnedToBottom else { return }
                 Task { @MainActor in
                     await Task.yield()
                     throttleStreamingScroll(proxy: proxy)
                 }
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
-                guard message != nil else { return }
+                guard message != nil, transcriptIsPinnedToBottom else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
             .onChange(of: transcriptBottomScrollRequest) { _, _ in
@@ -839,6 +845,7 @@ struct PiAgentScreen: View {
     }
 
     private func scrollToRequestedBottom(proxy: ScrollViewProxy) {
+        transcriptIsPinnedToBottom = true
         scrollToConversationBottom(proxy: proxy, animated: true)
     }
 
@@ -1054,23 +1061,16 @@ struct PiAgentScreen: View {
             clearComposerInput()
             return
         }
-        composerText = composerTextBySessionID[sessionID] ?? ""
-        composerImages = composerImagesBySessionID[sessionID] ?? []
-        composerFiles = composerFilesBySessionID[sessionID] ?? []
+        let draft = store.composerDraft(for: sessionID)
+        composerText = draft.text
+        composerImages = draft.images
+        composerFiles = draft.files
         composerAttachmentError = nil
     }
 
     private func saveComposerDraft(for sessionID: UUID?) {
         guard let sessionID else { return }
-        if composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && composerImages.isEmpty && composerFiles.isEmpty {
-            composerTextBySessionID.removeValue(forKey: sessionID)
-            composerImagesBySessionID.removeValue(forKey: sessionID)
-            composerFilesBySessionID.removeValue(forKey: sessionID)
-        } else {
-            composerTextBySessionID[sessionID] = composerText
-            composerImagesBySessionID[sessionID] = composerImages
-            composerFilesBySessionID[sessionID] = composerFiles
-        }
+        store.saveComposerDraft(text: composerText, images: composerImages, files: composerFiles, for: sessionID)
     }
 
     private func clearComposerInput() {
@@ -1092,9 +1092,7 @@ struct PiAgentScreen: View {
         requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
-            composerTextBySessionID.removeValue(forKey: sentSessionID)
-            composerImagesBySessionID.removeValue(forKey: sentSessionID)
-            composerFilesBySessionID.removeValue(forKey: sentSessionID)
+            store.clearComposerDraft(for: sentSessionID)
         }
     }
 
@@ -1291,6 +1289,85 @@ struct PiAgentScreen: View {
         case .failed: return .red
         case .stopped: return .orange
         case .draft: return .secondary
+        }
+    }
+}
+
+private struct PiAgentScrollPositionObserver: NSViewRepresentable {
+    let onPinnedToBottomChange: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPinnedToBottomChange: onPinnedToBottomChange)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            context.coordinator.attach(to: view.enclosingScrollView)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
+        DispatchQueue.main.async {
+            context.coordinator.attach(to: view.enclosingScrollView)
+            context.coordinator.reportPinnedState()
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var onPinnedToBottomChange: (Bool) -> Void
+        private weak var scrollView: NSScrollView?
+        private var lastPinnedState: Bool?
+        private let bottomTolerance: CGFloat = 56
+
+        init(onPinnedToBottomChange: @escaping (Bool) -> Void) {
+            self.onPinnedToBottomChange = onPinnedToBottomChange
+        }
+
+        deinit {
+            if let scrollView {
+                NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+            }
+        }
+
+        func attach(to newScrollView: NSScrollView?) {
+            guard scrollView !== newScrollView else { return }
+            if let scrollView {
+                NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+            }
+            scrollView = newScrollView
+            newScrollView?.contentView.postsBoundsChangedNotifications = true
+            if let contentView = newScrollView?.contentView {
+                NotificationCenter.default.addObserver(self, selector: #selector(boundsDidChange), name: NSView.boundsDidChangeNotification, object: contentView)
+            }
+            reportPinnedState()
+        }
+
+        @objc private func boundsDidChange() {
+            reportPinnedState()
+        }
+
+        func reportPinnedState() {
+            guard let scrollView, let documentView = scrollView.documentView else {
+                publish(true)
+                return
+            }
+
+            let visibleMaxY = scrollView.contentView.bounds.maxY
+            let documentHeight = documentView.bounds.height
+            let distanceFromBottom = max(0, documentHeight - visibleMaxY)
+            publish(distanceFromBottom <= bottomTolerance || documentHeight <= scrollView.contentView.bounds.height + bottomTolerance)
+        }
+
+        private func publish(_ isPinned: Bool) {
+            guard lastPinnedState != isPinned else { return }
+            lastPinnedState = isPinned
+            DispatchQueue.main.async { [onPinnedToBottomChange] in
+                onPinnedToBottomChange(isPinned)
+            }
         }
     }
 }

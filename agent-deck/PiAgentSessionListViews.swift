@@ -225,7 +225,9 @@ struct PiAgentSessionRow: View {
             HStack(alignment: .center, spacing: 5) {
                 Text(sessionTitle)
                     .lineLimit(2)
-                    .lineSpacing(-1.5)
+                    .minimumScaleFactor(0.8)
+                    .allowsTightening(true)
+                    .lineSpacing(-3)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
                     .frame(maxHeight: 22, alignment: .center)

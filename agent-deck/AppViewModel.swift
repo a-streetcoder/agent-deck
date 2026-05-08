@@ -2454,7 +2454,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func deletePiAgentSessions(_ sessionIDs: Set<UUID>) {
         for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID) {
-            piAgentRunner.stop(sessionID: sessionID)
+            piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)
         }
         piAgentSessionStore.deleteSessions(sessionIDs)
     }
@@ -3890,9 +3890,7 @@ final class AppViewModel: NSObject, ObservableObject {
               session.availableModels?.isEmpty ?? true else { return }
         let enabledModels = enabledAvailableModels
         if !enabledModels.isEmpty {
-            piAgentSessionStore.updateSession(sessionID) { record in
-                record.availableModels = piAgentModelOptions(from: enabledModels)
-            }
+            piAgentSessionStore.updateAvailableModelsForSessions([sessionID], options: piAgentModelOptions(from: enabledModels))
             return
         }
 
@@ -3916,11 +3914,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let enabledModels = models.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
         guard !enabledModels.isEmpty || overwriteExisting else { return }
         let options = piAgentModelOptions(from: enabledModels)
-        for session in piAgentSessionStore.sessions where overwriteExisting || (session.availableModels?.isEmpty ?? true) {
-            piAgentSessionStore.updateSession(session.id) { record in
-                record.availableModels = options
-            }
-        }
+        piAgentSessionStore.updateAvailableModelsForSessions(options: options, overwriteExisting: overwriteExisting)
     }
 
     private func piAgentModelOptions(from models: [AvailableModel]) -> [PiAgentModelOption] {
