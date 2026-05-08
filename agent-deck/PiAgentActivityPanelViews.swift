@@ -199,7 +199,7 @@ struct PiAgentCurrentPlanCard: View {
 
     init(event: PiSessionPlanEventRecord) {
         self.title = "Plan"
-        self.subtitle = "\(event.planID.uuidString.prefix(8)) · \(event.timestamp.formatted(date: .omitted, time: .shortened))"
+        self.subtitle = String(event.planID.uuidString.prefix(8))
         self.items = event.items
     }
 
@@ -211,7 +211,7 @@ struct PiAgentCurrentPlanCard: View {
                     .foregroundStyle(AppTheme.brandAccent)
                     .frame(width: 22, height: 22)
                     .background(Circle().fill(AppTheme.brandAccent.opacity(0.13)))
-                VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(title)
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.primary)
