@@ -8,7 +8,7 @@ enum AppTheme {
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
 
-    static let brandAccent = Color.accentColor
+    static let brandAccent = Color("AccentColor")
     static let brandAccentBright = adaptiveColor(light: RGB(44, 205, 199), dark: RGB(96, 232, 224))
     static let brandAccentDeep = adaptiveColor(light: RGB(13, 132, 129), dark: RGB(49, 122, 121))
     static let brandAccentShadow = adaptiveColor(light: RGB(207, 245, 243), dark: RGB(37, 72, 74))

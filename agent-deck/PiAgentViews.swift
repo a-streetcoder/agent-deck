@@ -312,7 +312,7 @@ struct PiAgentScreen: View {
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             sessionsColumn
                 .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
 
@@ -490,20 +490,21 @@ struct PiAgentScreen: View {
                 }
                 .layoutPriority(1)
                 Spacer()
-                Button(role: .destructive) {
-                    requestDeleteSessions(sessionDeleteTargets)
-                } label: {
-                    Image(systemName: sessionDeleteTargets.isEmpty ? "trash" : "trash.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(sessionDeleteTargets.isEmpty ? AppTheme.mutedText.opacity(0.45) : Color.red)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(sessionDeleteTargets.isEmpty ? AppTheme.contentSubtleFill.opacity(0.85) : Color.red.opacity(0.12)))
+                if selectedSessionIDs.count > 1 {
+                    Button(role: .destructive) {
+                        requestDeleteSessions(selectedSessionIDs)
+                    } label: {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.red)
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(Color.red.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete selected sessions")
+                    .accessibilityLabel("Delete selected sessions")
                 }
-                .buttonStyle(.plain)
-                .disabled(sessionDeleteTargets.isEmpty)
-                .help(sessionDeleteTargets.count > 1 ? "Delete selected sessions" : "Delete selected session")
-                .accessibilityLabel(sessionDeleteTargets.count > 1 ? "Delete selected sessions" : "Delete selected session")
                 Button {
                     withAnimation(.snappy(duration: 0.18)) {
                         sessionSortOrder.toggle()
@@ -564,7 +565,7 @@ struct PiAgentScreen: View {
                 }
             }
         }
-        .appPanelSurface(cornerRadius: 0)
+        .background(Color.clear)
     }
 
     @ViewBuilder

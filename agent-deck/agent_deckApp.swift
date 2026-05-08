@@ -69,7 +69,7 @@ struct agent_deckApp: App {
             ContentView()
                 .environmentObject(viewModel)
                 .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
-                .tint(.accentColor)
+                .tint(AppTheme.brandAccent)
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)
@@ -78,7 +78,7 @@ struct agent_deckApp: App {
             SettingsSceneContent()
                 .environmentObject(viewModel)
                 .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
-                .tint(.accentColor)
+                .tint(AppTheme.brandAccent)
         }
         .commands {
             AgentDeckCommands()

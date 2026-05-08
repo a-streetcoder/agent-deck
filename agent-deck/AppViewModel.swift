@@ -587,6 +587,12 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func applyProjectPreferenceChanges() {
+        // Preference changes (especially hiding/removing a project) must invalidate any
+        // in-flight refresh that was built with older preferences. Otherwise a stale
+        // refresh can apply after this local mutation and reinsert the removed project.
+        refreshRequestID += 1
+        refreshTask?.cancel()
+
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
         discoveredProjects = discoveredProjects.compactMap { project in
             let preference = projectPreferencesStore.preference(for: project.path)

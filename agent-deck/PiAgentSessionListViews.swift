@@ -82,13 +82,6 @@ struct PiAgentSessionRow: View {
                 .layoutPriority(1)
 
                 Spacer(minLength: 0)
-
-                if session.needsAttention {
-                    Image(systemName: "bell.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(AppTheme.brandAccent)
-                        .help("Pi Agent finished and needs review")
-                }
             }
 
             HStack(spacing: 6) {
@@ -112,10 +105,7 @@ struct PiAgentSessionRow: View {
 
                 Spacer(minLength: 0)
 
-                if isRunning {
-                    activeStatusLabel
-                        .transition(.opacity)
-                }
+                attentionStatusSlot
             }
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)
@@ -153,12 +143,38 @@ struct PiAgentSessionRow: View {
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
+    private var attentionStatusSlot: some View {
+        if isRunning || session.needsAttention {
+            ZStack {
+                if isRunning {
+                    activeStatusLabel
+                        .transition(.opacity)
+                } else if session.needsAttention {
+                    needsAttentionBell
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: 58, alignment: .trailing)
+            .animation(.snappy(duration: 0.24), value: isRunning)
+            .animation(.snappy(duration: 0.24), value: session.needsAttention)
+        }
+    }
+
     private var activeStatusLabel: some View {
         Text("ACTIVE")
             .font(.system(size: 7, weight: .bold, design: .monospaced))
             .tracking(1.2)
             .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
             .accessibilityHidden(true)
+    }
+
+    private var needsAttentionBell: some View {
+        Image(systemName: "bell.fill")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(AppTheme.brandAccent)
+            .help("Pi Agent finished and needs review")
+            .accessibilityLabel("Needs review")
     }
 
     private var activeBackgroundGradient: LinearGradient {
