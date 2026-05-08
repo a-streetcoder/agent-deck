@@ -8,6 +8,11 @@ enum PiTestSupport {
         let restoreEnvironment: () -> Void
     }
 
+    struct EnvCaptureHarness {
+        let envLog: URL
+        let restoreEnvironment: () -> Void
+    }
+
     static func temporaryStateFile() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-deck-tests-\(UUID().uuidString)", isDirectory: true)
@@ -183,6 +188,48 @@ enum PiTestSupport {
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         return executable
+    }
+
+    static func makeEnvCaptureHarness(keys: [String]) throws -> EnvCaptureHarness {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-env-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let envLog = directory.appendingPathComponent("env.log")
+        let executable = directory.appendingPathComponent("pi")
+        let lines = keys.map { key in
+            "printf '\(key)=%s\\n' \"${\(key)-}\""
+        }.joined(separator: "\n")
+        let script = """
+        #!/bin/sh
+        {
+        \(lines)
+        } > \(shellSingleQuoted(envLog.path))
+        while IFS= read -r line; do
+          sleep 1
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        return EnvCaptureHarness(envLog: envLog) {
+            if let oldPiPath {
+                setenv("AGENT_DECK_PI_PATH", oldPiPath, 1)
+            } else {
+                unsetenv("AGENT_DECK_PI_PATH")
+            }
+        }
+    }
+
+    static func capturedEnvironment(in logURL: URL) -> [String: String] {
+        guard let content = try? String(contentsOf: logURL, encoding: .utf8) else { return [:] }
+        var values: [String: String] = [:]
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let key = parts.first, !key.isEmpty else { continue }
+            values[String(key)] = parts.count > 1 ? String(parts[1]) : ""
+        }
+        return values
     }
 
     static func extensionUIResponses(in logURL: URL) -> [[String: Any]] {

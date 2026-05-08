@@ -3,6 +3,78 @@ import XCTest
 
 @MainActor
 final class PiAgentBridgeSmokeTests: XCTestCase {
+    func testEnvRuntimeEnvironmentMergesBaseGlobalProjectAndRuntimePrecedence() throws {
+        let directory = try PiTestSupport.temporaryProjectURL()
+        let globalEnv = directory.appendingPathComponent("global.env")
+        let projectEnv = directory.appendingPathComponent(".pi/.env")
+        try FileManager.default.createDirectory(at: projectEnv.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        SHARED=global
+        GLOBAL_ONLY=global-value
+        QUOTED="hello world"
+        INVALID-NAME=ignored
+        AGENT_DECK_PARENT_SESSION_ID=global-bad
+        """.write(to: globalEnv, atomically: true, encoding: .utf8)
+        try """
+        SHARED=project
+        PROJECT_ONLY=project-value
+        AGENT_DECK_PARENT_SESSION_ID=project-bad
+        """.write(to: projectEnv, atomically: true, encoding: .utf8)
+
+        let environment = EnvRuntimeEnvironment().environment(
+            globalEnv: globalEnv,
+            projectEnv: projectEnv,
+            base: [
+                "SHARED": "base",
+                "BASE_ONLY": "base-value"
+            ],
+            extra: ["AGENT_DECK_PARENT_SESSION_ID": "runtime-good"]
+        )
+
+        XCTAssertEqual(environment["BASE_ONLY"], "base-value")
+        XCTAssertEqual(environment["GLOBAL_ONLY"], "global-value")
+        XCTAssertEqual(environment["PROJECT_ONLY"], "project-value")
+        XCTAssertEqual(environment["QUOTED"], "hello world")
+        XCTAssertEqual(environment["SHARED"], "project")
+        XCTAssertEqual(environment["AGENT_DECK_PARENT_SESSION_ID"], "runtime-good")
+        XCTAssertNil(environment["INVALID-NAME"])
+    }
+
+    func testParentSessionInjectsProjectEnvIntoPiProcess() throws {
+        let harness = try PiTestSupport.makeEnvCaptureHarness(keys: [
+            "AGENT_DECK_ENV_SMOKE",
+            "AGENT_DECK_ENV_COLLIDE",
+            "AGENT_DECK_PARENT_SESSION_ID"
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let oldCollide = getenv("AGENT_DECK_ENV_COLLIDE").map { String(cString: $0) }
+        setenv("AGENT_DECK_ENV_COLLIDE", "base", 1)
+        defer { restoreEnv("AGENT_DECK_ENV_COLLIDE", oldValue: oldCollide) }
+
+        let projectURL = try PiTestSupport.temporaryProjectURL()
+        let projectEnv = projectURL.appendingPathComponent(".pi/.env")
+        try FileManager.default.createDirectory(at: projectEnv.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        AGENT_DECK_ENV_SMOKE=project-value
+        AGENT_DECK_ENV_COLLIDE=project-wins
+        AGENT_DECK_PARENT_SESSION_ID=project-must-not-win
+        """.write(to: projectEnv, atomically: true, encoding: .utf8)
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Env", project: try PiTestSupport.makeProject(url: projectURL), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { FileManager.default.fileExists(atPath: harness.envLog.path) })
+        let captured = PiTestSupport.capturedEnvironment(in: harness.envLog)
+        XCTAssertEqual(captured["AGENT_DECK_ENV_SMOKE"], "project-value")
+        XCTAssertEqual(captured["AGENT_DECK_ENV_COLLIDE"], "project-wins")
+        XCTAssertEqual(captured["AGENT_DECK_PARENT_SESSION_ID"], session.id.uuidString)
+    }
+
     func testManagedSubagentBridgeRoutesRequestAndResponds() throws {
         let payload = #"{"agent":"scout","task":"Map the repo.","context":"fresh","reads":["README.md"]}"#
         let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "bridge-subagent-1", name: "managed_subagent", payload: payload))
@@ -369,6 +441,14 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(launchCommand.contains("agent-deck-ask-user-bridge.ts"))
         _ = harness
         return (store, runner, session)
+    }
+
+    private func restoreEnv(_ key: String, oldValue: String?) {
+        if let oldValue {
+            setenv(key, oldValue, 1)
+        } else {
+            unsetenv(key)
+        }
     }
 }
 

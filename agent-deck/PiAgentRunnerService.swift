@@ -222,13 +222,17 @@ final class PiAgentRunnerService {
                 }
             }
             let sessionID = session.id
+            let environment = EnvRuntimeEnvironment().environment(
+                projectRoot: projectURL,
+                extra: ["AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString]
+            )
             let client = try PiRPCClient(
                 cwd: projectURL,
                 sessionFile: resumeExisting ? session.piSessionFile : nil,
                 provider: session.modelOverrideProvider,
                 model: session.modelOverrideID,
                 extraArguments: extraArguments,
-                environment: ["AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString],
+                environment: environment,
                 onEvent: { [weak self] rawLine, event in
                     Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, sessionID: sessionID) }
                 },

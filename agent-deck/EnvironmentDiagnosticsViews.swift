@@ -10,8 +10,10 @@ struct EnvironmentScreen: View {
         AppPage("Environment", subtitle: "Keys are shown without secret values unless you explicitly reveal them") {
             AppCard(title: "How Environment Resolution Works") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• Project `.env` values win over global/user `.env` values for the same key.")
-                    Text("• The effective list shows the winning value per key, not every duplicate at once.")
+                    Text("• New Pi sessions launched from Agent Deck receive inherited app environment, then global `.env`, then project `.env`, then Agent Deck runtime variables.")
+                    Text("• Project `.env` values win over global/user `.env` values for the same key. Agent Deck runtime variables win over both.")
+                    Text("• This does not change standalone Pi CLI/TUI behavior. If Pi or a Pi extension loads `.env` there, that is separate.")
+                    Text("• Existing sessions keep the environment they started with. Start or resume a session to pick up saved changes.")
                     Text("• Reveal only changes the app display. It does not change the file.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -23,10 +25,10 @@ struct EnvironmentScreen: View {
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
                         if snapshot.projectRoot != nil {
-                            Text("Project keys override global keys when the same name appears in both files.")
+                            Text("Showing the values Agent Deck will inject for new sessions in this project. Duplicate keys are marked with their winning source and overridden files.")
                                 .foregroundStyle(AppTheme.mutedText)
                         } else {
-                            Text("Showing the effective global environment plus any discovered project-specific keys. Select a project to inspect one merged environment precisely.")
+                            Text("Showing discovered global environment keys. Select a project to inspect the exact merged environment for that project.")
                                 .foregroundStyle(AppTheme.mutedText)
                         }
 
@@ -44,7 +46,21 @@ struct EnvironmentScreen: View {
                                                 .foregroundStyle(AppTheme.mutedText)
                                         }
                                         Spacer()
+                                        if !row.overriddenRecords.isEmpty {
+                                            AppLabelTag(text: "Overrides \(row.overriddenRecords.count)", color: .red)
+                                        }
                                         AppLabelTag(text: row.winningSource.kind.rawValue, color: row.winningSource.kind == .project ? .green : .orange)
+                                    }
+
+                                    if !row.overriddenRecords.isEmpty {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            ForEach(row.overriddenRecords, id: \.id) { record in
+                                                Text("Overrides \(record.source.path)")
+                                                    .font(.caption)
+                                                    .foregroundStyle(AppTheme.mutedText)
+                                            }
+                                        }
+                                        .padding(.leading, 32)
                                     }
 
                                     HStack(spacing: 10) {
@@ -127,7 +143,7 @@ struct EnvironmentScreen: View {
             } else {
                 summary = "Using \(winning.source.path) over \(overridden.map { $0.source.path }.joined(separator: ", "))"
             }
-            return EffectiveEnvRow(key: key, winningRecord: winning, winningSource: winning.source, summary: summary)
+            return EffectiveEnvRow(key: key, winningRecord: winning, winningSource: winning.source, overriddenRecords: overridden, summary: summary)
         }
     }
 
@@ -170,6 +186,7 @@ struct EffectiveEnvRow {
     let key: String
     let winningRecord: EnvKeyRecord
     let winningSource: ScopeID
+    let overriddenRecords: [EnvKeyRecord]
     let summary: String
 }
 

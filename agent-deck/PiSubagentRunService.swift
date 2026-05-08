@@ -174,17 +174,22 @@ final class PiSubagentRunService {
 
         let childSessionID = UUID()
         let parentSessionID = parentSession.id
-        let client = try PiRPCClient(
-            cwd: worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath),
-            provider: modelSelection.provider,
-            modelArgument: modelArgument,
-            extraArguments: extraArguments,
-            environment: [
+        let childProjectURL = worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
+        let environment = EnvRuntimeEnvironment().environment(
+            projectRoot: childProjectURL,
+            extra: [
                 "AGENT_DECK_NATIVE_SUBAGENT": "1",
                 "AGENT_DECK_SUBAGENT_RUN_ID": runID.uuidString,
                 "AGENT_DECK_SUBAGENT_AGENT": agent.name,
                 "MCP_DIRECT_TOOLS": mcpDirectTools(for: agent).isEmpty ? "__none__" : mcpDirectTools(for: agent).joined(separator: ",")
-            ],
+            ]
+        )
+        let client = try PiRPCClient(
+            cwd: childProjectURL,
+            provider: modelSelection.provider,
+            modelArgument: modelArgument,
+            extraArguments: extraArguments,
+            environment: environment,
             onEvent: { [weak self] rawLine, event in
                 Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, runID: runID, parentSessionID: parentSessionID) }
             },

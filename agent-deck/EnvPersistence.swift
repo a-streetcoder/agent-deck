@@ -96,3 +96,60 @@ struct EnvPersistence {
         return path.contains("/.pi/.env")
     }
 }
+
+struct EnvRuntimeEnvironment {
+    struct ParsedFile {
+        let path: String
+        let values: [String: String]
+    }
+
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    func environment(projectRoot: URL?, base: [String: String] = ProcessInfo.processInfo.environment, extra: [String: String] = [:]) -> [String: String] {
+        let globalEnv = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env")
+        let projectEnv = projectRoot?.appendingPathComponent(".pi/.env")
+        return environment(globalEnv: globalEnv, projectEnv: projectEnv, base: base, extra: extra)
+    }
+
+    func environment(globalEnv: URL?, projectEnv: URL?, base: [String: String] = ProcessInfo.processInfo.environment, extra: [String: String] = [:]) -> [String: String] {
+        var merged = base
+        for file in parsedFiles(globalEnv: globalEnv, projectEnv: projectEnv) {
+            merged.merge(file.values) { _, new in new }
+        }
+        merged.merge(extra) { _, new in new }
+        return merged
+    }
+
+    func parsedFiles(globalEnv: URL?, projectEnv: URL?) -> [ParsedFile] {
+        [globalEnv, projectEnv].compactMap { url in
+            guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            let values = parse(text)
+            return values.isEmpty ? nil : ParsedFile(path: url.path, values: values)
+        }
+    }
+
+    private func parse(_ text: String) -> [String: String] {
+        var values: [String: String] = [:]
+        for rawLine in text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let rawKey = parts.first else { continue }
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else { continue }
+            var value = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+            if value.count >= 2,
+               let first = value.first,
+               let last = value.last,
+               (first == "\"" && last == "\"" || first == "'" && last == "'") {
+                value = String(value.dropFirst().dropLast())
+            }
+            values[String(key)] = value
+        }
+        return values
+    }
+}

@@ -76,6 +76,39 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
 
 @MainActor
 final class PiSubagentRunServiceSmokeTests: XCTestCase {
+    func testRunSingleInjectsProjectEnvIntoChildPiProcess() throws {
+        let harness = try PiTestSupport.makeEnvCaptureHarness(keys: [
+            "AGENT_DECK_ENV_CHILD_SMOKE",
+            "AGENT_DECK_NATIVE_SUBAGENT",
+            "AGENT_DECK_SUBAGENT_AGENT"
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let projectURL = try PiTestSupport.temporaryProjectURL()
+        let projectEnv = projectURL.appendingPathComponent(".pi/.env")
+        try FileManager.default.createDirectory(at: projectEnv.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "AGENT_DECK_ENV_CHILD_SMOKE=child-project-value\n".write(to: projectEnv, atomically: true, encoding: .utf8)
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession(projectURL: projectURL)
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(name: "scout"),
+            snapshot: .empty,
+            task: "report env",
+            requestedContext: .fresh
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { FileManager.default.fileExists(atPath: harness.envLog.path) })
+        let captured = PiTestSupport.capturedEnvironment(in: harness.envLog)
+        XCTAssertEqual(captured["AGENT_DECK_ENV_CHILD_SMOKE"], "child-project-value")
+        XCTAssertEqual(captured["AGENT_DECK_NATIVE_SUBAGENT"], "1")
+        XCTAssertEqual(captured["AGENT_DECK_SUBAGENT_AGENT"], "scout")
+    }
+
     func testRunSingleCreatesArtifactsAndRecordsResolvedModelBeforeProcessEvents() throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
