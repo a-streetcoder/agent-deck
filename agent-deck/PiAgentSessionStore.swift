@@ -5,6 +5,7 @@ import Foundation
 final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var sessions: [PiAgentSessionRecord] = []
     @Published private(set) var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]] = [:]
+    @Published private(set) var transcriptLoadingSessionIDs: Set<UUID> = []
     @Published private(set) var transcriptRevisionsBySessionID: [UUID: Int] = [:]
     @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
     @Published private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:]
@@ -38,6 +39,7 @@ final class PiAgentSessionStore: ObservableObject {
     private var persistedSubagentTranscriptRunIDs: Set<UUID> = []
     private var loadedTranscriptSessionOrder: [UUID] = []
     private var loadedSubagentTranscriptOrder: [UUID] = []
+    private var transcriptLoadTasksBySessionID: [UUID: Task<Void, Never>] = [:]
 
     init(fileManager: FileManager = .default) {
         let settings = AppSettingsStore.shared.settings
@@ -74,12 +76,17 @@ final class PiAgentSessionStore: ObservableObject {
 
     var selectedTranscript: [PiAgentTranscriptEntry] {
         guard let session = selectedSession else { return [] }
-        return transcript(for: session.id)
+        return transcriptsBySessionID[session.id] ?? []
     }
 
     var selectedTranscriptRevision: Int {
         guard let session = selectedSession else { return 0 }
         return transcriptRevisionsBySessionID[session.id] ?? 0
+    }
+
+    var isSelectedTranscriptLoading: Bool {
+        guard let selectedSessionID else { return false }
+        return transcriptLoadingSessionIDs.contains(selectedSessionID)
     }
 
     var selectedUIRequest: PiAgentUIRequest? {
@@ -191,7 +198,11 @@ final class PiAgentSessionStore: ObservableObject {
     func select(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         selectedSessionID = id
-        _ = transcript(for: id)
+        if lazyTranscriptLoadingEnabled {
+            requestTranscriptLoad(for: id)
+        } else {
+            _ = transcript(for: id)
+        }
         saveStructuralChange()
     }
 
@@ -201,6 +212,7 @@ final class PiAgentSessionStore: ObservableObject {
         if lazyLoadingEnabled {
             evictTranscriptsIfNeeded()
         } else {
+            cancelAllTranscriptLoadTasks()
             loadAllPersistedTranscriptsIntoMemory()
         }
     }
@@ -292,6 +304,35 @@ final class PiAgentSessionStore: ObservableObject {
         markTranscriptSessionUsed(sessionID)
         evictTranscriptsIfNeeded(protectingSessionID: sessionID)
         return transcriptsBySessionID[sessionID] ?? []
+    }
+
+    func requestSelectedTranscriptLoad() {
+        guard let selectedSessionID else { return }
+        requestTranscriptLoad(for: selectedSessionID)
+    }
+
+    func requestTranscriptLoad(for sessionID: UUID) {
+        guard lazyTranscriptLoadingEnabled else {
+            _ = transcript(for: sessionID)
+            return
+        }
+        guard transcriptsBySessionID[sessionID] == nil else {
+            markTranscriptSessionUsed(sessionID)
+            evictTranscriptsIfNeeded(protectingSessionID: sessionID)
+            return
+        }
+        guard persistedTranscriptSessionIDs.contains(sessionID) else { return }
+        guard transcriptLoadTasksBySessionID[sessionID] == nil else { return }
+
+        let fileURL = parentTranscriptURL(sessionID)
+        transcriptLoadingSessionIDs.insert(sessionID)
+        transcriptLoadTasksBySessionID[sessionID] = Task.detached(priority: .utility) { [weak self] in
+            let entries = (try? Self.readParentTranscript(from: fileURL)) ?? []
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.finishRequestedTranscriptLoad(sessionID, entries: entries)
+            }
+        }
     }
 
     func supervisorRequests(for sessionID: UUID) -> [PiSubagentSupervisorRequest] {
@@ -546,6 +587,7 @@ final class PiAgentSessionStore: ObservableObject {
 
         sessions.removeAll { existingIDs.contains($0.id) }
         for sessionID in existingIDs {
+            cancelTranscriptLoadTask(for: sessionID)
             transcriptsBySessionID[sessionID] = nil
             persistedTranscriptSessionIDs.remove(sessionID)
             loadedTranscriptSessionOrder.removeAll { $0 == sessionID }
@@ -570,6 +612,7 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     func clearTranscript(for sessionID: UUID) {
+        cancelTranscriptLoadTask(for: sessionID)
         transcriptsBySessionID[sessionID] = []
         persistTranscript(sessionID)
         markTranscriptSessionUsed(sessionID)
@@ -830,15 +873,8 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     private func loadInitialTranscriptCache() {
-        if let selectedSessionID {
-            loadTranscriptIfNeeded(selectedSessionID)
-            markTranscriptSessionUsed(selectedSessionID)
-        }
-        for session in sessions.prefix(transcriptCacheLimit) {
-            loadTranscriptIfNeeded(session.id)
-            markTranscriptSessionUsed(session.id)
-        }
-        evictTranscriptsIfNeeded()
+        guard !lazyTranscriptLoadingEnabled else { return }
+        loadAllPersistedTranscriptsIntoMemory()
     }
 
     private func loadAllPersistedTranscriptsIntoMemory() {
@@ -855,6 +891,34 @@ final class PiAgentSessionStore: ObservableObject {
     private func loadTranscriptIfNeeded(_ sessionID: UUID) {
         guard transcriptsBySessionID[sessionID] == nil, persistedTranscriptSessionIDs.contains(sessionID) else { return }
         transcriptsBySessionID[sessionID] = (try? Self.readParentTranscript(from: parentTranscriptURL(sessionID))) ?? []
+    }
+
+    private func finishRequestedTranscriptLoad(_ sessionID: UUID, entries: [PiAgentTranscriptEntry]) {
+        guard transcriptLoadTasksBySessionID[sessionID] != nil else { return }
+        transcriptLoadTasksBySessionID[sessionID] = nil
+        transcriptLoadingSessionIDs.remove(sessionID)
+        guard sessions.contains(where: { $0.id == sessionID }) else { return }
+
+        if transcriptsBySessionID[sessionID] == nil {
+            transcriptsBySessionID[sessionID] = entries
+        }
+        transcriptRevisionsBySessionID[sessionID, default: 0] += 1
+        markTranscriptSessionUsed(sessionID)
+        evictTranscriptsIfNeeded(protectingSessionID: sessionID)
+    }
+
+    private func cancelTranscriptLoadTask(for sessionID: UUID) {
+        transcriptLoadTasksBySessionID[sessionID]?.cancel()
+        transcriptLoadTasksBySessionID[sessionID] = nil
+        transcriptLoadingSessionIDs.remove(sessionID)
+    }
+
+    private func cancelAllTranscriptLoadTasks() {
+        for task in transcriptLoadTasksBySessionID.values {
+            task.cancel()
+        }
+        transcriptLoadTasksBySessionID = [:]
+        transcriptLoadingSessionIDs = []
     }
 
     private func loadSubagentTranscriptIfNeeded(_ runID: UUID) {

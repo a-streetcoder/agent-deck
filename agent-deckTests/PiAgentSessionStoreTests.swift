@@ -61,6 +61,31 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.transcriptsBySessionID[second.id]?.map(\.text), ["second transcript"])
     }
 
+    func testLazyTranscriptLoadingStartsEmptyAndLoadsSelectedTranscriptAsynchronously() throws {
+        let originalSettings = AppSettingsStore.shared.settings
+        defer { AppSettingsStore.shared.settings = originalSettings }
+        AppSettingsStore.shared.settings.piAgentLazyTranscriptLoadingEnabled = true
+        AppSettingsStore.shared.settings.piAgentLoadedTranscriptCacheLimit = 1
+
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        firstStore.configureTranscriptMemory(lazyLoadingEnabled: true, cacheLimit: 1)
+        let session = firstStore.createSession(kind: .project, title: "Async", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.append(.init(sessionID: session.id, role: .user, title: "User", text: "async transcript"))
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+
+        XCTAssertNil(reloadedStore.transcriptsBySessionID[session.id])
+        XCTAssertEqual(reloadedStore.selectedTranscript, [])
+
+        reloadedStore.requestSelectedTranscriptLoad()
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            reloadedStore.selectedTranscript.map(\.text) == ["async transcript"]
+        })
+    }
+
     func testReloadWithNilPersistedSelectionSelectsFirstSession() throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)

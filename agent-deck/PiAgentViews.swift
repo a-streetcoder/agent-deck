@@ -352,6 +352,7 @@ struct PiAgentScreen: View {
             loadComposerDraft(for: store.selectedSession?.id)
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
+            store.requestSelectedTranscriptLoad()
             scheduleTranscriptCacheUpdate()
         }
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
@@ -390,6 +391,7 @@ struct PiAgentScreen: View {
             transcriptAutoScrollSuppressed = false
             showArchivedPreCompactionTranscript = false
             syncRuntimeFooterSnapshot()
+            store.requestSelectedTranscriptLoad()
             scheduleTranscriptCacheUpdate()
         }
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
@@ -751,7 +753,21 @@ struct PiAgentScreen: View {
                     if let archive = preCompactionArchiveNotice {
                         preCompactionArchiveCard(archive)
                     }
-                    if timelineItems.isEmpty {
+                    if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
+                        AppRowCard {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Loading transcript")
+                                        .font(.headline)
+                                    Text("Restoring the selected chat from disk.")
+                                        .foregroundStyle(AppTheme.mutedText)
+                                }
+                                Spacer()
+                            }
+                        }
+                    } else if timelineItems.isEmpty {
                         AppRowCard {
                             HStack(spacing: 12) {
                                 Image(systemName: "text.bubble")
@@ -1400,8 +1416,7 @@ struct PiAgentScreen: View {
             session.projectPath,
             session.repository ?? "",
             session.issueNumber.map(String.init) ?? "",
-            session.lastSummary ?? "",
-            store.transcript(for: session.id).map { "\($0.title) \($0.text)" }.joined(separator: " ")
+            session.lastSummary ?? ""
         ].joined(separator: " ")
         return haystack.localizedCaseInsensitiveContains(query)
     }
