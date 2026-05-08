@@ -9,6 +9,7 @@ struct SidebarNavigationRow: View {
         HStack(spacing: 8) {
             icon
             Text(item.rawValue)
+                .font(.callout.weight(.medium))
             if showsWarning {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption.weight(.semibold))
@@ -55,7 +56,7 @@ struct PiAgentSidebarButton: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pi Agent")
-                        .font(.body.weight(.semibold))
+                        .font(.callout.weight(.semibold))
                         .fontWidth(.expanded)
                         .foregroundStyle(.primary)
                     Text(isSelected ? "Ready" : "Open")

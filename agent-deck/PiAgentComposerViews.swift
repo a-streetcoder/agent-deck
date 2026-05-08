@@ -899,13 +899,27 @@ private struct PiAgentSmartZoneContextBar: View {
         min(max(percent, 0), 100)
     }
 
+    private var warningThreshold: Double {
+        showsSmartZoneHint ? 40 : 70
+    }
+
+    private var usageFill: AnyShapeStyle {
+        if clampedPercent >= 90 {
+            return AnyShapeStyle(Color.red.gradient)
+        }
+        if clampedPercent >= warningThreshold {
+            return AnyShapeStyle(Color.orange.gradient)
+        }
+        return AnyShapeStyle(AppTheme.brandAccent.gradient)
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             Capsule(style: .continuous)
                 .fill(AppTheme.contentFill.opacity(0.75))
 
             Capsule(style: .continuous)
-                .fill(clampedPercent > 85 ? Color.orange : AppTheme.brandAccent)
+                .fill(usageFill)
                 .frame(width: width * clampedPercent / 100)
 
             if showsSmartZoneHint {
@@ -999,10 +1013,6 @@ struct PiAgentContextBreakdownPopover: View {
 
             PiAgentContextDotGrid(rows: visibleRows)
 
-            if showsSmartZoneHint {
-                PiAgentSmartZoneExplanation(usedPercent: usedPercent)
-            }
-
             VStack(alignment: .leading, spacing: 8) {
                 if session.contextBreakdown.isEmpty == false {
                     Text("Exact from Pi RPC")
@@ -1027,7 +1037,7 @@ struct PiAgentContextBreakdownPopover: View {
                             tokens: session.contextTokens,
                             percent: session.contextPercent,
                             detail: nil,
-                            tint: usedPercent > 85 ? .orange : AppTheme.brandAccent
+                            tint: usedPercent >= 90 ? .red : (usedPercent >= 70 ? .orange : AppTheme.brandAccent)
                         )
                     } else {
                         ForEach(estimate.rows) { row in
@@ -1457,13 +1467,26 @@ struct PiAgentModelStatus: View {
     let session: PiAgentSessionRecord
 
     var body: some View {
-        Label(modelLabel, systemImage: "cpu")
-            .font(.footnote.weight(.semibold))
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+        HStack(spacing: 6) {
+            modelIcon
+            Text(modelLabel)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.footnote.weight(.semibold))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var modelIcon: some View {
+        if let provider = session.modelOverrideProvider ?? session.modelProvider,
+           ProviderLogo.assetName(for: provider) != nil {
+            ProviderLogoImage(provider: provider, size: 16)
+        } else {
+            Image(systemName: "cpu")
+        }
     }
 
     private var modelLabel: String {
@@ -1579,7 +1602,7 @@ struct PiAgentModelPicker: View {
             isPresented.toggle()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "cpu")
+                modelIcon
                 Text(modelLabel)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1617,7 +1640,7 @@ struct PiAgentModelPicker: View {
                         ForEach(groupedModelOptions, id: \.provider) { group in
                             VStack(alignment: .leading, spacing: 5) {
                                 HStack(spacing: 6) {
-                                    Text(group.provider)
+                                    ProviderLabel(provider: group.provider, logoSize: 14, spacing: 5)
                                         .font(.caption.weight(.bold))
                                         .fontWidth(.expanded)
                                         .foregroundStyle(.primary)
@@ -1673,6 +1696,16 @@ struct PiAgentModelPicker: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? AppTheme.selectionFill : Color.clear))
+    }
+
+    @ViewBuilder
+    private var modelIcon: some View {
+        if let provider = resolvedProvider,
+           ProviderLogo.assetName(for: provider) != nil {
+            ProviderLogoImage(provider: provider, size: 16)
+        } else {
+            Image(systemName: "cpu")
+        }
     }
 
     private var modelOptions: [PiAgentModelOption] {

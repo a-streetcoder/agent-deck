@@ -207,8 +207,8 @@ struct ModelsScreen: View {
 
     private func providerSection(_ group: (provider: String, models: [AvailableModel])) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(group.provider)
+            HStack(alignment: .center) {
+                ProviderLabel(provider: group.provider, logoSize: 22, spacing: 8)
                     .font(.title3.weight(.bold))
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)

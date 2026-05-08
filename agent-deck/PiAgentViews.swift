@@ -240,7 +240,7 @@ private struct PiAgentTranscriptTimelineItem: Identifiable {
     let kind: Kind
 }
 
-private enum PiAgentSessionSortOrder {
+private enum PiAgentSessionSortOrder: String {
     case created
     case updated
 
@@ -307,7 +307,7 @@ struct PiAgentScreen: View {
     @State private var transcriptIsPinnedToBottom = true
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
-    @State private var sessionSortOrder: PiAgentSessionSortOrder = .created
+    @AppStorage("piAgentSessionSortOrder") private var sessionSortOrder: PiAgentSessionSortOrder = .created
     @State private var isUIRequestSheetPresented = false
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
@@ -524,7 +524,8 @@ struct PiAgentScreen: View {
                 }
                 .help(viewModel.selectedDiscoveredProject == nil ? "New Pi Agent session in \(viewModel.configuredProjectsRootPath)" : "New Pi Agent session")
             }
-            .padding(18)
+            .padding(.vertical, 18)
+            .padding(.horizontal, 18)
 
             if scopedSessions.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
@@ -542,70 +543,20 @@ struct PiAgentScreen: View {
                 .padding(18)
                 Spacer()
             } else {
-                VStack(spacing: 0) {
+                VStack(spacing: 10) {
+                    PiAgentSessionSearchField(text: $sessionSearchText)
+                        .padding(.horizontal, 18)
+
                     if visibleSessions.isEmpty {
                         ContentUnavailableView("No sessions found", systemImage: "magnifyingglass", description: Text("Try another search."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        List {
+                        List(selection: $selectedSessionIDs) {
                             ForEach(visibleSessions) { session in
-                                PiAgentSessionRow(
-                                    session: session,
-                                    project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
-                                    isSelected: selectedSessionIDs.contains(session.id),
-                                    isRunning: session.status.isActive,
-                                    isRenaming: renamingSessionID == session.id,
-                                    isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
-                                    onSelect: {
-                                        renamingSessionID = nil
-                                        withAnimation(.snappy(duration: 0.22)) {
-                                            selectSessionFromList(session)
-                                        }
-                                    },
-                                    onBeginRename: {
-                                        withAnimation(.snappy(duration: 0.22)) {
-                                            selectSessionFromList(session, forceSingle: true)
-                                        }
-                                        renamingSessionID = session.id
-                                    },
-                                    onEndRename: { renamingSessionID = nil },
-                                    onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
-                                    onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) }
-                                )
-                                .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
-                                .listRowSeparator(.automatic)
-                                .listRowBackground(Color.clear)
-                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                    Button {
-                                        viewModel.togglePiAgentSessionPinned(session.id)
-                                    } label: {
-                                        Label(session.isPinned ? "Unpin" : "Pin", systemImage: session.isPinned ? "pin.slash" : "pin")
-                                    }
-                                    .tint(AppTheme.brandAccent)
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
-                                    } label: {
-                                        Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected" : "Delete", systemImage: "trash")
-                                    }
-                                }
-                                .contextMenu {
-                                    Button {
-                                        viewModel.togglePiAgentSessionPinned(session.id)
-                                    } label: {
-                                        Label(session.isPinned ? "Unpin Session" : "Pin Session", systemImage: session.isPinned ? "pin.slash" : "pin")
-                                    }
-                                    Button(role: .destructive) {
-                                        requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
-                                    } label: {
-                                        Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
-                                    }
-                                }
+                                sessionListRow(session)
                             }
                         }
-                        .listStyle(.inset)
-                        .searchable(text: $sessionSearchText, prompt: "Search all sessions")
+                        .listStyle(.plain)
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
                         .animation(.snappy(duration: 0.24), value: visibleSessionIDs)
@@ -614,6 +565,81 @@ struct PiAgentScreen: View {
             }
         }
         .appPanelSurface(cornerRadius: 0)
+    }
+
+    @ViewBuilder
+    private func sessionListRow(_ session: PiAgentSessionRecord) -> some View {
+        PiAgentSessionRow(
+            session: session,
+            project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
+            isSelected: selectedSessionIDs.contains(session.id),
+            isRunning: session.status.isActive,
+            isRenaming: renamingSessionID == session.id,
+            isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
+            onSelect: {
+                renamingSessionID = nil
+                withAnimation(.snappy(duration: 0.22)) {
+                    selectSessionFromList(session)
+                }
+            },
+            onBeginRename: {
+                withAnimation(.snappy(duration: 0.22)) {
+                    selectSessionFromList(session, forceSingle: true)
+                }
+                renamingSessionID = session.id
+            },
+            onEndRename: { renamingSessionID = nil },
+            onRename: { viewModel.renamePiAgentSession(session.id, title: $0) },
+            onTogglePinned: { viewModel.togglePiAgentSessionPinned(session.id) }
+        )
+        .tag(session.id)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .listRowSeparator(.automatic)
+        .listRowBackground(activeSessionListRowBackground(isActive: session.status.isActive))
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button {
+                viewModel.togglePiAgentSessionPinned(session.id)
+            } label: {
+                Label(session.isPinned ? "Unpin" : "Pin", systemImage: session.isPinned ? "pin.slash" : "pin")
+            }
+            .tint(AppTheme.brandAccent)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
+            } label: {
+                Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected" : "Delete", systemImage: "trash")
+            }
+        }
+        .contextMenu {
+            Button {
+                viewModel.togglePiAgentSessionPinned(session.id)
+            } label: {
+                Label(session.isPinned ? "Unpin Session" : "Pin Session", systemImage: session.isPinned ? "pin.slash" : "pin")
+            }
+            Button(role: .destructive) {
+                requestDeleteSessions(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? selectedSessionIDs : [session.id])
+            } label: {
+                Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activeSessionListRowBackground(isActive: Bool) -> some View {
+        if isActive {
+            LinearGradient(
+                colors: [
+                    AppTheme.brandAccentBright.opacity(0.10),
+                    AppTheme.brandAccent.opacity(0.045),
+                    AppTheme.brandAccentDeep.opacity(0.08)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            Color.clear
+        }
     }
 
     private var activeSessionColumn: some View {

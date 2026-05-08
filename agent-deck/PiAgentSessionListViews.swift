@@ -73,9 +73,6 @@ struct PiAgentSessionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .center, spacing: 8) {
-                selectedSessionIndicator
-                    .opacity(isSelected ? 1 : 0)
-
                 HStack(alignment: .center, spacing: 6) {
                     PiAgentProjectIcon(project: project, session: session)
 
@@ -107,7 +104,6 @@ struct PiAgentSessionRow: View {
             }
             .font(.footnote)
             .foregroundStyle(AppTheme.mutedText)
-            .padding(.leading, 14)
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
@@ -123,12 +119,10 @@ struct PiAgentSessionRow: View {
             }
             .font(.caption)
             .foregroundStyle(AppTheme.mutedText)
-            .padding(.leading, 14)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(sessionRowBackground)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
@@ -159,17 +153,6 @@ struct PiAgentSessionRow: View {
             .accessibilityHidden(true)
     }
 
-    private var sessionRowBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        return shape
-            .fill(isSelected ? AppTheme.selectionFill.opacity(0.82) : Color.clear)
-            .overlay {
-                if isRunning {
-                    shape.fill(activeBackgroundGradient.opacity(isSelected ? 0.55 : 1))
-                }
-            }
-    }
-
     private var activeStatusLabel: some View {
         Text("ACTIVE")
             .font(.system(size: 7, weight: .bold, design: .monospaced))
@@ -195,7 +178,7 @@ struct PiAgentSessionRow: View {
         if isRenaming {
             TextField("Session name", text: $draftTitle)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .fontWidth(.expanded)
                 .lineLimit(1)
                 .frame(height: 22, alignment: .center)
@@ -210,29 +193,26 @@ struct PiAgentSessionRow: View {
             HStack(alignment: .center, spacing: 5) {
                 Text(sessionTitle)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.9)
+                    .fixedSize(horizontal: false, vertical: true)
                     .allowsTightening(true)
-                    .lineSpacing(-3)
+                    .lineSpacing(-2)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
-                    .frame(maxHeight: 22, alignment: .center)
+                    .frame(maxHeight: 30, alignment: .center)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
                 Image(systemName: "pencil")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(AppTheme.mutedText)
-                    .opacity(isTitleHovered ? 1 : 0)
+                    .opacity(isTitleHovered ? 0.8 : 0)
             }
-            .font(.system(size: 11.5, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .fontWidth(.expanded)
             .foregroundStyle(.primary)
             .padding(.horizontal, 5)
-            .frame(height: 22, alignment: .center)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isTitleHovered ? AppTheme.contentSubtleFill.opacity(0.65) : Color.clear)
-            )
+            .frame(minHeight: 22, maxHeight: 30, alignment: .center)
             .contentShape(Rectangle())
             .onHover { isTitleHovered = $0 }
             .onTapGesture(perform: onBeginRename)

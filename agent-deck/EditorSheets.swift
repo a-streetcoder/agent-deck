@@ -328,12 +328,14 @@ struct AgentEditorSheet: View {
     @ViewBuilder
     private func modelPickerMenu(select: @escaping (AvailableModel) -> Void) -> some View {
         ForEach(groupedAvailableModels, id: \.provider) { group in
-            Menu(group.provider) {
+            Menu {
                 ForEach(group.models) { model in
                     Button(modelMenuLabel(for: model)) {
                         select(model)
                     }
                 }
+            } label: {
+                ProviderLabel(provider: group.provider)
             }
         }
     }
