@@ -362,16 +362,24 @@ struct PiAgentUIRequestCard: View {
     }
 
     private func textInput(submitTitle: String, cancelTitle: String, cancelAction: @escaping () -> Void, submitAction: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canSubmit = !trimmedDraft.isEmpty || request.allowsEmptyInputResponse
+
+        return VStack(alignment: .leading, spacing: 8) {
             TextField(request.placeholder ?? "Response", text: $draft, axis: request.method == .editor ? .vertical : .horizontal)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(request.method == .editor ? 4...10 : 1...3)
+                .onSubmit {
+                    if canSubmit {
+                        submitAction()
+                    }
+                }
             HStack(spacing: 10) {
                 Spacer()
                 Button(cancelTitle, action: cancelAction)
                 Button(submitTitle, action: submitAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!canSubmit)
             }
         }
     }
@@ -382,3 +390,10 @@ struct PiAgentUIRequestCard: View {
     }
 }
 
+private extension PiAgentUIRequest {
+    var allowsEmptyInputResponse: Bool {
+        guard method == .input else { return false }
+        let prompt = (placeholder ?? "").lowercased()
+        return prompt.contains("press enter to skip") || prompt.contains("optional")
+    }
+}

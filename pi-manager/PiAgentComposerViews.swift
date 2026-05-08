@@ -233,6 +233,7 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.isRichText = false
         textView.isEditable = !isDisabled
+        textView.allowsUndo = true
         textView.importsGraphics = false
         textView.allowsImageEditing = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
