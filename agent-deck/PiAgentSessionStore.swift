@@ -17,8 +17,11 @@ final class PiAgentSessionStore: ObservableObject {
     var newSessionSubagentsEnabled = true
 
     private let maxTranscriptEntriesPerSession = 500
+    private let transcriptRevisionCoalesceNanoseconds: UInt64 = 33_000_000
     private let fileURL: URL
     private var pendingSaveTask: Task<Void, Never>?
+    private var pendingTranscriptRevisionSessionIDs: Set<UUID> = []
+    private var pendingTranscriptRevisionTask: Task<Void, Never>?
 
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -559,7 +562,24 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     private func bumpTranscriptRevision(_ sessionID: UUID) {
-        transcriptRevisionsBySessionID[sessionID, default: 0] += 1
+        pendingTranscriptRevisionSessionIDs.insert(sessionID)
+        guard pendingTranscriptRevisionTask == nil else { return }
+        pendingTranscriptRevisionTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: self?.transcriptRevisionCoalesceNanoseconds ?? 33_000_000)
+            guard !Task.isCancelled else { return }
+            self?.flushPendingTranscriptRevisions()
+        }
+    }
+
+    private func flushPendingTranscriptRevisions() {
+        let sessionIDs = pendingTranscriptRevisionSessionIDs
+        pendingTranscriptRevisionSessionIDs.removeAll()
+        pendingTranscriptRevisionTask = nil
+
+        let existingSessionIDs = Set(sessions.map(\.id))
+        for sessionID in sessionIDs where existingSessionIDs.contains(sessionID) {
+            transcriptRevisionsBySessionID[sessionID, default: 0] += 1
+        }
     }
 
     private func sortSessions() {
