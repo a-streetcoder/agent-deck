@@ -2,6 +2,25 @@ import AppKit
 import SwiftUI
 
 
+private extension View {
+    func sidebarBottomFade(height: CGFloat = 36) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black.opacity(0), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: height)
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @EnvironmentObject private var viewModel: AppViewModel
@@ -75,6 +94,7 @@ struct ContentView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .sidebarBottomFade()
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
@@ -117,7 +137,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1180, minHeight: 700)
-        .navigationTitle(viewModel.selectedSidebarItem == .agent ? "" : toolbarTitle)
+        .navigationTitle(toolbarTitle)
         .focusedSceneValue(\.agentDeckCommands, commandContext)
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             handleSidebarSelectionChange(newValue)
@@ -149,8 +169,14 @@ struct ContentView: View {
         }
         .toolbar {
             if viewModel.selectedSidebarItem == .agent {
-                ToolbarItem(placement: .principal) {
-                    piAgentToolbarTitleView
+                ToolbarItem(placement: .navigation) {
+                    Button(role: .destructive) {
+                        showingPiAgentDeleteAlert = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .help("Delete the current Pi Agent session")
+                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                 }
             }
 
@@ -496,14 +522,6 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItemGroup {
-                    Button(role: .destructive) {
-                        showingPiAgentDeleteAlert = true
-                    } label: {
-                        Label("Delete Session", systemImage: "trash")
-                    }
-                    .help("Delete the current Pi Agent session")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-
                     Button {
                         isPiAgentTranscriptOptionsPresented.toggle()
                     } label: {
@@ -918,43 +936,6 @@ struct ContentView: View {
         }
     }
 
-    private var piAgentToolbarTitleView: some View {
-        HStack(spacing: 8) {
-            Image("pi")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(AppTheme.brandAccent)
-                .frame(width: 16, height: 16)
-
-            Text(toolbarTitle)
-                .font(.system(.headline, design: .rounded, weight: .semibold))
-                .lineLimit(1)
-
-            if let session = viewModel.piAgentSessionStore.selectedSession {
-                Text(session.status.isActive ? "Active" : session.kind.rawValue)
-                    .font(.caption2.weight(.bold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(session.status.isActive ? AppTheme.brandAccent : AppTheme.mutedText)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill((session.status.isActive ? AppTheme.brandAccent : AppTheme.contentSubtleFill).opacity(0.12)))
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule()
-                .fill(AppTheme.contentFill.opacity(0.82))
-                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
-        )
-        .overlay(
-            Capsule()
-                .strokeBorder(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(toolbarTitle)
-    }
 
     private var filteredProjects: [DiscoveredProject] {
         let query = debouncedProjectFilterText

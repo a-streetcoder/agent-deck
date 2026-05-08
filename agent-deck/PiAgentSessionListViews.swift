@@ -98,7 +98,7 @@ struct PiAgentSessionRow: View {
             .font(.footnote)
             .foregroundStyle(AppTheme.mutedText)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)

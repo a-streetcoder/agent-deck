@@ -313,11 +313,13 @@ struct PiAgentScreen: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            sessionsColumn
-                .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
+            HSplitView {
+                sessionsColumn
+                    .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
 
-            activeSessionColumn
-                .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+                activeSessionColumn
+                    .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
