@@ -72,12 +72,11 @@ struct PiAgentSessionRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 selectedSessionIndicator
                     .opacity(isSelected ? 1 : 0)
-                    .padding(.top, 10)
 
-                HStack(alignment: .top, spacing: 5) {
+                HStack(alignment: .center, spacing: 6) {
                     PiAgentProjectIcon(project: project, session: session)
 
                     titleView
@@ -211,9 +210,10 @@ struct PiAgentSessionRow: View {
         if isRenaming {
             TextField("Session name", text: $draftTitle)
                 .textFieldStyle(.plain)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: 11.5, weight: .semibold))
                 .fontWidth(.expanded)
                 .lineLimit(1)
+                .frame(height: 22, alignment: .center)
                 .focused($isTitleFocused)
                 .onSubmit(commitRename)
                 .onExitCommand { resetRenameState() }
@@ -222,11 +222,13 @@ struct PiAgentSessionRow: View {
                     isTitleFocused = true
                 }
         } else {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
+            HStack(alignment: .center, spacing: 5) {
                 Text(sessionTitle)
                     .lineLimit(2)
+                    .lineSpacing(-1.5)
                     .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxHeight: 22, alignment: .center)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
@@ -235,11 +237,11 @@ struct PiAgentSessionRow: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .opacity(isTitleHovered ? 1 : 0)
             }
-            .font(.subheadline.weight(.semibold))
+            .font(.system(size: 11.5, weight: .semibold))
             .fontWidth(.expanded)
             .foregroundStyle(.primary)
             .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .frame(height: 22, alignment: .center)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(isTitleHovered ? AppTheme.contentSubtleFill.opacity(0.65) : Color.clear)

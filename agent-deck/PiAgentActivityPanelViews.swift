@@ -213,10 +213,10 @@ struct PiAgentCurrentPlanCard: View {
                     .background(Circle().fill(AppTheme.brandAccent.opacity(0.13)))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.caption.weight(.semibold))
+                        .font(.callout.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(.caption2.weight(.medium))
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer(minLength: 0)
