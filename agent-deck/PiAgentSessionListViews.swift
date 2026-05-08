@@ -72,11 +72,12 @@ struct PiAgentSessionRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 selectedSessionIndicator
                     .opacity(isSelected ? 1 : 0)
+                    .padding(.top, 10)
 
-                HStack(alignment: .center, spacing: 5) {
+                HStack(alignment: .top, spacing: 5) {
                     PiAgentProjectIcon(project: project, session: session)
 
                     titleView
@@ -221,11 +222,11 @@ struct PiAgentSessionRow: View {
                     isTitleFocused = true
                 }
         } else {
-            HStack(spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(sessionTitle)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
-                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.numericText())
                     .opacity(isGeneratingTitle ? 0.62 : 1)
                     .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)

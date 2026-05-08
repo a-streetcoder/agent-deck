@@ -198,8 +198,8 @@ struct PiAgentCurrentPlanCard: View {
     }
 
     init(event: PiSessionPlanEventRecord) {
-        self.title = event.displayTitle
-        self.subtitle = "Plan \(event.planID.uuidString.prefix(8)) · \(event.timestamp.formatted(date: .omitted, time: .shortened))"
+        self.title = "Plan"
+        self.subtitle = "\(event.planID.uuidString.prefix(8)) · \(event.timestamp.formatted(date: .omitted, time: .shortened))"
         self.items = event.items
     }
 
@@ -285,17 +285,6 @@ struct PiAgentCurrentPlanCard: View {
         case .done: return .green
         case .blocked: return .orange
         case .skipped: return AppTheme.mutedText
-        }
-    }
-}
-
-private extension PiSessionPlanEventRecord {
-    var displayTitle: String {
-        switch kind {
-        case .created: return "Plan created"
-        case .updated: return "Plan updated"
-        case .replaced: return "New plan"
-        case .cleared: return "Plan cleared"
         }
     }
 }
