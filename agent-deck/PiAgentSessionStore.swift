@@ -212,6 +212,7 @@ final class PiAgentSessionStore: ObservableObject {
 
     func setSessionPlan(sessionID: UUID, items: [PiSessionPlanBridgeItem]) -> PiSessionPlanRecord {
         let now = Date()
+        let existingPlan = sessionPlansBySessionID[sessionID]
         let planID = UUID()
         var seen = Set<String>()
         let records = items.prefix(12).enumerated().compactMap { index, item -> PiSessionPlanItemRecord? in
@@ -225,8 +226,12 @@ final class PiAgentSessionStore: ObservableObject {
         let record = PiSessionPlanRecord(id: planID, sessionID: sessionID, items: records, createdAt: now, updatedAt: now)
         if records.isEmpty {
             sessionPlansBySessionID[sessionID] = nil
+            if let existingPlan {
+                appendPlanEvent(sessionID: sessionID, planID: existingPlan.id, kind: .cleared, items: [], timestamp: now)
+            }
         } else {
             sessionPlansBySessionID[sessionID] = record
+            appendPlanEvent(sessionID: sessionID, planID: planID, kind: existingPlan == nil ? .created : .replaced, items: records, timestamp: now)
         }
         touchSession(sessionID, bumpUpdatedAt: true)
         return record
@@ -255,12 +260,17 @@ final class PiAgentSessionStore: ObservableObject {
         guard changed else { return plan }
         plan.updatedAt = now
         sessionPlansBySessionID[sessionID] = plan
+        appendPlanEvent(sessionID: sessionID, planID: plan.id, kind: .updated, items: plan.items, timestamp: now)
         touchSession(sessionID, bumpUpdatedAt: false)
         return plan
     }
 
     func clearSessionPlan(sessionID: UUID) {
+        let existingPlan = sessionPlansBySessionID[sessionID]
         sessionPlansBySessionID[sessionID] = nil
+        if let existingPlan {
+            appendPlanEvent(sessionID: sessionID, planID: existingPlan.id, kind: .cleared, items: [], timestamp: Date())
+        }
         save()
     }
 

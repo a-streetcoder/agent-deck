@@ -243,7 +243,7 @@ struct PiAgentCurrentPlanCard: View {
                         Text(item.title)
                             .font(.callout)
                             .foregroundStyle(item.status == .done || item.status == .skipped ? AppTheme.mutedText : .primary)
-                            .strikethrough(item.status == .skipped, color: AppTheme.mutedText)
+                            .strikethrough(item.status == .done || item.status == .skipped, color: AppTheme.mutedText)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)

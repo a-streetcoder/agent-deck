@@ -76,7 +76,7 @@ final class PiAgentRunnerService {
         }
         let isStreaming = store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true
         let effectiveMode: PiAgentInputMode = isStreaming ? .steer : mode
-        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(message, images: images)))
+        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(message, images: images), rawJSON: transcriptAttachmentJSON(images: images)))
         switch effectiveMode {
         case .prompt:
             client.prompt(message, images: images)
@@ -201,7 +201,7 @@ final class PiAgentRunnerService {
         let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
             let message = userMessage(trimmedInitialPrompt, images: initialImages)
-            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(message, images: initialImages)))
+            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(message, images: initialImages), rawJSON: transcriptAttachmentJSON(images: initialImages)))
         }
 
         do {
@@ -339,15 +339,15 @@ final class PiAgentRunnerService {
     }
 
     private func transcriptText(_ text: String, images: [PiAgentImageAttachment]) -> String {
-        let visibleText = visibleUserText(text)
-        guard !images.isEmpty else { return visibleText }
-        let imageList = images.map { image in
-            "- <image name=\"\(image.name)\" mimeType=\"\(image.mimeType)\" size=\"\(ByteCountFormatter.string(fromByteCount: Int64(image.sizeBytes), countStyle: .file))\"></image>"
-        }.joined(separator: "\n")
-        return "\(visibleText)\n\nAttached images:\n\(imageList)"
+        visibleUserText(text, imageReferences: Set(images.compactMap { $0.fileReference ?? $0.name }))
     }
 
-    private func visibleUserText(_ text: String) -> String {
+    private func transcriptAttachmentJSON(images: [PiAgentImageAttachment]) -> String? {
+        guard !images.isEmpty, let data = try? JSONEncoder().encode(["images": images]), let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+    }
+
+    private func visibleUserText(_ text: String, imageReferences: Set<String> = []) -> String {
         let pattern = #"<file name=\"([^\"]+)\">[\s\S]*?</file>"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
@@ -355,7 +355,9 @@ final class PiAgentRunnerService {
         var stripped = text
         for match in regex.matches(in: text, range: range).reversed() {
             let path = (text as NSString).substring(with: match.range(at: 1))
-            attachments.append(URL(fileURLWithPath: path).lastPathComponent)
+            if !imageReferences.contains(path) && !imageReferences.contains(URL(fileURLWithPath: path).lastPathComponent) {
+                attachments.append(URL(fileURLWithPath: path).lastPathComponent)
+            }
             if let range = Range(match.range, in: stripped) {
                 stripped.removeSubrange(range)
             }

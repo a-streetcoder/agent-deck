@@ -14,6 +14,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
     var showToolCalls: Bool = true
     var showErrors: Bool = true
     var showPlans: Bool = true
+    var showDiffs: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case showThinking
@@ -21,6 +22,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
         case showToolCalls
         case showErrors
         case showPlans
+        case showDiffs
     }
 
     init() {}
@@ -32,6 +34,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
         showToolCalls = try container.decodeIfPresent(Bool.self, forKey: .showToolCalls) ?? true
         showErrors = try container.decodeIfPresent(Bool.self, forKey: .showErrors) ?? true
         showPlans = try container.decodeIfPresent(Bool.self, forKey: .showPlans) ?? true
+        showDiffs = try container.decodeIfPresent(Bool.self, forKey: .showDiffs) ?? true
     }
 }
 

@@ -410,6 +410,7 @@ struct PiAgentTranscriptThreadCard: View {
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
     let visibility: PiAgentTranscriptVisibilitySettings
     let skills: [SkillRecord]
+    let projectPath: String?
     let nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
     let nativeSubagentCard: (PiSubagentRunRecord) -> PiNativeSubagentRunCard
 
@@ -443,6 +444,9 @@ struct PiAgentTranscriptThreadCard: View {
                         if visibility.showToolCalls && !toolActivities.isEmpty {
                             PiAgentActivitySummaryView(activities: toolActivities)
                         }
+                        if visibility.showDiffs {
+                            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+                        }
                         ForEach(thread.statuses) { entry in
                             if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
                                 nativeSubagentCard(run)
@@ -473,7 +477,7 @@ struct PiAgentTranscriptThreadCard: View {
     }
 
     private var hasChildren: Bool {
-        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || !thread.statuses.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
+        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || !thread.statuses.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
     }
 
     private var effectiveThinkingDisplayMode: PiAgentThinkingDisplayMode {
@@ -486,6 +490,207 @@ struct PiAgentTranscriptThreadCard: View {
 
     private var toolActivities: [PiAgentTranscriptActivity] {
         thread.activities.filter { !$0.isWebActivity }
+    }
+
+    private var editablePaths: [String] {
+        PiAgentThreadDiffSummaryView.changedPaths(from: toolActivities)
+    }
+}
+
+struct PiAgentThreadDiffSummaryView: View {
+    let activities: [PiAgentTranscriptActivity]
+    let projectPath: String?
+    @State private var rows: [Row] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        let paths = Self.changedPaths(from: activities)
+        if !paths.isEmpty && (isLoading || !rows.isEmpty) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                    Text("Changes")
+                        .font(.caption.weight(.semibold))
+                    Text(paths.count == 1 ? "1 file" : "\(paths.count) files")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                    Spacer(minLength: 0)
+                }
+                if isLoading && rows.isEmpty {
+                    Text("Preparing file changes…")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                ForEach(rows.prefix(4)) { row in
+                    PiAgentInlineDiffCard(row: row)
+                }
+                if rows.count > 4 {
+                    Text("\(rows.count - 4) more changed file\(rows.count - 4 == 1 ? "" : "s") hidden")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.65)).stroke(AppTheme.contentStroke, lineWidth: 1))
+            .task(id: paths.joined(separator: "\u{0}")) { await loadRows(paths: paths) }
+        }
+    }
+
+    @MainActor
+    static func changedPaths(from activities: [PiAgentTranscriptActivity]) -> [String] {
+        var seen = Set<String>()
+        var paths: [String] = []
+        for entry in activities.flatMap(\.entries) {
+            let name = PiAgentTranscriptActivity.toolName(for: entry).lowercased()
+            guard name == "edit" || name == "write" else { continue }
+            guard let event = PiAgentRPCEventRenderCache.event(from: entry.rawJSON) else { continue }
+            let path = event.args?["path"]?.stringValue ?? event.args?["file_path"]?.stringValue
+            guard let path, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, seen.insert(path).inserted else { continue }
+            paths.append(path)
+        }
+        return paths
+    }
+
+    private func loadRows(paths: [String]) async {
+        isLoading = true
+        guard let projectPath, !projectPath.isEmpty else { rows = [] ; isLoading = false ; return }
+        let repositoryURL = URL(fileURLWithPath: projectPath)
+        let service = GitRepositoryService()
+        var loaded: [Row] = []
+        for path in paths.prefix(8) {
+            let staged = (try? await service.loadDiff(for: path, kind: .staged, in: repositoryURL)).map(Self.trimDiff) ?? ""
+            let unstaged = (try? await service.loadDiff(for: path, kind: .unstaged, in: repositoryURL)).map(Self.trimDiff) ?? ""
+            let untracked = staged.isEmpty && unstaged.isEmpty ? ((try? await service.loadDiff(for: path, kind: .untracked, in: repositoryURL)).map(Self.trimDiff) ?? "") : ""
+            let diff = [staged, unstaged, untracked].filter { !$0.isEmpty }.joined(separator: "\n")
+            if !diff.isEmpty {
+                loaded.append(Row(path: path, diff: diff))
+            }
+            if Task.isCancelled { return }
+        }
+        rows = loaded
+        isLoading = false
+    }
+
+    private static func trimDiff(_ diff: String) -> String {
+        diff.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    struct Row: Identifiable, Hashable {
+        var id: String { path }
+        let path: String
+        let diff: String
+
+        var changeCountText: String {
+            let added = diff.split(separator: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
+            let removed = diff.split(separator: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
+            if added == 0 && removed == 0 { return "modified" }
+            return "+\(added) −\(removed)"
+        }
+    }
+}
+
+private struct PiAgentInlineDiffCard: View {
+    let row: PiAgentThreadDiffSummaryView.Row
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(row.path.truncatedMiddle(max: 54))
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(row.changeCountText)
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                Spacer(minLength: 0)
+                AppCopyTextButton(title: "Copy", text: row.diff)
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.plain)
+            }
+            PiAgentCompactDiffPreview(diffText: row.diff)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.textContentFill.opacity(0.75)))
+    }
+}
+
+private struct PiAgentCompactDiffPreview: View {
+    let diffText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(displayLines.indices, id: \.self) { index in
+                let line = displayLines[index]
+                HStack(spacing: 6) {
+                    Text(line.prefix)
+                        .font(.caption2.monospaced().weight(.semibold))
+                        .foregroundStyle(line.color)
+                        .frame(width: 12, alignment: .trailing)
+                    Text(line.content.isEmpty ? " " : line.content)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(line.color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 1)
+                .background(line.background)
+            }
+            if hiddenCount > 0 {
+                Text("… \(hiddenCount) more lines")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(.top, 3)
+            }
+        }
+    }
+
+    private var meaningfulLines: [String] {
+        diffText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).filter { line in
+            guard !line.hasPrefix("diff --git"), !line.hasPrefix("index "), !line.hasPrefix("---"), !line.hasPrefix("+++") else { return false }
+            return line.hasPrefix("+") || line.hasPrefix("-") || line.hasPrefix("@@")
+        }
+    }
+
+    private var displayLines: [Line] {
+        meaningfulLines.prefix(10).map(Line.init(raw:))
+    }
+
+    private var hiddenCount: Int { max(0, meaningfulLines.count - 10) }
+
+    private struct Line: Hashable {
+        let prefix: String
+        let content: String
+
+        init(raw: String) {
+            if raw.hasPrefix("@@") {
+                prefix = "…"
+                content = raw
+            } else {
+                prefix = String(raw.prefix(1))
+                content = String(raw.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+        }
+
+        var color: Color {
+            switch prefix {
+            case "+": return .green
+            case "-": return .red
+            default: return AppTheme.mutedText
+            }
+        }
+
+        var background: Color {
+            switch prefix {
+            case "+": return Color.green.opacity(0.10)
+            case "-": return Color.red.opacity(0.10)
+            default: return Color.clear
+            }
+        }
     }
 }
 
@@ -727,6 +932,8 @@ struct PiAgentActivitySummaryView: View {
         case "read": return "File read"
         case "edit": return "Edit"
         case "write": return "Write"
+        case "set_session_plan": return "Plan"
+        case "update_session_plan": return "Plan update"
         case "subagent": return count == 1 ? "Subagent" : "Subagents"
         case "web_search": return "Web search"
         case "fetch_content", "get_search_content": return "Web content"
@@ -746,6 +953,7 @@ struct PiAgentActivitySummaryView: View {
         case "bash": return "terminal"
         case "read": return "doc.text.magnifyingglass"
         case "edit", "write": return "pencil.and.outline"
+        case "set_session_plan", "update_session_plan": return "checklist"
         case "subagent": return "person.2.wave.2"
         case "web_search", "fetch_content", "get_search_content": return "globe"
         case "code_search": return "curlybraces.square"
@@ -1126,6 +1334,95 @@ enum PiAgentTranscriptCardStyle {
     case threadChild
 }
 
+private struct PiAgentUserMessageContent: View {
+    let entry: PiAgentTranscriptEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !messageText.isEmpty {
+                MarkdownTextView(source: messageText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !images.isEmpty || !files.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(images.prefix(6)) { image in
+                        imageThumb(image)
+                    }
+                    ForEach(files.prefix(6), id: \.self) { file in
+                        fileChip(file)
+                    }
+                    if hiddenCount > 0 {
+                        Text("+\(hiddenCount)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+                    }
+                }
+            }
+        }
+    }
+
+    private var messageText: String {
+        let marker = "Attached files:"
+        guard let range = entry.text.range(of: marker) else { return entry.text }
+        return entry.text[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var files: [String] {
+        guard let range = entry.text.range(of: "Attached files:") else { return [] }
+        return entry.text[range.upperBound...]
+            .split(separator: "\n")
+            .compactMap { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmed.hasPrefix("- ") else { return nil }
+                return String(trimmed.dropFirst(2))
+            }
+    }
+
+    private var images: [PiAgentImageAttachment] {
+        guard let rawJSON = entry.rawJSON, let data = rawJSON.data(using: .utf8), let object = try? JSONDecoder().decode([String: [PiAgentImageAttachment]].self, from: data) else { return [] }
+        return object["images"] ?? []
+    }
+
+    private var hiddenCount: Int { max(0, images.count + files.count - 12) }
+
+    private func imageThumb(_ image: PiAgentImageAttachment) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let nsImage = PiAgentComposerImageLoader.previewImage(for: image) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 68, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                Image(systemName: "photo")
+                    .frame(width: 68, height: 52)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+            }
+            Text(image.name)
+                .font(.caption2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 68, alignment: .leading)
+        }
+        .help("\(image.name) · \(ByteCountFormatter.string(fromByteCount: Int64(image.sizeBytes), countStyle: .file))")
+    }
+
+    private func fileChip(_ name: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc.text")
+            Text(name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.caption2)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+    }
+}
+
 struct PiAgentTranscriptCard: View {
     let entry: PiAgentTranscriptEntry
     let thinkingDisplayMode: PiAgentThinkingDisplayMode
@@ -1218,7 +1515,9 @@ struct PiAgentTranscriptCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-        } else if entry.role == .assistant || entry.role == .user {
+        } else if entry.role == .user {
+            PiAgentUserMessageContent(entry: entry)
+        } else if entry.role == .assistant {
             MarkdownTextView(source: entry.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {

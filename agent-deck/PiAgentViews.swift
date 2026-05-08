@@ -639,6 +639,7 @@ struct PiAgentScreen: View {
                                     thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
                                     visibility: viewModel.appSettings.piAgentTranscriptVisibility,
                                     skills: visibleSkillsForSelectedSession,
+                                    projectPath: store.selectedSession?.projectPath,
                                     nativeSubagentRunsByID: nativeSubagentRunsByID,
                                     nativeSubagentCard: nativeSubagentCard
                                 )

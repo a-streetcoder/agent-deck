@@ -62,18 +62,22 @@ struct PiAgentCommandSuggestions: View {
                 }
             }
         } else if !commands.isEmpty || !skills.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                if !commands.isEmpty {
-                    suggestionPanel(title: "Slash commands", icon: "terminal") {
-                        commandRows(commands)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !commands.isEmpty {
+                        suggestionPanel(title: "Slash commands", icon: "terminal") {
+                            commandRows(commands)
+                        }
                     }
-                }
-                if !skills.isEmpty {
-                    suggestionPanel(title: "Skills", icon: "sparkles") {
-                        skillRows(skills)
+                    if !skills.isEmpty {
+                        suggestionPanel(title: "Skills", icon: "sparkles") {
+                            skillRows(skills)
+                        }
                     }
                 }
             }
+            .scrollIndicators(.visible)
+            .frame(maxHeight: 220)
         }
     }
 
@@ -112,7 +116,7 @@ struct PiAgentCommandSuggestions: View {
                 ScrollView {
                     suggestionRows(content: content)
                 }
-                .frame(maxHeight: 260)
+                .frame(maxHeight: 180)
             } else {
                 suggestionRows(content: content)
             }

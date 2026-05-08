@@ -86,6 +86,13 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
                 isOn: visibility.showPlans,
                 keyPath: \.showPlans
             )
+            optionRow(
+                title: "Diffs",
+                subtitle: "Show compact file changes in chat",
+                systemImage: "doc.text.magnifyingglass",
+                isOn: visibility.showDiffs,
+                keyPath: \.showDiffs
+            )
         }
         .padding(12)
         .frame(width: 260)
