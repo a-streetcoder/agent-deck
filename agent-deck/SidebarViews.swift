@@ -41,6 +41,7 @@ struct SidebarNavigationRow: View {
 
 struct PiAgentSidebarButton: View {
     let isSelected: Bool
+    let runningSessionCount: Int
     let needsAttentionCount: Int
     let action: () -> Void
 
@@ -59,9 +60,12 @@ struct PiAgentSidebarButton: View {
                         .font(.callout.weight(.semibold))
                         .fontWidth(.expanded)
                         .foregroundStyle(.primary)
-                    Text(isSelected ? "Ready" : "Open")
-                        .font(.caption)
+                    Text(statusText)
+                        .font(.callout)
+                        .fontWeight(.regular)
                         .foregroundStyle(AppTheme.mutedText)
+                        .fontWidth(.compressed)
+                        .lineLimit(1)
                 }
 
                 Spacer(minLength: 8)
@@ -90,7 +94,35 @@ struct PiAgentSidebarButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Pi Agent")
-        .accessibilityHint(needsAttentionCount > 0 ? "\(needsAttentionCount) session\(needsAttentionCount == 1 ? "" : "s") need review" : "Open Pi Agent sessions")
+        .accessibilityHint(accessibilityHint)
+    }
+
+    private var statusText: String {
+        if needsAttentionCount > 0 {
+            let remainingRunningCount = max(0, runningSessionCount - needsAttentionCount)
+            let waitingText = needsAttentionCount == 1 ? "1 waiting" : "\(needsAttentionCount) waiting"
+            if remainingRunningCount > 0 {
+                let runningText = remainingRunningCount == 1 ? "1 running" : "\(remainingRunningCount) running"
+                return "\(waitingText) · \(runningText)"
+            }
+            return needsAttentionCount == 1 ? "1 session waiting" : "\(needsAttentionCount) sessions waiting"
+        }
+
+        if runningSessionCount > 0 {
+            return runningSessionCount == 1 ? "1 session running" : "\(runningSessionCount) sessions running"
+        }
+
+        return isSelected ? "Ready to code" : "Click to start coding"
+    }
+
+    private var accessibilityHint: String {
+        if needsAttentionCount > 0 {
+            return needsAttentionCount == 1 ? "1 Pi Agent session is waiting" : "\(needsAttentionCount) Pi Agent sessions are waiting"
+        }
+        if runningSessionCount > 0 {
+            return runningSessionCount == 1 ? "1 Pi Agent session is running" : "\(runningSessionCount) Pi Agent sessions are running"
+        }
+        return "Open Pi Agent sessions"
     }
 
     private var badgeText: String {

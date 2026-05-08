@@ -1323,6 +1323,10 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentSessionStore.sessions.filter(\.needsAttention).count
     }
 
+    var piAgentRunningSessionCount: Int {
+        piAgentSessionStore.sessions.filter { $0.status.isActive }.count
+    }
+
     func isModelEnabled(_ model: AvailableModel) -> Bool {
         !appSettings.disabledModelIdentifiers.contains(model.identifier)
     }

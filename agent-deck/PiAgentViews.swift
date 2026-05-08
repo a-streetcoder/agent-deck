@@ -305,6 +305,7 @@ struct PiAgentScreen: View {
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
+    @State private var transcriptAutoScrollSuppressed = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
     @AppStorage("piAgentSessionSortOrder") private var sessionSortOrder: PiAgentSessionSortOrder = .created
@@ -366,6 +367,7 @@ struct PiAgentScreen: View {
             }
             loadComposerDraft(for: newID)
             transcriptIsPinnedToBottom = true
+            transcriptAutoScrollSuppressed = false
             syncRuntimeFooterSnapshot()
             scheduleTranscriptCacheUpdate()
         }
@@ -773,26 +775,31 @@ struct PiAgentScreen: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background {
-                PiAgentScrollPositionObserver { isPinnedToBottom in
-                    transcriptIsPinnedToBottom = isPinnedToBottom
-                }
+                PiAgentScrollPositionObserver(
+                    onPinnedToBottomChange: { isPinnedToBottom in
+                        transcriptIsPinnedToBottom = isPinnedToBottom
+                    },
+                    onUserScrolledAwayFromBottom: {
+                        transcriptAutoScrollSuppressed = true
+                    }
+                )
             }
             .onChange(of: transcriptCache.renderRevision) { _, _ in
-                guard transcriptIsPinnedToBottom else { return }
+                guard transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
                 Task { @MainActor in
                     await Task.yield()
                     scrollToLatestThread(proxy: proxy)
                 }
             }
             .onChange(of: transcriptCache.streamingRevision) { _, _ in
-                guard transcriptIsPinnedToBottom else { return }
+                guard transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
                 Task { @MainActor in
                     await Task.yield()
                     throttleStreamingScroll(proxy: proxy)
                 }
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
-                guard message != nil, transcriptIsPinnedToBottom else { return }
+                guard message != nil, transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
             .onChange(of: transcriptBottomScrollRequest) { _, _ in
@@ -890,6 +897,7 @@ struct PiAgentScreen: View {
 
     private func scrollToRequestedBottom(proxy: ScrollViewProxy) {
         transcriptIsPinnedToBottom = true
+        transcriptAutoScrollSuppressed = false
         scrollToConversationBottom(proxy: proxy, animated: true)
     }
 
@@ -1339,9 +1347,13 @@ struct PiAgentScreen: View {
 
 private struct PiAgentScrollPositionObserver: NSViewRepresentable {
     let onPinnedToBottomChange: (Bool) -> Void
+    let onUserScrolledAwayFromBottom: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPinnedToBottomChange: onPinnedToBottomChange)
+        Coordinator(
+            onPinnedToBottomChange: onPinnedToBottomChange,
+            onUserScrolledAwayFromBottom: onUserScrolledAwayFromBottom
+        )
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -1354,6 +1366,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
+        context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         DispatchQueue.main.async {
             context.coordinator.attach(to: view.enclosingScrollView)
             context.coordinator.reportPinnedState()
@@ -1363,16 +1376,25 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var onPinnedToBottomChange: (Bool) -> Void
+        var onUserScrolledAwayFromBottom: () -> Void
         private weak var scrollView: NSScrollView?
         private var lastPinnedState: Bool?
+        private nonisolated(unsafe) var scrollWheelMonitor: Any?
         private let bottomTolerance: CGFloat = 56
 
-        init(onPinnedToBottomChange: @escaping (Bool) -> Void) {
+        init(
+            onPinnedToBottomChange: @escaping (Bool) -> Void,
+            onUserScrolledAwayFromBottom: @escaping () -> Void
+        ) {
             self.onPinnedToBottomChange = onPinnedToBottomChange
+            self.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         }
 
         deinit {
             NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+            if let scrollWheelMonitor {
+                NSEvent.removeMonitor(scrollWheelMonitor)
+            }
         }
 
         func attach(to newScrollView: NSScrollView?) {
@@ -1381,6 +1403,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
             }
             scrollView = newScrollView
+            installScrollWheelMonitorIfNeeded()
             newScrollView?.contentView.postsBoundsChangedNotifications = true
             if let contentView = newScrollView?.contentView {
                 NotificationCenter.default.addObserver(self, selector: #selector(boundsDidChange), name: NSView.boundsDidChangeNotification, object: contentView)
@@ -1393,15 +1416,44 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
         }
 
         func reportPinnedState() {
+            publish(computePinnedState())
+        }
+
+        private func installScrollWheelMonitorIfNeeded() {
+            guard scrollWheelMonitor == nil else { return }
+            scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                self?.handleScrollWheel(event)
+                return event
+            }
+        }
+
+        private func handleScrollWheel(_ event: NSEvent) {
+            guard let scrollView,
+                  event.deltaY != 0 || event.scrollingDeltaY != 0,
+                  let window = scrollView.window,
+                  event.window === window else { return }
+
+            let location = scrollView.convert(event.locationInWindow, from: nil)
+            guard scrollView.bounds.contains(location) else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.reportPinnedState()
+                if !self.computePinnedState() {
+                    self.onUserScrolledAwayFromBottom()
+                }
+            }
+        }
+
+        private func computePinnedState() -> Bool {
             guard let scrollView, let documentView = scrollView.documentView else {
-                publish(true)
-                return
+                return true
             }
 
             let visibleMaxY = scrollView.contentView.bounds.maxY
             let documentHeight = documentView.bounds.height
             let distanceFromBottom = max(0, documentHeight - visibleMaxY)
-            publish(distanceFromBottom <= bottomTolerance || documentHeight <= scrollView.contentView.bounds.height + bottomTolerance)
+            return distanceFromBottom <= bottomTolerance || documentHeight <= scrollView.contentView.bounds.height + bottomTolerance
         }
 
         private func publish(_ isPinned: Bool) {

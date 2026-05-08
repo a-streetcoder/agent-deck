@@ -211,23 +211,25 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 curatedSourceLinks(from: toolDetails(from: entry))
             }
             if !curated.isEmpty { return Array(uniqueLinks(curated).prefix(20)) }
-            return Array(uniqueLinks(entries.flatMap { parseSourceLinks(from: $0.text) }).prefix(20))
-        case "fetch_content":
-            let links = entries.flatMap { entry -> [PiAgentWebLink] in
-                let details = toolDetails(from: entry)
-                let args = toolArgs(from: entry)
-                let title = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
-                return urls.map { url in
-                    PiAgentWebLink(title: title?.isEmpty == false ? title! : (domain(from: url) ?? url), url: url)
-                }
+            let links = entries.flatMap { entry in
+                extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text)
             }
+            return Array(uniqueLinks(links).prefix(20))
+        case "code_search":
+            let links = entries.flatMap { entry in
+                extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text)
+            }
+            return Array(uniqueLinks(links).prefix(20))
+        case "fetch_content":
+            let links = entries.flatMap(fetchContentLinks)
             return Array(uniqueLinks(links).prefix(20))
         case "get_search_content":
             let links = entries.compactMap { entry -> PiAgentWebLink? in
                 let details = toolDetails(from: entry)
-                guard let url = details?["url"]?.stringValue else { return nil }
-                return PiAgentWebLink(title: details?["title"]?.stringValue ?? domain(from: url) ?? url, url: url)
+                let textMetadata = contentFrontMatter(from: entry.text)
+                guard let url = details?["url"]?.stringValue ?? textMetadata["source"] else { return nil }
+                let title = details?["title"]?.stringValue ?? textMetadata["title"] ?? domain(from: url) ?? url
+                return PiAgentWebLink(title: title, url: url)
             }
             return Array(uniqueLinks(links).prefix(20))
         default:
@@ -244,6 +246,8 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
             return fetchContentDetail(from: entries)
         case "get_search_content":
             return retrievedContentDetail(from: entries)
+        case "code_search":
+            return codeSearchDetail(from: entries)
         default:
             return nil
         }
@@ -269,6 +273,26 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
     }
 
     @MainActor
+    private static func codeSearchDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
+        let details = entries.lazy.compactMap(toolDetails).last
+        let args = entries.lazy.compactMap(toolArgs).last
+        let query = details?["query"]?.stringValue ?? args?["query"]?.stringValue
+        let resultCount = intValue(details?["totalResults"]) ?? intValue(details?["resultCount"]) ?? intValue(details?["count"])
+        let links = uniqueLinks(entries.flatMap { entry in extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text) })
+
+        var parts: [String] = []
+        if let query, !query.isEmpty {
+            parts.append("“\(query.truncatedMiddle(max: 56))”")
+        }
+        if let resultCount {
+            parts.append(resultCount == 1 ? "1 result" : "\(resultCount) results")
+        } else if !links.isEmpty {
+            parts.append(links.count == 1 ? "1 source" : "\(links.count) sources")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    @MainActor
     private static func fetchContentDetail(from entries: [PiAgentTranscriptEntry]) -> String? {
         let details = entries.lazy.compactMap(toolDetails).last
         let args = entries.lazy.compactMap(toolArgs).last
@@ -279,8 +303,11 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
         let domains = domains(from: urls)
 
         var parts: [String] = []
+        let fetchedTitles = entries.flatMap(fetchContentLinks).map(\.title).filter { !$0.isEmpty }
         if let title, !title.isEmpty, urlCount <= 1 {
             parts.append(title.truncatedMiddle(max: 44))
+        } else if urlCount == 1, let fetchedTitle = fetchedTitles.first {
+            parts.append(fetchedTitle.truncatedMiddle(max: 44))
         } else if urlCount > 0 {
             parts.append(urlCount == 1 ? "1 page" : "\(urlCount) pages")
         }
@@ -362,6 +389,72 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
         }
     }
 
+    @MainActor
+    private static func fetchContentLinks(from entry: PiAgentTranscriptEntry) -> [PiAgentWebLink] {
+        let details = toolDetails(from: entry)
+        let args = toolArgs(from: entry)
+        let urls = stringArray(details?["urls"]) ?? stringArray(args?["urls"]) ?? args?["url"]?.stringValue.map { [$0] } ?? []
+        guard !urls.isEmpty else { return [] }
+
+        let titles = fetchedURLTitles(from: entry.text)
+        let fallbackTitle = details?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return urls.enumerated().map { index, url in
+            let parsedTitle = index < titles.count ? titles[index] : nil
+            let displayTitle: String
+            if let parsedTitle, !parsedTitle.isEmpty {
+                displayTitle = parsedTitle
+            } else if let fallbackTitle, !fallbackTitle.isEmpty {
+                displayTitle = fallbackTitle
+            } else {
+                displayTitle = domain(from: url) ?? url
+            }
+            return PiAgentWebLink(title: displayTitle, url: url)
+        }
+    }
+
+    nonisolated private static func fetchedURLTitles(from text: String) -> [String] {
+        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { line in
+            let trimmed = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let match = trimmed.firstMatch(of: /^-\s+(.+?)\s+\(\d+\s+chars\)$/) else { return nil }
+            return String(match.1).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    nonisolated private static func contentFrontMatter(from text: String) -> [String: String] {
+        var metadata: [String: String] = [:]
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "---" }) else { return metadata }
+        for line in lines.dropFirst(start + 1) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "---" { break }
+            guard let separator = trimmed.firstIndex(of: ":") else { continue }
+            let key = String(trimmed[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(trimmed[trimmed.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty, !value.isEmpty { metadata[key] = value }
+        }
+        return metadata
+    }
+
+    nonisolated private static func extractedLinks(from value: JSONValue?) -> [PiAgentWebLink] {
+        guard let value else { return [] }
+        switch value {
+        case let .object(object):
+            var output: [PiAgentWebLink] = []
+            if let url = object["url"]?.stringValue ?? object["href"]?.stringValue ?? object["source"]?.stringValue {
+                let title = object["title"]?.stringValue ?? object["name"]?.stringValue ?? object["path"]?.stringValue ?? domain(from: url) ?? url
+                output.append(PiAgentWebLink(title: title, url: url))
+            }
+            output += object.values.flatMap(extractedLinks)
+            return output
+        case let .array(items):
+            return items.flatMap(extractedLinks)
+        case let .string(string):
+            return parseSourceLinks(from: string)
+        default:
+            return []
+        }
+    }
+
     nonisolated private static func parseSourceLinks(from text: String) -> [PiAgentWebLink] {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var output: [PiAgentWebLink] = []
@@ -372,9 +465,17 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 pendingTitle = String(match.1).trimmingCharacters(in: .whitespacesAndNewlines)
                 continue
             }
-            guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else { continue }
-            output.append(PiAgentWebLink(title: pendingTitle ?? domain(from: trimmed) ?? trimmed, url: trimmed))
-            pendingTitle = nil
+            if let match = trimmed.firstMatch(of: /^[-*]\s+\[(.+?)\]\((https?:\/\/[^\s)]+)\)/) {
+                output.append(PiAgentWebLink(title: String(match.1), url: String(match.2)))
+                pendingTitle = nil
+            } else if let match = trimmed.firstMatch(of: /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/) {
+                output.append(PiAgentWebLink(title: String(match.1), url: String(match.2)))
+                pendingTitle = nil
+            } else if let match = trimmed.firstMatch(of: /(https?:\/\/[^\s)>,]+)[),.]?/) {
+                let url = String(match.1)
+                output.append(PiAgentWebLink(title: pendingTitle ?? domain(from: url) ?? url, url: url))
+                pendingTitle = nil
+            }
             if output.count >= 20 { break }
         }
         return output
@@ -1771,7 +1872,7 @@ struct PiAgentTranscriptCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(backgroundColor)
+                .fill(backgroundStyle)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1911,16 +2012,24 @@ struct PiAgentTranscriptCard: View {
         entry.role == .user ? AppTheme.brandAccent : .primary
     }
 
-    private var backgroundColor: Color {
+    private var backgroundStyle: AnyShapeStyle {
         switch entry.role {
-        case .user: return style == .question ? AppTheme.brandAccent.opacity(0.10) : AppTheme.brandAccent.opacity(0.08)
-        case .assistant: return AppTheme.assistantAccent.opacity(0.06)
-        case .thinking: return Color.indigo.opacity(0.07)
-        case .tool: return style == .threadChild ? Color.orange.opacity(0.05) : Color.orange.opacity(0.08)
-        case .status: return AppTheme.contentSubtleFill.opacity(0.7)
-        case .error: return Color.red.opacity(0.08)
-        case .stderr: return Color.pink.opacity(0.08)
-        case .raw: return AppTheme.contentSubtleFill
+        case .user:
+            return AnyShapeStyle((style == .question ? AppTheme.brandAccent.opacity(0.10) : AppTheme.brandAccent.opacity(0.08)).gradient)
+        case .assistant:
+            return AnyShapeStyle(AppTheme.assistantAccent.opacity(0.06).gradient)
+        case .thinking:
+            return AnyShapeStyle(Color.indigo.opacity(0.07).gradient)
+        case .tool:
+            return AnyShapeStyle((style == .threadChild ? Color.orange.opacity(0.05) : Color.orange.opacity(0.08)).gradient)
+        case .status:
+            return AnyShapeStyle(AppTheme.contentSubtleFill.opacity(0.7).gradient)
+        case .error:
+            return AnyShapeStyle(Color.red.opacity(0.08).gradient)
+        case .stderr:
+            return AnyShapeStyle(Color.pink.opacity(0.08).gradient)
+        case .raw:
+            return AnyShapeStyle(AppTheme.contentSubtleFill.gradient)
         }
     }
 
@@ -1952,8 +2061,8 @@ struct PiAgentTranscriptCard: View {
 
     private var color: Color {
         switch entry.role {
-        case .user: return .blue
-        case .assistant: return .purple
+        case .user: return AppTheme.brandAccent
+        case .assistant: return AppTheme.assistantAccent
         case .thinking: return .indigo
         case .tool: return .orange
         case .status: return .secondary

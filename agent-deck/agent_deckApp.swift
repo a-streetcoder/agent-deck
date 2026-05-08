@@ -20,6 +20,25 @@ private extension AppAppearanceMode {
             return .dark
         }
     }
+
+    var nsAppearanceName: NSAppearance.Name? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return .aqua
+        case .dark:
+            return .darkAqua
+        }
+    }
+
+    func applyApplicationAppearance() {
+        if let nsAppearanceName {
+            NSApp.appearance = NSAppearance(named: nsAppearanceName)
+        } else {
+            NSApp.appearance = nil
+        }
+    }
 }
 
 final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -70,6 +89,11 @@ struct agent_deckApp: App {
                 .environmentObject(viewModel)
                 .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
                 .tint(AppTheme.brandAccent)
+                .accentColor(AppTheme.brandAccent)
+                .onAppear { viewModel.appSettings.appearanceMode.applyApplicationAppearance() }
+                .onChange(of: viewModel.appSettings.appearanceMode) { _, mode in
+                    mode.applyApplicationAppearance()
+                }
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)
@@ -79,6 +103,11 @@ struct agent_deckApp: App {
                 .environmentObject(viewModel)
                 .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
                 .tint(AppTheme.brandAccent)
+                .accentColor(AppTheme.brandAccent)
+                .onAppear { viewModel.appSettings.appearanceMode.applyApplicationAppearance() }
+                .onChange(of: viewModel.appSettings.appearanceMode) { _, mode in
+                    mode.applyApplicationAppearance()
+                }
         }
         .commands {
             AgentDeckCommands()

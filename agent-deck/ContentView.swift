@@ -98,6 +98,7 @@ struct ContentView: View {
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
+                    runningSessionCount: viewModel.piAgentRunningSessionCount,
                     needsAttentionCount: viewModel.piAgentNeedsAttentionCount,
                     action: { viewModel.openPiAgentScreen() }
                 )

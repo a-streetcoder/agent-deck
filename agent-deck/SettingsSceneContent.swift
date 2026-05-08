@@ -26,6 +26,8 @@ struct SettingsSceneContent: View {
             }
         }
         .frame(minWidth: 660, idealWidth: 760, minHeight: 440, idealHeight: 520)
+        .tint(AppTheme.brandAccent)
+        .accentColor(AppTheme.brandAccent)
         .background(AppTheme.windowBackground)
     }
 }
@@ -140,6 +142,8 @@ private struct SettingsButtonRow<Content: View>: View {
 }
 
 private struct SettingsPickerRow<SelectionValue: Hashable, Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let title: String
     @Binding var selection: SelectionValue
     var note: String? = nil
@@ -150,7 +154,10 @@ private struct SettingsPickerRow<SelectionValue: Hashable, Content: View>: View 
             Picker(title, selection: $selection) {
                 content
             }
+            .id("\(selection)-\(colorScheme)")
             .labelsHidden()
+            .tint(AppTheme.brandAccent)
+            .accentColor(AppTheme.brandAccent)
             .frame(width: 220, alignment: .leading)
         }
     }
