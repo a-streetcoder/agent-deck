@@ -2010,7 +2010,7 @@ final class AppViewModel: NSObject, ObservableObject {
             .joined(separator: "\n")
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native Pi Manager tools: `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. For multi-step work, keep a short session plan updated on meaningful transitions. Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
+        Native Pi Manager tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent. For multi-step work, keep a short session plan updated on meaningful transitions. Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
         \(lines.joined(separator: "\n"))\(chainSection)
         """
     }

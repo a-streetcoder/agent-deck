@@ -208,6 +208,9 @@ final class PiAgentRunnerService {
             if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", auditURL.path])
             }
+            if let askURL = try? PiNativeSubagentBridgeExtensions.askUserExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", askURL.path])
+            }
             if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
                 if let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty {
@@ -930,6 +933,8 @@ final class PiAgentRunnerService {
                 handleUpdateSessionPlanBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "system_prompt_audit":
                 handleSystemPromptAuditBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "ask_user":
+                handleNativeAskUserBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             default:
                 clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "Pi Manager does not support bridge request \(bridgeName).")
                 store.append(.init(sessionID: sessionID, role: .error, title: "Pi Manager Bridge Error", text: "Unsupported bridge request \(bridgeName).", rawJSON: rawLine))
@@ -1066,6 +1071,40 @@ final class PiAgentRunnerService {
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "System prompt captured.")
     }
 
+    private func handleNativeAskUserBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let request = try? JSONDecoder().decode(PiNativeAskBridgeRequest.self, from: Data(payload.utf8)) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: #"{"cancelled":true,"error":"Pi Manager could not parse the ask_user request."}"#)
+            return
+        }
+
+        let options = request.normalizedOptions
+        let method: PiAgentUIRequest.Method = options.isEmpty
+            ? .input
+            : (request.allowMultiple == true ? .multiSelect : .select)
+        var descriptions: [String: String] = [:]
+        for option in options {
+            if let description = option.description {
+                descriptions[option.title] = description
+            }
+        }
+        store.setUIRequest(.init(
+            id: requestID,
+            sessionID: sessionID,
+            method: method,
+            title: request.question,
+            message: request.context,
+            options: options.map(\.title),
+            optionDescriptions: descriptions,
+            placeholder: options.isEmpty ? "Type your answer..." : nil,
+            prefill: nil,
+            allowsFreeform: request.allowFreeform ?? true,
+            allowsComment: !options.isEmpty,
+            responseFormat: .nativeAsk
+        ))
+        store.append(.init(sessionID: sessionID, role: .status, title: "Input Needed", text: request.question, rawJSON: rawLine))
+    }
+
     private func bridgePayload(from event: PiAgentRPCEvent) -> String? {
         if let prefill = nonEmptyBridgeString(event.prefill) { return prefill }
         if let prefill = extensionUIString("prefill", from: event) { return prefill }
@@ -1124,8 +1163,12 @@ final class PiAgentRunnerService {
                 title: parsed.question,
                 message: parsed.context,
                 options: parsed.options,
+                optionDescriptions: [:],
                 placeholder: placeholder,
-                prefill: prefill
+                prefill: prefill,
+                allowsFreeform: true,
+                allowsComment: false,
+                responseFormat: .plain
             )
         }
 
@@ -1142,8 +1185,12 @@ final class PiAgentRunnerService {
             title: title,
             message: message,
             options: optionTitles,
+            optionDescriptions: [:],
             placeholder: placeholder,
-            prefill: prefill
+            prefill: prefill,
+            allowsFreeform: true,
+            allowsComment: false,
+            responseFormat: .plain
         )
     }
 

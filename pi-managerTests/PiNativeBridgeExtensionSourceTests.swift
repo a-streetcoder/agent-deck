@@ -53,4 +53,17 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("PI_MANAGER_NATIVE_SUBAGENT"))
         XCTAssertTrue(source.contains("PI_MANAGER_SUBAGENT_RUN_ID"))
     }
+
+    @MainActor
+    func testAskUserExtensionIsBundledAsNativePiManagerBridge() throws {
+        let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.askUserExtensionURL(), encoding: .utf8)
+
+        XCTAssertTrue(source.contains(#"name: "ask_user""#))
+        XCTAssertTrue(source.contains(#"PI_MANAGER_BRIDGE ask_user"#))
+        XCTAssertTrue(source.contains(#"bridge: "pi_manager_ask_user""#))
+        XCTAssertTrue(source.contains("allowMultiple"))
+        XCTAssertTrue(source.contains("allowFreeform"))
+        XCTAssertTrue(source.contains("allowComment"))
+        XCTAssertTrue(source.contains("User answered:"))
+    }
 }

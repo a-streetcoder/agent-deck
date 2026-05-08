@@ -143,7 +143,12 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let enabledStore = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let enabledRunner = PiAgentRunnerService(store: enabledStore)
         enabledRunner.nativeSubagentCatalogProvider = { _ in "Native catalog prompt." }
-        let enabledSession = enabledStore.createSession(kind: .project, title: "Enabled", project: try PiTestSupport.makeProject(), repository: nil)
+        var enabledSession = enabledStore.createSession(kind: .project, title: "Enabled", project: try PiTestSupport.makeProject(), repository: nil)
+        enabledStore.updateSession(enabledSession.id) {
+            $0.modelOverrideProvider = "zai"
+            $0.modelOverrideID = "glm-4.7"
+        }
+        enabledSession = try XCTUnwrap(enabledStore.sessions.first(where: { $0.id == enabledSession.id }))
 
         enabledRunner.resume(session: enabledSession)
         defer { enabledRunner.stop(sessionID: enabledSession.id) }
@@ -151,9 +156,12 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let enabledCommand = try XCTUnwrap(enabledStore.sessions.first(where: { $0.id == enabledSession.id })?.launchCommand)
         XCTAssertTrue(enabledCommand.contains("--extension"))
         XCTAssertTrue(enabledCommand.contains("system-prompt-audit-bridge.ts"))
+        XCTAssertTrue(enabledCommand.contains("pi-manager-ask-user-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("--append-system-prompt"))
         XCTAssertTrue(enabledCommand.contains("Native catalog prompt."))
+        XCTAssertTrue(enabledCommand.contains("--provider zai"))
+        XCTAssertTrue(enabledCommand.contains("--model glm-4.7"))
 
         let disabledHarness = try PiTestSupport.makeBridgeHarness(events: [])
         defer { disabledHarness.restoreEnvironment() }
@@ -170,9 +178,96 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
 
         let disabledCommand = try XCTUnwrap(disabledStore.sessions.first(where: { $0.id == disabledSession.id })?.launchCommand)
         XCTAssertTrue(disabledCommand.contains("system-prompt-audit-bridge.ts"))
+        XCTAssertTrue(disabledCommand.contains("pi-manager-ask-user-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("--append-system-prompt"))
         XCTAssertFalse(disabledCommand.contains("Native catalog prompt."))
+    }
+
+    func testNativeAskUserBridgeHandlesOpenQuestionWithGLM47Session() throws {
+        let payload = #"{"question":"What should the release note say?","context":"Need one short sentence.","options":[]}"#
+        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.nativeAsk(id: "ask-open", payload: payload))
+        defer { harness.restoreEnvironment() }
+        let (store, runner, session) = try startGLM47BridgeSession(harness: harness)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { store.uiRequestsBySessionID[session.id]?.id == "ask-open" })
+        let request = try XCTUnwrap(store.uiRequestsBySessionID[session.id])
+        XCTAssertEqual(request.method, .input)
+        XCTAssertEqual(request.title, "What should the release note say?")
+        XCTAssertEqual(request.message, "Need one short sentence.")
+        XCTAssertEqual(request.responseFormat, .nativeAsk)
+
+        runner.respondToPiManagerAskRequest(request, value: request.nativeAskFreeformResponseValue("Ship the native ask bridge."))
+
+        XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "ask-open", in: harness.stdinLog) != nil })
+        let response = try XCTUnwrap(nativeAskResponse(id: "ask-open", in: harness.stdinLog))
+        XCTAssertEqual(response["kind"] as? String, "freeform")
+        XCTAssertEqual(response["text"] as? String, "Ship the native ask bridge.")
+    }
+
+    func testNativeAskUserBridgeHandlesSingleChoiceWithInlineComment() throws {
+        let payload = #"{"question":"Which channel?","context":"GLM 4.7 smoke path.","options":[{"title":"Stable","description":"Lowest risk"},{"title":"Beta","description":"Faster feedback"}],"allowComment":true}"#
+        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.nativeAsk(id: "ask-single", payload: payload))
+        defer { harness.restoreEnvironment() }
+        let (store, runner, session) = try startGLM47BridgeSession(harness: harness)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { store.uiRequestsBySessionID[session.id]?.id == "ask-single" })
+        let request = try XCTUnwrap(store.uiRequestsBySessionID[session.id])
+        XCTAssertEqual(request.method, .select)
+        XCTAssertEqual(request.options, ["Stable", "Beta"])
+        XCTAssertEqual(request.optionDescriptions["Stable"], "Lowest risk")
+        XCTAssertTrue(request.allowsComment)
+
+        runner.respondToPiManagerAskRequest(request, value: request.nativeAskSelectionResponseValue(selections: ["Stable"], comment: "Use this for the first public build."))
+
+        XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "ask-single", in: harness.stdinLog) != nil })
+        let response = try XCTUnwrap(nativeAskResponse(id: "ask-single", in: harness.stdinLog))
+        XCTAssertEqual(response["kind"] as? String, "selection")
+        XCTAssertEqual(response["selections"] as? [String], ["Stable"])
+        XCTAssertEqual(response["comment"] as? String, "Use this for the first public build.")
+    }
+
+    func testNativeAskUserBridgeHandlesMultipleChoiceWithInlineComment() throws {
+        let payload = #"{"question":"Which cases should the smoke test cover?","options":["Open question","Single choice","Multiple choice"],"allowMultiple":true,"allowComment":true}"#
+        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.nativeAsk(id: "ask-multi", payload: payload))
+        defer { harness.restoreEnvironment() }
+        let (store, runner, session) = try startGLM47BridgeSession(harness: harness)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { store.uiRequestsBySessionID[session.id]?.id == "ask-multi" })
+        let request = try XCTUnwrap(store.uiRequestsBySessionID[session.id])
+        XCTAssertEqual(request.method, .multiSelect)
+        XCTAssertTrue(request.allowsComment)
+
+        runner.respondToPiManagerAskRequest(request, value: request.nativeAskSelectionResponseValue(selections: ["Open question", "Multiple choice"], comment: "Single choice is covered separately."))
+
+        XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "ask-multi", in: harness.stdinLog) != nil })
+        let response = try XCTUnwrap(nativeAskResponse(id: "ask-multi", in: harness.stdinLog))
+        XCTAssertEqual(response["kind"] as? String, "selection")
+        XCTAssertEqual(response["selections"] as? [String], ["Open question", "Multiple choice"])
+        XCTAssertEqual(response["comment"] as? String, "Single choice is covered separately.")
+    }
+
+    func testNativeAskUserBridgeHandlesChoiceFreeformAlternative() throws {
+        let payload = #"{"question":"Choose an implementation path.","options":["Use package","Build native"],"allowFreeform":true}"#
+        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.nativeAsk(id: "ask-freeform-choice", payload: payload))
+        defer { harness.restoreEnvironment() }
+        let (store, runner, session) = try startGLM47BridgeSession(harness: harness)
+        defer { runner.stop(sessionID: session.id) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { store.uiRequestsBySessionID[session.id]?.id == "ask-freeform-choice" })
+        let request = try XCTUnwrap(store.uiRequestsBySessionID[session.id])
+        XCTAssertEqual(request.method, .select)
+        XCTAssertTrue(request.allowsFreeform)
+
+        runner.respondToPiManagerAskRequest(request, value: request.nativeAskFreeformResponseValue("Build native, but keep the same result schema."))
+
+        XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "ask-freeform-choice", in: harness.stdinLog) != nil })
+        let response = try XCTUnwrap(nativeAskResponse(id: "ask-freeform-choice", in: harness.stdinLog))
+        XCTAssertEqual(response["kind"] as? String, "freeform")
+        XCTAssertEqual(response["text"] as? String, "Build native, but keep the same result schema.")
     }
 
     func testParentSessionCapturesRuntimeSystemPromptAudit() throws {
@@ -248,5 +343,35 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
 
     private func responseValue(id: String, in logURL: URL) -> String? {
         PiTestSupport.extensionUIResponses(in: logURL).first { $0["id"] as? String == id }?["value"] as? String
+    }
+
+    private func nativeAskResponse(id: String, in logURL: URL) -> [String: Any]? {
+        guard let value = responseValue(id: id, in: logURL),
+              let data = value.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private func startGLM47BridgeSession(harness: PiTestSupport.RPCHarness) throws -> (PiAgentSessionStore, PiAgentRunnerService, PiAgentSessionRecord) {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        var session = store.createSession(kind: .project, title: "Ask Bridge", project: try PiTestSupport.makeProject(), repository: nil)
+        store.updateSession(session.id) {
+            $0.modelOverrideProvider = "zai"
+            $0.modelOverrideID = "glm-4.7"
+        }
+        session = try XCTUnwrap(store.sessions.first(where: { $0.id == session.id }))
+        runner.resume(session: session)
+        let launchCommand = try XCTUnwrap(store.sessions.first(where: { $0.id == session.id })?.launchCommand)
+        XCTAssertTrue(launchCommand.contains("--provider zai"))
+        XCTAssertTrue(launchCommand.contains("--model glm-4.7"))
+        XCTAssertTrue(launchCommand.contains("pi-manager-ask-user-bridge.ts"))
+        _ = harness
+        return (store, runner, session)
+    }
+}
+
+private extension PiAgentRunnerService {
+    func respondToPiManagerAskRequest(_ request: PiAgentUIRequest, value: String) {
+        respondToExtensionUI(sessionID: request.sessionID, requestID: request.id, value: value)
     }
 }

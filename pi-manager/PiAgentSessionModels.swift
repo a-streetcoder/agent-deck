@@ -129,6 +129,35 @@ struct PiSystemPromptAuditBridgeRequest: Codable, Hashable {
     var systemPrompt: String
 }
 
+struct PiNativeAskBridgeRequest: Codable, Hashable {
+    var question: String
+    var context: String?
+    var options: [JSONValue]?
+    var allowMultiple: Bool?
+    var allowFreeform: Bool?
+    var allowComment: Bool?
+    var timeout: Double?
+
+    var normalizedOptions: [PiNativeAskOption] {
+        (options ?? []).compactMap { value in
+            if let title = value.stringValue {
+                return PiNativeAskOption(title: title, description: nil)
+            }
+            guard case let .object(object) = value,
+                  let title = object["title"]?.stringValue,
+                  !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return PiNativeAskOption(title: title, description: object["description"]?.stringValue)
+        }
+    }
+}
+
+struct PiNativeAskOption: Codable, Hashable {
+    var title: String
+    var description: String?
+}
+
 struct PiSessionPlanBridgeItem: Codable, Hashable {
     var id: String?
     var title: String
@@ -1004,14 +1033,52 @@ struct PiAgentUIRequest: Identifiable, Hashable {
         case editor
     }
 
+    enum ResponseFormat: Hashable {
+        case plain
+        case nativeAsk
+    }
+
     let id: String
     let sessionID: UUID
     let method: Method
     let title: String
     let message: String?
     let options: [String]
+    let optionDescriptions: [String: String]
     let placeholder: String?
     let prefill: String?
+    let allowsFreeform: Bool
+    let allowsComment: Bool
+    let responseFormat: ResponseFormat
+
+    func nativeAskSelectionResponseValue(selections: [String], comment: String) -> String {
+        let trimmedSelections = selections.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        var object: [String: Any] = [
+            "kind": "selection",
+            "selections": trimmedSelections
+        ]
+        let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedComment.isEmpty {
+            object["comment"] = trimmedComment
+        }
+        return Self.jsonString(object)
+    }
+
+    func nativeAskFreeformResponseValue(_ text: String) -> String {
+        Self.jsonString([
+            "kind": "freeform",
+            "text": text.trimmingCharacters(in: .whitespacesAndNewlines)
+        ])
+    }
+
+    private static func jsonString(_ object: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return string
+    }
 }
 
 struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {

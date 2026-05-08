@@ -225,6 +225,7 @@ struct PiAgentUIRequestCard: View {
     let onCancel: () -> Void
 
     @State private var draft = ""
+    @State private var commentDraft = ""
     @State private var isComposingFreeform = false
     @State private var selectedOptions: Set<String> = []
 
@@ -249,7 +250,7 @@ struct PiAgentUIRequestCard: View {
                             .buttonStyle(.borderedProminent)
                     }
                 case .input, .editor:
-                    textInput(submitTitle: "Submit", cancelTitle: "Cancel", cancelAction: onCancel) { onSubmitValue(draft) }
+                    textInput(submitTitle: "Submit", cancelTitle: "Cancel", cancelAction: onCancel) { submitTextInput() }
                 }
             }
         }
@@ -260,6 +261,7 @@ struct PiAgentUIRequestCard: View {
         }
         .onChange(of: request.id) { _, _ in
             draft = request.prefill ?? ""
+            commentDraft = ""
             isComposingFreeform = false
             selectedOptions = []
         }
@@ -281,7 +283,7 @@ struct PiAgentUIRequestCard: View {
                 }
             }
             Spacer()
-            if request.method != .input && request.method != .editor && !isComposingFreeform {
+            if request.method != .input && request.method != .editor && !isComposingFreeform && request.responseFormat != .nativeAsk {
                 Button("Cancel", action: onCancel)
             }
         }
@@ -291,6 +293,8 @@ struct PiAgentUIRequestCard: View {
         Group {
             if request.options.isEmpty {
                 emptyOptions
+            } else if request.responseFormat == .nativeAsk {
+                nativeAskChoiceOptions(allowsMultiple: false)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(request.options, id: \.self) { option in
@@ -324,26 +328,84 @@ struct PiAgentUIRequestCard: View {
             draft = ""
             isComposingFreeform = false
         }) {
-            onSubmitFreeform(freeformSentinel, draft)
+            if request.responseFormat == .nativeAsk {
+                onSubmitValue(request.nativeAskFreeformResponseValue(draft))
+            } else {
+                onSubmitFreeform(freeformSentinel, draft)
+            }
         }
     }
 
     private var multiSelectOptions: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Group {
+            if request.responseFormat == .nativeAsk {
+                nativeAskChoiceOptions(allowsMultiple: true)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(request.options, id: \.self) { option in
+                        Button {
+                            if selectedOptions.contains(option) {
+                                selectedOptions.remove(option)
+                            } else {
+                                selectedOptions.insert(option)
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: selectedOptions.contains(option) ? "checkmark.square.fill" : "square")
+                                    .foregroundStyle(selectedOptions.contains(option) ? Color.accentColor : AppTheme.mutedText)
+                                Text(option)
+                                    .fontWeight(.semibold)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    HStack(spacing: 10) {
+                        Spacer()
+                        Button("Submit") { onSubmitValue(request.options.filter { selectedOptions.contains($0) }.joined(separator: ", ")) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(selectedOptions.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    private func nativeAskChoiceOptions(allowsMultiple: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(request.options, id: \.self) { option in
                 Button {
-                    if selectedOptions.contains(option) {
-                        selectedOptions.remove(option)
+                    if allowsMultiple {
+                        if selectedOptions.contains(option) {
+                            selectedOptions.remove(option)
+                        } else {
+                            selectedOptions.insert(option)
+                        }
                     } else {
-                        selectedOptions.insert(option)
+                        selectedOptions = [option]
                     }
+                    isComposingFreeform = false
+                    draft = ""
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: selectedOptions.contains(option) ? "checkmark.square.fill" : "square")
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: selectionIcon(for: option, allowsMultiple: allowsMultiple))
                             .foregroundStyle(selectedOptions.contains(option) ? Color.accentColor : AppTheme.mutedText)
-                        Text(option)
-                            .fontWeight(.semibold)
-                        Spacer()
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(option)
+                                .fontWeight(.semibold)
+                            if let description = request.optionDescriptions[option], !description.isEmpty {
+                                Text(description)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -352,11 +414,55 @@ struct PiAgentUIRequestCard: View {
                 .buttonStyle(.plain)
             }
 
+            if request.allowsFreeform {
+                Button {
+                    selectedOptions = []
+                    isComposingFreeform = true
+                    draft = ""
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: isComposingFreeform ? "checkmark.circle.fill" : "square.and.pencil")
+                            .foregroundStyle(isComposingFreeform ? Color.accentColor : AppTheme.mutedText)
+                            .frame(width: 18)
+                        Text("Type custom response")
+                            .fontWeight(.semibold)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if isComposingFreeform {
+                TextField("Custom response", text: $draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                    .onSubmit {
+                        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onSubmitValue(request.nativeAskFreeformResponseValue(trimmed))
+                        }
+                    }
+            } else if request.allowsComment {
+                TextField("Optional comment", text: $commentDraft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...3)
+            }
+
             HStack(spacing: 10) {
                 Spacer()
-                Button("Submit") { onSubmitValue(request.options.filter { selectedOptions.contains($0) }.joined(separator: ", ")) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(selectedOptions.isEmpty)
+                Button("Cancel", action: onCancel)
+                Button("Submit") {
+                    if isComposingFreeform {
+                        onSubmitValue(request.nativeAskFreeformResponseValue(draft))
+                    } else {
+                        submitNativeAskSelection()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(nativeAskSubmitDisabled)
             }
         }
     }
@@ -387,6 +493,33 @@ struct PiAgentUIRequestCard: View {
     private var emptyOptions: some View {
         Text("Pi requested a selection, but no options were provided.")
             .foregroundStyle(AppTheme.mutedText)
+    }
+
+    private func selectionIcon(for option: String, allowsMultiple: Bool) -> String {
+        if allowsMultiple {
+            return selectedOptions.contains(option) ? "checkmark.square.fill" : "square"
+        }
+        return selectedOptions.contains(option) ? "largecircle.fill.circle" : "circle"
+    }
+
+    private var nativeAskSubmitDisabled: Bool {
+        if isComposingFreeform {
+            return draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return selectedOptions.isEmpty
+    }
+
+    private func submitTextInput() {
+        if request.responseFormat == .nativeAsk {
+            onSubmitValue(request.nativeAskFreeformResponseValue(draft))
+        } else {
+            onSubmitValue(draft)
+        }
+    }
+
+    private func submitNativeAskSelection() {
+        let orderedSelections = request.options.filter { selectedOptions.contains($0) }
+        onSubmitValue(request.nativeAskSelectionResponseValue(selections: orderedSelections, comment: commentDraft))
     }
 }
 

@@ -5,6 +5,10 @@ struct PiNativeSubagentBridgeExtensions {
         try writeExtension(named: "system-prompt-audit-bridge.ts", content: systemPromptAuditExtensionSource, fileManager: fileManager)
     }
 
+    static func askUserExtensionURL(fileManager: FileManager = .default) throws -> URL {
+        try writeExtension(named: "pi-manager-ask-user-bridge.ts", content: askUserExtensionSource, fileManager: fileManager)
+    }
+
     static func parentExtensionURL(fileManager: FileManager = .default) throws -> URL {
         try writeExtension(named: "managed-subagent-bridge.ts", content: parentExtensionSource, fileManager: fileManager)
     }
@@ -26,6 +30,134 @@ struct PiNativeSubagentBridgeExtensions {
         }
         return url
     }
+
+    private static let askUserExtensionSource = """
+        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+        import { Type } from "typebox";
+
+        type QuestionOption = { title: string; description?: string };
+        type AskResponse =
+            | { kind: "selection"; selections: string[]; comment?: string }
+            | { kind: "freeform"; text: string };
+
+        function normalizeOptions(raw: unknown): QuestionOption[] {
+            if (!Array.isArray(raw)) return [];
+            return raw.flatMap((item: unknown) => {
+                if (typeof item === "string" && item.trim()) return [{ title: item.trim() }];
+                if (item && typeof item === "object" && typeof (item as any).title === "string") {
+                    const title = String((item as any).title).trim();
+                    if (!title) return [];
+                    const description = typeof (item as any).description === "string" ? String((item as any).description) : undefined;
+                    return [{ title, description }];
+                }
+                return [];
+            });
+        }
+
+        function parseBridgeResponse(raw: string | undefined): { response: AskResponse | null; cancelled: boolean; error?: string } {
+            if (!raw || !raw.trim()) return { response: null, cancelled: true };
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed?.cancelled) return { response: null, cancelled: true, error: parsed.error };
+                if (parsed?.kind === "freeform") {
+                    const text = String(parsed.text ?? "").trim();
+                    return text ? { response: { kind: "freeform", text }, cancelled: false } : { response: null, cancelled: true };
+                }
+                if (parsed?.kind === "selection" && Array.isArray(parsed.selections)) {
+                    const selections = parsed.selections.map((item: unknown) => String(item).trim()).filter(Boolean);
+                    if (selections.length === 0) return { response: null, cancelled: true };
+                    const comment = String(parsed.comment ?? "").trim();
+                    return {
+                        response: comment ? { kind: "selection", selections, comment } : { kind: "selection", selections },
+                        cancelled: false
+                    };
+                }
+                return { response: null, cancelled: true, error: "Pi Manager returned an invalid ask_user response." };
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                return { response: null, cancelled: true, error: message };
+            }
+        }
+
+        function formatResponseSummary(response: AskResponse): string {
+            if (response.kind === "freeform") return response.text;
+            const selections = response.selections.join(", ");
+            return response.comment ? `${selections} — ${response.comment}` : selections;
+        }
+
+        export default function (pi: ExtensionAPI) {
+            pi.registerTool({
+                name: "ask_user",
+                label: "Ask User",
+                description: "Ask the user one focused question with optional multiple-choice answers. Pi Manager renders this as a native macOS decision card.",
+                promptSnippet: "Ask the user one focused question with optional multiple-choice answers to gather information interactively",
+                promptGuidelines: [
+                    "Before calling ask_user, gather context with tools and pass a short summary via the context field.",
+                    "Use ask_user when the user's intent is ambiguous, when a decision requires explicit user input, or when multiple valid options exist.",
+                    "Ask exactly one focused question per ask_user call.",
+                    "Pi Manager always shows an inline optional comment field for choice questions."
+                ],
+                parameters: Type.Object({
+                    question: Type.String({ description: "The question to ask the user." }),
+                    context: Type.Optional(Type.String({ description: "Relevant context summary shown before the question." })),
+                    options: Type.Optional(Type.Array(Type.Union([
+                        Type.String({ description: "Short title for this option." }),
+                        Type.Object({
+                            title: Type.String({ description: "Short title for this option." }),
+                            description: Type.Optional(Type.String({ description: "Longer description explaining this option." }))
+                        })
+                    ]), { description: "List of options for the user to choose from." })),
+                    allowMultiple: Type.Optional(Type.Boolean({ description: "Allow selecting multiple options. Default: false." })),
+                    allowFreeform: Type.Optional(Type.Boolean({ description: "Allow a custom freeform answer for choice prompts. Default: true." })),
+                    allowComment: Type.Optional(Type.Boolean({ description: "Compatibility field. Pi Manager always shows an inline optional comment field for choice prompts." })),
+                    timeout: Type.Optional(Type.Number({ description: "Reserved for compatibility. Pi Manager native prompts do not auto-dismiss yet." }))
+                }, { additionalProperties: false }),
+                async execute(toolCallId, params, signal, onUpdate, ctx) {
+                    const question = String((params as any).question ?? "").trim();
+                    const context = typeof (params as any).context === "string" ? String((params as any).context).trim() : undefined;
+                    const options = normalizeOptions((params as any).options);
+                    const payload = JSON.stringify({
+                        bridge: "pi_manager_ask_user",
+                        kind: "ask_user",
+                        toolCallId,
+                        question,
+                        context: context || undefined,
+                        options,
+                        allowMultiple: Boolean((params as any).allowMultiple ?? false),
+                        allowFreeform: Boolean((params as any).allowFreeform ?? true),
+                        allowComment: options.length > 0,
+                        timeout: typeof (params as any).timeout === "number" ? Number((params as any).timeout) : undefined
+                    });
+
+                    if (signal?.aborted) {
+                        return {
+                            content: [{ type: "text", text: "User cancelled the question" }],
+                            details: { question, context, options, response: null, cancelled: true }
+                        };
+                    }
+
+                    onUpdate?.({
+                        content: [{ type: "text", text: "Waiting for user input..." }],
+                        details: { question, context, options, response: null, cancelled: false }
+                    });
+                    const raw = await ctx.ui.editor("PI_MANAGER_BRIDGE ask_user", payload);
+                    const result = parseBridgeResponse(raw);
+                    if (result.cancelled || !result.response) {
+                        return {
+                            content: [{ type: "text", text: result.error ? `User cancelled the question (${result.error})` : "User cancelled the question" }],
+                            details: { question, context, options, response: null, cancelled: true }
+                        };
+                    }
+
+                    pi.events.emit("ask:answered", { question, context, response: result.response });
+                    return {
+                        content: [{ type: "text", text: `User answered: ${formatResponseSummary(result.response)}` }],
+                        details: { question, context, options, response: result.response, cancelled: false }
+                    };
+                }
+            });
+        }
+        """
 
     private static let parentExtensionSource = """
         import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

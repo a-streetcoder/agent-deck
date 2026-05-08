@@ -33,6 +33,10 @@ enum PiRPCBridgeFixtures {
         ]
     }
 
+    static func nativeAsk(id: String, payload: String) -> [String: Any] {
+        bridgeEditor(id: id, name: "ask_user", payload: payload)
+    }
+
     static func childSupervisor(id: String, requestKind: String, title: String, message: String) -> [String: Any] {
         bridgeEditor(
             id: id,

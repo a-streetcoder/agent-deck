@@ -525,18 +525,6 @@ struct DiagnosticsScreen: View {
                 category: .essential,
                 isInstalled: isPackageInstalled("pi-web-access"),
                 installedVersion: installedPackageVersion("pi-web-access")
-            ),
-            PackageInfo(
-                name: "pi-ask-user",
-                displayName: "pi-ask-user",
-                description: "Interactive multi-choice and freeform question UI for Pi agents. Provides the ask_user tool.",
-                repoURL: "https://github.com/edlsh/pi-ask-user",
-                homepageURL: "https://github.com/edlsh/pi-ask-user#readme",
-                author: "Enzo Lucchesi",
-                installCommand: "pi install npm:pi-ask-user",
-                category: .niceToHave,
-                isInstalled: isPackageInstalled("pi-ask-user") || FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.pi/agent/extensions/ask-user/index.ts"),
-                installedVersion: installedPackageVersion("pi-ask-user")
             )
         ]
     }

@@ -274,9 +274,8 @@ struct SetupDependencyService {
         async let github = githubCheck(account: githubAccount)
         let project = projectRootCheck(path: projectRootPath)
         let web = packageCheck(name: "pi-web-access", title: "Web Access Tools", installCommand: "pi install npm:pi-web-access")
-        let askUser = packageCheck(name: "pi-ask-user", title: "Ask User Tool", installCommand: "pi install npm:pi-ask-user")
 
-        return await [pi, models, project, github, web, askUser]
+        return await [pi, models, project, github, web]
     }
 
     private func piCheck() async -> SetupCheckItem {
