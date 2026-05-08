@@ -3,6 +3,57 @@ import XCTest
 
 @MainActor
 final class PiAgentBridgeSmokeTests: XCTestCase {
+    func testSessionTitleGenerationUsesLaunchTimeModelThinkingAndDoesNotMutateRPCDefaults() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-title-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let argsLog = directory.appendingPathComponent("args.log")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' "$@" > \(PiTestSupport.shellSingleQuoted(argsLog.path))
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> \(PiTestSupport.shellSingleQuoted(stdinLog.path))
+          printf '%s\\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Fix Session Titles"}]}}'
+          printf '%s\\n' '{"type":"turn_end"}'
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        var generatedTitle: String?
+        var generatedError: Error?
+        let titleGenerator = PiSessionTitleGenerationService()
+        titleGenerator.generateTitle(
+            for: "Something is off in dynamic session titles.",
+            model: AvailableModel(provider: "zai", model: "glm-5.1:high", contextWindow: "1M", maxOutput: "64K", supportsThinking: true, supportsImages: false, supportedThinkingLevels: ["off", "low", "medium", "high"]),
+            projectURL: directory,
+            environment: [:]
+        ) { result in
+            switch result {
+            case let .success(title): generatedTitle = title
+            case let .failure(error): generatedError = error
+            }
+        }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { generatedTitle != nil || generatedError != nil })
+        XCTAssertEqual(generatedTitle, "Fix Session Titles")
+        XCTAssertNil(generatedError)
+
+        let args = try String(contentsOf: argsLog, encoding: .utf8)
+        XCTAssertTrue(args.contains("--provider\nzai"))
+        XCTAssertTrue(args.contains("--model\nglm-5.1:off"))
+
+        let stdin = try String(contentsOf: stdinLog, encoding: .utf8)
+        XCTAssertTrue(stdin.contains(#""type":"prompt""#))
+        XCTAssertFalse(stdin.contains("set_thinking_level"))
+        XCTAssertFalse(stdin.contains("set_model"))
+    }
+
     func testEnvRuntimeEnvironmentMergesBaseGlobalProjectAndRuntimePrecedence() throws {
         let directory = try PiTestSupport.temporaryProjectURL()
         let globalEnv = directory.appendingPathComponent("global.env")

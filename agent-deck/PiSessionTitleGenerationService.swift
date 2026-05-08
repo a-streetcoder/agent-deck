@@ -49,7 +49,7 @@ final class PiSessionTitleGenerationService {
             let client = try PiRPCClient(
                 cwd: projectURL,
                 provider: model.provider,
-                model: model.model,
+                modelArgument: Self.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
                 extraArguments: ["--no-session", "--no-extensions", "--no-skills", "--no-tools"],
                 environment: environment,
                 onEvent: { [weak self] rawLine, event in
@@ -75,11 +75,26 @@ final class PiSessionTitleGenerationService {
                 }
             }
 
-            client.setThinkingLevel("off")
             client.prompt(prompt(for: firstMessage))
         } catch {
             completion(.failure(error))
         }
+    }
+
+    static func runtimeModelArgument(modelID: String, thinkingLevel: String) -> String {
+        let trimmedModel = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedThinking = thinkingLevel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedModel.isEmpty, !trimmedThinking.isEmpty else { return trimmedModel }
+
+        let knownThinkingSuffixes = ["off", "minimal", "low", "medium", "high", "xhigh"]
+        let baseModel: String
+        if let suffix = trimmedModel.split(separator: ":").last,
+           knownThinkingSuffixes.contains(String(suffix)) {
+            baseModel = trimmedModel.split(separator: ":").dropLast().joined(separator: ":")
+        } else {
+            baseModel = trimmedModel
+        }
+        return "\(baseModel):\(trimmedThinking)"
     }
 
     func cancelAll() {
