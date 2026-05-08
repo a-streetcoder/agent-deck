@@ -9,6 +9,19 @@ import AppKit
 import SwiftUI
 import UserNotifications
 
+private extension AppAppearanceMode {
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+}
+
 final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppFonts.registerBundledFonts()
@@ -55,6 +68,8 @@ struct agent_deckApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
+                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
+                .tint(.accentColor)
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)
@@ -62,6 +77,8 @@ struct agent_deckApp: App {
         Settings {
             SettingsSceneContent()
                 .environmentObject(viewModel)
+                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
+                .tint(.accentColor)
         }
         .commands {
             AgentDeckCommands()

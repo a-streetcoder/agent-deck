@@ -87,16 +87,47 @@ struct MarkdownTextView: View {
     }
 
     private func inlineText(_ text: String) -> Text {
-        if let attributed = try? AttributedString(
-            markdown: text,
+        if let attributed = MarkdownInlineRenderCache.attributedString(for: text) {
+            return Text(attributed)
+        }
+        return Text(text)
+    }
+}
+
+@MainActor
+private enum MarkdownInlineRenderCache {
+    private static var cache: [String: AttributedString] = [:]
+    private static var order: [String] = []
+    private static let limit = 1_024
+
+    static func attributedString(for source: String) -> AttributedString? {
+        let key = cacheKey(for: source)
+        if let cached = cache[key] { return cached }
+        guard let attributed = try? AttributedString(
+            markdown: source,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace,
                 failurePolicy: .returnPartiallyParsedIfPossible
             )
-        ) {
-            return Text(attributed)
+        ) else {
+            return nil
         }
-        return Text(text)
+        cache[key] = attributed
+        order.append(key)
+        if order.count > limit {
+            let overflow = order.count - limit
+            for oldKey in order.prefix(overflow) {
+                cache[oldKey] = nil
+            }
+            order.removeFirst(overflow)
+        }
+        return attributed
+    }
+
+    private static func cacheKey(for source: String) -> String {
+        var hasher = Hasher()
+        hasher.combine(source)
+        return "\(source.count):\(hasher.finalize())"
     }
 }
 

@@ -24,6 +24,10 @@ final class AppSettingsController {
         TimeInterval(gitHubBoardCacheLifetimeMinutes * 60)
     }
 
+    var appearanceMode: AppAppearanceMode {
+        settings.appearanceMode
+    }
+
     var gitHubBoardCacheLifetimeMinutes: Int {
         max(settings.gitHubBoardCacheLifetimeMinutes, 1)
     }
@@ -97,6 +101,22 @@ final class AppSettingsController {
 
     var shouldShowContextSmartZoneHint: Bool {
         settings.showContextSmartZoneHint
+    }
+
+    var shouldAutoGeneratePiAgentSessionTitles: Bool {
+        settings.autoGeneratePiAgentSessionTitles
+    }
+
+    var piAgentTitleGenerationModelIdentifier: String? {
+        settings.piAgentTitleGenerationModelIdentifier
+    }
+
+    @discardableResult
+    func setAppearanceMode(_ mode: AppAppearanceMode) -> Bool {
+        guard settings.appearanceMode != mode else { return false }
+        settings.appearanceMode = mode
+        persist()
+        return true
     }
 
     @discardableResult
@@ -231,6 +251,24 @@ final class AppSettingsController {
     func setShowContextSmartZoneHint(_ isEnabled: Bool) -> Bool {
         guard settings.showContextSmartZoneHint != isEnabled else { return false }
         settings.showContextSmartZoneHint = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAutoGeneratePiAgentSessionTitles(_ isEnabled: Bool) -> Bool {
+        guard settings.autoGeneratePiAgentSessionTitles != isEnabled else { return false }
+        settings.autoGeneratePiAgentSessionTitles = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentTitleGenerationModelIdentifier(_ identifier: String?) -> Bool {
+        let trimmed = identifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = trimmed?.isEmpty == false ? trimmed : nil
+        guard settings.piAgentTitleGenerationModelIdentifier != stored else { return false }
+        settings.piAgentTitleGenerationModelIdentifier = stored
         persist()
         return true
     }

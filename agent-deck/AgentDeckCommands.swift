@@ -4,7 +4,6 @@ struct AgentDeckCommandContext {
     var canCreateAgent = false
     var canDeletePiAgentSession = false
     var canStopPiAgentSession = false
-    var canOpenPiAgentActivity = false
     var canOpenPiAgentRepoChanges = false
     var canTogglePiAgentInspector = false
     var canOpenPiAgentInTerminal = false
@@ -30,7 +29,6 @@ struct AgentDeckCommandContext {
     var createAgent: () -> Void = {}
     var deletePiAgentSession: () -> Void = {}
     var stopPiAgentSession: () -> Void = {}
-    var showPiAgentActivity: () -> Void = {}
     var showPiAgentRepoChanges: () -> Void = {}
     var togglePiAgentInspector: () -> Void = {}
     var resumePiAgentInTerminal: () -> Void = {}
@@ -108,12 +106,6 @@ struct AgentDeckCommands: Commands {
             .disabled(context?.canDeletePiAgentSession != true)
 
             Divider()
-
-            Button("Show Activity") {
-                context?.showPiAgentActivity()
-            }
-            .keyboardShortcut("1", modifiers: [.command, .option])
-            .disabled(context?.canOpenPiAgentActivity != true)
 
             Button("Show Repo Changes") {
                 context?.showPiAgentRepoChanges()

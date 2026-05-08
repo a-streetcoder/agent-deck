@@ -44,7 +44,7 @@ struct PiAgentAddSessionButton: View {
                 .frame(width: 30, height: 30)
                 .background(
                     Circle()
-                        .fill(isEnabled ? Color.accentColor : AppTheme.contentStroke.opacity(0.45))
+                        .fill(isEnabled ? AppTheme.brandAccent : AppTheme.contentStroke.opacity(0.45))
                 )
                 .contentShape(Circle())
         }
@@ -59,14 +59,17 @@ struct PiAgentSessionRow: View {
     let isSelected: Bool
     let isRunning: Bool
     let isRenaming: Bool
+    let isGeneratingTitle: Bool
     let onSelect: () -> Void
     let onBeginRename: () -> Void
     let onEndRename: () -> Void
     let onRename: (String) -> Void
     let onTogglePinned: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draftTitle = ""
     @State private var isTitleHovered = false
+    @State private var activeBorderDashPhase: CGFloat = 0
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
@@ -75,25 +78,22 @@ struct PiAgentSessionRow: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Circle()
-                        .fill(session.needsAttention ? Color.accentColor : (isRunning ? .green : statusColor))
-                        .frame(width: session.needsAttention ? 10 : 8, height: session.needsAttention ? 10 : 8)
                     titleView
                         .layoutPriority(1)
                     Spacer(minLength: 0)
                     Button(action: onTogglePinned) {
                         Image(systemName: session.isPinned ? "pin.fill" : "pin")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(session.isPinned ? Color.accentColor : AppTheme.mutedText.opacity(0.75))
+                            .foregroundStyle(session.isPinned ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.75))
                             .frame(width: 24, height: 24)
-                            .background(Circle().fill(session.isPinned ? Color.accentColor.opacity(0.14) : AppTheme.contentSubtleFill.opacity(0.8)))
+                            .background(Circle().fill(session.isPinned ? AppTheme.brandAccent.opacity(0.14) : AppTheme.contentSubtleFill.opacity(0.8)))
                     }
                     .buttonStyle(.plain)
                     .help(session.isPinned ? "Unpin session" : "Pin session")
                     if session.needsAttention {
                         Image(systemName: "bell.fill")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppTheme.brandAccent)
                             .help("Pi Agent finished and needs review")
                     }
                 }
@@ -112,24 +112,32 @@ struct PiAgentSessionRow: View {
                 .font(.footnote)
                 .foregroundStyle(AppTheme.mutedText)
 
-                Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Spacer(minLength: 0)
+
+                    if isRunning {
+                        activeStatusLabel
+                            .transition(.opacity)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : AppTheme.contentFill)
-                .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
-        )
+        .background(sessionRowBackground)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
-        .onAppear { draftTitle = sessionTitle }
+        .onAppear {
+            draftTitle = sessionTitle
+            updateActiveBorderAnimation()
+        }
         .onChange(of: session.id) { _, _ in resetRenameState() }
         .onChange(of: session.title) { _, _ in draftTitle = sessionTitle }
         .onChange(of: isRenaming) { _, renaming in
@@ -143,7 +151,59 @@ struct PiAgentSessionRow: View {
         .onChange(of: isTitleFocused) { _, focused in
             if !focused && isRenaming { commitRename() }
         }
+        .onChange(of: isRunning) { _, _ in updateActiveBorderAnimation() }
         .onDisappear(perform: commitRename)
+    }
+
+    private var sessionRowBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return shape
+            .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentFill)
+            .overlay {
+                if isRunning {
+                    shape.stroke(
+                        activeBorderGradient,
+                        style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round, dash: [7, 7], dashPhase: activeBorderDashPhase)
+                    )
+                    .shadow(color: AppTheme.brandAccent.opacity(0.22), radius: 5, y: 0)
+                } else {
+                    shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                }
+            }
+    }
+
+    private var activeStatusLabel: some View {
+        Text("ACTIVE")
+            .font(.system(size: 7, weight: .bold, design: .monospaced))
+            .tracking(1.2)
+            .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
+            .accessibilityHidden(true)
+    }
+
+    private var activeBorderGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                AppTheme.brandAccentBright.opacity(0.86),
+                AppTheme.brandAccent.opacity(0.9),
+                AppTheme.brandAccentDeep.opacity(0.72),
+                AppTheme.brandAccent.opacity(0.9)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func updateActiveBorderAnimation() {
+        guard isRunning, !reduceMotion else {
+            activeBorderDashPhase = 0
+            return
+        }
+        activeBorderDashPhase = 0
+        DispatchQueue.main.async {
+            withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
+                activeBorderDashPhase = -56
+            }
+        }
     }
 
     @ViewBuilder
@@ -167,6 +227,9 @@ struct PiAgentSessionRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .minimumScaleFactor(0.75)
+                    .contentTransition(.numericText())
+                    .opacity(isGeneratingTitle ? 0.62 : 1)
+                    .animation(isGeneratingTitle ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true) : .default, value: isGeneratingTitle)
                 Image(systemName: "pencil")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(AppTheme.mutedText)
@@ -227,11 +290,56 @@ struct PiAgentSessionRow: View {
     private var statusColor: Color {
         switch session.status {
         case .running, .starting: return .green
-        case .idle, .completed: return .blue
+        case .idle, .completed: return AppTheme.brandAccentDeep
         case .failed: return .red
         case .stopped: return .orange
         case .draft: return .secondary
         }
+    }
+}
+
+private struct PiAgentSessionTelemetryStrip: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<18, id: \.self) { index in
+                Capsule(style: .continuous)
+                    .fill(segmentColor(index: index))
+                    .frame(width: segmentWidth(index: index), height: segmentHeight(index: index))
+                    .shadow(color: AppTheme.brandAccent.opacity(activeSegment(index) ? 0.32 : 0), radius: 4, y: 0)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.85).repeatForever(autoreverses: true).delay(Double(index % 6) * 0.055), value: isActive)
+            }
+            Spacer(minLength: 0)
+            Text("ACTIVE")
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .tracking(1.2)
+                .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
+        }
+        .frame(height: 9)
+        .accessibilityHidden(true)
+    }
+
+    private func activeSegment(_ index: Int) -> Bool {
+        guard !reduceMotion else { return index % 3 == 0 }
+        return isActive ? index % 3 != 1 : index % 4 == 0
+    }
+
+    private func segmentColor(index: Int) -> Color {
+        let baseOpacity = activeSegment(index) ? 0.78 : 0.18
+        if index % 5 == 0 {
+            return AppTheme.brandAccentBright.opacity(baseOpacity)
+        }
+        return AppTheme.brandAccent.opacity(baseOpacity)
+    }
+
+    private func segmentWidth(index: Int) -> CGFloat {
+        activeSegment(index) ? CGFloat([10, 16, 7, 12, 20, 9][index % 6]) : 6
+    }
+
+    private func segmentHeight(index: Int) -> CGFloat {
+        activeSegment(index) ? CGFloat([2, 3, 2, 4, 3, 2][index % 6]) : 2
     }
 }
 
@@ -257,14 +365,14 @@ struct PiAgentProjectIcon: View {
 
     private var fallback: some View {
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(Color.accentColor.opacity(0.14))
+            .fill(AppTheme.brandAccent.opacity(0.14))
             .overlay {
                 Image(session.kind == .issue ? "github" : "pi")
                     .resizable()
                     .renderingMode(.template)
                     .scaledToFit()
                     .padding(8)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppTheme.brandAccent)
             }
     }
 }
@@ -279,7 +387,7 @@ struct PiAgentProcessingIndicatorCard: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(Color.purple)
+                    .foregroundStyle(AppTheme.assistantAccent)
                     .frame(width: 16, height: 16)
                 Text(message)
                     .font(.callout.weight(.semibold))

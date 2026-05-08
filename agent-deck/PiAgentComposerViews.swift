@@ -124,12 +124,12 @@ struct PiAgentComposerBox: View {
         .appContentSurface(cornerRadius: 20)
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(isDropTargeted ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: isDropTargeted ? 2 : 1)
+                .stroke(isDropTargeted ? AppTheme.brandAccent.opacity(0.7) : Color.clear, lineWidth: isDropTargeted ? 2 : 1)
         )
         .overlay {
             if isDropTargeted {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.10))
+                        .fill(AppTheme.brandAccent.opacity(0.10))
                         .allowsHitTesting(false)
             }
             if isDisabled {
@@ -429,7 +429,7 @@ struct PiAgentFileAttachmentChip: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppTheme.brandAccent)
             Text(file.url.lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -735,7 +735,7 @@ struct PiAgentSendButton: View {
 
     private var backgroundColor: Color {
         if isRunning { return .red.opacity(0.88) }
-        return canSend ? Color.accentColor : AppTheme.mutedText.opacity(0.28)
+        return canSend ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.28)
     }
 }
 
@@ -905,7 +905,7 @@ private struct PiAgentSmartZoneContextBar: View {
                 .fill(AppTheme.contentFill.opacity(0.75))
 
             Capsule(style: .continuous)
-                .fill(clampedPercent > 85 ? Color.orange : Color.accentColor)
+                .fill(clampedPercent > 85 ? Color.orange : AppTheme.brandAccent)
                 .frame(width: width * clampedPercent / 100)
 
             if showsSmartZoneHint {
@@ -1027,7 +1027,7 @@ struct PiAgentContextBreakdownPopover: View {
                             tokens: session.contextTokens,
                             percent: session.contextPercent,
                             detail: nil,
-                            tint: usedPercent > 85 ? .orange : .accentColor
+                            tint: usedPercent > 85 ? .orange : AppTheme.brandAccent
                         )
                     } else {
                         ForEach(estimate.rows) { row in
@@ -1089,19 +1089,19 @@ struct PiAgentContextBreakdownPopover: View {
     private func tint(for key: String) -> Color {
         switch key {
         case "systemPrompt", "system_prompt":
-            return .purple
+            return AppTheme.assistantAccent
         case "systemTools", "system_tools", "toolCalls", "tool_calls", "toolResults", "tool_results", "promptTools":
-            return .blue
+            return AppTheme.brandAccentDeep
         case "promptSkills":
-            return .purple
+            return AppTheme.assistantAccent
         case "promptProjectContext":
             return .orange
         case "promptCore", "messages", "estimatedMessages", "estimatedInputTokens":
-            return .accentColor
+            return AppTheme.brandAccent
         case "estimatedOutputTokens":
             return .green
         case "estimatedCachedPromptTools", "estimatedCacheTokens":
-            return .blue
+            return AppTheme.brandAccentDeep
         case "estimatedOtherUsedContext":
             return .orange
         case "freeSpace", "free_space", "estimatedFreeSpace":
@@ -1109,7 +1109,7 @@ struct PiAgentContextBreakdownPopover: View {
         case "autocompactBuffer", "autocompact_buffer", "estimatedOutputBuffer":
             return .gray
         default:
-            return .accentColor
+            return AppTheme.brandAccent
         }
     }
 
@@ -1656,7 +1656,7 @@ struct PiAgentModelPicker: View {
     private func modelRow(title: String, subtitle: String, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? Color.accentColor : AppTheme.mutedText)
+                .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -1672,7 +1672,7 @@ struct PiAgentModelPicker: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.10) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? AppTheme.brandAccent.opacity(0.10) : Color.clear))
     }
 
     private var modelOptions: [PiAgentModelOption] {
@@ -1776,7 +1776,7 @@ struct PiAgentThinkingPicker: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: candidate == resolvedLevel ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(candidate == resolvedLevel ? Color.accentColor : AppTheme.mutedText)
+                                .foregroundStyle(candidate == resolvedLevel ? AppTheme.brandAccent : AppTheme.mutedText)
                                 .frame(width: 16)
                             Text(candidate.capitalized)
                                 .font(.caption.weight(.semibold))
@@ -1784,7 +1784,7 @@ struct PiAgentThinkingPicker: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(candidate == resolvedLevel ? Color.accentColor.opacity(0.10) : Color.clear))
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(candidate == resolvedLevel ? AppTheme.brandAccent.opacity(0.10) : Color.clear))
                     }
                     .buttonStyle(.plain)
                 }

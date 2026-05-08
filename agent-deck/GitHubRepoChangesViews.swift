@@ -101,12 +101,17 @@ private struct GitHubDesktopChangesView: View {
             .frame(minHeight: 560)
         }
         .onAppear(perform: selectInitialDiffIfNeeded)
-        .onChange(of: snapshot.totalChangeCount) { _, _ in selectInitialDiffIfNeeded() }
+        .onChange(of: snapshot.totalChangeCount) { _, _ in
+            Task { @MainActor in
+                await Task.yield()
+                selectInitialDiffIfNeeded()
+            }
+        }
     }
 
     private var repositorySummary: some View {
         HStack(spacing: 10) {
-            AppLabelTag(text: snapshot.branchName, color: .blue)
+            AppLabelTag(text: snapshot.branchName, color: AppTheme.brandAccentDeep)
             if let upstream = snapshot.upstreamBranch {
                 AppLabelTag(text: upstream, color: .gray)
             }
@@ -147,7 +152,7 @@ private struct GitHubDesktopChangesView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: snapshot.canUnstageAll ? "checkmark.square.fill" : "square")
-                            .foregroundStyle(snapshot.canUnstageAll ? Color.accentColor : AppTheme.mutedText)
+                            .foregroundStyle(snapshot.canUnstageAll ? AppTheme.brandAccent : AppTheme.mutedText)
                         Text("\(includedCount) of \(snapshot.totalChangeCount) files included")
                             .foregroundStyle(.primary)
                         Spacer()
@@ -288,7 +293,7 @@ private struct GitChangeFileRow: View {
             HStack(spacing: 9) {
                 Button(action: onToggleIncluded) {
                     Image(systemName: item.isIncluded ? "checkmark.square.fill" : "square")
-                        .foregroundStyle(item.isIncluded ? Color.accentColor : AppTheme.mutedText)
+                        .foregroundStyle(item.isIncluded ? AppTheme.brandAccent : AppTheme.mutedText)
                 }
                 .buttonStyle(.plain)
                 .help(item.isIncluded ? "Exclude from commit" : "Include in commit")
@@ -316,8 +321,8 @@ private struct GitChangeFileRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(isSelected ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(isSelected ? AppTheme.brandAccent.opacity(0.16) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : Color.clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

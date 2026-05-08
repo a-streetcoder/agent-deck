@@ -161,6 +161,15 @@ final class PiAgentSessionStore: ObservableObject {
         }
     }
 
+    func applyGeneratedTitle(_ id: UUID, title: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+        updateSession(id, bumpUpdatedAt: false) { record in
+            guard !record.isTitleUserEdited else { return }
+            record.title = trimmedTitle
+        }
+    }
+
     func setPinned(_ id: UUID, isPinned: Bool) {
         updateSession(id, bumpUpdatedAt: false) { $0.isPinned = isPinned }
     }
@@ -556,7 +565,8 @@ final class PiAgentSessionStore: ObservableObject {
     private func sortSessions() {
         sessions.sort { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
-            return lhs.updatedAt > rhs.updatedAt
+            if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+            return lhs.id.uuidString < rhs.id.uuidString
         }
     }
 

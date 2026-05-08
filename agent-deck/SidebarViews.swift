@@ -3,11 +3,19 @@ import SwiftUI
 
 struct SidebarNavigationRow: View {
     let item: SidebarItem
+    var showsWarning = false
 
     var body: some View {
         HStack(spacing: 8) {
             icon
             Text(item.rawValue)
+            if showsWarning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.yellow)
+                    .help("Select a project to enable repo-aware GitHub workflows.")
+                    .accessibilityLabel("Project selection recommended")
+            }
         }
         .fontWidth(.expanded)
     }
@@ -43,7 +51,7 @@ struct PiAgentSidebarButton: View {
                     .renderingMode(.template)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 18, height: 18)
-                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .foregroundStyle(isSelected ? AppTheme.brandAccent : .secondary)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pi Agent")
@@ -375,18 +383,18 @@ struct ProjectSidebarRow: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppTheme.brandAccent)
                     }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.12) : AppTheme.contentSubtleFill.opacity(0.22))
+                        .fill(isSelected ? AppTheme.brandAccent.opacity(0.12) : AppTheme.contentSubtleFill.opacity(0.22))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
+                        .stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)

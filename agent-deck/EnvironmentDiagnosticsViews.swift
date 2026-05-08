@@ -219,7 +219,7 @@ struct PiDocsScreen: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.contentSubtleFill)
+                                        .fill(selectedTab == tab ? AppTheme.brandAccent : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -642,7 +642,8 @@ struct DiagnosticsScreen: View {
         defer { isRefreshingSetup = false }
         setupItems = await SetupDependencyService().loadItems(
             projectRootPath: viewModel.appSettings.projectsRootPath,
-            githubAccount: viewModel.currentGitHubAccount
+            githubAccount: viewModel.currentGitHubAccount,
+            selectedProjectPath: viewModel.selectedProjectPath
         )
     }
 

@@ -88,8 +88,9 @@ final class PiAgentRunnerService {
         mark(sessionID, status: .running, error: nil)
     }
 
-    func syncSessionName(for sessionID: UUID) {
-        guard let session = store.sessions.first(where: { $0.id == sessionID }), session.isTitleUserEdited else { return }
+    func syncSessionName(for sessionID: UUID, force: Bool = false) {
+        guard let session = store.sessions.first(where: { $0.id == sessionID }) else { return }
+        guard force || session.isTitleUserEdited else { return }
         let name = session.displayTitle
         if let client = clientsBySessionID[sessionID], client.isRunning {
             client.setSessionName(name)
@@ -250,8 +251,9 @@ final class PiAgentRunnerService {
             }
             client.getState()
             client.getAvailableModels()
-            if session.isTitleUserEdited {
-                client.setSessionName(session.displayTitle)
+            let currentSession = store.sessions.first(where: { $0.id == session.id }) ?? session
+            if currentSession.isTitleUserEdited || (session.title.hasPrefix("Draft ·") && !currentSession.title.hasPrefix("Draft ·")) {
+                client.setSessionName(currentSession.displayTitle)
             }
             if let thinkingLevel = session.thinkingLevel, !thinkingLevel.isEmpty {
                 client.setThinkingLevel(thinkingLevel)
@@ -830,11 +832,11 @@ final class PiAgentRunnerService {
             thinkingTextBySessionID[sessionID] = nil
             let visibleText = extractAssistantText(from: message)
             if !visibleText.isEmpty {
-                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: visibleText, rawJSON: rawLine))
+                store.upsert(.init(id: assistantEntryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: visibleText, rawJSON: nil))
             } else {
                 let thinkingText = extractAssistantThinking(from: message)
                 if !thinkingText.isEmpty {
-                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: rawLine), before: thinkingBeforeID)
+                    store.upsert(.init(id: thinkingEntryID, sessionID: sessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: nil), before: thinkingBeforeID)
                 }
             }
         } else if role == "user" {
@@ -1242,7 +1244,7 @@ final class PiAgentRunnerService {
             if text.isEmpty && type != "message_start" { return nil }
             switch role {
             case "assistant":
-                return .init(sessionID: sessionID, role: .assistant, title: "Assistant", text: text.isEmpty ? type : text, rawJSON: rawLine)
+                return .init(sessionID: sessionID, role: .assistant, title: "Assistant", text: text.isEmpty ? type : text, rawJSON: nil)
             case "user":
                 return nil
             case "toolResult", "bashExecution":

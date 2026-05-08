@@ -60,7 +60,12 @@ struct PiAgentActivityPanel: View {
             selectedID = nil
             rebuildActivityCache()
         }
-        .onChange(of: store.selectedTranscriptRevision) { _, _ in rebuildActivityCache() }
+        .onChange(of: store.selectedTranscriptRevision) { _, _ in
+            Task { @MainActor in
+                await Task.yield()
+                rebuildActivityCache()
+            }
+        }
         .onReceive(store.$subagentRunsBySessionID) { _ in rebuildActivityCache() }
         .onReceive(store.$subagentTranscriptsByRunID) { _ in rebuildActivityCache() }
         .onReceive(activityCache.$changes) { changes in
@@ -203,9 +208,9 @@ struct PiAgentCurrentPlanCard: View {
             HStack(spacing: 9) {
                 Image(systemName: "checklist")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppTheme.brandAccent)
                     .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.accentColor.opacity(0.13)))
+                    .background(Circle().fill(AppTheme.brandAccent.opacity(0.13)))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
                         .font(.caption.weight(.semibold))
@@ -800,7 +805,7 @@ private struct PiAgentActivityRow: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(isSelected ? AppTheme.contentSubtleFill.opacity(0.9) : AppTheme.contentSubtleFill.opacity(0.55)).stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(isSelected ? AppTheme.contentSubtleFill.opacity(0.9) : AppTheme.contentSubtleFill.opacity(0.55)).stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1))
     }
 }
 

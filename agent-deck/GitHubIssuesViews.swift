@@ -56,11 +56,11 @@ private struct GitHubIssueListRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+                    .fill(isSelected ? AppTheme.brandAccent.opacity(0.14) : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.brandAccent.opacity(0.35) : AppTheme.contentStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -108,7 +108,7 @@ private struct GitHubIssueDetailCard: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                        .fill(LinearGradient(colors: [AppTheme.brandAccent, AppTheme.brandAccent.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -191,12 +191,12 @@ private struct GitHubIssueDetailCard: View {
                                     .fontWidth(.expanded)
 
                                 if let parent = detail.parent {
-                                    GitHubRelationshipGroup(title: "Parent", items: [parent], accent: .purple) { reference in
+                                    GitHubRelationshipGroup(title: "Parent", items: [parent], accent: AppTheme.assistantAccent) { reference in
                                         viewModel.selectIssueReference(reference)
                                     }
                                 }
                                 if !detail.subIssues.isEmpty {
-                                    GitHubRelationshipGroup(title: "Sub-issues", items: detail.subIssues, accent: .purple) { reference in
+                                    GitHubRelationshipGroup(title: "Sub-issues", items: detail.subIssues, accent: AppTheme.assistantAccent) { reference in
                                         viewModel.selectIssueReference(reference)
                                     }
                                 }

@@ -75,7 +75,7 @@ struct SkillsProjectRecapPanel: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    recapSection("Global", skills: globalSkills, color: .blue, emptyText: "No global skills")
+                    recapSection("Global", skills: globalSkills, color: AppTheme.brandAccentDeep, emptyText: "No global skills")
                     recapSection("Project", skills: projectSkills, color: .green, emptyText: "No project-assigned skills")
                     recapSection("Package", skills: packageSkills, color: .orange, emptyText: "No package skills")
                 }
@@ -415,8 +415,8 @@ struct SkillsScreen: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selectedSkillName == skill.name ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
-                    .stroke(selectedSkillName == skill.name ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
+                    .fill(selectedSkillName == skill.name ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentSubtleFill)
+                    .stroke(selectedSkillName == skill.name ? AppTheme.brandAccent.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
             .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)

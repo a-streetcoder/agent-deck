@@ -411,6 +411,7 @@ struct PiAgentTranscriptThreadCard: View {
     let visibility: PiAgentTranscriptVisibilitySettings
     let skills: [SkillRecord]
     let projectPath: String?
+    let planEvents: [PiSessionPlanEventRecord]
     let nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
     let nativeSubagentCard: (PiSubagentRunRecord) -> PiNativeSubagentRunCard
 
@@ -444,8 +445,11 @@ struct PiAgentTranscriptThreadCard: View {
                         if visibility.showToolCalls && !toolActivities.isEmpty {
                             PiAgentActivitySummaryView(activities: toolActivities)
                         }
-                        if visibility.showDiffs {
-                            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+                        if visibility.showPlans {
+                            ForEach(latestPlanEvents) { event in
+                                PiAgentCurrentPlanCard(event: event)
+                                    .id(event.id)
+                            }
                         }
                         ForEach(thread.statuses) { entry in
                             if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
@@ -459,6 +463,9 @@ struct PiAgentTranscriptThreadCard: View {
                         ForEach(thread.assistantMessages) { entry in
                             PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
                                 .id(entry.id)
+                        }
+                        if visibility.showDiffs {
+                            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
                         }
                         if visibility.showErrors {
                             ForEach(thread.errors) { entry in
@@ -477,7 +484,7 @@ struct PiAgentTranscriptThreadCard: View {
     }
 
     private var hasChildren: Bool {
-        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || !thread.statuses.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
+        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || (visibility.showPlans && !latestPlanEvents.isEmpty) || !thread.statuses.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
     }
 
     private var effectiveThinkingDisplayMode: PiAgentThinkingDisplayMode {
@@ -494,6 +501,15 @@ struct PiAgentTranscriptThreadCard: View {
 
     private var editablePaths: [String] {
         PiAgentThreadDiffSummaryView.changedPaths(from: toolActivities)
+    }
+
+    private var latestPlanEvents: [PiSessionPlanEventRecord] {
+        var latestByPlanID: [UUID: PiSessionPlanEventRecord] = [:]
+        for event in planEvents where event.kind != .cleared {
+            if let existing = latestByPlanID[event.planID], existing.timestamp >= event.timestamp { continue }
+            latestByPlanID[event.planID] = event
+        }
+        return latestByPlanID.values.sorted { $0.timestamp < $1.timestamp }
     }
 }
 
@@ -762,7 +778,7 @@ struct PiAgentWebActivitySummaryView: View {
                                     } label: {
                                         Text(expandedRows.contains(row.id) ? "Show fewer results" : "+\(row.links.count - inlineLinkLimit) more results")
                                             .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(Color.accentColor)
+                                            .foregroundStyle(AppTheme.brandAccent)
                                     }
                                     .buttonStyle(.plain)
                                     .padding(.top, 1)
@@ -1232,7 +1248,7 @@ struct PiAgentSystemPromptAuditCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppTheme.brandAccent)
                     .frame(width: 30, height: 30)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -1302,7 +1318,7 @@ struct PiAgentPromptAuditPopover: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "doc.text.magnifyingglass")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppTheme.brandAccent)
                 Text(title)
                     .font(.headline)
                 Spacer(minLength: 0)
@@ -1336,6 +1352,7 @@ enum PiAgentTranscriptCardStyle {
 
 private struct PiAgentUserMessageContent: View {
     let entry: PiAgentTranscriptEntry
+    @State private var preview: AttachmentPreview?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1343,13 +1360,16 @@ private struct PiAgentUserMessageContent: View {
                 MarkdownTextView(source: messageText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !images.isEmpty || !files.isEmpty {
+            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
-                    ForEach(images.prefix(6)) { image in
-                        imageThumb(image)
+                    ForEach(imageAttachments.prefix(6)) { image in
+                        attachmentChip(name: image.name, systemImage: "photo", attachment: .image(image))
                     }
-                    ForEach(files.prefix(6), id: \.self) { file in
-                        fileChip(file)
+                    ForEach(legacyImageNames.prefix(max(0, 6 - imageAttachments.count)), id: \.self) { name in
+                        attachmentChip(name: name, systemImage: "photo", attachment: .missing(name))
+                    }
+                    ForEach(fileAttachments.prefix(6)) { file in
+                        attachmentChip(name: file.name, systemImage: "doc.text", attachment: .file(file))
                     }
                     if hiddenCount > 0 {
                         Text("+\(hiddenCount)")
@@ -1364,20 +1384,75 @@ private struct PiAgentUserMessageContent: View {
     }
 
     private var messageText: String {
-        let marker = "Attached files:"
-        guard let range = entry.text.range(of: marker) else { return entry.text }
-        return entry.text[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        let markers = ["Attached files:", "Attached images:"]
+        let firstRange = markers.compactMap { entry.text.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
+        let base = firstRange.map { String(entry.text[..<$0.lowerBound]) } ?? entry.text
+        return Self.removingFileTags(from: base).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var files: [String] {
-        guard let range = entry.text.range(of: "Attached files:") else { return [] }
-        return entry.text[range.upperBound...]
-            .split(separator: "\n")
-            .compactMap { line in
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard trimmed.hasPrefix("- ") else { return nil }
-                return String(trimmed.dropFirst(2))
-            }
+    private var imageAttachments: [PiAgentImageAttachment] { images }
+
+    private var fileAttachments: [FileAttachmentPreview] {
+        let listed = attachmentLines(after: "Attached files:").compactMap { line -> FileAttachmentPreview? in
+            guard !line.contains("<image ") else { return nil }
+            return .init(name: line, path: nil)
+        }
+        let tagged = inlineFileTags.filter { !Self.isImageName($0.name) }
+        return uniqueFiles(listed + tagged)
+    }
+
+    private var legacyImageNames: [String] {
+        let imageLines = attachmentLines(after: "Attached images:") + attachmentLines(after: "Attached files:").filter { $0.contains("<image ") }
+        return uniqueNames(imageLines.compactMap(Self.imageName(from:)) + inlineFileTags.filter { Self.isImageName($0.name) }.map(\.name)).filter { name in
+            !images.contains { $0.name == name }
+        }
+    }
+
+    private func attachmentLines(after marker: String) -> [String] {
+        guard let range = entry.text.range(of: marker) else { return [] }
+        let tail = entry.text[range.upperBound...]
+        let stop = marker == "Attached files:" ? tail.range(of: "Attached images:")?.lowerBound : nil
+        let slice = stop.map { tail[..<$0] } ?? tail[...]
+        return slice.split(separator: "\n").compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("- ") else { return nil }
+            return String(trimmed.dropFirst(2))
+        }
+    }
+
+    private var inlineFileTags: [FileAttachmentPreview] {
+        let pattern = #"<file name=\"([^\"]+)\">[\s\S]*?</file>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(entry.text.startIndex..<entry.text.endIndex, in: entry.text)
+        return regex.matches(in: entry.text, range: range).compactMap { match in
+            guard let range = Range(match.range(at: 1), in: entry.text) else { return nil }
+            let path = String(entry.text[range])
+            return .init(name: URL(fileURLWithPath: path).lastPathComponent, path: path)
+        }
+    }
+
+    private static func imageName(from raw: String) -> String? {
+        guard let range = raw.range(of: #"name=\"([^\"]+)\""#, options: .regularExpression) else { return nil }
+        let match = raw[range]
+        return match.replacingOccurrences(of: "name=\"", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    private static func removingFileTags(from text: String) -> String {
+        text.replacingOccurrences(of: #"<file name=\"[^\"]+\">[\s\S]*?</file>"#, with: "", options: .regularExpression)
+    }
+
+    private static func isImageName(_ name: String) -> Bool {
+        ["png", "jpg", "jpeg", "gif", "webp", "tiff", "heic"].contains(URL(fileURLWithPath: name).pathExtension.lowercased())
+    }
+
+    private func uniqueNames(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
+    }
+
+    private func uniqueFiles(_ files: [FileAttachmentPreview]) -> [FileAttachmentPreview] {
+        var seen = Set<String>()
+        return files.filter { seen.insert($0.name).inserted }
     }
 
     private var images: [PiAgentImageAttachment] {
@@ -1385,41 +1460,132 @@ private struct PiAgentUserMessageContent: View {
         return object["images"] ?? []
     }
 
-    private var hiddenCount: Int { max(0, images.count + files.count - 12) }
+    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count - 12) }
 
-    private func imageThumb(_ image: PiAgentImageAttachment) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func attachmentChip(name: String, systemImage: String, attachment: AttachmentPreview) -> some View {
+        Button { preview = attachment } label: {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.caption2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+        }
+        .buttonStyle(.plain)
+        .help("Preview \(name)")
+        .popover(isPresented: Binding(
+            get: { preview == attachment },
+            set: { isPresented in
+                if isPresented {
+                    preview = attachment
+                } else if preview == attachment {
+                    preview = nil
+                }
+            }
+        ), arrowEdge: .bottom) {
+            AttachmentPreviewPopover(attachment: attachment)
+        }
+    }
+}
+
+private struct FileAttachmentPreview: Identifiable, Hashable {
+    var id: String { path ?? name }
+    let name: String
+    let path: String?
+}
+
+private enum AttachmentPreview: Identifiable, Hashable {
+    case image(PiAgentImageAttachment)
+    case file(FileAttachmentPreview)
+    case missing(String)
+
+    var id: String {
+        switch self {
+        case .image(let image): return "image-\(image.id.uuidString)"
+        case .file(let file): return "file-\(file.id)"
+        case .missing(let name): return "missing-\(name)"
+        }
+    }
+}
+
+private struct AttachmentPreviewPopover: View {
+    let attachment: AttachmentPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header
+            previewBody
+        }
+        .padding(12)
+        .frame(width: 420, height: 300)
+    }
+
+    @ViewBuilder private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(AppTheme.brandAccent)
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+        }
+    }
+
+    @ViewBuilder private var previewBody: some View {
+        switch attachment {
+        case .image(let image):
             if let nsImage = PiAgentComposerImageLoader.previewImage(for: image) {
                 Image(nsImage: nsImage)
                     .resizable()
-                    .scaledToFill()
-                    .frame(width: 68, height: 52)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else {
-                Image(systemName: "photo")
-                    .frame(width: 68, height: 52)
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+            } else {
+                empty("Preview is not available for this image.")
             }
-            Text(image.name)
-                .font(.caption2)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: 68, alignment: .leading)
+        case .file(let file):
+            if let path = file.path, let text = try? String(contentsOfFile: path, encoding: .utf8) {
+                ScrollView {
+                    Text(String(text.prefix(12_000)))
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
+                .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+            } else {
+                empty("Preview is not available for this attachment.")
+            }
+        case .missing:
+            empty("Preview is not available for older attachment metadata.")
         }
-        .help("\(image.name) · \(ByteCountFormatter.string(fromByteCount: Int64(image.sizeBytes), countStyle: .file))")
     }
 
-    private func fileChip(_ name: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "doc.text")
-            Text(name)
-                .lineLimit(1)
-                .truncationMode(.middle)
+    private var title: String {
+        switch attachment {
+        case .image(let image): return image.name
+        case .file(let file): return file.name
+        case .missing(let name): return name
         }
-        .font(.caption2)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+    }
+
+    private var icon: String {
+        switch attachment {
+        case .image, .missing: return "photo"
+        case .file: return "doc.text"
+        }
+    }
+
+    private func empty(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(AppTheme.mutedText)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -1603,13 +1769,13 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var headerColor: Color {
-        entry.role == .user ? Color.accentColor : .primary
+        entry.role == .user ? AppTheme.brandAccent : .primary
     }
 
     private var backgroundColor: Color {
         switch entry.role {
-        case .user: return style == .question ? Color.accentColor.opacity(0.10) : Color.accentColor.opacity(0.08)
-        case .assistant: return Color.purple.opacity(0.06)
+        case .user: return style == .question ? AppTheme.brandAccent.opacity(0.10) : AppTheme.brandAccent.opacity(0.08)
+        case .assistant: return AppTheme.assistantAccent.opacity(0.06)
         case .thinking: return Color.indigo.opacity(0.07)
         case .tool: return style == .threadChild ? Color.orange.opacity(0.05) : Color.orange.opacity(0.08)
         case .status: return AppTheme.contentSubtleFill.opacity(0.7)
@@ -1621,8 +1787,8 @@ struct PiAgentTranscriptCard: View {
 
     private var strokeColor: Color {
         switch entry.role {
-        case .user: return Color.accentColor.opacity(0.2)
-        case .assistant: return Color.purple.opacity(0.18)
+        case .user: return AppTheme.brandAccent.opacity(0.2)
+        case .assistant: return AppTheme.assistantAccent.opacity(0.18)
         case .thinking: return Color.indigo.opacity(0.18)
         case .tool: return Color.orange.opacity(0.2)
         case .error: return Color.red.opacity(0.22)

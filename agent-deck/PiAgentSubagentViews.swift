@@ -229,7 +229,7 @@ struct PiNativeSubagentRunCard: View {
             Label("Task", systemImage: "arrowshape.turn.up.forward.circle")
                 .font(.caption.weight(.semibold))
                 .fontWidth(.expanded)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppTheme.brandAccent)
 
             MarkdownTextView(source: run.task)
                 .lineLimit(3)
@@ -241,8 +241,8 @@ struct PiNativeSubagentRunCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.accentColor.opacity(0.08))
-                .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
+                .fill(AppTheme.brandAccent.opacity(0.08))
+                .stroke(AppTheme.brandAccent.opacity(0.18), lineWidth: 1)
         )
         .help(run.task)
     }
@@ -746,7 +746,7 @@ struct PiNativeSubagentRunSheet: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: "rectangle.connected.to.line.below")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppTheme.brandAccent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Run Subagent")
                         .font(.title3.bold())
@@ -847,8 +847,8 @@ struct PiNativeSubagentRunSheet: View {
             .overlay {
                 if isReadFirstDropTargeted {
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.accentColor, lineWidth: 2)
-                        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .stroke(AppTheme.brandAccent, lineWidth: 2)
+                        .background(AppTheme.brandAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                 }
             }
             .onDrop(of: [.fileURL], isTargeted: $isReadFirstDropTargeted) { providers in

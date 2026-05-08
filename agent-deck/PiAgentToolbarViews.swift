@@ -110,7 +110,7 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
         } label: {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isOn ? Color.accentColor : AppTheme.mutedText)
+                    .foregroundStyle(isOn ? AppTheme.brandAccent : AppTheme.mutedText)
                     .frame(width: 17)
                 Image(systemName: systemImage)
                     .foregroundStyle(AppTheme.mutedText)

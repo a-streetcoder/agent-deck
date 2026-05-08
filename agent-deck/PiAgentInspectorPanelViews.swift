@@ -30,7 +30,7 @@ struct PiAgentInspectorPanel: View {
                 HStack(spacing: 8) {
                     AppLabelTag(text: session.status.rawValue, color: session.status.isActive ? .green : .blue)
                     if let issue = session.issueNumber {
-                        AppLabelTag(text: "#\(issue)", color: .purple)
+                        AppLabelTag(text: "#\(issue)", color: AppTheme.assistantAccent)
                     }
                     Spacer()
                     Button("Open Full") {
@@ -53,8 +53,11 @@ struct PiAgentInspectorPanel: View {
                         }
                     }
                     .onChange(of: store.selectedTranscript.count) { _, _ in
-                        if let last = store.selectedTranscript.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
+                        Task { @MainActor in
+                            await Task.yield()
+                            if let last = store.selectedTranscript.last {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
                         }
                     }
                 }

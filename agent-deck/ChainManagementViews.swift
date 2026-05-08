@@ -205,8 +205,8 @@ struct SubagentsProjectRecapPanel: View {
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
-                    agentRecapSection("Effective Agents", agents: snapshot.effectiveAgents, color: .purple)
-                    chainRecapSection("Effective Chains", chains: snapshot.chains, color: .blue)
+                    agentRecapSection("Effective Agents", agents: snapshot.effectiveAgents, color: AppTheme.assistantAccent)
+                    chainRecapSection("Effective Chains", chains: snapshot.chains, color: AppTheme.brandAccentDeep)
                     if !libraryAgents.isEmpty { libraryAgentSection }
                     if !libraryChains.isEmpty { libraryChainSection }
                 }

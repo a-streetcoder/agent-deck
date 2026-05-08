@@ -73,7 +73,7 @@ private struct ProjectIconEditorButton: View {
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(isHovering ? Color.accentColor.opacity(0.9) : AppTheme.contentStroke, lineWidth: isHovering ? 2 : 1)
+                            .stroke(isHovering ? AppTheme.brandAccent.opacity(0.9) : AppTheme.contentStroke, lineWidth: isHovering ? 2 : 1)
                     }
                     .overlay {
                         if isHovering {
@@ -294,7 +294,7 @@ struct ProjectsScreen: View {
 
                         if isSelected {
                             Circle()
-                                .fill(Color.accentColor)
+                                .fill(AppTheme.brandAccent)
                                 .frame(width: 8, height: 8)
                                 .help("Active project")
                         }
@@ -342,8 +342,8 @@ struct ProjectsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : AppTheme.contentFill)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.28) : AppTheme.contentStroke, lineWidth: 1)
+                    .fill(isSelected ? AppTheme.brandAccent.opacity(0.08) : AppTheme.contentFill)
+                    .stroke(isSelected ? AppTheme.brandAccent.opacity(0.28) : AppTheme.contentStroke, lineWidth: 1)
             )
             .opacity(preference.isEnabled ? 1 : 0.58)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

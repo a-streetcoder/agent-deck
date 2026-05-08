@@ -69,8 +69,9 @@ struct WelcomeOnboardingSheet: View {
         guard setupItemsTask == nil else { return }
         let projectRootPath = viewModel.appSettings.projectsRootPath
         let githubAccount = viewModel.currentGitHubAccount
+        let selectedProjectPath = viewModel.selectedProjectPath
         setupItemsTask = Task {
-            await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount)
+            await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount, selectedProjectPath: selectedProjectPath)
         }
     }
 }
@@ -146,6 +147,12 @@ struct SetupChecklistView: View {
 
             Divider()
             HStack {
+                if shouldPromptForProjectSelection {
+                    Button("Select Project") {
+                        viewModel.selectedSidebarItem = .projects
+                        onFinish(false)
+                    }
+                }
                 Spacer()
                 Button(finishButtonTitle) {
                     onFinish(needsDoctor)
@@ -166,6 +173,10 @@ struct SetupChecklistView: View {
 
     private var needsDoctor: Bool {
         items.contains { $0.status != .passed }
+    }
+
+    private var shouldPromptForProjectSelection: Bool {
+        items.contains { $0.id == "selected-project" && $0.status != .passed }
     }
 
     private var finishButtonTitle: String {
@@ -208,7 +219,7 @@ struct SetupChecklistView: View {
         defer { isRefreshing = false }
         let projectRootPath = viewModel.appSettings.projectsRootPath
         let githubAccount = viewModel.currentGitHubAccount
-        items = await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount)
+        items = await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount, selectedProjectPath: viewModel.selectedProjectPath)
     }
 
     private func setupRow(_ item: SetupCheckItem) -> some View {
@@ -290,12 +301,17 @@ enum SetupCheckStatus: Hashable {
 struct SetupDependencyService {
     private let commandRunner = CommandRunner()
 
-    func loadItems(projectRootPath: String, githubAccount: GitHubHostAccount?) async -> [SetupCheckItem] {
+    func loadItems(projectRootPath: String, githubAccount: GitHubHostAccount?, selectedProjectPath: String?) async -> [SetupCheckItem] {
         async let pi = piCheck()
         async let models = modelCheck()
-        async let github = githubCheck(account: githubAccount)
+        let github = await githubCheck(account: githubAccount)
         let project = projectRootCheck(path: projectRootPath)
         let web = packageCheck(name: "pi-web-access", title: "Web Access Tools", installCommand: "pi install npm:pi-web-access")
+
+        if github.status == .passed {
+            let selectedProject = selectedProjectCheck(selectedProjectPath: selectedProjectPath)
+            return await [pi, models, project, github, selectedProject, web]
+        }
 
         return await [pi, models, project, github, web]
     }
@@ -373,6 +389,26 @@ struct SetupDependencyService {
             detail: isDirectory ? path : "Choose a folder \(AppBrand.displayName) can scan for projects.",
             status: isDirectory ? .passed : .failed,
             recovery: isDirectory ? nil : "Open Settings > Projects and choose an existing projects folder."
+        )
+    }
+
+    private func selectedProjectCheck(selectedProjectPath: String?) -> SetupCheckItem {
+        guard let selectedProjectPath, !selectedProjectPath.isEmpty else {
+            return SetupCheckItem(
+                id: "selected-project",
+                title: "Selected Project",
+                detail: "Select a project to enable project agents, repo context, GitHub issue workflows, and project `.env` resolution.",
+                status: .warning,
+                recovery: "Choose Select Project, then pick a repository from Projects."
+            )
+        }
+
+        return SetupCheckItem(
+            id: "selected-project",
+            title: "Selected Project",
+            detail: URL(fileURLWithPath: selectedProjectPath).lastPathComponent,
+            status: .passed,
+            recovery: nil
         )
     }
 

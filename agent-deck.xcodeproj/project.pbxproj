@@ -23,7 +23,7 @@
 
 /* Begin PBXFileReference section */
 		4E1F0B28C6D84725B47F2D75 /* bundled-agents */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "bundled-agents"; path = "agent-deck/bundled-agents"; sourceTree = SOURCE_ROOT; };
-		6572B16B2FA2391500596CE4 /* $(APP_PRODUCT_NAME).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "$(APP_PRODUCT_NAME).app"; path = "$(APP_PRODUCT_NAME).app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6572B16B2FA2391500596CE4 /* $(APP_PRODUCT_NAME).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "$(APP_PRODUCT_NAME).app"; path = "Agent Deck.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B7E7C862FA60178000A7C01 /* agent-deckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "agent-deckTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 

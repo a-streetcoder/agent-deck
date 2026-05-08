@@ -270,8 +270,8 @@ private struct AgentLibraryPane: View {
         .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.10) : AppTheme.contentSubtleFill)
-                .stroke(viewModel.selectedAgentID == agent.id ? Color.accentColor.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
+                .fill(viewModel.selectedAgentID == agent.id ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentSubtleFill)
+                .stroke(viewModel.selectedAgentID == agent.id ? AppTheme.brandAccent.opacity(0.45) : AppTheme.contentStroke, lineWidth: 1)
         )
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
@@ -284,7 +284,7 @@ private struct AgentLibraryPane: View {
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
         HStack(spacing: 6) {
             if agent.resolutionKind == .globalReplacement || agent.resolutionKind == .projectReplacement {
-                capabilityPill("Replacement", symbol: "arrow.triangle.2.circlepath", color: .blue)
+                capabilityPill("Replacement", symbol: "arrow.triangle.2.circlepath", color: AppTheme.brandAccentDeep)
             }
             if !agent.resolved.skills.isEmpty {
                 capabilityPill("Skills", symbol: "sparkles", color: .green)
@@ -293,7 +293,7 @@ private struct AgentLibraryPane: View {
                 capabilityPill("Inherits", symbol: "square.stack.3d.up", color: .mint)
             }
             if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
-                capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: .blue)
+                capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: AppTheme.brandAccentDeep)
             }
             if agent.resolved.disabled == true {
                 capabilityPill("Disabled", symbol: "nosign", color: .red)
@@ -413,7 +413,7 @@ private struct AgentDetailView: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? Color.accentColor : AppTheme.contentSubtleFill)
+                                        .fill(selectedTab == tab ? AppTheme.brandAccent : AppTheme.contentSubtleFill)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -440,7 +440,10 @@ private struct AgentDetailView: View {
             reloadInlineDraft()
         }
         .onChange(of: editCommand) { _, _ in
-            toggleEditMode()
+            Task { @MainActor in
+                await Task.yield()
+                toggleEditMode()
+            }
         }
         .alert(item: $pendingSaveConfirmation) { confirmation in
             Alert(
@@ -478,7 +481,7 @@ private struct AgentDetailView: View {
                 if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         HStack(spacing: 10) {
-                            AppLabelTag(text: agent.resolutionKind.rawValue, color: .purple)
+                            AppLabelTag(text: agent.resolutionKind.rawValue, color: AppTheme.assistantAccent)
                             Text(configurationFootnote)
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
@@ -796,7 +799,7 @@ private struct AgentDetailView: View {
                                 ForEach(tools, id: \.self) { tool in
                                     HStack(spacing: 10) {
                                         Image(systemName: "wrench.and.screwdriver")
-                                            .foregroundStyle(.blue)
+                                            .foregroundStyle(AppTheme.brandAccentDeep)
                                         Text(tool)
                                     }
                                 }

@@ -23,7 +23,6 @@ struct ContentView: View {
     @State private var isPiAgentTranscriptOptionsPresented = false
     @State private var isPiAgentSubagentsPopoverPresented = false
     @State private var isPiAgentRepoChangesPresented = false
-    @State private var isPiAgentActivityPresented = false
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var piAgentRightPanelCollapsedSidebar = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
@@ -48,20 +47,28 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
                 HStack {
+//                    Image("agent-deck")
+//                        .resizable()
+//                    a    .scaledToFit()
+//                        .frame(width: 20, height: 20)
+
                     Text("\(AppBrand.displayName)")
                         .font(AppFonts.kemcoPixelBold(size: 18))
                         .foregroundStyle(.primary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
 
                 List(selection: $viewModel.selectedSidebarItem) {
                     ForEach(SidebarSection.allCases) { section in
                         Section(section.rawValue) {
                             ForEach(section.items) { item in
-                                SidebarNavigationRow(item: item)
+                                SidebarNavigationRow(
+                                    item: item,
+                                    showsWarning: item == .projects && viewModel.shouldWarnProjectSelection
+                                )
                                 .tag(item)
                             }
                         }
@@ -513,18 +520,8 @@ struct ContentView: View {
                     }
 
                     Button {
-                        isPiAgentActivityPresented.toggle()
-                        if isPiAgentActivityPresented { isPiAgentRepoChangesPresented = false }
-                    } label: {
-                        Label("Activity", systemImage: "wrench.and.screwdriver")
-                    }
-                    .help("Show Pi Agent activity panel")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-
-                    Button {
                         isPiAgentRepoChangesPresented.toggle()
                         if isPiAgentRepoChangesPresented {
-                            isPiAgentActivityPresented = false
                             viewModel.prepareRepoChangesForSelectedPiAgentSession()
                         }
                     } label: {
@@ -633,10 +630,6 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(isPresented: $isPiAgentActivityPresented) {
-            PiAgentActivityPanel(store: viewModel.piAgentSessionStore, isPresented: $isPiAgentActivityPresented)
-                .frame(minWidth: 760, idealWidth: 900, minHeight: 560, idealHeight: 720)
-        }
     }
 
     private func completeOnboarding() {
@@ -682,7 +675,6 @@ struct ContentView: View {
             canCreateAgent: true,
             canDeletePiAgentSession: selectedSession != nil,
             canStopPiAgentSession: selectedSessionIsRunning,
-            canOpenPiAgentActivity: selectedSession != nil,
             canOpenPiAgentRepoChanges: selectedSession != nil,
             canTogglePiAgentInspector: viewModel.selectedSidebarItem != .agent,
             canOpenPiAgentInTerminal: viewModel.canOpenSelectedPiAgentSessionInTerminal,
@@ -712,16 +704,10 @@ struct ContentView: View {
             },
             deletePiAgentSession: { showingPiAgentDeleteAlert = true },
             stopPiAgentSession: { viewModel.stopSelectedPiAgentSession() },
-            showPiAgentActivity: {
-                viewModel.openPiAgentScreen()
-                isPiAgentActivityPresented.toggle()
-                if isPiAgentActivityPresented { isPiAgentRepoChangesPresented = false }
-            },
             showPiAgentRepoChanges: {
                 viewModel.openPiAgentScreen()
                 isPiAgentRepoChangesPresented.toggle()
                 if isPiAgentRepoChangesPresented {
-                    isPiAgentActivityPresented = false
                     viewModel.prepareRepoChangesForSelectedPiAgentSession()
                 }
             },
@@ -882,7 +868,7 @@ struct ContentView: View {
     }
 
     private var isPiAgentRightPanelPresented: Bool {
-        viewModel.selectedSidebarItem == .agent && (isPiAgentActivityPresented || isPiAgentRepoChangesPresented)
+        viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented
     }
 
     private func updateSidebarVisibilityForPiAgentRightPanel(isPresented: Bool) {

@@ -125,7 +125,7 @@ struct PiAgentRepoChangesPanel: View {
         VStack(spacing: 16) {
             Image(systemName: snapshot.canPush ? "arrow.up.circle" : "checkmark.circle")
                 .font(.system(size: 42, weight: .light))
-                .foregroundStyle(snapshot.canPush ? Color.accentColor : AppTheme.mutedText)
+                .foregroundStyle(snapshot.canPush ? AppTheme.brandAccent : AppTheme.mutedText)
             Text(snapshot.canPush ? "Ready to push" : "No local changes")
                 .font(.title2.weight(.bold))
             Text(snapshot.canPush ? "Your branch is ahead of \(snapshot.upstreamBranch ?? "the upstream branch")." : "The selected Pi Agent repository is clean.")
@@ -180,7 +180,7 @@ struct PiAgentRepoChangesPanel: View {
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
         HStack(spacing: 7) {
-            gitTag(snapshot.branchName, systemImage: "arrow.trianglehead.branch", color: .blue)
+            gitTag(snapshot.branchName, systemImage: "arrow.trianglehead.branch", color: AppTheme.brandAccentDeep)
             if let upstream = snapshot.upstreamBranch {
                 gitTag(upstream, systemImage: "arrow.up.right", color: .gray)
             }
@@ -304,7 +304,7 @@ private struct PiAgentGitChangeRow: View {
         Button(action: onToggleIncluded) {
             HStack(spacing: 9) {
                 Image(systemName: item.isIncluded ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(item.isIncluded ? Color.accentColor : AppTheme.mutedText)
+                    .foregroundStyle(item.isIncluded ? AppTheme.brandAccent : AppTheme.mutedText)
                 Image(systemName: "doc.text")
                     .foregroundStyle(AppTheme.mutedText)
                 VStack(alignment: .leading, spacing: 3) {
@@ -320,7 +320,7 @@ private struct PiAgentGitChangeRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(item.isIncluded ? Color.accentColor.opacity(0.10) : Color.clear))
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(item.isIncluded ? AppTheme.brandAccent.opacity(0.10) : Color.clear))
         }
         .buttonStyle(.plain)
         .help(item.isIncluded ? "Exclude from commit" : "Include in commit")

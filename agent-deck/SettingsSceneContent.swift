@@ -22,6 +22,7 @@ struct SettingsSceneContent: View {
             }
         }
         .frame(minWidth: 660, idealWidth: 760, minHeight: 440, idealHeight: 520)
+        .background(AppTheme.windowBackground)
     }
 }
 
@@ -48,6 +49,7 @@ private struct SettingsForm<Content: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .scrollBounceBehavior(.basedOnSize)
+        .background(AppTheme.windowBackground)
     }
 }
 
@@ -61,10 +63,10 @@ private struct SettingsSection<Content: View>: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(.separator.opacity(0.45), lineWidth: 1)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         }
     }
 }
@@ -212,6 +214,18 @@ private struct GeneralSettingsTab: View {
     var body: some View {
         SettingsForm {
             SettingsSection {
+                SettingsPickerRow(
+                    title: "Appearance:",
+                    selection: appearanceModeBinding,
+                    note: "System follows your macOS appearance. Light and Dark force Agent Deck to that scheme."
+                ) {
+                    ForEach(AppAppearanceMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+            }
+
+            SettingsSection {
                 SettingsTextFieldRow(
                     title: "Project root:",
                     placeholder: "Root folder",
@@ -246,6 +260,13 @@ private struct GeneralSettingsTab: View {
                 }
             }
         }
+    }
+
+    private var appearanceModeBinding: Binding<AppAppearanceMode> {
+        Binding(
+            get: { viewModel.appSettings.appearanceMode },
+            set: { viewModel.setAppearanceMode($0) }
+        )
     }
 
     private var projectsRootPathBinding: Binding<String> {
@@ -290,6 +311,26 @@ private struct AgentSettingsTab: View {
                     valueText: "\(viewModel.piAgentNotificationDelayMinutes) minutes",
                     note: "Before notifying about unread sessions."
                 )
+            }
+
+            SettingsSection {
+                SettingsToggleRow(
+                    title: "Session titles:",
+                    label: "Generate titles with AI",
+                    note: "Off by default. When enabled, the first draft prompt starts a hidden one-turn Pi session with no session persistence, extensions, skills, or tools.",
+                    isOn: autoGenerateSessionTitlesBinding
+                )
+
+                SettingsPickerRow(
+                    title: "Title model:",
+                    selection: titleGenerationModelBinding,
+                    note: "Choose a cheap, fast text model. Title generation always requests thinking off."
+                ) {
+                    ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
+                        Text(model.identifier).tag(model.identifier)
+                    }
+                }
+                .disabled(!viewModel.appSettings.autoGeneratePiAgentSessionTitles || viewModel.enabledAvailableModels.isEmpty)
             }
 
             SettingsSection {
@@ -345,6 +386,22 @@ private struct AgentSettingsTab: View {
         Binding(
             get: { viewModel.appSettings.showContextSmartZoneHint },
             set: { viewModel.setShowContextSmartZoneHint($0) }
+        )
+    }
+
+    private var autoGenerateSessionTitlesBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.autoGeneratePiAgentSessionTitles },
+            set: { viewModel.setAutoGeneratePiAgentSessionTitles($0) }
+        )
+    }
+
+    private var titleGenerationModelBinding: Binding<String> {
+        Binding(
+            get: {
+                viewModel.piAgentTitleGenerationModel()?.identifier ?? viewModel.enabledAvailableModels.first?.identifier ?? ""
+            },
+            set: { viewModel.setPiAgentTitleGenerationModelIdentifier($0) }
         )
     }
 

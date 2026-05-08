@@ -152,7 +152,7 @@ struct PiAgentSkillUsePill: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
-                    .foregroundStyle(Color.purple)
+                    .foregroundStyle(AppTheme.assistantAccent)
                 Text(skill?.name ?? invocation)
                     .font(.callout.weight(.semibold))
                 Text("skill")
@@ -167,7 +167,7 @@ struct PiAgentSkillUsePill: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.purple.opacity(0.08)).stroke(Color.purple.opacity(0.18), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.assistantAccent.opacity(0.08)).stroke(AppTheme.assistantAccent.opacity(0.18), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPreviewPresented, arrowEdge: .bottom) {
@@ -216,6 +216,72 @@ struct ShortcutComboHint: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
         .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+    }
+}
+
+struct PiAgentUIRequestInlineNotice: View {
+    let request: PiAgentUIRequest
+    let onRespond: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "questionmark.bubble.fill")
+                .foregroundStyle(AppTheme.brandAccent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Pi is waiting for your response")
+                    .font(.callout.weight(.semibold))
+                Text(request.title)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button("Cancel", action: onCancel)
+            Button("Respond…", action: onRespond)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.contentFill)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        )
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
+struct PiAgentUIRequestSheet: View {
+    let request: PiAgentUIRequest
+    let onSubmitValue: (String) -> Void
+    let onSubmitFreeform: (String, String) -> Void
+    let onConfirm: (Bool) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.title3)
+                    .foregroundStyle(AppTheme.brandAccent)
+                Text("Response needed")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Spacer()
+            }
+
+            PiAgentUIRequestCard(
+                request: request,
+                onSubmitValue: onSubmitValue,
+                onSubmitFreeform: onSubmitFreeform,
+                onConfirm: onConfirm,
+                onCancel: onCancel
+            )
+        }
+        .padding(20)
+        .frame(minWidth: 560, idealWidth: 680, maxWidth: 760, minHeight: 260)
+        .presentationSizing(.fitted)
     }
 }
 
@@ -274,7 +340,7 @@ struct PiAgentUIRequestCard: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "questionmark.bubble.fill")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppTheme.brandAccent)
                 .font(.title3)
             VStack(alignment: .leading, spacing: 4) {
                 Text(request.title)
@@ -314,7 +380,7 @@ struct PiAgentUIRequestCard: View {
                                     .fontWeight(.semibold)
                                 Spacer()
                                 Image(systemName: option == freeformSentinel ? "square.and.pencil" : "arrow.right.circle.fill")
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(AppTheme.brandAccent)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -356,7 +422,7 @@ struct PiAgentUIRequestCard: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: selectedOptions.contains(option) ? "checkmark.square.fill" : "square")
-                                    .foregroundStyle(selectedOptions.contains(option) ? Color.accentColor : AppTheme.mutedText)
+                                    .foregroundStyle(selectedOptions.contains(option) ? AppTheme.brandAccent : AppTheme.mutedText)
                                 Text(option)
                                     .fontWeight(.semibold)
                                 Spacer()
@@ -397,7 +463,7 @@ struct PiAgentUIRequestCard: View {
                 } label: {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: selectionIcon(for: option, allowsMultiple: allowsMultiple))
-                            .foregroundStyle(selectedOptions.contains(option) ? Color.accentColor : AppTheme.mutedText)
+                            .foregroundStyle(selectedOptions.contains(option) ? AppTheme.brandAccent : AppTheme.mutedText)
                             .frame(width: 18)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(option)
@@ -426,7 +492,7 @@ struct PiAgentUIRequestCard: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: isComposingFreeform ? "checkmark.circle.fill" : "square.and.pencil")
-                            .foregroundStyle(isComposingFreeform ? Color.accentColor : AppTheme.mutedText)
+                            .foregroundStyle(isComposingFreeform ? AppTheme.brandAccent : AppTheme.mutedText)
                             .frame(width: 18)
                         Text("Type custom response")
                             .fontWeight(.semibold)

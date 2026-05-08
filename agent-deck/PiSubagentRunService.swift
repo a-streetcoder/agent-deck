@@ -456,11 +456,11 @@ final class PiSubagentRunService {
             thinkingTextByRunID[runID] = nil
 
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                store.upsertSubagentTranscript(.init(id: assistantEntryID, sessionID: parentSessionID, role: .assistant, title: "Assistant", text: text, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+                store.upsertSubagentTranscript(.init(id: assistantEntryID, sessionID: parentSessionID, role: .assistant, title: "Assistant", text: text, rawJSON: nil), runID: runID, parentSessionID: parentSessionID)
             } else {
                 let thinkingText = extractAssistantThinking(from: message)
                 if !thinkingText.isEmpty {
-                    store.upsertSubagentTranscript(.init(id: thinkingEntryID, sessionID: parentSessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID, before: thinkingBeforeID)
+                    store.upsertSubagentTranscript(.init(id: thinkingEntryID, sessionID: parentSessionID, role: .thinking, title: "Thinking", text: thinkingText, rawJSON: nil), runID: runID, parentSessionID: parentSessionID, before: thinkingBeforeID)
                 }
             }
         } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

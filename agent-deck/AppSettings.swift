@@ -1,5 +1,13 @@
 import Foundation
 
+enum AppAppearanceMode: String, Codable, CaseIterable, Identifiable {
+    case system = "System"
+    case light = "Light"
+    case dark = "Dark"
+
+    var id: String { rawValue }
+}
+
 enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
     case full = "Full"
     case compact = "Compact"
@@ -39,6 +47,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
 }
 
 struct AppSettings: Codable, Hashable {
+    var appearanceMode: AppAppearanceMode = .system
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentNotificationDelayMinutes: Int = 3
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
@@ -48,10 +57,13 @@ struct AppSettings: Codable, Hashable {
     var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
     var showContextSmartZoneHint: Bool = false
+    var autoGeneratePiAgentSessionTitles: Bool = false
+    var piAgentTitleGenerationModelIdentifier: String?
     var disabledModelIdentifiers: Set<String> = []
     var enabledExtensionPaths: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
+        case appearanceMode
         case gitHubBoardCacheLifetimeMinutes
         case piAgentNotificationDelayMinutes
         case piAgentThinkingDisplayMode
@@ -61,6 +73,8 @@ struct AppSettings: Codable, Hashable {
         case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
         case showContextSmartZoneHint
+        case autoGeneratePiAgentSessionTitles
+        case piAgentTitleGenerationModelIdentifier
         case disabledModelIdentifiers
         case enabledExtensionPaths
     }
@@ -69,6 +83,7 @@ struct AppSettings: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        appearanceMode = try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system
         gitHubBoardCacheLifetimeMinutes = try container.decodeIfPresent(Int.self, forKey: .gitHubBoardCacheLifetimeMinutes) ?? 15
         piAgentNotificationDelayMinutes = try container.decodeIfPresent(Int.self, forKey: .piAgentNotificationDelayMinutes) ?? 3
         piAgentThinkingDisplayMode = try container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode) ?? .full
@@ -78,6 +93,8 @@ struct AppSettings: Codable, Hashable {
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         showContextSmartZoneHint = try container.decodeIfPresent(Bool.self, forKey: .showContextSmartZoneHint) ?? false
+        autoGeneratePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoGeneratePiAgentSessionTitles) ?? false
+        piAgentTitleGenerationModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentTitleGenerationModelIdentifier)
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
         enabledExtensionPaths = try container.decodeIfPresent(Set<String>.self, forKey: .enabledExtensionPaths) ?? []
     }

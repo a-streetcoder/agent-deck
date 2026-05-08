@@ -96,6 +96,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
+    @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
     @Published private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
 
@@ -110,6 +111,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private let subagentWorktreeService = PiSubagentWorktreeService()
     private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
+    private let piSessionTitleGenerator = PiSessionTitleGenerationService()
     private var globalSnapshot: ScanSnapshot = .empty
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
@@ -198,6 +200,9 @@ final class AppViewModel: NSObject, ObservableObject {
 
     deinit {
         watchFingerprintTask?.cancel()
+        Task { @MainActor [piSessionTitleGenerator] in
+            piSessionTitleGenerator.cancelAll()
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -2232,12 +2237,45 @@ final class AppViewModel: NSObject, ObservableObject {
             piAgentRunner.compact(session: session, customInstructions: instructions)
             return
         }
+        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: trimmed)
         if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
             piAgentRunner.resume(session: session, initialPrompt: text, images: images)
             isPiAgentInspectorPresented = selectedSidebarItem != .agent
             return
         }
         piAgentRunner.send(text, mode: mode, to: session.id, images: images)
+    }
+
+    private func schedulePiAgentTitleGenerationIfNeeded(for session: PiAgentSessionRecord, firstMessage: String) {
+        let trimmedMessage = firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard appSettings.autoGeneratePiAgentSessionTitles,
+              !trimmedMessage.isEmpty,
+              session.title.hasPrefix("Draft ·"),
+              !session.isTitleUserEdited,
+              !piAgentTitleGeneratingSessionIDs.contains(session.id),
+              (piAgentSessionStore.transcriptsBySessionID[session.id] ?? []).filter({ $0.role == .user }).isEmpty,
+              let model = piAgentTitleGenerationModel() else { return }
+
+        piAgentTitleGeneratingSessionIDs.insert(session.id)
+        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        piSessionTitleGenerator.generateTitle(
+            for: trimmedMessage,
+            model: model,
+            projectURL: projectURL,
+            environment: environment
+        ) { [weak self] result in
+            guard let self else { return }
+            self.piAgentTitleGeneratingSessionIDs.remove(session.id)
+            guard case let .success(title) = result else { return }
+            guard let current = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }),
+                  current.title.hasPrefix("Draft ·"),
+                  !current.isTitleUserEdited else { return }
+            withAnimation(.snappy(duration: 0.26)) {
+                self.piAgentSessionStore.applyGeneratedTitle(session.id, title: title)
+            }
+            self.piAgentRunner.syncSessionName(for: session.id, force: true)
+        }
     }
 
     func compactSelectedPiAgentSession(customInstructions: String? = nil) {
@@ -2585,6 +2623,11 @@ final class AppViewModel: NSObject, ObservableObject {
         appSettingsController.piAgentNotificationDelayMinutes
     }
 
+    func setAppearanceMode(_ mode: AppAppearanceMode) {
+        guard appSettingsController.setAppearanceMode(mode) else { return }
+        syncAppSettings()
+    }
+
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) {
         guard appSettingsController.setPiAgentNotificationDelayMinutes(minutes) else { return }
         syncAppSettings()
@@ -2675,6 +2718,24 @@ final class AppViewModel: NSObject, ObservableObject {
     func setShowContextSmartZoneHint(_ isEnabled: Bool) {
         guard appSettingsController.setShowContextSmartZoneHint(isEnabled) else { return }
         syncAppSettings()
+    }
+
+    func setAutoGeneratePiAgentSessionTitles(_ isEnabled: Bool) {
+        guard appSettingsController.setAutoGeneratePiAgentSessionTitles(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentTitleGenerationModelIdentifier(_ identifier: String?) {
+        guard appSettingsController.setPiAgentTitleGenerationModelIdentifier(identifier) else { return }
+        syncAppSettings()
+    }
+
+    func piAgentTitleGenerationModel() -> AvailableModel? {
+        if let identifier = appSettings.piAgentTitleGenerationModelIdentifier,
+           let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) {
+            return selected
+        }
+        return defaultPiAgentModel() ?? enabledAvailableModels.first
     }
 
     private func syncAppSettings() {
@@ -3003,6 +3064,10 @@ final class AppViewModel: NSObject, ObservableObject {
     var selectedGitHubProject: DiscoveredProject? {
         guard let selectedDiscoveredProject, selectedDiscoveredProject.isGitHubRepository else { return nil }
         return selectedDiscoveredProject
+    }
+
+    var shouldWarnProjectSelection: Bool {
+        githubConnectionState.isConnected && selectedProjectPath == nil
     }
 
     func piAgentSessionProjectContext() -> DiscoveredProject {

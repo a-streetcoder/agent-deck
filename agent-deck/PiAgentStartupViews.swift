@@ -56,11 +56,11 @@ struct PiAgentStartupResourcesCard: View {
                 if isExpanded {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 10) {
-                            resourceSection("Context", count: contextItems.count, icon: "doc.text", color: .blue, items: contextItems, columns: 2)
+                            resourceSection("Context", count: contextItems.count, icon: "doc.text", color: AppTheme.brandAccentDeep, items: contextItems, columns: 2)
                             resourceSection("Environment", count: envItems.count, icon: "key", color: .green, items: envItems, columns: 2)
                         }
                         resourceSection("Agents", count: effectiveResourceCount(agentItems), icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
-                        resourceSection("Skills", count: effectiveResourceCount(skillItems), icon: "wand.and.stars", color: .purple, items: skillItems)
+                        resourceSection("Skills", count: effectiveResourceCount(skillItems), icon: "wand.and.stars", color: AppTheme.assistantAccent, items: skillItems)
                         resourceSection("Prompts", count: effectiveResourceCount(promptItems), icon: "text.badge.star", color: .indigo, items: promptItems)
                         resourceSection("Extensions", count: extensionItems.count, icon: "puzzlepiece.extension", color: .orange, items: extensionItems)
                     }
@@ -77,9 +77,9 @@ struct PiAgentStartupResourcesCard: View {
                 .renderingMode(.template)
                 .scaledToFit()
                 .frame(width: 24, height: 24)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppTheme.brandAccent)
                 .padding(9)
-                .background(Circle().fill(Color.accentColor.opacity(0.12)))
+                .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Pi startup resources")
@@ -262,7 +262,7 @@ struct PiAgentStartupResourcesCard: View {
                     .font(.caption.monospaced().weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .foregroundStyle(isOverflow ? Color.accentColor : .primary)
+                    .foregroundStyle(isOverflow ? AppTheme.brandAccent : .primary)
                 if showsDetail, let detail = item.detail, !detail.isEmpty {
                     Text(detail)
                         .font(.caption2)
@@ -277,7 +277,7 @@ struct PiAgentStartupResourcesCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isOverflow ? Color.accentColor.opacity(0.10) : AppTheme.contentFill.opacity(0.75))
+                    .fill(isOverflow ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentFill.opacity(0.75))
             )
         }
         .buttonStyle(.plain)

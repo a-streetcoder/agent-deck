@@ -14,13 +14,14 @@ enum PiAgentRPCEventRenderCache {
 
     static func event(from rawJSON: String?) -> PiAgentRPCEvent? {
         guard let rawJSON else { return nil }
-        if let cached = cache[rawJSON] { return cached }
+        let key = cacheKey(for: rawJSON)
+        if let cached = cache[key] { return cached }
         guard let data = rawJSON.data(using: .utf8),
               let event = try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data) else {
             return nil
         }
-        cache[rawJSON] = event
-        order.append(rawJSON)
+        cache[key] = event
+        order.append(key)
         if order.count > limit {
             let overflow = order.count - limit
             for oldKey in order.prefix(overflow) {
@@ -29,6 +30,12 @@ enum PiAgentRPCEventRenderCache {
             order.removeFirst(overflow)
         }
         return event
+    }
+
+    private static func cacheKey(for rawJSON: String) -> String {
+        var hasher = Hasher()
+        hasher.combine(rawJSON)
+        return "\(rawJSON.count):\(hasher.finalize())"
     }
 }
 @MainActor
@@ -233,6 +240,36 @@ private struct PiAgentTranscriptTimelineItem: Identifiable {
     let kind: Kind
 }
 
+private enum PiAgentSessionSortOrder {
+    case created
+    case updated
+
+    var systemImage: String {
+        switch self {
+        case .created: return "calendar"
+        case .updated: return "clock"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .created: return "Currently sorted by creation time. Switch to last edited."
+        case .updated: return "Currently sorted by last edit. Switch to creation time."
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .created: return "Sort sessions by creation time"
+        case .updated: return "Sort sessions by last edit"
+        }
+    }
+
+    mutating func toggle() {
+        self = self == .created ? .updated : .created
+    }
+}
+
 private extension PiAgentTranscriptThread {
     var timelineTimestamp: Date {
         let activityEntries = activities.compactMap(\.representativeEntry)
@@ -272,6 +309,8 @@ struct PiAgentScreen: View {
     @State private var transcriptBottomScrollRequest = 0
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
+    @State private var sessionSortOrder: PiAgentSessionSortOrder = .created
+    @State private var isUIRequestSheetPresented = false
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
     var body: some View {
@@ -290,14 +329,30 @@ struct PiAgentScreen: View {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
             loadComposerDraft(for: store.selectedSession?.id)
+            isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
             scheduleTranscriptCacheUpdate()
         }
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessions() }
+        .onChange(of: sessionSortOrder) { _, _ in rebuildVisibleSessions() }
         .onDisappear {
             saveComposerDraft(for: store.selectedSession?.id)
+        }
+        .sheet(isPresented: uiRequestSheetBinding) {
+            if let request = store.selectedUIRequest {
+                PiAgentUIRequestSheet(
+                    request: request,
+                    onSubmitValue: { value in viewModel.respondToPiAgentUIRequest(request, value: value) },
+                    onSubmitFreeform: { sentinel, value in viewModel.respondToPiAgentFreeformUIRequest(request, sentinel: sentinel, value: value) },
+                    onConfirm: { confirmed in viewModel.confirmPiAgentUIRequest(request, confirmed: confirmed) },
+                    onCancel: { viewModel.cancelPiAgentUIRequest(request) }
+                )
+            }
+        }
+        .onChange(of: store.selectedUIRequest?.id) { _, newID in
+            isUIRequestSheetPresented = newID != nil
         }
         .onChange(of: store.selectedSession?.id) { oldID, newID in
             saveComposerDraft(for: oldID)
@@ -326,7 +381,12 @@ struct PiAgentScreen: View {
             syncVisibleSessionSelection()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
-        .onChange(of: store.selectedTranscriptRevision) { _, _ in scheduleTranscriptCacheUpdate() }
+        .onChange(of: store.selectedTranscriptRevision) { _, _ in
+            Task { @MainActor in
+                await Task.yield()
+                scheduleTranscriptCacheUpdate()
+            }
+        }
         .sheet(item: selectedSubagentTranscriptBinding) { run in
             PiNativeSubagentTranscriptSheet(
                 run: run,
@@ -373,7 +433,8 @@ struct PiAgentScreen: View {
     private func computedVisibleSessions() -> [PiAgentSessionRecord] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = viewModel.showPiAgentAttentionOnly ? scopedSessions.filter(\.needsAttention) : scopedSessions
-        return query.isEmpty ? source : source.filter { sessionMatchesSearch($0, query: query) }
+        let filtered = query.isEmpty ? source : source.filter { sessionMatchesSearch($0, query: query) }
+        return sortedSessions(filtered)
     }
 
     private var visibleSessionIDs: [UUID] {
@@ -400,6 +461,19 @@ struct PiAgentScreen: View {
         return []
     }
 
+    private var uiRequestSheetBinding: Binding<Bool> {
+        Binding(
+            get: { isUIRequestSheetPresented && store.selectedUIRequest != nil },
+            set: { isPresented in
+                if isPresented {
+                    isUIRequestSheetPresented = true
+                } else {
+                    isUIRequestSheetPresented = false
+                }
+            }
+        )
+    }
+
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
@@ -420,38 +494,32 @@ struct PiAgentScreen: View {
                 Button(role: .destructive) {
                     requestDeleteSessions(sessionDeleteTargets)
                 } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: sessionDeleteTargets.isEmpty ? "trash" : "trash.fill")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(sessionDeleteTargets.isEmpty ? AppTheme.mutedText.opacity(0.45) : AppTheme.mutedText)
+                        .foregroundStyle(sessionDeleteTargets.isEmpty ? AppTheme.mutedText.opacity(0.45) : Color.red)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: 30, height: 30)
-                        .background(Circle().fill(AppTheme.contentSubtleFill.opacity(0.85)))
+                        .background(Circle().fill(sessionDeleteTargets.isEmpty ? AppTheme.contentSubtleFill.opacity(0.85) : Color.red.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
                 .disabled(sessionDeleteTargets.isEmpty)
                 .help(sessionDeleteTargets.count > 1 ? "Delete selected sessions" : "Delete selected session")
                 .accessibilityLabel(sessionDeleteTargets.count > 1 ? "Delete selected sessions" : "Delete selected session")
                 Button {
-                    viewModel.showPiAgentAttentionOnly.toggle()
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: viewModel.showPiAgentAttentionOnly ? "bell.fill" : "bell")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(viewModel.showPiAgentAttentionOnly ? .white : Color.accentColor)
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(viewModel.showPiAgentAttentionOnly ? Color.accentColor : Color.accentColor.opacity(0.12)))
-                        if viewModel.piAgentNeedsAttentionCount > 0 {
-                            Text("\(viewModel.piAgentNeedsAttentionCount)")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Capsule(style: .continuous).fill(Color.red))
-                                .offset(x: 4, y: -3)
-                        }
+                    withAnimation(.snappy(duration: 0.18)) {
+                        sessionSortOrder.toggle()
                     }
+                } label: {
+                    Image(systemName: sessionSortOrder.systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppTheme.brandAccent)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
-                .help(viewModel.showPiAgentAttentionOnly ? "Show all sessions" : "Show unread Pi Agent updates")
+                .help(sessionSortOrder.help)
+                .accessibilityLabel(sessionSortOrder.accessibilityLabel)
                 PiAgentAddSessionButton {
                     viewModel.createPiAgentDraftForSelectedProject()
                 }
@@ -490,8 +558,9 @@ struct PiAgentScreen: View {
                                         session: session,
                                         project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
                                         isSelected: selectedSessionIDs.contains(session.id),
-                                        isRunning: viewModel.isPiAgentSessionRunning(session.id),
+                                        isRunning: session.status.isActive,
                                         isRenaming: renamingSessionID == session.id,
+                                        isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
                                         onSelect: {
                                             renamingSessionID = nil
                                             withAnimation(.snappy(duration: 0.22)) {
@@ -543,11 +612,9 @@ struct PiAgentScreen: View {
 
             VStack(spacing: 12) {
                 if let request = store.selectedUIRequest {
-                    PiAgentUIRequestCard(
+                    PiAgentUIRequestInlineNotice(
                         request: request,
-                        onSubmitValue: { viewModel.respondToPiAgentUIRequest(request, value: $0) },
-                        onSubmitFreeform: { sentinel, value in viewModel.respondToPiAgentFreeformUIRequest(request, sentinel: sentinel, value: value) },
-                        onConfirm: { viewModel.confirmPiAgentUIRequest(request, confirmed: $0) },
+                        onRespond: { isUIRequestSheetPresented = true },
                         onCancel: { viewModel.cancelPiAgentUIRequest(request) }
                     )
                 }
@@ -595,7 +662,7 @@ struct PiAgentScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                         if let finalSystemPrompt = session.finalSystemPrompt {
@@ -639,7 +706,8 @@ struct PiAgentScreen: View {
                                     thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
                                     visibility: viewModel.appSettings.piAgentTranscriptVisibility,
                                     skills: visibleSkillsForSelectedSession,
-                                    projectPath: store.selectedSession?.projectPath,
+                                    projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
+                                    planEvents: planEvents(for: thread, in: timelineItems),
                                     nativeSubagentRunsByID: nativeSubagentRunsByID,
                                     nativeSubagentCard: nativeSubagentCard
                                 )
@@ -662,42 +730,56 @@ struct PiAgentScreen: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .onChange(of: transcriptCache.renderRevision) { _, _ in
-                scrollToLatestThread(proxy: proxy)
+                Task { @MainActor in
+                    await Task.yield()
+                    scrollToLatestThread(proxy: proxy)
+                }
             }
             .onChange(of: transcriptCache.streamingRevision) { _, _ in
-                throttleStreamingScroll(proxy: proxy)
+                Task { @MainActor in
+                    await Task.yield()
+                    throttleStreamingScroll(proxy: proxy)
+                }
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
                 guard message != nil else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
             .onChange(of: transcriptBottomScrollRequest) { _, _ in
-                scrollToRequestedBottom(proxy: proxy)
+                Task { @MainActor in
+                    await Task.yield()
+                    scrollToRequestedBottom(proxy: proxy)
+                }
             }
         }
     }
 
     private var transcriptTimelineItems: [PiAgentTranscriptTimelineItem] {
-        var items = transcriptCache.threads.map { thread in
+        let items = transcriptCache.threads.map { thread in
             PiAgentTranscriptTimelineItem(
                 id: "thread-\(thread.id.uuidString)",
                 timestamp: thread.timelineTimestamp,
                 kind: .thread(thread)
             )
         }
-        if viewModel.appSettings.piAgentTranscriptVisibility.showPlans,
-           let sessionID = store.selectedSession?.id {
-            items += store.sessionPlanEvents(for: sessionID).map { event in
-                PiAgentTranscriptTimelineItem(
-                    id: "plan-\(event.id.uuidString)",
-                    timestamp: event.timestamp,
-                    kind: .plan(event)
-                )
-            }
-        }
         return items.sorted { lhs, rhs in
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
             return lhs.id < rhs.id
+        }
+    }
+
+    private func planEvents(for thread: PiAgentTranscriptThread, in timelineItems: [PiAgentTranscriptTimelineItem]) -> [PiSessionPlanEventRecord] {
+        guard viewModel.appSettings.piAgentTranscriptVisibility.showPlans,
+              let sessionID = store.selectedSession?.id else { return [] }
+        let threadStart = thread.timelineTimestamp
+        let nextThreadStart = timelineItems.compactMap { item -> Date? in
+            guard case let .thread(candidate) = item.kind,
+                  candidate.id != thread.id,
+                  candidate.timelineTimestamp > threadStart else { return nil }
+            return candidate.timelineTimestamp
+        }.min() ?? .distantFuture
+        return store.sessionPlanEvents(for: sessionID).filter { event in
+            event.timestamp >= threadStart && event.timestamp < nextThreadStart
         }
     }
 
@@ -775,20 +857,12 @@ struct PiAgentScreen: View {
         scrollToLatestThread(proxy: proxy)
     }
 
+    @ViewBuilder
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            PiAgentCommandSuggestions(
-                commands: slashSuggestions,
-                skills: skillSlashSuggestions,
-                fileSuggestions: fileSuggestions,
-                onSelectFile: insertFileSuggestion,
-                onSelectCommand: insertSlashSuggestion
-            )
-
-            let isRunning = store.selectedSession?.status.isActive == true
-            let isCompacting = store.selectedSession?.isCompacting == true
-            let hasSelectedSession = store.selectedSession != nil
-            PiAgentComposerBox(
+        let isRunning = store.selectedSession?.status.isActive == true
+        let isCompacting = store.selectedSession?.isCompacting == true
+        let hasSelectedSession = store.selectedSession != nil
+        PiAgentComposerBox(
                 text: $composerText,
                 images: $composerImages,
                 files: $composerFiles,
@@ -805,10 +879,24 @@ struct PiAgentScreen: View {
                 transcript: store.selectedTranscript,
                 supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
                 metricsSession: runtimeFooterSession(isRunning: isRunning),
-                onSend: sendComposerMessage,
-                onStop: { viewModel.stopSelectedPiAgentSession() },
-                onClear: clearComposerInput
-            )
+            onSend: sendComposerMessage,
+            onStop: { viewModel.stopSelectedPiAgentSession() },
+            onClear: clearComposerInput
+        )
+        .overlay(alignment: .topLeading) {
+            if hasComposerSuggestions {
+                PiAgentCommandSuggestions(
+                    commands: slashSuggestions,
+                    skills: skillSlashSuggestions,
+                    fileSuggestions: fileSuggestions,
+                    onSelectFile: insertFileSuggestion,
+                    onSelectCommand: insertSlashSuggestion
+                )
+                .padding(.horizontal, 24)
+                .offset(y: -236)
+                .zIndex(10)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
     }
 
@@ -847,6 +935,10 @@ struct PiAgentScreen: View {
         default:
             return nil
         }
+    }
+
+    private var hasComposerSuggestions: Bool {
+        !slashSuggestions.isEmpty || !skillSlashSuggestions.isEmpty || !fileSuggestions.isEmpty
     }
 
     private var slashSuggestions: [String] {
@@ -1041,7 +1133,7 @@ struct PiAgentScreen: View {
     }
 
     private var runningCount: Int {
-        scopedSessions.filter { viewModel.isPiAgentSessionRunning($0.id) }.count
+        scopedSessions.filter { $0.status.isActive }.count
     }
 
     private var emptySessionsMessage: String {
@@ -1165,6 +1257,19 @@ struct PiAgentScreen: View {
         } else if trimmedTitle != session.title {
             viewModel.renamePiAgentSession(session.id, title: trimmedTitle)
             selectedSessionTitleDraft = trimmedTitle
+        }
+    }
+
+    private func sortedSessions(_ sessions: [PiAgentSessionRecord]) -> [PiAgentSessionRecord] {
+        sessions.sorted { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
+            switch sessionSortOrder {
+            case .created:
+                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+            case .updated:
+                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
         }
     }
 
