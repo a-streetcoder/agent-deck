@@ -746,7 +746,9 @@ private struct PiAgentInlineDiffCard: View {
 }
 
 private struct PiAgentCompactDiffPreview: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let diffText: String
+    @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -767,11 +769,18 @@ private struct PiAgentCompactDiffPreview: View {
                 .padding(.vertical, 1)
                 .background(line.background)
             }
-            if hiddenCount > 0 {
-                Text("… \(hiddenCount) more lines")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(.top, 3)
+            if canExpand {
+                Button {
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    Label(isExpanded ? "Show fewer lines" : "Show \(hiddenCount) more lines", systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 3)
             }
         }
     }
@@ -784,8 +793,11 @@ private struct PiAgentCompactDiffPreview: View {
     }
 
     private var displayLines: [Line] {
-        meaningfulLines.prefix(10).map(Line.init(raw:))
+        let visibleLines = isExpanded ? meaningfulLines : Array(meaningfulLines.prefix(10))
+        return visibleLines.map(Line.init(raw:))
     }
+
+    private var canExpand: Bool { meaningfulLines.count > 10 }
 
     private var hiddenCount: Int { max(0, meaningfulLines.count - 10) }
 

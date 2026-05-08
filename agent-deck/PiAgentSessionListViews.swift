@@ -71,15 +71,7 @@ struct PiAgentSessionRow: View {
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: isSelected ? 10 : 12) {
-            if isSelected {
-                selectedSessionIndicator
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.85, anchor: .leading)),
-                        removal: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.85, anchor: .leading))
-                    ))
-            }
-
+        HStack(alignment: .top, spacing: 12) {
             PiAgentProjectIcon(project: project, session: session)
 
             VStack(alignment: .leading, spacing: 7) {
@@ -135,11 +127,17 @@ struct PiAgentSessionRow: View {
             }
         }
         .padding(14)
-        .padding(.leading, isSelected ? 6 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(sessionRowBackground)
-        .padding(.leading, isSelected ? 10 : 0)
-        .animation(.snappy(duration: 0.24, extraBounce: 0.08), value: isSelected)
+        .overlay(alignment: .leading) {
+            if isSelected {
+                selectedSessionIndicator
+                    .offset(x: -15)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.leading, isSelected ? 12 : 0)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
@@ -163,20 +161,10 @@ struct PiAgentSessionRow: View {
     }
 
     private var selectedSessionIndicator: some View {
-        Capsule(style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        AppTheme.brandAccentBright.opacity(0.95),
-                        AppTheme.brandAccent.opacity(0.82),
-                        AppTheme.brandAccentDeep.opacity(0.72)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(width: 4, height: 48)
-            .shadow(color: AppTheme.brandAccent.opacity(0.24), radius: 4, y: 1)
+        Image(systemName: "chevron.right")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
+            .frame(width: 10, height: 18)
             .accessibilityHidden(true)
     }
 
