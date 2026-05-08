@@ -1,6 +1,6 @@
 # Safety and Artifacts
 
-Pi Manager's most important product rule is: users should be able to tell what will be written and where.
+Agent Deck's most important product rule is: users should be able to tell what will be written and where.
 
 ## Builtins are read-only
 
@@ -26,14 +26,14 @@ The outcome is part of the safety contract shown to the user and passed to the c
 App-owned native artifacts live under:
 
 ```text
-~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/
+~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/
 ```
 
 Report-only runs should write their final output there. Worktree runs may additionally produce patches.
 
 ## Read-current-files policy
 
-Read-first paths tell children which current files to inspect. Pi Manager does not inject stale file contents into the system prompt. This reduces the risk that an old `plan.md` or prior context misleads a new run.
+Read-first paths tell children which current files to inspect. Agent Deck does not inject stale file contents into the system prompt. This reduces the risk that an old `plan.md` or prior context misleads a new run.
 
 ## Worktree isolation
 

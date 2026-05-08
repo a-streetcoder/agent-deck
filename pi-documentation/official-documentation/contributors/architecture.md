@@ -1,6 +1,6 @@
 # Architecture
 
-Pi Manager is a SwiftUI macOS app organized around a central app model, scanning services, persistence services, Pi RPC runners, and feature views.
+Agent Deck is a SwiftUI macOS app organized around a central app model, scanning services, persistence services, Pi RPC runners, and feature views.
 
 ## High-level flow
 
@@ -20,7 +20,7 @@ filesystem/settings/packages/projects
 
 ## App shell
 
-- `pi_managerApp.swift` defines the macOS app entry point, window, settings scene, and app commands.
+- `agent_deckApp.swift` defines the macOS app entry point, window, settings scene, and app commands.
 - `ContentView.swift` owns the main navigation, toolbar actions, sheets, selected screen routing, and many resource screens.
 - `DesignSystem.swift` provides shared UI components and styling.
 

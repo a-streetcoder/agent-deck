@@ -1,6 +1,6 @@
 # Build From Source
 
-Pi Manager is a macOS SwiftUI application. The repository currently contains an Xcode project, source files, bundled starter agents, tests, and a macOS CI workflow.
+Agent Deck is a macOS SwiftUI application. The repository currently contains an Xcode project, source files, bundled starter agents, tests, and a macOS CI workflow.
 
 ## Prerequisites
 
@@ -14,17 +14,17 @@ The app can still open without every optional tool, but diagnostics and some scr
 ## Clone and open
 
 ```bash
-git clone <repo-url> pi-manager
-cd pi-manager
-open pi-manager.xcodeproj
+git clone <repo-url> agent-deck
+cd agent-deck
+open agent-deck.xcodeproj
 ```
 
 ## Command-line build
 
 ```bash
 xcodebuild \
-  -project pi-manager.xcodeproj \
-  -target pi-manager \
+  -project agent-deck.xcodeproj \
+  -target agent-deck \
   -configuration Debug \
   -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO \
@@ -35,8 +35,8 @@ xcodebuild \
 
 ```bash
 xcodebuild \
-  -project pi-manager.xcodeproj \
-  -scheme pi-manager \
+  -project agent-deck.xcodeproj \
+  -scheme agent-deck \
   -destination 'platform=macOS' \
   test
 ```
@@ -45,25 +45,25 @@ At the time of writing, the visible test target includes model-discovery parsing
 
 ## Verify Pi CLI discovery
 
-Pi Manager resolves `pi` from:
+Agent Deck resolves `pi` from:
 
-1. `PI_MANAGER_PI_PATH`
+1. `AGENT_DECK_PI_PATH`
 2. `PI_CLI_PATH`
 3. shell `command -v pi`
 4. common install locations, including NVM-managed installs
 
-If the app cannot start Pi Agent sessions, set `PI_MANAGER_PI_PATH` to the exact `pi` executable path before launching from a shell.
+If the app cannot start Pi Agent sessions, set `AGENT_DECK_PI_PATH` to the exact `pi` executable path before launching from a shell.
 
 ## Application data
 
-Pi Manager stores app-owned session and native subagent data in:
+Agent Deck stores app-owned session and native subagent data in:
 
 ```text
-~/Library/Application Support/Pi Manager/
+~/Library/Application Support/Agent Deck/
 ```
 
 Native subagent artifacts are stored under:
 
 ```text
-~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/
+~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/
 ```

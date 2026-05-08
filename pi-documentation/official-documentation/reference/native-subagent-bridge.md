@@ -1,6 +1,6 @@
 # Native Subagent Bridge Reference
 
-Pi Manager injects generated bridge extensions into Pi RPC sessions when native subagents are enabled. The generated files live under `~/Library/Application Support/Pi Manager/Native Subagent Extensions/`.
+Agent Deck injects generated bridge extensions into Pi RPC sessions when native subagents are enabled. The generated files live under `~/Library/Application Support/Agent Deck/Native Subagent Extensions/`.
 
 ## Parent bridge tools
 
@@ -28,7 +28,7 @@ Blocking requests wait for a human or parent-agent answer. Non-blocking progress
 
 ## Context modes
 
-A child can run fresh or forked from a parent session file. If fork is requested but no parent session file is available, Pi Manager should warn and fall back safely rather than pretending the child inherited context.
+A child can run fresh or forked from a parent session file. If fork is requested but no parent session file is available, Agent Deck should warn and fall back safely rather than pretending the child inherited context.
 
 ## Extension isolation
 

@@ -1,6 +1,6 @@
 on piWindow()
   tell application "System Events"
-    tell process "pi-manager"
+    tell process "agent-deck"
       return window 1
     end tell
   end tell
@@ -8,7 +8,7 @@ end piWindow
 
 on piWindowRect()
   tell application "System Events"
-    tell process "pi-manager"
+    tell process "agent-deck"
       set w to window 1
       set p to position of w
       set s to size of w
@@ -21,6 +21,6 @@ on activatePi()
   tell application "System Events"
     if exists process "iTerm2" then set visible of process "iTerm2" to false
   end tell
-  tell application "pi-manager" to activate
+  tell application "agent-deck" to activate
   delay 0.5
 end activatePi

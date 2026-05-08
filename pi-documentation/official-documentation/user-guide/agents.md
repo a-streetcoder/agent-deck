@@ -1,23 +1,23 @@
 # Agents
 
-Agents define reusable roles for Pi and for Pi Manager native subagents.
+Agents define reusable roles for Pi and for Agent Deck native subagents.
 
 An agent is usually a Markdown file with YAML frontmatter plus a system prompt body.
 
 ## Types of agents
 
-Pi Manager may show agents from these scopes:
+Agent Deck may show agents from these scopes:
 
-- **Builtin** — app-bundled starter agents; read-only. Pi packages can contribute other resource types, but Pi Manager currently loads agent builtins from the app bundle.
+- **Builtin** — app-bundled starter agents; read-only. Pi packages can contribute other resource types, but Agent Deck currently loads agent builtins from the app bundle.
 - **Global** — active everywhere
 - **Project** — active only inside the selected project
-- **Library** — stored centrally by Pi Manager, not active until linked or assigned
+- **Library** — stored centrally by Agent Deck, not active until linked or assigned
 - **Override** — settings-based changes applied to a builtin
 - **Legacy** — compatibility locations such as `.agents`
 
 ## Bundled native starter agents
 
-Pi Manager ships four native starter agents:
+Agent Deck ships four native starter agents:
 
 | Agent | Purpose |
 |---|---|
@@ -33,7 +33,7 @@ These are treated as builtin agents in the effective list. Same-name global/proj
 - A **custom replacement** is a same-name global/project agent that wins over a builtin.
 - A **builtin override** writes only changed fields into settings under `subagents.agentOverrides`.
 
-Pi Manager should never edit read-only builtin files directly.
+Agent Deck should never edit read-only builtin files directly.
 
 ## Effective agent view
 
@@ -53,4 +53,4 @@ An agent can list explicit skills:
 skills: axiom-ai, axiom-swiftui
 ```
 
-These are name references. The skill must be visible globally, visible in the selected project, or supplied by a scanned package/settings source. A skill that exists only in Pi Manager's library is not active until linked.
+These are name references. The skill must be visible globally, visible in the selected project, or supplied by a scanned package/settings source. A skill that exists only in Agent Deck's library is not active until linked.

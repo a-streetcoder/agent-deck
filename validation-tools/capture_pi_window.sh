@@ -9,9 +9,9 @@ fi
 out="$1"
 mkdir -p "$(dirname "$out")"
 
-osascript <<'APPLESCRIPT' >/tmp/pi-manager-window-rect.txt
+osascript <<'APPLESCRIPT' >/tmp/agent-deck-window-rect.txt
 tell application "System Events"
-  tell process "pi-manager"
+  tell process "agent-deck"
     set w to window 1
     set p to position of w
     set s to size of w
@@ -20,6 +20,6 @@ tell application "System Events"
 end tell
 APPLESCRIPT
 
-rect="$(tr -d '\r' </tmp/pi-manager-window-rect.txt)"
+rect="$(tr -d '\r' </tmp/agent-deck-window-rect.txt)"
 screencapture -x -R"$rect" "$out"
 ls -lh "$out"

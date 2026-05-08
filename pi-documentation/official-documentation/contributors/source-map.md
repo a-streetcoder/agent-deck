@@ -4,54 +4,54 @@ Use this file to quickly find the source of a behavior.
 
 ## Core models
 
-- `pi-manager/Models.swift` — resource records, agent configs, effective agents, chains, skills, prompts, settings summaries, env keys, snapshots
-- `pi-manager/PiAgentSessionModels.swift` — Pi Agent session state, native subagent records, bridge request payloads, supervisor request models
-- `pi-manager/GitHubModels.swift` — GitHub auth, issue, board, and repository change models
+- `agent-deck/Models.swift` — resource records, agent configs, effective agents, chains, skills, prompts, settings summaries, env keys, snapshots
+- `agent-deck/PiAgentSessionModels.swift` — Pi Agent session state, native subagent records, bridge request payloads, supervisor request models
+- `agent-deck/GitHubModels.swift` — GitHub auth, issue, board, and repository change models
 
 ## Scanning and refresh
 
-- `pi-manager/PiScanner.swift` — resource discovery, parsing, resolution, warnings, runtime command scan
-- `pi-manager/AppRefreshService.swift` — project/global snapshot orchestration and watch fingerprinting
-- `pi-manager/ProjectDiscovery.swift` — local project discovery and GitHub remote extraction
+- `agent-deck/PiScanner.swift` — resource discovery, parsing, resolution, warnings, runtime command scan
+- `agent-deck/AppRefreshService.swift` — project/global snapshot orchestration and watch fingerprinting
+- `agent-deck/ProjectDiscovery.swift` — local project discovery and GitHub remote extraction
 
 ## Persistence and editing
 
-- `pi-manager/AgentPersistence.swift` — custom agents and builtin overrides
-- `pi-manager/ChainPersistence.swift` — chain serialization and writes
-- `pi-manager/EnvPersistence.swift` — `.env` key updates
-- `pi-manager/SubagentConfigPersistence.swift` — native/subagent config JSON
-- `pi-manager/ExtensionManagement.swift` — extension/package scanning and settings toggles
+- `agent-deck/AgentPersistence.swift` — custom agents and builtin overrides
+- `agent-deck/ChainPersistence.swift` — chain serialization and writes
+- `agent-deck/EnvPersistence.swift` — `.env` key updates
+- `agent-deck/SubagentConfigPersistence.swift` — native/subagent config JSON
+- `agent-deck/ExtensionManagement.swift` — extension/package scanning and settings toggles
 
 ## Pi runtime integration
 
-- `pi-manager/PiAgentProcess.swift` — process launch, Pi executable resolution, stdout/stderr streaming
-- `pi-manager/PiRPCClient.swift` — JSONL RPC client and commands
-- `pi-manager/PiAgentRunnerService.swift` — parent session orchestration
-- `pi-manager/PiModelDiscoveryService.swift` — model catalog parsing/probing
+- `agent-deck/PiAgentProcess.swift` — process launch, Pi executable resolution, stdout/stderr streaming
+- `agent-deck/PiRPCClient.swift` — JSONL RPC client and commands
+- `agent-deck/PiAgentRunnerService.swift` — parent session orchestration
+- `agent-deck/PiModelDiscoveryService.swift` — model catalog parsing/probing
 
 ## Native subagents
 
-- `pi-manager/PiSubagentRunService.swift` — child run construction and event handling
-- `pi-manager/PiNativeSubagentBridgeExtensions.swift` — generated parent/child bridge tools
-- `pi-manager/PiSubagentWorktreeService.swift` — worktree isolation and patch application
-- `pi-manager/bundled-agents/*.md` — bundled native starter agents
+- `agent-deck/PiSubagentRunService.swift` — child run construction and event handling
+- `agent-deck/PiNativeSubagentBridgeExtensions.swift` — generated parent/child bridge tools
+- `agent-deck/PiSubagentWorktreeService.swift` — worktree isolation and patch application
+- `agent-deck/bundled-agents/*.md` — bundled native starter agents
 
 ## UI
 
-- `pi-manager/ContentView.swift` — main navigation, toolbar commands, sheets, and screen routing
-- `pi-manager/AgentManagementViews.swift`, `ChainManagementViews.swift`, `SkillManagementViews.swift` — resource management screens
-- `pi-manager/PiAgentViews.swift` — Pi Agent screen shell and transcript cache
-- `pi-manager/PiAgentComposerViews.swift`, `PiAgentTranscriptViews.swift`, `PiAgentSubagentViews.swift` — Pi Agent composer, transcript, and native subagent UI
-- `pi-manager/PiAgentActivityPanelViews.swift`, `PiAgentInspectorPanelViews.swift`, `PiAgentRepoChangesPanelViews.swift` — activity, inspector, and repo change panels
-- `pi-manager/CommandsAndPromptsViews.swift` — prompts/commands screen
-- `pi-manager/GitHubViews.swift`, `GitHubIssuesViews.swift`, `GitHubRepoChangesViews.swift`, `GitHubConnectionViews.swift` — GitHub screen and feature sections
-- `pi-manager/SettingsAndCatalogViews.swift` — settings, extensions, models, subagent config screens
-- `pi-manager/MarkdownViews.swift` — markdown rendering
+- `agent-deck/ContentView.swift` — main navigation, toolbar commands, sheets, and screen routing
+- `agent-deck/AgentManagementViews.swift`, `ChainManagementViews.swift`, `SkillManagementViews.swift` — resource management screens
+- `agent-deck/PiAgentViews.swift` — Pi Agent screen shell and transcript cache
+- `agent-deck/PiAgentComposerViews.swift`, `PiAgentTranscriptViews.swift`, `PiAgentSubagentViews.swift` — Pi Agent composer, transcript, and native subagent UI
+- `agent-deck/PiAgentActivityPanelViews.swift`, `PiAgentInspectorPanelViews.swift`, `PiAgentRepoChangesPanelViews.swift` — activity, inspector, and repo change panels
+- `agent-deck/CommandsAndPromptsViews.swift` — prompts/commands screen
+- `agent-deck/GitHubViews.swift`, `GitHubIssuesViews.swift`, `GitHubRepoChangesViews.swift`, `GitHubConnectionViews.swift` — GitHub screen and feature sections
+- `agent-deck/SettingsAndCatalogViews.swift` — settings, extensions, models, subagent config screens
+- `agent-deck/MarkdownViews.swift` — markdown rendering
 
 ## GitHub and Git
 
-- `pi-manager/GitHubCLIAuthService.swift` — `gh` auth/token lookup
-- `pi-manager/GitHubAPIClient.swift` — REST client
-- `pi-manager/GitHubSearchService.swift` — issue board search
-- `pi-manager/GitHubIssueService.swift` — issue details/comments/relationships/actions
-- `pi-manager/GitRepositoryService.swift` — git status/diff/stage/commit/push
+- `agent-deck/GitHubCLIAuthService.swift` — `gh` auth/token lookup
+- `agent-deck/GitHubAPIClient.swift` — REST client
+- `agent-deck/GitHubSearchService.swift` — issue board search
+- `agent-deck/GitHubIssueService.swift` — issue details/comments/relationships/actions
+- `agent-deck/GitRepositoryService.swift` — git status/diff/stage/commit/push

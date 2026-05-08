@@ -179,7 +179,7 @@ That distinction matters because some third-party packages may also scan `.agent
 
 ## Explicit skills on native subagents
 
-Pi Manager native agents can declare explicit skills in agent frontmatter:
+Agent Deck native agents can declare explicit skills in agent frontmatter:
 
 ```yaml
 skills: axiom-ai
@@ -187,7 +187,7 @@ skills: axiom-ai
 
 or receive skills from a native subagent/chain task override.
 
-This is a **name reference**, not a file dependency. At execution time, Pi Manager resolves the name against the current scan snapshot for the selected project/session.
+This is a **name reference**, not a file dependency. At execution time, Agent Deck resolves the name against the current scan snapshot for the selected project/session.
 
 Therefore:
 
@@ -196,7 +196,7 @@ Therefore:
 | Skill is enabled globally | works everywhere |
 | Skill is assigned to the same project | works in that project |
 | Skill is assigned only to a different project | missing outside that project |
-| Skill exists only in Pi Manager's `skill-library` | missing until linked globally or into the project |
+| Skill exists only in Agent Deck's `skill-library` | missing until linked globally or into the project |
 | Agent is assigned to a project | the agent moves/links, but its referenced skills do not automatically move with it |
 
 Important distinction:
@@ -205,13 +205,13 @@ Important distinction:
 - `inheritSkills: true` only controls whether the child keeps Pi's ambient discovered skills catalog in its prompt.
 - Neither setting makes an inactive library skill visible.
 
-For Pi Manager specifically, reusable library skills live in:
+For Agent Deck specifically, reusable library skills live in:
 
 ```text
 ~/.pi/agent/skill-library/<skill>
 ```
 
-That folder is storage only. A library skill becomes runtime-visible only when Pi Manager symlinks it into:
+That folder is storage only. A library skill becomes runtime-visible only when Agent Deck symlinks it into:
 
 ```text
 ~/.pi/agent/skills/<skill>
@@ -226,7 +226,7 @@ Pi core skill discovery looks in:
 - `~/.agents/skills/`
 - project `.agents/skills/`
 
-Pi Manager also scans legacy `.agents/*.md` agent files. A repository or home-directory layout using `.agents` for multiple resource types should keep skills under `.agents/skills/` and agents at `.agents/*.md` to avoid ambiguous discovery.
+Agent Deck also scans legacy `.agents/*.md` agent files. A repository or home-directory layout using `.agents` for multiple resource types should keep skills under `.agents/skills/` and agents at `.agents/*.md` to avoid ambiguous discovery.
 
 ---
 

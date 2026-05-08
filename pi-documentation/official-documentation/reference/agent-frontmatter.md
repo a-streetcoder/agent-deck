@@ -27,7 +27,7 @@ You are a review-only agent. Inspect the requested evidence and report findings 
 | `inheritSkills` | Whether child keeps ambient skill discovery |
 | `defaultContext` | `fresh` or `fork` default context mode |
 | `tools` | Tool names available to the child |
-| `mcpDirectTools` | Pi Manager/native integration direct-tool hint |
+| `mcpDirectTools` | Agent Deck/native integration direct-tool hint |
 | `extensions` | Extensions to load for the run |
 | `skills` | Explicit skill names to inject if visible |
 | `output` | Advisory default output path/name |
@@ -36,10 +36,10 @@ You are a review-only agent. Inspect the requested evidence and report findings 
 | `interactive` | Whether the agent expects interaction |
 | `maxSubagentDepth` | Compatibility/delegation depth metadata |
 
-Pi Manager preserves unknown frontmatter fields where possible.
+Agent Deck preserves unknown frontmatter fields where possible.
 
 ## Native subagent guidance
 
-- Use `contact_supervisor` in `tools` only when the child may need progress updates, decisions, or interviews. When present, Pi Manager injects native boundary instructions for blocker/progress/interview routing and normal final-result return.
-- Do not rely on `output` to write project files. In Pi Manager native runs, the expected outcome controls whether project writes are allowed.
+- Use `contact_supervisor` in `tools` only when the child may need progress updates, decisions, or interviews. When present, Agent Deck injects native boundary instructions for blocker/progress/interview routing and normal final-result return.
+- Do not rely on `output` to write project files. In Agent Deck native runs, the expected outcome controls whether project writes are allowed.
 - Keep explicit `skills` references stable and ensure the skills are active in the intended project/global scope.

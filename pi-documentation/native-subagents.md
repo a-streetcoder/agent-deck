@@ -1,6 +1,6 @@
-# Pi Manager Native Subagents
+# Agent Deck Native Subagents
 
-Pi Manager now runs app-managed native subagents with app-owned child RPC sessions. The app owns child Pi RPC processes, run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs.
+Agent Deck now runs app-managed native subagents with app-owned child RPC sessions. The app owns child Pi RPC processes, run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs.
 
 ## What is replaced
 
@@ -12,11 +12,11 @@ Pi Manager now runs app-managed native subagents with app-owned child RPC sessio
 | Parent/child supervisor bridge | Replaced for app-managed children via `contact_supervisor` |
 | Artifacts/transcripts | Replaced with app-persisted records and UI |
 
-General arbitrary terminal session messaging is not part of native subagents. If Pi Manager later needs that, use the separate Session Relay plan.
+General arbitrary terminal session messaging is not part of native subagents. If Agent Deck later needs that, use the separate Session Relay plan.
 
 ## Bundled starter agents
 
-Pi Manager includes a small native starter pack in the app bundle. These are global builtins: they are available to projects by default, can be replaced by same-name global/project custom agents, and can be disabled with Pi Manager's builtin override controls.
+Agent Deck includes a small native starter pack in the app bundle. These are global builtins: they are available to projects by default, can be replaced by same-name global/project custom agents, and can be disabled with Agent Deck's builtin override controls.
 
 | Agent | Purpose |
 |---|---|
@@ -25,7 +25,7 @@ Pi Manager includes a small native starter pack in the app bundle. These are glo
 | `worker` | Makes approved, scoped implementation changes with native worktree/direct-write policy. |
 | `reviewer` | Reviews diffs/plans/implementations and reports evidence-backed findings. |
 
-The bundled agents use Pi Manager-native jargon and `contact_supervisor(kind, message, title?)` instead of package-specific coordination wording.
+The bundled agents use Agent Deck-native jargon and `contact_supervisor(kind, message, title?)` instead of package-specific coordination wording.
 
 ## Run model
 
@@ -33,7 +33,7 @@ Every native run has:
 
 - a parent Pi Agent session
 - a child Pi RPC process per subagent step/task
-- app artifacts under `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/`
+- app artifacts under `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/`
 - `input.md`, `system-prompt.md`, and usually `output.md`
 - persisted run/child metadata and transcript entries
 
@@ -46,11 +46,11 @@ The Run Subagent sheet makes the expected result explicit:
 | Outcome | Meaning |
 |---|---|
 | Report only | Final answer goes to app artifacts. Child must not edit project files. |
-| Edit files in worktree | Child may edit files only in the isolated worktree. Pi Manager reviews/applies/discards the patch. |
+| Edit files in worktree | Child may edit files only in the isolated worktree. Agent Deck reviews/applies/discards the patch. |
 | Write/update project file | Child writes one explicit project-relative path, usually in a worktree. Existing files require overwrite approval. |
 | Direct project writes | Child may edit the main checkout only after explicit approval. |
 
-Agent `output` frontmatter such as `plan.md` is advisory only. Pi Manager does not automatically write it into the project. To produce a project file, the caller must choose the write/update outcome and provide a project-relative path.
+Agent `output` frontmatter such as `plan.md` is advisory only. Agent Deck does not automatically write it into the project. To produce a project file, the caller must choose the write/update outcome and provide a project-relative path.
 
 ## Read-first files
 
@@ -77,12 +77,12 @@ Pi docs state:
 - `--no-context-files` disables `AGENTS.md` / `CLAUDE.md` discovery
 - `--no-skills` disables skill discovery
 
-Pi Manager follows that model:
+Agent Deck follows that model:
 
 1. Native boundary instructions + agent system prompt + explicit private skill blocks are passed as system prompt content.
 2. Expected outcome, read-first files, artifact directory, and the concrete task are sent as the user task prompt.
-3. If `inheritProjectContext` is false, Pi Manager passes `--no-context-files`.
-4. If `inheritSkills` is false, Pi Manager passes `--no-skills`.
+3. If `inheritProjectContext` is false, Agent Deck passes `--no-context-files`.
+4. If `inheritSkills` is false, Agent Deck passes `--no-skills`.
 5. Ambient extension discovery is disabled with `--no-extensions`; only configured extensions and app bridge extensions are loaded.
 
 Keep system instructions compact. Do not put run-specific file contents or stale plans into the system prompt.
@@ -92,7 +92,7 @@ Keep system instructions compact. Do not put run-specific file contents or stale
 The Pi Agent Activity sidebar is a summary-first execution view. It keeps the noisy tool log out of the main chat while making current work inspectable:
 
 - **Current Plan**: parent agents can set a short checklist with `set_session_plan(items)` and update it with `update_session_plan(updates)`. Plan item ids are stable and updates should happen only on meaningful transitions.
-- **Native Subagents**: active/blocked/recent native child runs are shown from Pi Manager's structured run state, including agent, task, status, and worktree indicator.
+- **Native Subagents**: active/blocked/recent native child runs are shown from Agent Deck's structured run state, including agent, task, status, and worktree indicator.
 - **Activity Feed**: focused tool evidence such as edit diffs, bounded write previews, shell output, compact web/source summaries, and errors.
 
 The plan is explicit bridge state, not parsed from markdown chat text. This keeps updates stable and avoids jumpy UI or expensive transcript scraping.
@@ -105,20 +105,20 @@ Children that explicitly include `contact_supervisor` can send:
 - `need_decision` — blocking
 - `interview_request` — blocking, supports structured JSON question forms
 
-When `contact_supervisor` is present in agent `tools`, Pi Manager also injects native boundary instructions telling the child to use it only for blockers, structured interviews, or meaningful progress, and to return final results normally.
+When `contact_supervisor` is present in agent `tools`, Agent Deck also injects native boundary instructions telling the child to use it only for blockers, structured interviews, or meaningful progress, and to return final results normally.
 
 Blocking requests create app supervisor cards. Humans can answer in the UI. The parent Pi Agent can also answer using:
 
 - `list_supervisor_requests()`
 - `answer_supervisor_request(requestID, response)`
 
-Parent-agent answers route through Pi Manager to the waiting child.
+Parent-agent answers route through Agent Deck to the waiting child.
 
 ## Worktrees
 
-Worktree isolation is an advanced safety path, not the default editing model. Normal approved worker subagents should edit the current project like Pi normally does. Use isolated worktrees only for risky, experimental, or parallel writer work where Pi Manager should review/apply/discard a patch afterward.
+Worktree isolation is an advanced safety path, not the default editing model. Normal approved worker subagents should edit the current project like Pi normally does. Use isolated worktrees only for risky, experimental, or parallel writer work where Agent Deck should review/apply/discard a patch afterward.
 
-For isolated worktrees, Pi Manager can:
+For isolated worktrees, Agent Deck can:
 
 - generate/open `worktree.patch`
 - apply after `git apply --check --3way --binary`
@@ -129,10 +129,10 @@ For isolated worktrees, Pi Manager can:
 Native run artifacts live under:
 
 ```text
-~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/
+~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/
 ```
 
-Pi Manager keeps artifacts referenced by persisted run records. Old orphaned run directories are cleaned up after the retention window.
+Agent Deck keeps artifacts referenced by persisted run records. Old orphaned run directories are cleaned up after the retention window.
 
 ## Session enablement
 
@@ -140,4 +140,4 @@ The composer footer subagent icon controls native subagents for the current Pi A
 
 ## Remaining known limitation
 
-Fallback model retry is tracked separately: https://github.com/a-streetcoder/pi-manager/issues/8
+Fallback model retry is tracked separately: https://github.com/a-streetcoder/agent-deck/issues/8

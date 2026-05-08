@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build Pi Manager
+    name: Build Agent Deck
     runs-on: macos-26
 
     steps:
@@ -45,8 +45,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild \
-            -project pi-manager.xcodeproj \
-            -scheme pi-manager \
+            -project agent-deck.xcodeproj \
+            -scheme agent-deck \
             -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             CODE_SIGNING_ALLOWED=NO \

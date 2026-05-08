@@ -1,6 +1,6 @@
 # Projects and GitHub
 
-Pi Manager combines local project discovery with GitHub issue and repository workflows.
+Agent Deck combines local project discovery with GitHub issue and repository workflows.
 
 ## Projects
 
@@ -21,7 +21,7 @@ The GitHub screen includes:
 - **Repo Changes** — local git status and diffs
 - **Connection** — authentication state and connection details
 
-Pi Manager uses the GitHub CLI (`gh`) to discover authentication and token state, then calls the GitHub REST API directly.
+Agent Deck uses the GitHub CLI (`gh`) to discover authentication and token state, then calls the GitHub REST API directly.
 
 ## Issue-to-agent workflow
 
@@ -38,4 +38,4 @@ Issue prompts include issue title, number, URL, body, relationship metadata, and
 
 ## Git operations
 
-Pi Manager shells out to `git` for status, diffs, staging, unstaging, commits, and pushes. It does not replace Git; it provides UI around normal Git commands.
+Agent Deck shells out to `git` for status, diffs, staging, unstaging, commits, and pushes. It does not replace Git; it provides UI around normal Git commands.

@@ -1,6 +1,6 @@
 # Runtime Validation Matrix
 
-Issue 23 tracks the Pi Manager runtime validation suite. The goal is to keep unit tests fast and deterministic while adding smoke coverage for every app-owned Pi Agent and native subagent behavior.
+Issue 23 tracks the Agent Deck runtime validation suite. The goal is to keep unit tests fast and deterministic while adding smoke coverage for every app-owned Pi Agent and native subagent behavior.
 
 ## Test Layers
 
@@ -18,10 +18,10 @@ Validated on May 7, 2026 with Xcode 26.4.1 selected at `/Applications/Xcode.app/
 
 | Command | Result |
 |---|---|
-| `xcodebuild test -scheme pi-manager -destination "platform=macOS"` | Passed |
-| `xcrun swiftc -parse -enable-bare-slash-regex pi-manager/*.swift pi-managerTests/*.swift` | Passed |
+| `xcodebuild test -scheme agent-deck -destination "platform=macOS"` | Passed |
+| `xcrun swiftc -parse -enable-bare-slash-regex agent-deck/*.swift agent-deckTests/*.swift` | Passed |
 | `git diff --check` | Passed |
-| `plutil -lint pi-manager.xcodeproj/project.pbxproj` | Passed |
+| `plutil -lint agent-deck.xcodeproj/project.pbxproj` | Passed |
 
 ## Current Test Layout
 
@@ -72,7 +72,7 @@ Validated on May 7, 2026 with Xcode 26.4.1 selected at `/Applications/Xcode.app/
 
 ## Harness Contract
 
-Harnessed smoke tests set `PI_MANAGER_PI_PATH` to a temporary executable. The fake executable emits one or more JSON RPC events and records every line written by Pi Manager to stdin. Tests then assert on:
+Harnessed smoke tests set `AGENT_DECK_PI_PATH` to a temporary executable. The fake executable emits one or more JSON RPC events and records every line written by Agent Deck to stdin. Tests then assert on:
 
 - app store state
 - persisted run/session records

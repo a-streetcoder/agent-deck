@@ -4,8 +4,8 @@
 
 ```bash
 xcodebuild \
-  -project pi-manager.xcodeproj \
-  -target pi-manager \
+  -project agent-deck.xcodeproj \
+  -target agent-deck \
   -configuration Debug \
   -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO \
@@ -16,8 +16,8 @@ xcodebuild \
 
 ```bash
 xcodebuild \
-  -project pi-manager.xcodeproj \
-  -scheme pi-manager \
+  -project agent-deck.xcodeproj \
+  -scheme agent-deck \
   -destination 'platform=macOS' \
   test
 ```

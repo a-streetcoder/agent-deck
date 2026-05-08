@@ -8,10 +8,10 @@ Before editing, inspect the actual source files that own the behavior. Do not re
 
 Common task reads:
 
-- scanner/resource behavior: `pi-manager/PiScanner.swift`, `pi-manager/Models.swift`
-- native subagents: `pi-manager/PiSubagentRunService.swift`, `pi-manager/PiNativeSubagentBridgeExtensions.swift`, `pi-manager/bundled-agents/*.md`
-- Pi Agent RPC: `pi-manager/PiRPCClient.swift`, `pi-manager/PiAgentRunnerService.swift`
-- persistence: `pi-manager/*Persistence.swift`
+- scanner/resource behavior: `agent-deck/PiScanner.swift`, `agent-deck/Models.swift`
+- native subagents: `agent-deck/PiSubagentRunService.swift`, `agent-deck/PiNativeSubagentBridgeExtensions.swift`, `agent-deck/bundled-agents/*.md`
+- Pi Agent RPC: `agent-deck/PiRPCClient.swift`, `agent-deck/PiAgentRunnerService.swift`
+- persistence: `agent-deck/*Persistence.swift`
 - UI changes: relevant SwiftUI view plus `AppViewModel.swift`
 
 ## Preserve product invariants

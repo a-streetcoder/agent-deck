@@ -1,6 +1,6 @@
 # Documentation Index
 
-This is the canonical starting point for Pi Manager's official documentation.
+This is the canonical starting point for Agent Deck's official documentation.
 
 ## New users
 
@@ -15,7 +15,7 @@ This is the canonical starting point for Pi Manager's official documentation.
 
 - [Pi core prompt assembly](reference/pi-core-prompt-assembly.md)
 - [Resource scopes and resolution](concepts/resource-scopes-and-resolution.md)
-- [Pi runtime vs Pi Manager](concepts/pi-runtime-vs-pi-manager.md)
+- [Pi runtime vs Agent Deck](concepts/pi-runtime-vs-agent-deck.md)
 - [Safety and artifacts](concepts/safety-and-artifacts.md)
 - [File locations](reference/file-locations.md)
 - [Agent frontmatter](reference/agent-frontmatter.md)
@@ -40,11 +40,11 @@ This official set includes or summarizes the important current information from 
 - [`../native-subagents.md`](../native-subagents.md)
 - [`../pi-commands-and-prompt-templates.md`](../pi-commands-and-prompt-templates.md)
 - [`../pi-core-system-reference-and-subagents.md`](../pi-core-system-reference-and-subagents.md)
-- [`../pi-manager-resource-management.md`](../pi-manager-resource-management.md)
+- [`../agent-deck-resource-management.md`](../agent-deck-resource-management.md)
 - [`../pi-skills-discovery.md`](../pi-skills-discovery.md)
 
 Use this official tree as the public-facing source of truth. Use the older files as detailed source notes when auditing behavior or migrating additional details.
 
 ## Archive note
 
-Older planning and exploratory docs still exist outside this folder. Treat this `official-documentation/` tree as the maintained public documentation. Legacy external coordination flows should not be presented as current Pi Manager behavior unless explicitly marked as historical.
+Older planning and exploratory docs still exist outside this folder. Treat this `official-documentation/` tree as the maintained public documentation. Legacy external coordination flows should not be presented as current Agent Deck behavior unless explicitly marked as historical.

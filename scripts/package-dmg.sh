@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT="${PROJECT:-pi-manager.xcodeproj}"
-SCHEME="${SCHEME:-pi-manager}"
+PROJECT="${PROJECT:-agent-deck.xcodeproj}"
+SCHEME="${SCHEME:-agent-deck}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 BUILD_DIR="${BUILD_DIR:-build/release}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$BUILD_DIR/$SCHEME.xcarchive}"
 EXPORT_PATH="${EXPORT_PATH:-$BUILD_DIR/export}"
 DMG_PATH="${DMG_PATH:-$BUILD_DIR/Pi-Manager.dmg}"
-VOLUME_NAME="${VOLUME_NAME:-Pi Manager}"
+VOLUME_NAME="${VOLUME_NAME:-Agent Deck}"
 
 if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
   echo "Set DEVELOPER_ID_APPLICATION to your Developer ID Application signing identity." >&2

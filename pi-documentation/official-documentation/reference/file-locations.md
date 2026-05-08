@@ -1,6 +1,6 @@
 # File Locations Reference
 
-This page lists the important paths Pi Manager scans or writes.
+This page lists the important paths Agent Deck scans or writes.
 
 `PROJECT` means the selected project root.
 
@@ -13,8 +13,8 @@ This page lists the important paths Pi Manager scans or writes.
 | Pi project settings | `PROJECT/.pi/settings.json` |
 | Pi global env | `~/.pi/agent/.env` |
 | Pi project env | `PROJECT/.pi/.env` |
-| Pi Manager app data | `~/Library/Application Support/Pi Manager/` |
-| Native subagent artifacts | `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/` |
+| Agent Deck app data | `~/Library/Application Support/Agent Deck/` |
+| Native subagent artifacts | `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/` |
 
 ## Agents
 
@@ -65,4 +65,4 @@ This page lists the important paths Pi Manager scans or writes.
 | Project auto extensions | `PROJECT/.pi/extensions/*.ts`, `PROJECT/.pi/extensions/*/index.ts` |
 | Settings extensions | `settings.json -> extensions` |
 | Packages | `settings.json -> packages` |
-| Native bridge extensions | `~/Library/Application Support/Pi Manager/Native Subagent Extensions/managed-subagent-bridge.ts` and `contact-supervisor-bridge.ts` |
+| Native bridge extensions | `~/Library/Application Support/Agent Deck/Native Subagent Extensions/managed-subagent-bridge.ts` and `contact-supervisor-bridge.ts` |

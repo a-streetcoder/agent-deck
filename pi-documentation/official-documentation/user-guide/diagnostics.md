@@ -1,6 +1,6 @@
 # Diagnostics and Troubleshooting
 
-The Diagnostics screen is the first place to check when Pi Manager behavior does not match expectations.
+The Diagnostics screen is the first place to check when Agent Deck behavior does not match expectations.
 
 ## What diagnostics surface
 
@@ -16,7 +16,7 @@ The Diagnostics screen is the first place to check when Pi Manager behavior does
 
 ### Pi Agent sessions cannot start
 
-Verify `pi` is installed and discoverable. If launching the app from Finder hides your shell PATH, set `PI_MANAGER_PI_PATH` to the exact executable path before launching from Terminal.
+Verify `pi` is installed and discoverable. If launching the app from Finder hides your shell PATH, set `AGENT_DECK_PI_PATH` to the exact executable path before launching from Terminal.
 
 ### A skill is listed in an agent but not injected
 
@@ -24,7 +24,7 @@ The agent stores only the skill name. Make sure the skill is active globally, ac
 
 ### Builtin agent changes disappear
 
-Do not edit read-only builtin files. Use Pi Manager's builtin override controls or create a same-name global/project replacement.
+Do not edit read-only builtin files. Use Agent Deck's builtin override controls or create a same-name global/project replacement.
 
 ### A native subagent did not write a project file
 
@@ -36,4 +36,4 @@ Runtime commands come from Pi RPC and loaded extensions. Start a new Pi session 
 
 ### Context breakdown rows are labelled estimated
 
-Pi Manager prefers exact `contextBreakdown` rows when Pi RPC provides them. Current Pi RPC commonly exposes only aggregate context totals and token accounting, so Pi Manager's native popover derives fallback rows from RPC input/output/cache totals and only falls back to visible transcript estimates when token totals are unavailable. When Pi Manager has captured the runtime system prompt, the popover also shows an estimated prompt composition breakdown for core instructions, tool descriptions, project context, and skills. Estimated rows should not be treated as exact prompt, tool, or message category observability.
+Agent Deck prefers exact `contextBreakdown` rows when Pi RPC provides them. Current Pi RPC commonly exposes only aggregate context totals and token accounting, so Agent Deck's native popover derives fallback rows from RPC input/output/cache totals and only falls back to visible transcript estimates when token totals are unavailable. When Agent Deck has captured the runtime system prompt, the popover also shows an estimated prompt composition breakdown for core instructions, tool descriptions, project context, and skills. Estimated rows should not be treated as exact prompt, tool, or message category observability.

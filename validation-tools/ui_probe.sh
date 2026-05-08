@@ -39,7 +39,7 @@ on walk(e, depth)
   end tell
 end walk
 
-tell application "System Events" to tell process "pi-manager"
+tell application "System Events" to tell process "agent-deck"
   my walk(window 1, 0)
 end tell
 APPLESCRIPT

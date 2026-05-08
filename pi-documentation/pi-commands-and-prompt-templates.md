@@ -8,7 +8,7 @@ This document explains how slash-based invocation works in Pi, especially the di
 
 It also explains where prompt templates are stored, how they are loaded, and what they are for.
 
-In Pi Manager, these concepts are surfaced in a dedicated **Prompts** sidebar section:
+In Agent Deck, these concepts are surfaced in a dedicated **Prompts** sidebar section:
 - extension commands are discovered from Pi's runtime slash-command inventory
 - prompt templates are scanned from Pi discovery locations and shown as file-backed resources
 - built-in interactive commands are not shown there
@@ -382,7 +382,7 @@ Expand into reusable prompt text.
 ### Skills
 Load a reusable capability/workflow package.
 
-## Pi Manager notes
+## Agent Deck notes
 
 The app currently treats slash discovery in two tiers:
 - extension commands: queried from Pi runtime command discovery via `get_commands`

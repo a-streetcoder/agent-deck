@@ -4,11 +4,11 @@ Pi has several slash-prefixed resource types. They look similar in the UI, but t
 
 ## Built-in commands
 
-Built-in commands are Pi application actions, such as session management, settings, model switching, reload, compact, quit, and export. Pi Manager does not treat these as editable prompt templates.
+Built-in commands are Pi application actions, such as session management, settings, model switching, reload, compact, quit, and export. Agent Deck does not treat these as editable prompt templates.
 
 ## Extension commands
 
-Extensions can register commands. Pi Manager discovers runtime extension commands through Pi RPC `get_commands` and displays them in the Prompts/Commands area.
+Extensions can register commands. Agent Deck discovers runtime extension commands through Pi RPC `get_commands` and displays them in the Prompts/Commands area.
 
 ## Prompt templates
 
@@ -24,7 +24,7 @@ Locations:
 - CLI: `--prompt-template <path>`
 - disabled at runtime with `--no-prompt-templates`
 
-Standard `prompts/` directories are non-recursive unless additional paths are configured. Pi Manager can scan configured/runtime-known prompt locations, but it cannot infer one-off CLI-only choices such as a `--prompt-template` path or `--no-prompt-templates` flag used outside the app.
+Standard `prompts/` directories are non-recursive unless additional paths are configured. Agent Deck can scan configured/runtime-known prompt locations, but it cannot infer one-off CLI-only choices such as a `--prompt-template` path or `--no-prompt-templates` flag used outside the app.
 
 ## Prompt template frontmatter
 
@@ -41,4 +41,4 @@ The body can use Pi prompt-template argument syntax such as `$1`, `$@`, `$ARGUME
 
 ## Skill commands
 
-If Pi skill commands are enabled, skills may also be invokable from slash syntax. Pi Manager keeps skills primarily in the Skills section to avoid duplicating resource ownership.
+If Pi skill commands are enabled, skills may also be invokable from slash syntax. Agent Deck keeps skills primarily in the Skills section to avoid duplicating resource ownership.

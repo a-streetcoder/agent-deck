@@ -1,6 +1,6 @@
 # User Guide: Overview
 
-Pi Manager is a native macOS control center for Pi resources and Pi Agent workflows.
+Agent Deck is a native macOS control center for Pi resources and Pi Agent workflows.
 
 It scans the same kinds of files that Pi uses — agents, skills, prompt templates, settings, environment files, extensions, and packages — and presents them in a safer, more understandable UI.
 
@@ -36,12 +36,12 @@ The app sidebar is organized around these concepts:
 
 ## Core mental model
 
-Pi Manager distinguishes between:
+Agent Deck distinguishes between:
 
 - **Builtin resources** shipped with the app, plus package-provided non-agent resources such as skills/prompts/extensions
 - **Active global resources** visible to Pi everywhere
 - **Active project resources** visible only inside a repository
-- **Library resources** stored centrally by Pi Manager and activated when needed
+- **Library resources** stored centrally by Agent Deck and activated when needed
 - **Overrides** that patch builtin behavior without editing package files
 
 See [Resource scopes and resolution](../concepts/resource-scopes-and-resolution.md) for details.
@@ -52,6 +52,6 @@ The Pi Agent screen launches the installed `pi` CLI in RPC mode and renders the 
 
 ## Native subagents
 
-Pi Manager has its own app-managed native subagent runner. Parent Pi Agent sessions can request child subagents, chains, or parallel runs through generated bridge tools. Pi Manager owns the child processes, artifacts, transcripts, supervisor requests, and optional worktrees.
+Agent Deck has its own app-managed native subagent runner. Parent Pi Agent sessions can request child subagents, chains, or parallel runs through generated bridge tools. Agent Deck owns the child processes, artifacts, transcripts, supervisor requests, and optional worktrees.
 
 See [Native subagents](native-subagents.md).

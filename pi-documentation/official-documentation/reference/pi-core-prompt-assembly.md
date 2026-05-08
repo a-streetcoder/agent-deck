@@ -1,8 +1,8 @@
 # Pi Core Prompt Assembly Reference
 
-Pi Manager is a companion app around Pi. Native sessions and native subagents still run through Pi, so Pi's normal prompt assembly rules matter.
+Agent Deck is a companion app around Pi. Native sessions and native subagents still run through Pi, so Pi's normal prompt assembly rules matter.
 
-This page summarizes the stable parts of `../pi-core-system-reference-and-subagents.md` from the supporting documentation set and connects them to Pi Manager behavior.
+This page summarizes the stable parts of `../pi-core-system-reference-and-subagents.md` from the supporting documentation set and connects them to Agent Deck behavior.
 
 ## Normal Pi session order
 
@@ -43,15 +43,15 @@ Important CLI flags:
 - `--no-skills` disables normal skill discovery, but explicit `--skill <path>` arguments can still load skills.
 - `--no-prompt-templates` disables normal prompt-template discovery.
 
-## Pi Manager native subagents
+## Agent Deck native subagents
 
-Pi Manager native children follow Pi's model, but the app controls the child launch:
+Agent Deck native children follow Pi's model, but the app controls the child launch:
 
-1. Pi Manager creates native boundary instructions, the agent system prompt, and explicit private skill blocks.
+1. Agent Deck creates native boundary instructions, the agent system prompt, and explicit private skill blocks.
 2. That content is passed as system prompt content for the child.
 3. Expected outcome, read-first paths, artifact directory, and the concrete task are sent as the user task prompt.
-4. If `inheritProjectContext` is false, Pi Manager passes `--no-context-files`.
-5. If `inheritSkills` is false, Pi Manager passes `--no-skills`.
+4. If `inheritProjectContext` is false, Agent Deck passes `--no-context-files`.
+5. If `inheritSkills` is false, Agent Deck passes `--no-skills`.
 6. Native child sessions disable ambient extension discovery and load only configured extensions plus app bridge extensions when needed.
 
 ## Why this matters
@@ -59,6 +59,6 @@ Pi Manager native children follow Pi's model, but the app controls the child lau
 When debugging “why did Pi behave this way?”, separate:
 
 - Pi core instruction assembly
-- Pi Manager's scanned resource model
-- Pi Manager native subagent run construction
+- Agent Deck's scanned resource model
+- Agent Deck native subagent run construction
 - native child-session behavior

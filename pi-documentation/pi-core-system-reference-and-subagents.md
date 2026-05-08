@@ -1,6 +1,6 @@
-# Pi core and Pi Manager native subagents
+# Pi core and Agent Deck native subagents
 
-This is a concise reference for how Pi Manager relates to normal Pi sessions and native subagent child sessions.
+This is a concise reference for how Agent Deck relates to normal Pi sessions and native subagent child sessions.
 
 ## Layers
 
@@ -8,11 +8,11 @@ This is a concise reference for how Pi Manager relates to normal Pi sessions and
    - Builds the system prompt from built-in defaults, context files, explicit prompt flags, skills, tools, extensions, and user messages.
    - Owns normal CLI/RPC session behavior.
 
-2. **Pi Manager app**
+2. **Agent Deck app**
    - Scans and manages agents, chains, skills, prompt templates, settings, and environment files.
    - Provides UI for editing app-managed resources and for launching Pi Agent sessions.
 
-3. **Pi Manager native subagents**
+3. **Agent Deck native subagents**
    - Launch app-owned child Pi RPC sessions for bounded work.
    - Persist run records, transcripts, artifacts, supervisor requests, graph metadata, and optional worktrees.
    - Use app-generated bridge tools such as `managed_subagent`, `managed_chain`, `managed_parallel`, and `contact_supervisor`.
@@ -28,15 +28,15 @@ A normal Pi session runs in a selected working directory and receives the effect
 - enabled extensions and tools
 - prompt templates and slash commands that are available to that runtime
 
-Pi Manager does not replace Pi core prompt assembly. It manages files and launches Pi through RPC with explicit arguments.
+Agent Deck does not replace Pi core prompt assembly. It manages files and launches Pi through RPC with explicit arguments.
 
 ## Native subagent sessions
 
-A native subagent is a separate child Pi RPC session launched and tracked by Pi Manager.
+A native subagent is a separate child Pi RPC session launched and tracked by Agent Deck.
 
-For each native run, Pi Manager builds:
+For each native run, Agent Deck builds:
 
-- an app artifact directory under `~/Library/Application Support/Pi Manager/Subagent Runs/<run-id>/`
+- an app artifact directory under `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/`
 - a child system prompt made from native boundary instructions, the agent prompt, and any explicit private skill blocks
 - an input file containing the task and optional read-first hints
 - child runtime arguments for model, thinking, context inheritance, skills inheritance, tools, extensions, and direct MCP isolation
@@ -46,7 +46,7 @@ Native subagents are not raw slash-command text inserted into the parent chat. T
 
 ## Native boundary rules
 
-Pi Manager injects native boundary instructions into every child run:
+Agent Deck injects native boundary instructions into every child run:
 
 - complete only the assigned task
 - do not launch additional subagents
@@ -55,7 +55,7 @@ Pi Manager injects native boundary instructions into every child run:
 - return final results normally
 - prefer narrow, correct changes
 
-When the agent frontmatter includes `contact_supervisor` in `tools`, Pi Manager also injects supervisor routing rules:
+When the agent frontmatter includes `contact_supervisor` in `tools`, Agent Deck also injects supervisor routing rules:
 
 - use `kind: "need_decision"` for blocking product, architecture, scope, approval, or ambiguity decisions
 - use `kind: "interview_request"` only for structured question sets
@@ -64,7 +64,7 @@ When the agent frontmatter includes `contact_supervisor` in `tools`, Pi Manager 
 
 ## Agent frontmatter fields
 
-Pi Manager native agents are markdown files with YAML frontmatter. Important fields include:
+Agent Deck native agents are markdown files with YAML frontmatter. Important fields include:
 
 - `name`
 - `description`
@@ -101,12 +101,12 @@ Writer-like runs should prefer worktree isolation unless direct writes are expli
 
 ## Read-first hints
 
-`defaultReads` and caller-provided `reads` are project-relative hints. Pi Manager validates them and tells the child to read current files if relevant. They are not injected as stale authoritative content.
+`defaultReads` and caller-provided `reads` are project-relative hints. Agent Deck validates them and tells the child to read current files if relevant. They are not injected as stale authoritative content.
 
 ## Related docs
 
 - `native-subagents.md`
-- `pi-manager-resource-management.md`
+- `agent-deck-resource-management.md`
 - `pi-skills-discovery.md`
 - `official-documentation/reference/agent-frontmatter.md`
 - `official-documentation/reference/native-subagent-bridge.md`

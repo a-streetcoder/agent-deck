@@ -1,14 +1,14 @@
-# AGENTS.md for Pi Manager Documentation
+# AGENTS.md for Agent Deck Documentation
 
-This file is for LLM agents and agentic coding tools working on Pi Manager.
+This file is for LLM agents and agentic coding tools working on Agent Deck.
 
 ## Project purpose
 
-Pi Manager is a native macOS SwiftUI app for managing the real resources used by the Pi coding agent and for running Pi Agent/native subagent workflows through Pi RPC.
+Agent Deck is a native macOS SwiftUI app for managing the real resources used by the Pi coding agent and for running Pi Agent/native subagent workflows through Pi RPC.
 
 ## Required mental models
 
-- Pi Manager launches the installed `pi` CLI; it is not Pi core.
+- Agent Deck launches the installed `pi` CLI; it is not Pi core.
 - Native subagents are app-managed child Pi RPC sessions, not raw slash-command delegation.
 - Library resources are storage only until linked/assigned into active global or project paths.
 - Builtin resources are read-only; use overrides or replacements.
@@ -25,5 +25,5 @@ Pi Manager is a native macOS SwiftUI app for managing the real resources used by
 ## Validation command
 
 ```bash
-xcodebuild -project pi-manager.xcodeproj -target pi-manager -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project agent-deck.xcodeproj -target agent-deck -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```

@@ -1,4 +1,4 @@
-# Contributing to Pi Manager
+# Contributing to Agent Deck
 
 Thanks for contributing. This file summarizes the contributor workflow; detailed verification lives in `contributors/development-and-verification.md`.
 
@@ -12,7 +12,7 @@ Thanks for contributing. This file summarizes the contributor workflow; detailed
 ## Build
 
 ```bash
-xcodebuild -project pi-manager.xcodeproj -target pi-manager -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project agent-deck.xcodeproj -target agent-deck -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Contribution expectations

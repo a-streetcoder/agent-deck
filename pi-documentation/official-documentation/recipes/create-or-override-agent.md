@@ -4,7 +4,7 @@
 
 Use this when the agent is specific to one repository.
 
-1. Select the project in Pi Manager.
+1. Select the project in Agent Deck.
 2. Open **Agents**.
 3. Create a new project agent.
 4. Give it a stable `name`, clear `description`, and compact system prompt.
@@ -28,9 +28,9 @@ Library agents live in:
 
 ## Override a builtin
 
-Use builtin overrides for small changes to Pi Manager's bundled builtin agents.
+Use builtin overrides for small changes to Agent Deck's bundled builtin agents.
 
-Pi Manager writes override fields to settings, not to the bundled source file:
+Agent Deck writes override fields to settings, not to the bundled source file:
 
 ```text
 ~/.pi/agent/settings.json

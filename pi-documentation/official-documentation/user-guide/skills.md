@@ -6,7 +6,7 @@ Skills are reusable instruction bundles. The normal convention is a directory wi
 
 - **Active global skills** are visible to Pi everywhere.
 - **Active project skills** are visible only inside a selected project.
-- **Library skills** are centrally stored by Pi Manager and become active only when linked globally or into a project.
+- **Library skills** are centrally stored by Agent Deck and become active only when linked globally or into a project.
 
 Library storage:
 
