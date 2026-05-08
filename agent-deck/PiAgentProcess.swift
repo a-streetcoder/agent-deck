@@ -33,6 +33,8 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
     private let lock = NSLock()
     private var didTerminate = false
     private var didCleanupIO = false
+    private static let executableCacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedExecutable: (key: String, url: URL)?
 
     init(configuration: Configuration, onStdoutLines: @escaping @Sendable ([String]) -> Void, onStderrLines: @escaping @Sendable ([String]) -> Void, onTermination: @escaping @Sendable (Int32) -> Void) throws {
         let executable = try Self.resolvePiExecutable()
@@ -120,6 +122,22 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
 
     private static func resolvePiExecutable() throws -> URL {
         let environment = ProcessInfo.processInfo.environment
+        let cacheKey = executableCacheKey(environment: environment)
+        executableCacheLock.lock()
+        if let cachedExecutable, cachedExecutable.key == cacheKey, FileManager.default.isExecutableFile(atPath: cachedExecutable.url.path) {
+            executableCacheLock.unlock()
+            return cachedExecutable.url
+        }
+        executableCacheLock.unlock()
+
+        let resolved = try resolvePiExecutableUncached(environment: environment)
+        executableCacheLock.lock()
+        cachedExecutable = (cacheKey, resolved)
+        executableCacheLock.unlock()
+        return resolved
+    }
+
+    private static func resolvePiExecutableUncached(environment: [String: String]) throws -> URL {
         for key in ["AGENT_DECK_PI_PATH", "PI_CLI_PATH"] {
             if let raw = environment[key], let url = executableURL(from: raw) {
                 return url
@@ -136,6 +154,15 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         }
 
         throw ProcessError.executableNotFound
+    }
+
+    private static func executableCacheKey(environment: [String: String]) -> String {
+        [
+            environment["AGENT_DECK_PI_PATH"] ?? "",
+            environment["PI_CLI_PATH"] ?? "",
+            environment["SHELL"] ?? "",
+            environment["PATH"] ?? ""
+        ].joined(separator: "\u{1f}")
     }
 
     private static func executableURL(from raw: String) -> URL? {

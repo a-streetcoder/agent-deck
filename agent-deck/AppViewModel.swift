@@ -125,6 +125,8 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubDiffRequestID = 0
     private var githubIssueDetailRequestID = 0
     private var githubDiffCache: [GitDiffCacheKey: String] = [:]
+    private var githubDiffCacheOrder: [GitDiffCacheKey] = []
+    private let githubDiffCacheLimit = 64
     private var nativeParallelSchedulersByID: [UUID: NativeParallelGraphScheduler] = [:]
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
     private let lastExternalSkillsDirectoryDefaultsKey = "lastExternalSkillsDirectoryPath"
@@ -200,10 +202,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private func shutdown(recordTranscript: Bool) {
         guard !didShutdown else { return }
         didShutdown = true
-        autoRefreshCancellable?.cancel()
-        autoRefreshCancellable = nil
-        watchFingerprintTask?.cancel()
-        watchFingerprintTask = nil
+        stopAutoRefresh(cancelPendingScan: true)
         refreshTask?.cancel()
         refreshTask = nil
         for task in pendingPiAgentNotificationTasks.values {
@@ -276,6 +275,8 @@ final class AppViewModel: NSObject, ObservableObject {
             allProjectSnapshots = result.projectSnapshots
         } else {
             allProjectSnapshots.merge(result.projectSnapshots) { _, fresh in fresh }
+            let discoveredProjectPaths = Set(result.discoveredProjects.map(\.path))
+            allProjectSnapshots = allProjectSnapshots.filter { discoveredProjectPaths.contains($0.key) }
         }
         if result.includesWatchFingerprint {
             lastWatchFingerprint = result.watchFingerprint
@@ -744,6 +745,7 @@ final class AppViewModel: NSObject, ObservableObject {
         githubRepositoryChanges = nil
         githubSelectedChangePaths = []
         githubDiffCache.removeAll()
+        githubDiffCacheOrder.removeAll()
         githubSelectedDiffFilePath = nil
         githubSelectedDiffKind = nil
         githubSelectedDiffText = nil
@@ -934,7 +936,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let requestID = githubDiffRequestID
         githubSelectedDiffFilePath = filePath
         githubSelectedDiffKind = kind
-        githubSelectedDiffText = githubDiffCache[cacheKey]
+        githubSelectedDiffText = cachedGithubDiff(for: cacheKey)
         githubLastError = nil
 
         Task {
@@ -946,7 +948,7 @@ final class AppViewModel: NSObject, ObservableObject {
                           self.githubSelectedDiffFilePath == filePath,
                           self.githubSelectedDiffKind == kind else { return }
                     let displayText = diff.isEmpty ? "No \(kind.rawValue.lowercased()) diff for this file." : diff
-                    self.githubDiffCache[cacheKey] = displayText
+                    self.storeGithubDiff(displayText, for: cacheKey)
                     self.githubSelectedDiffText = displayText
                 }
             } catch {
@@ -1095,6 +1097,31 @@ final class AppViewModel: NSObject, ObservableObject {
             guard let filePath else { return false }
             return entry.key.filePath != filePath
         }
+        githubDiffCacheOrder.removeAll { key in
+            guard key.projectPath == projectPath else { return false }
+            guard let filePath else { return true }
+            return key.filePath == filePath
+        }
+    }
+
+    private func cachedGithubDiff(for key: GitDiffCacheKey) -> String? {
+        guard let value = githubDiffCache[key] else { return nil }
+        markGithubDiffCacheKeyUsed(key)
+        return value
+    }
+
+    private func storeGithubDiff(_ value: String, for key: GitDiffCacheKey) {
+        githubDiffCache[key] = value
+        markGithubDiffCacheKeyUsed(key)
+        while githubDiffCacheOrder.count > githubDiffCacheLimit, let oldest = githubDiffCacheOrder.first {
+            githubDiffCacheOrder.removeFirst()
+            githubDiffCache[oldest] = nil
+        }
+    }
+
+    private func markGithubDiffCacheKeyUsed(_ key: GitDiffCacheKey) {
+        githubDiffCacheOrder.removeAll { $0 == key }
+        githubDiffCacheOrder.append(key)
     }
 
     func commitChanges() {
@@ -2761,6 +2788,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handlePiAgentNotificationResponse(_:)), name: .piAgentNotificationResponse, object: nil)
         center.addObserver(self, selector: #selector(handleAppDidBecomeActiveNotification(_:)), name: NSApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppWillResignActiveNotification(_:)), name: NSApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(handleAppWillTerminateNotification(_:)), name: NSApplication.willTerminateNotification, object: nil)
     }
 
@@ -2783,8 +2811,15 @@ final class AppViewModel: NSObject, ObservableObject {
 
     @objc private func handleAppDidBecomeActiveNotification(_ notification: Notification) {
         Task { @MainActor [weak self] in
-            self?.acknowledgeVisibleSelectedPiAgentSession()
+            guard let self else { return }
+            self.startAutoRefresh()
+            self.refreshIfWatchedFilesChanged()
+            self.acknowledgeVisibleSelectedPiAgentSession()
         }
+    }
+
+    @objc private func handleAppWillResignActiveNotification(_ notification: Notification) {
+        stopAutoRefresh(cancelPendingScan: true)
     }
 
     @objc private func handleAppWillTerminateNotification(_ notification: Notification) {
@@ -3987,11 +4022,21 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func startAutoRefresh() {
+        guard autoRefreshCancellable == nil, !didShutdown else { return }
         autoRefreshCancellable = Timer.publish(every: 2, tolerance: 0.5, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refreshIfWatchedFilesChanged()
             }
+    }
+
+    private func stopAutoRefresh(cancelPendingScan: Bool) {
+        autoRefreshCancellable?.cancel()
+        autoRefreshCancellable = nil
+        if cancelPendingScan {
+            watchFingerprintTask?.cancel()
+            watchFingerprintTask = nil
+        }
     }
 
     private func refreshIfWatchedFilesChanged() {
@@ -4000,9 +4045,11 @@ final class AppViewModel: NSObject, ObservableObject {
         let shouldScanAllProjects = false
         let projectsToWatch = selectedDiscoveredProject.map { [$0] } ?? []
         let urls = AppRefreshService.watchedURLs(projects: projectsToWatch, snapshot: snapshot)
-        watchFingerprintTask = Task.detached(priority: .utility) {
+        watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, shouldScanAllProjects, urls] in
             let fingerprint = FileWatchFingerprint.make(urls: urls)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
                 self.watchFingerprintTask = nil
                 guard fingerprint != previousFingerprint else { return }
                 self.lastWatchFingerprint = fingerprint

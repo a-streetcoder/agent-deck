@@ -52,9 +52,12 @@ final class PiSessionTitleGenerationService {
                 modelArgument: Self.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
                 extraArguments: ["--no-session", "--no-extensions", "--no-skills", "--no-tools"],
                 environment: environment,
-                onEvent: { [weak self] rawLine, event in
+                onEvent: { [weak self] events in
                     Task { @MainActor [weak self] in
-                        self?.handle(rawLine: rawLine, event: event, runID: runID)
+                        guard let self else { return }
+                        for event in events {
+                            self.handle(rawLine: event.rawLine, event: event.event, runID: runID)
+                        }
                     }
                 },
                 onStderr: { _ in },

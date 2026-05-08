@@ -196,11 +196,21 @@ final class PiSubagentRunService {
             modelArgument: modelArgument,
             extraArguments: extraArguments,
             environment: environment,
-            onEvent: { [weak self] rawLine, event in
-                Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, runID: runID, parentSessionID: parentSessionID) }
+            onEvent: { [weak self] events in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    for event in events {
+                        self.handle(rawLine: event.rawLine, event: event.event, runID: runID, parentSessionID: parentSessionID)
+                    }
+                }
             },
-            onStderr: { [weak self] line in
-                Task { @MainActor [weak self] in self?.handle(stderr: line, runID: runID, parentSessionID: parentSessionID) }
+            onStderr: { [weak self] lines in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    for line in lines {
+                        self.handle(stderr: line, runID: runID, parentSessionID: parentSessionID)
+                    }
+                }
             },
             onTermination: { [weak self] exitCode in
                 Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, runID: runID, parentSessionID: parentSessionID) }
@@ -621,36 +631,55 @@ final class PiSubagentRunService {
     private func createWorktree(for parentSession: PiAgentSessionRecord, artifactDirectory: URL) throws -> URL {
         let worktreeURL = artifactDirectory.appendingPathComponent("worktree", isDirectory: true)
         let projectPath = parentSession.worktreePath ?? parentSession.projectPath
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", projectPath, "worktree", "add", "--detach", worktreeURL.path, "HEAD"]
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-        if process.terminationStatus != 0 {
-            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw NativeSubagentError.worktreeFailed(message?.isEmpty == false ? message! : "git worktree add failed")
+        let result: (stdout: String, stderr: String, exitCode: Int32)
+        do {
+            result = try Self.runGit(arguments: ["-C", projectPath, "worktree", "add", "--detach", worktreeURL.path, "HEAD"], timeout: 30)
+        } catch {
+            throw NativeSubagentError.worktreeFailed(error.localizedDescription)
+        }
+        if result.exitCode != 0 {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NativeSubagentError.worktreeFailed(message.isEmpty ? "git worktree add failed" : message)
         }
         return worktreeURL
     }
 
     private func currentCommit(in repositoryURL: URL) -> String? {
+        guard let result = try? Self.runGit(arguments: ["-C", repositoryURL.path, "rev-parse", "HEAD"], timeout: 5),
+              result.exitCode == 0 else { return nil }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated static func runGit(arguments: [String], timeout: TimeInterval) throws -> (stdout: String, stderr: String, exitCode: Int32) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", repositoryURL.path, "rev-parse", "HEAD"]
+        process.arguments = ["git"] + arguments
+
         let outputPipe = Pipe()
+        let errorPipe = Pipe()
         process.standardOutput = outputPipe
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            return nil
+        process.standardError = errorPipe
+
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in semaphore.signal() }
+
+        try process.run()
+        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            _ = semaphore.wait(timeout: .now() + 2)
+            if process.isRunning {
+                process.interrupt()
+            }
+            throw NSError(
+                domain: "AgentDeckGitHelper",
+                code: Int(ETIMEDOUT),
+                userInfo: [NSLocalizedDescriptionKey: "git \(arguments.joined(separator: " ")) timed out after \(Int(timeout))s."]
+            )
         }
+
+        let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (stdout, stderr, process.terminationStatus)
     }
 
     private func artifactDirectory(for runID: UUID) throws -> URL {

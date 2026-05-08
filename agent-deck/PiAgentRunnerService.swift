@@ -10,8 +10,14 @@ final class PiAgentRunnerService {
     private var thinkingTextBySessionID: [UUID: String] = [:]
     private var toolEntryIDsByCallID: [String: UUID] = [:]
     private var compactionEntryIDsBySessionID: [UUID: UUID] = [:]
+    private struct PendingThinkingLevel {
+        let requestedLevel: String
+        var acknowledgedByPi = false
+    }
+
     private var pendingCompactionInstructionsBySessionID: [UUID: String] = [:]
     private var pendingFreeformResponsesBySessionID: [UUID: String] = [:]
+    private var pendingThinkingLevelsBySessionID: [UUID: PendingThinkingLevel] = [:]
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     var onTurnFinished: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
@@ -165,8 +171,12 @@ final class PiAgentRunnerService {
     }
 
     func setThinkingLevel(sessionID: UUID, level: String) {
+        pendingThinkingLevelsBySessionID[sessionID] = PendingThinkingLevel(requestedLevel: level)
         store.updateSession(sessionID) { $0.thinkingLevel = level }
-        guard let client = clientsBySessionID[sessionID] else { return }
+        guard let client = clientsBySessionID[sessionID] else {
+            pendingThinkingLevelsBySessionID[sessionID] = nil
+            return
+        }
         client.setThinkingLevel(level)
     }
 
@@ -234,11 +244,21 @@ final class PiAgentRunnerService {
                 model: session.modelOverrideID,
                 extraArguments: extraArguments,
                 environment: environment,
-                onEvent: { [weak self] rawLine, event in
-                    Task { @MainActor [weak self] in self?.handle(rawLine: rawLine, event: event, sessionID: sessionID) }
+                onEvent: { [weak self] events in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        for event in events {
+                            self.handle(rawLine: event.rawLine, event: event.event, sessionID: sessionID)
+                        }
+                    }
                 },
-                onStderr: { [weak self] line in
-                    Task { @MainActor [weak self] in self?.handle(stderr: line, sessionID: sessionID) }
+                onStderr: { [weak self] lines in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        for line in lines {
+                            self.handle(stderr: line, sessionID: sessionID)
+                        }
+                    }
                 },
                 onTermination: { [weak self] exitCode in
                     Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, sessionID: sessionID) }
@@ -249,14 +269,14 @@ final class PiAgentRunnerService {
                 record.launchCommand = client.launchCommand
                 record.status = .running
             }
+            if let thinkingLevel = session.thinkingLevel, !thinkingLevel.isEmpty {
+                setThinkingLevel(sessionID: session.id, level: thinkingLevel)
+            }
             client.getState()
             client.getAvailableModels()
             let currentSession = store.sessions.first(where: { $0.id == session.id }) ?? session
             if currentSession.isTitleUserEdited || (session.title.hasPrefix("Draft ·") && !currentSession.title.hasPrefix("Draft ·")) {
                 client.setSessionName(currentSession.displayTitle)
-            }
-            if let thinkingLevel = session.thinkingLevel, !thinkingLevel.isEmpty {
-                client.setThinkingLevel(thinkingLevel)
             }
             if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
                 let message = userMessage(trimmedInitialPrompt, images: initialImages)
@@ -448,6 +468,9 @@ final class PiAgentRunnerService {
 
     private func handleResponse(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
         if event.success == false {
+            if event.command == "set_thinking_level" || event.command == "cycle_thinking_level" {
+                pendingThinkingLevelsBySessionID[sessionID] = nil
+            }
             let message = event.error?.compactDescription ?? event.data?.compactDescription ?? rawLine
             mark(sessionID, status: .failed, error: message)
             store.append(.init(sessionID: sessionID, role: .error, title: event.command ?? "RPC Error", text: message, rawJSON: rawLine))
@@ -472,6 +495,7 @@ final class PiAgentRunnerService {
                     updateModelFields(on: &record, from: modelObject, useAsOverride: true)
                 }
                 if let thinkingLevel = data["thinkingLevel"]?.stringValue {
+                    pendingThinkingLevelsBySessionID[sessionID] = nil
                     record.thinkingLevel = thinkingLevel
                 }
             }
@@ -479,9 +503,17 @@ final class PiAgentRunnerService {
             return
         }
 
-        if event.command == "set_thinking_level" || event.command == "cycle_thinking_level", let data = event.data {
+        if event.command == "set_thinking_level" || event.command == "cycle_thinking_level" {
             store.updateSession(sessionID) { record in
-                record.thinkingLevel = data["level"]?.stringValue ?? data["thinkingLevel"]?.stringValue ?? record.thinkingLevel
+                if let data = event.data,
+                   let thinkingLevel = data["level"]?.stringValue ?? data["thinkingLevel"]?.stringValue {
+                    pendingThinkingLevelsBySessionID[sessionID] = nil
+                    record.thinkingLevel = thinkingLevel
+                } else if event.command == "set_thinking_level",
+                          var pending = pendingThinkingLevelsBySessionID[sessionID] {
+                    pending.acknowledgedByPi = true
+                    pendingThinkingLevelsBySessionID[sessionID] = pending
+                }
             }
             clientsBySessionID[sessionID]?.getState()
             return
@@ -655,13 +687,19 @@ final class PiAgentRunnerService {
     }
 
     private func applyState(_ data: JSONValue, to sessionID: UUID) {
+        let reportedThinkingLevel = data["thinkingLevel"]?.stringValue
+        let pendingThinkingLevel = pendingThinkingLevelsBySessionID[sessionID]
         store.updateSession(sessionID) { record in
             record.piSessionFile = data["sessionFile"]?.stringValue ?? record.piSessionFile
             record.piSessionId = data["sessionId"]?.stringValue ?? record.piSessionId
             if let modelObject = data["model"] {
                 updateModelFields(on: &record, from: modelObject, useAsOverride: false)
             }
-            record.thinkingLevel = data["thinkingLevel"]?.stringValue ?? record.thinkingLevel
+            if let pendingThinkingLevel, !pendingThinkingLevel.acknowledgedByPi {
+                record.thinkingLevel = pendingThinkingLevel.requestedLevel
+            } else {
+                record.thinkingLevel = reportedThinkingLevel ?? record.thinkingLevel
+            }
             if let streaming = data["isStreaming"]?.compactDescription, streaming == "true" {
                 if !record.needsAttention {
                     record.status = .running
@@ -669,6 +707,9 @@ final class PiAgentRunnerService {
             } else if record.status.isActive {
                 record.status = .idle
             }
+        }
+        if pendingThinkingLevel?.acknowledgedByPi == true, reportedThinkingLevel != nil {
+            pendingThinkingLevelsBySessionID[sessionID] = nil
         }
     }
 
@@ -822,6 +863,7 @@ final class PiAgentRunnerService {
         thinkingEntryIDsBySessionID[sessionID] = nil
         thinkingTextBySessionID[sessionID] = nil
         pendingFreeformResponsesBySessionID[sessionID] = nil
+        pendingThinkingLevelsBySessionID[sessionID] = nil
         let keyPrefix = "\(sessionID.uuidString):"
         toolEntryIDsByCallID = toolEntryIDsByCallID.filter { !$0.key.hasPrefix(keyPrefix) }
     }

@@ -948,22 +948,41 @@ private let piAgentDiffRenderCache = PiAgentDiffRenderCache()
 
 private actor PiAgentDiffRenderCache {
     private var cache: [String: PiAgentRenderedDiff] = [:]
+    private var cacheOrder: [String] = []
     private let maxRenderedLines = 500
     private let prewarmLimit = 20
+    private let cacheLimit = 64
 
     func prewarm(_ diffTexts: [String]) async {
         for diffText in diffTexts.prefix(prewarmLimit) {
             guard cache[diffText] == nil else { continue }
-            cache[diffText] = Self.render(diffText, maxRenderedLines: maxRenderedLines)
+            store(Self.render(diffText, maxRenderedLines: maxRenderedLines), for: diffText)
             if Task.isCancelled { return }
         }
     }
 
     func renderedDiff(for diffText: String) async -> PiAgentRenderedDiff {
-        if let cached = cache[diffText] { return cached }
+        if let cached = cache[diffText] {
+            markUsed(diffText)
+            return cached
+        }
         let rendered = Self.render(diffText, maxRenderedLines: maxRenderedLines)
-        cache[diffText] = rendered
+        store(rendered, for: diffText)
         return rendered
+    }
+
+    private func store(_ rendered: PiAgentRenderedDiff, for diffText: String) {
+        cache[diffText] = rendered
+        markUsed(diffText)
+        while cacheOrder.count > cacheLimit, let oldest = cacheOrder.first {
+            cacheOrder.removeFirst()
+            cache[oldest] = nil
+        }
+    }
+
+    private func markUsed(_ diffText: String) {
+        cacheOrder.removeAll { $0 == diffText }
+        cacheOrder.append(diffText)
     }
 
     private static func render(_ diffText: String, maxRenderedLines: Int) -> PiAgentRenderedDiff {

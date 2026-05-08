@@ -1777,6 +1777,7 @@ struct PiAgentThinkingPicker: View {
 
     @State private var isPresented = false
     @State private var hoveredLevel: String?
+    @State private var optimisticLevel: String?
 
     private var levels: [String] { supportedLevels.isEmpty ? ["off"] : supportedLevels }
 
@@ -1813,6 +1814,15 @@ struct PiAgentThinkingPicker: View {
             .frame(width: 220)
         }
         .help(isRunning ? "Change thinking level" : "Choose thinking level for this session before launch")
+        .onChange(of: normalizedLevel) { _, _ in
+            optimisticLevel = nil
+        }
+        .onChange(of: defaultLevel) { _, _ in
+            optimisticLevel = nil
+        }
+        .onChange(of: supportedLevels) { _, _ in
+            optimisticLevel = nil
+        }
     }
 
     private func thinkingLevelRow(_ candidate: String) -> some View {
@@ -1821,6 +1831,7 @@ struct PiAgentThinkingPicker: View {
         let rowShape = RoundedRectangle(cornerRadius: 9, style: .continuous)
 
         return Button {
+            optimisticLevel = candidate
             onSelect(candidate)
             isPresented = false
         } label: {
@@ -1861,7 +1872,7 @@ struct PiAgentThinkingPicker: View {
     }
 
     private var resolvedLevel: String {
-        normalizedLevel ?? defaultLevel
+        optimisticLevel ?? normalizedLevel ?? defaultLevel
     }
 
     private var displayLevel: String {
