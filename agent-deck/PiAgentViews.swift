@@ -1372,9 +1372,7 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
         }
 
         deinit {
-            if let scrollView {
-                NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
-            }
+            NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
         }
 
         func attach(to newScrollView: NSScrollView?) {
