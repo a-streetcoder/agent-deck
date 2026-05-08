@@ -966,18 +966,22 @@ private struct AgentDetailView: View {
 
                 AppCard(title: "Project Assignment") {
                     VStack(alignment: .leading, spacing: 10) {
+                        let visibilityIssues = skillVisibilityIssues(agent)
+                        let visibilityIssuesByProjectID = Dictionary(uniqueKeysWithValues: visibilityIssues.map { ($0.project.id, $0) })
+                        let assignedProjectIDs = Set(assignedAgentProjects(managedAgent).map(\.id))
+
                         Text("Check each project that should load this agent. Assigning to a project removes managed global visibility, like Skills.")
                             .foregroundStyle(AppTheme.mutedText)
-                        if !skillVisibilityIssues(agent).isEmpty {
-                            skillVisibilityWarningBlock(skillVisibilityIssues(agent))
+                        if !visibilityIssues.isEmpty {
+                            skillVisibilityWarningBlock(visibilityIssues)
                         }
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(projects) { project in
-                                let projectIssue = skillVisibilityIssues(agent).first { $0.project.id == project.id }
+                                let projectIssue = visibilityIssuesByProjectID[project.id]
                                 ProjectAssignmentToggleRow(
                                     project: project,
                                     isOn: Binding(
-                                        get: { assignedAgentProjects(managedAgent).contains(where: { $0.id == project.id }) },
+                                        get: { assignedProjectIDs.contains(project.id) },
                                         set: { enabled in
                                             do { try setAgentForProject(managedAgent, project, enabled) } catch { NSSound.beep() }
                                         }
@@ -1568,4 +1572,3 @@ struct SaveConfirmation: Identifiable {
     let summary: String
     let exitEditMode: Bool
 }
-

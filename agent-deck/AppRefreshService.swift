@@ -10,6 +10,7 @@ struct AppRefreshSnapshot: Sendable {
     let selectedProject: DiscoveredProject?
     let selectedProjectSnapshot: ScanSnapshot?
     let watchFingerprint: String
+    let includesWatchFingerprint: Bool
 }
 
 nonisolated struct AppRefreshService: Sendable {
@@ -17,7 +18,8 @@ nonisolated struct AppRefreshService: Sendable {
         rootURL: URL,
         selectedProjectPath: String?,
         preferencesByPath: [String: ProjectPreference],
-        scanAllProjects: Bool = true
+        scanAllProjects: Bool = true,
+        extraProjectPathsToScan: Set<String> = []
     ) -> AppRefreshSnapshot {
         let discovery = ProjectDiscovery()
         let scanner = PiScanner()
@@ -35,13 +37,26 @@ nonisolated struct AppRefreshService: Sendable {
                 project.path == path && (preferencesByPath[project.path]?.isEnabled ?? true)
             }
         }
-        let projectsToScan = scanAllProjects ? enabledProjects : selectedProject.map { [$0] } ?? []
+        let projectsToScan: [DiscoveredProject]
+        if scanAllProjects {
+            projectsToScan = enabledProjects
+        } else {
+            var seen: Set<String> = []
+            projectsToScan = ([selectedProject].compactMap { $0 } + enabledProjects.filter { extraProjectPathsToScan.contains($0.path) })
+                .filter { seen.insert($0.path).inserted }
+        }
         let projectSnapshots = Dictionary(uniqueKeysWithValues: projectsToScan.map { project in
             (project.path, scanner.scan(projectRoot: project.url))
         })
         let selectedProjectSnapshot = selectedProject.flatMap { projectSnapshots[$0.path] }
+        let projectsToWatch: [DiscoveredProject]
+        if let selectedProject {
+            projectsToWatch = [selectedProject]
+        } else {
+            projectsToWatch = scanAllProjects ? enabledProjects : projectsToScan
+        }
         let watchFingerprint = FileWatchFingerprint.make(
-            urls: Self.watchedURLs(enabledProjects: enabledProjects, snapshot: selectedProjectSnapshot ?? globalSnapshot)
+            urls: Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot)
         )
 
         return AppRefreshSnapshot(
@@ -53,17 +68,18 @@ nonisolated struct AppRefreshService: Sendable {
             includesAllProjectSnapshots: scanAllProjects,
             selectedProject: selectedProject,
             selectedProjectSnapshot: selectedProjectSnapshot,
-            watchFingerprint: watchFingerprint
+            watchFingerprint: watchFingerprint,
+            includesWatchFingerprint: scanAllProjects || selectedProject != nil
         )
     }
 
-    static func watchedURLs(enabledProjects: [DiscoveredProject], snapshot: ScanSnapshot) -> [URL] {
+    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot) -> [URL] {
         var urls: [URL] = [
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent", isDirectory: true),
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
         ]
 
-        for project in enabledProjects {
+        for project in projects {
             urls.append(project.url.appendingPathComponent(".pi", isDirectory: true))
             urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))
         }

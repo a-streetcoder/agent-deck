@@ -155,12 +155,20 @@ struct PiAgentStartupResourcesCard: View {
     }
 
     private var extensionItems: [PiStartupResourceItem] {
-        let packageItems = Array(Set(startupSnapshot.settings.flatMap(\.packages)))
-            .compactMap(extensionPackageItem)
-        let fileItems = discoveredExtensionEntries().map { entry in
-            PiStartupResourceItem(title: entry.title, detail: shortPath(entry.url.path), kind: .file(entry.url))
-        }
-        return (packageItems + fileItems)
+        let enabledPaths = viewModel.appSettings.enabledExtensionPaths
+        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        let managedItems = PiExtensionManagementService()
+            .scan(projectRoot: projectURL)
+            .filter { record in
+                enabledPaths.contains(URL(fileURLWithPath: record.path).standardizedFileURL.path)
+            }
+            .map { record in
+                let detail = [record.scope.rawValue, record.origin.rawValue, shortPath(record.path)]
+                    .joined(separator: " · ")
+                return PiStartupResourceItem(title: record.displayName, detail: detail, kind: .file(URL(fileURLWithPath: record.path)))
+            }
+
+        return managedItems
             .uniqueByTitleAndDetail()
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
@@ -408,4 +416,3 @@ struct PiAgentStartupResourcesCard: View {
         return String(value.prefix(4)) + "••••"
     }
 }
-

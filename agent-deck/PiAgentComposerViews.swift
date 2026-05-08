@@ -908,18 +908,16 @@ private struct PiAgentSmartZoneContextBar: View {
                 .fill(clampedPercent > 85 ? Color.orange : Color.accentColor)
                 .frame(width: width * clampedPercent / 100)
 
-        }
-        .frame(width: width, height: height)
-        .overlay(alignment: .leading) {
             if showsSmartZoneHint {
                 PiAgentSmartZoneDottedMarker()
                     .stroke(Color.primary.opacity(0.72), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 3]))
-                    .frame(width: 1.5, height: 24)
-                    .offset(x: width * 0.4 - 0.75)
-                    .shadow(color: .black.opacity(0.24), radius: 1, x: 0, y: 0)
+                    .frame(width: 1.5, height: height)
+                    .position(x: width * 0.4, y: height / 2)
                     .allowsHitTesting(false)
             }
         }
+        .frame(width: width, height: height)
+        .clipShape(Capsule(style: .continuous))
         .accessibilityLabel(showsSmartZoneHint ? "Context usage with smart zone marker" : "Context usage")
         .accessibilityValue("\(Int(clampedPercent)) percent")
     }

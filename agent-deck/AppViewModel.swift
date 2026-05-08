@@ -118,6 +118,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var lastWatchFingerprint: String = ""
     private var refreshTask: Task<Void, Never>?
     private var refreshRequestID = 0
+    private var shouldWarmAllProjectSnapshotsAfterInitialLoad = false
     private var isRefreshingModels = false
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
@@ -144,7 +145,9 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
-        refresh(includeModels: true)
+        let hasRestoredProject = selectedProjectPath != nil
+        shouldWarmAllProjectSnapshotsAfterInitialLoad = hasRestoredProject
+        refresh(includeModels: true, scanAllProjects: !hasRestoredProject)
         piAgentRunner.enabledExtensionPathProvider = { [weak self] _ in
             self?.appSettings.enabledExtensionPaths ?? []
         }
@@ -219,7 +222,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func refresh(includeModels: Bool = false, scanAllProjects: Bool = true) {
+    func refresh(includeModels: Bool = false, scanAllProjects: Bool = true, extraProjectPathsToScan: Set<String> = []) {
         let selectedProjectPath = selectedProjectPath
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let rootURL = configuredProjectsRootURL
@@ -233,7 +236,8 @@ final class AppViewModel: NSObject, ObservableObject {
                 rootURL: rootURL,
                 selectedProjectPath: selectedProjectPath,
                 preferencesByPath: preferencesByPath,
-                scanAllProjects: scanAllProjects
+                scanAllProjects: scanAllProjects,
+                extraProjectPathsToScan: extraProjectPathsToScan
             )
 
             await MainActor.run {
@@ -258,7 +262,9 @@ final class AppViewModel: NSObject, ObservableObject {
         } else {
             allProjectSnapshots.merge(result.projectSnapshots) { _, fresh in fresh }
         }
-        lastWatchFingerprint = result.watchFingerprint
+        if result.includesWatchFingerprint {
+            lastWatchFingerprint = result.watchFingerprint
+        }
 
         if let matchingProject = result.selectedProject {
             projectRootURL = matchingProject.url
@@ -294,6 +300,13 @@ final class AppViewModel: NSObject, ObservableObject {
 
         if includeModels {
             refreshAvailableModels()
+        }
+
+        if shouldWarmAllProjectSnapshotsAfterInitialLoad {
+            shouldWarmAllProjectSnapshotsAfterInitialLoad = false
+            if !result.includesAllProjectSnapshots {
+                refresh(includeModels: false)
+            }
         }
     }
 
@@ -451,7 +464,7 @@ final class AppViewModel: NSObject, ObservableObject {
             persistSelectedProjectPath(standardizedURL.path)
         }
 
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [standardizedURL.path])
         if selectingAfterAdd {
             refreshGitHubProjectScopedState()
         }
@@ -469,7 +482,7 @@ final class AppViewModel: NSObject, ObservableObject {
         projectRootURL = standardizedURL
         selectedProjectPath = standardizedURL.path
         persistSelectedProjectPath(standardizedURL.path)
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [standardizedURL.path])
         refreshGitHubProjectScopedState()
     }
 
@@ -487,7 +500,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func setProjectEnabled(_ isEnabled: Bool, for project: DiscoveredProject) {
         projectPreferencesStore.setEnabled(isEnabled, for: project.path)
-        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        applyProjectPreferenceChanges()
 
         if !isEnabled, selectedProjectPath == project.path {
             projectRootURL = nil
@@ -495,14 +508,18 @@ final class AppViewModel: NSObject, ObservableObject {
             persistSelectedProjectPath(nil)
         }
 
-        refresh(includeModels: false)
+        if isEnabled {
+            refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
+        } else if selectedProjectPath == nil {
+            snapshot = makeAggregateSnapshot()
+        }
         refreshGitHubProjectScopedState()
     }
 
     func setAllProjectsEnabled(_ isEnabled: Bool) {
         let paths = discoveredProjects.map(\.path)
         projectPreferencesStore.setAllEnabled(isEnabled, for: paths)
-        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        applyProjectPreferenceChanges()
 
         if !isEnabled, selectedProjectPath != nil {
             projectRootURL = nil
@@ -510,13 +527,18 @@ final class AppViewModel: NSObject, ObservableObject {
             persistSelectedProjectPath(nil)
         }
 
-        refresh(includeModels: false)
+        if isEnabled {
+            refresh(includeModels: false)
+        } else {
+            snapshot = makeAggregateSnapshot()
+        }
         refreshGitHubProjectScopedState()
     }
 
     func removeProjectFromLibrary(_ project: DiscoveredProject) {
         projectPreferencesStore.setHidden(true, for: project.path)
-        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+        applyProjectPreferenceChanges()
+        allProjectSnapshots.removeValue(forKey: project.path)
 
         if selectedProjectPath == project.path {
             projectRootURL = nil
@@ -524,14 +546,15 @@ final class AppViewModel: NSObject, ObservableObject {
             persistSelectedProjectPath(nil)
         }
 
-        refresh(includeModels: false)
+        if selectedProjectPath == nil {
+            snapshot = makeAggregateSnapshot()
+        }
         refreshGitHubProjectScopedState()
     }
 
     func toggleProjectFavorite(_ project: DiscoveredProject) {
         projectPreferencesStore.toggleFavorite(for: project.path)
-        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
-        refresh(includeModels: false)
+        applyProjectPreferenceChanges()
     }
 
     func chooseCustomIcon(for project: DiscoveredProject) {
@@ -547,8 +570,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
         do {
             try projectPreferencesStore.setCustomIcon(from: url, for: project.path)
-            projectPreferencesByPath = projectPreferencesStore.preferencesByPath
-            refresh(includeModels: false)
+            applyProjectPreferenceChanges()
         } catch {
             githubLastError = error.localizedDescription
         }
@@ -556,8 +578,23 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func clearCustomIcon(for project: DiscoveredProject) {
         projectPreferencesStore.clearCustomIcon(for: project.path)
+        applyProjectPreferenceChanges()
+    }
+
+    private func applyProjectPreferenceChanges() {
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
-        refresh(includeModels: false)
+        discoveredProjects = discoveredProjects.compactMap { project in
+            let preference = projectPreferencesStore.preference(for: project.path)
+            guard !preference.isHidden else { return nil }
+            return DiscoveredProject(
+                url: project.url,
+                gitHubRemote: project.gitHubRemote,
+                isGitRepository: project.isGitRepository,
+                iconFileURL: preference.customIconPath.flatMap { URL(fileURLWithPath: $0) },
+                fallbackSymbolName: project.fallbackSymbolName,
+                searchIndex: project.searchIndex
+            )
+        }
     }
 
     private func persistSelectedProjectPath(_ path: String?) {
@@ -2991,7 +3028,11 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var totalProjectWarnings: Int {
-        allProjectSnapshots.values.reduce(0) { $0 + $1.warnings.count }
+        let enabledProjectPaths = Set(enabledProjects.map(\.path))
+        return allProjectSnapshots
+            .filter { enabledProjectPaths.contains($0.key) }
+            .values
+            .reduce(0) { $0 + $1.warnings.count }
     }
 
     func makeAgentDraft(for agent: EffectiveAgentRecord, preferredOverrideScope: AgentEditingTarget.OverrideScope? = nil) -> AgentEditorDraft? {
@@ -3000,7 +3041,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func saveAgentDraft(_ draft: AgentEditorDraft, for agent: EffectiveAgentRecord) throws {
         try agentPersistence.save(draft, original: agent, projectRoot: selectedProjectPath)
-        refresh(includeModels: false)
+        refreshAfterAgentDraftChange(draft)
     }
 
     func setAgentDisabled(_ isDisabled: Bool, for agent: EffectiveAgentRecord) throws {
@@ -3058,7 +3099,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func saveNewAgentDraft(_ draft: AgentEditorDraft) throws {
         try agentPersistence.saveNewCustomAgent(draft, projectRoot: selectedProjectPath)
-        refresh(includeModels: false)
+        refreshAfterAgentDraftChange(draft)
     }
 
     func makeChainDraft(for chain: ChainRecord) -> ChainEditorDraft {
@@ -3075,7 +3116,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func saveChainDraft(_ draft: ChainEditorDraft) throws {
         try chainPersistence.save(draft)
-        refresh(includeModels: false)
+        refreshAfterFileScopedChange(sourceKind: draft.chain.source.kind, filePath: draft.chain.filePath)
     }
 
     func createLibraryPromptTemplate() throws {
@@ -3116,7 +3157,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func setPrompt(_ prompt: PromptTemplateRecord, enabled: Bool, for project: DiscoveredProject) throws {
         if enabled { try addPrompt(prompt, toProjectPath: project.path) }
         else { try removeManagedPromptLink(projectPromptLinkURL(name: prompt.name, projectPath: project.path)) }
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
     }
 
     func enablePromptGlobally(_ prompt: PromptTemplateRecord) throws {
@@ -3185,7 +3226,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func setAgent(_ agent: AgentRecord, enabled: Bool, for project: DiscoveredProject) throws {
         if enabled { try addAgent(agent, toProjectPath: project.path) }
         else { try removeManagedFileLink(projectAgentLinkURL(name: agent.name, projectPath: project.path)) }
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
     }
 
     func enableAgentGlobally(_ agent: AgentRecord) throws {
@@ -3231,7 +3272,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func setChain(_ chain: ChainRecord, enabled: Bool, for project: DiscoveredProject) throws {
         if enabled { try addChain(chain, toProjectPath: project.path) }
         else { try removeManagedFileLink(projectChainLinkURL(name: chain.name, projectPath: project.path)) }
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
     }
 
     func enableChainGlobally(_ chain: ChainRecord) throws {
@@ -3295,13 +3336,13 @@ final class AppViewModel: NSObject, ObservableObject {
             .appendingPathComponent(".pi/skills", isDirectory: true)
             .appendingPathComponent(skill.name, isDirectory: true)
         try createSkillSymlink(from: linkURL, to: libraryURL)
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
 
     private func removeSkill(_ skill: SkillRecord, fromProjectPath projectPath: String) throws {
         try removeManagedSkillLink(URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/skills/", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true))
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
 
@@ -3591,7 +3632,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func saveEnvDraft(_ draft: EnvEditorDraft) throws {
         try envPersistence.save(draft)
-        refresh(includeModels: false)
+        refreshAfterFileScopedChange(sourceKind: draft.scope, filePath: draft.path)
     }
 
     var userDisableBuiltins: Bool {
@@ -3605,7 +3646,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func setDisableBuiltins(_ isDisabled: Bool, scope: AgentEditingTarget.OverrideScope) {
         do {
             try agentPersistence.setDisableBuiltins(isDisabled, scope: scope, projectRoot: selectedProjectPath)
-            refresh(includeModels: false)
+            refreshAfterOverrideChange(scope: scope)
         } catch {
             githubLastError = error.localizedDescription
         }
@@ -3614,7 +3655,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func setBuiltinDisabled(_ isDisabled: Bool, for agent: EffectiveAgentRecord, scope: AgentEditingTarget.OverrideScope) {
         do {
             try agentPersistence.setBuiltinDisabled(isDisabled, for: agent, scope: scope, projectRoot: selectedProjectPath)
-            refresh(includeModels: false)
+            refreshAfterOverrideChange(scope: scope)
         } catch {
             githubLastError = error.localizedDescription
         }
@@ -3668,7 +3709,10 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func makeAggregateSnapshot() -> ScanSnapshot {
-        let projectSnapshots = Array(allProjectSnapshots.values)
+        let enabledProjectPaths = Set(enabledProjects.map(\.path))
+        let projectSnapshots = allProjectSnapshots
+            .filter { enabledProjectPaths.contains($0.key) }
+            .map(\.value)
         let projectSpecificEffectiveAgents = projectSnapshots
             .flatMap(\.effectiveAgents)
             .filter { $0.projectCustom != nil || $0.projectOverride != nil }
@@ -3704,6 +3748,51 @@ final class AppViewModel: NSObject, ObservableObject {
             envKeys: envKeys,
             warnings: warnings
         )
+    }
+
+    private func refreshAfterAgentDraftChange(_ draft: AgentEditorDraft) {
+        switch draft.target {
+        case let .custom(scope):
+            guard scope == .project else {
+                refresh(includeModels: false)
+                return
+            }
+            refreshAfterProjectScopedChange(projectPath: draft.sourcePath.flatMap(projectPath(containing:)) ?? selectedProjectPath)
+        case let .builtinOverride(scope):
+            refreshAfterOverrideChange(scope: scope)
+        }
+    }
+
+    private func refreshAfterOverrideChange(scope: AgentEditingTarget.OverrideScope) {
+        switch scope {
+        case .global:
+            refresh(includeModels: false)
+        case .project:
+            refreshAfterProjectScopedChange(projectPath: selectedProjectPath)
+        }
+    }
+
+    private func refreshAfterFileScopedChange(sourceKind: ResourceScopeKind, filePath: String) {
+        switch sourceKind {
+        case .project, .legacyProject:
+            refreshAfterProjectScopedChange(projectPath: projectPath(containing: filePath) ?? selectedProjectPath)
+        default:
+            refresh(includeModels: false)
+        }
+    }
+
+    private func refreshAfterProjectScopedChange(projectPath: String?) {
+        guard let projectPath else {
+            refresh(includeModels: false)
+            return
+        }
+        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
+    }
+
+    private func projectPath(containing filePath: String) -> String? {
+        enabledProjects.first { project in
+            filePath == project.path || filePath.hasPrefix(project.path + "/")
+        }?.path
     }
 
     private func scopeSnapshot(for target: AgentEditingTarget) -> ScanSnapshot {
@@ -3867,8 +3956,9 @@ final class AppViewModel: NSObject, ObservableObject {
     private func refreshIfWatchedFilesChanged() {
         guard watchFingerprintTask == nil else { return }
         let previousFingerprint = lastWatchFingerprint
-        let urls = AppRefreshService.watchedURLs(enabledProjects: enabledProjects, snapshot: snapshot)
         let shouldScanAllProjects = selectedProjectPath == nil
+        let projectsToWatch = shouldScanAllProjects ? enabledProjects : selectedDiscoveredProject.map { [$0] } ?? []
+        let urls = AppRefreshService.watchedURLs(projects: projectsToWatch, snapshot: snapshot)
         watchFingerprintTask = Task.detached(priority: .utility) {
             let fingerprint = FileWatchFingerprint.make(urls: urls)
             await MainActor.run {
