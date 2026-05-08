@@ -94,7 +94,7 @@ struct ContentView: View {
                     }
                 }
                 .listStyle(.sidebar)
-                .sidebarBottomFade()
+                .scrollContentBackground(.hidden)
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
@@ -516,6 +516,9 @@ struct ContentView: View {
                     } label: {
                         Label("Transcript Display", systemImage: "eye")
                     }
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.primary)
+                    .tint(.primary)
                     .help("Choose what appears in the agent transcript")
                     .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
                         PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
@@ -526,6 +529,9 @@ struct ContentView: View {
                     } label: {
                         Label("Subagents", systemImage: "rectangle.connected.to.line.below")
                     }
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.primary)
+                    .tint(.primary)
                     .help("Toggle native subagents for this session")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
                     .popover(isPresented: $isPiAgentSubagentsPopoverPresented, arrowEdge: .bottom) {
@@ -552,6 +558,9 @@ struct ContentView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 16, height: 16)
                     }
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.primary)
+                    .tint(.primary)
                     .help("Show GitHub panel")
                     .accessibilityLabel("Show GitHub panel")
                     .disabled(viewModel.piAgentSessionStore.selectedSession == nil)

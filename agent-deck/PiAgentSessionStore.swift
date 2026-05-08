@@ -25,24 +25,45 @@ final class PiAgentSessionStore: ObservableObject {
     private let defaultSaveDebounceNanoseconds: UInt64 = 450_000_000
     private let structuralSaveDebounceNanoseconds: UInt64 = 50_000_000
     private let fileURL: URL
+    private let transcriptsDirectoryURL: URL
+    private let transcriptManifestURL: URL
     private let saveQueue = DispatchQueue(label: "agent-deck.pi-agent-session-store.save", qos: .utility)
     private var pendingSaveTask: Task<Void, Never>?
     private var saveSequence = 0
     private var pendingTranscriptRevisionSessionIDs: Set<UUID> = []
     private var pendingTranscriptRevisionTask: Task<Void, Never>?
+    private var lazyTranscriptLoadingEnabled = true
+    private var transcriptCacheLimit = 10
+    private var persistedTranscriptSessionIDs: Set<UUID> = []
+    private var persistedSubagentTranscriptRunIDs: Set<UUID> = []
+    private var loadedTranscriptSessionOrder: [UUID] = []
+    private var loadedSubagentTranscriptOrder: [UUID] = []
 
     init(fileManager: FileManager = .default) {
+        let settings = AppSettingsStore.shared.settings
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let directory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("agent-sessions.json")
+        transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
+        transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
+        lazyTranscriptLoadingEnabled = settings.piAgentLazyTranscriptLoadingEnabled
+        transcriptCacheLimit = max(settings.piAgentLoadedTranscriptCacheLimit, 1)
+        try? fileManager.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
         load()
     }
 
     init(fileURL: URL) {
+        let settings = AppSettingsStore.shared.settings
         self.fileURL = fileURL
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let directory = fileURL.deletingLastPathComponent()
+        transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
+        transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
+        lazyTranscriptLoadingEnabled = settings.piAgentLazyTranscriptLoadingEnabled
+        transcriptCacheLimit = max(settings.piAgentLoadedTranscriptCacheLimit, 1)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
         load()
     }
 
@@ -53,7 +74,7 @@ final class PiAgentSessionStore: ObservableObject {
 
     var selectedTranscript: [PiAgentTranscriptEntry] {
         guard let session = selectedSession else { return [] }
-        return transcriptsBySessionID[session.id] ?? []
+        return transcript(for: session.id)
     }
 
     var selectedTranscriptRevision: Int {
@@ -162,6 +183,7 @@ final class PiAgentSessionStore: ObservableObject {
         sessionPlansBySessionID[record.id] = nil
         sessionPlanEventsBySessionID[record.id] = []
         selectedSessionID = record.id
+        markTranscriptSessionUsed(record.id)
         saveStructuralChange()
         return record
     }
@@ -169,7 +191,18 @@ final class PiAgentSessionStore: ObservableObject {
     func select(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         selectedSessionID = id
+        _ = transcript(for: id)
         saveStructuralChange()
+    }
+
+    func configureTranscriptMemory(lazyLoadingEnabled: Bool, cacheLimit: Int) {
+        lazyTranscriptLoadingEnabled = lazyLoadingEnabled
+        transcriptCacheLimit = max(cacheLimit, 1)
+        if lazyLoadingEnabled {
+            evictTranscriptsIfNeeded()
+        } else {
+            loadAllPersistedTranscriptsIntoMemory()
+        }
     }
 
     func clearSelection() {
@@ -248,7 +281,17 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     func subagentTranscript(for runID: UUID) -> [PiAgentTranscriptEntry] {
-        subagentTranscriptsByRunID[runID] ?? []
+        loadSubagentTranscriptIfNeeded(runID)
+        markSubagentTranscriptUsed(runID)
+        evictTranscriptsIfNeeded(protectingSubagentRunID: runID)
+        return subagentTranscriptsByRunID[runID] ?? []
+    }
+
+    func transcript(for sessionID: UUID) -> [PiAgentTranscriptEntry] {
+        loadTranscriptIfNeeded(sessionID)
+        markTranscriptSessionUsed(sessionID)
+        evictTranscriptsIfNeeded(protectingSessionID: sessionID)
+        return transcriptsBySessionID[sessionID] ?? []
     }
 
     func supervisorRequests(for sessionID: UUID) -> [PiSubagentSupervisorRequest] {
@@ -387,28 +430,30 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     func appendSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID) {
-        var entries = subagentTranscriptsByRunID[runID] ?? []
-        entries.append(entry)
-        if entries.count > maxTranscriptEntriesPerSession {
-            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
+        modifySubagentTranscriptEntries(for: runID) { entries in
+            entries.append(entry)
+            trimTranscriptEntries(&entries)
         }
-        subagentTranscriptsByRunID[runID] = entries
+        persistSubagentTranscript(runID)
+        markSubagentTranscriptUsed(runID)
+        evictTranscriptsIfNeeded()
         touchSession(parentSessionID, bumpUpdatedAt: false)
     }
 
     func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil) {
-        var entries = subagentTranscriptsByRunID[runID] ?? []
-        if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries[index] = entry
-        } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
-            entries.insert(entry, at: beforeIndex)
-        } else {
-            entries.append(entry)
+        modifySubagentTranscriptEntries(for: runID) { entries in
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = entry
+            } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
+                entries.insert(entry, at: beforeIndex)
+            } else {
+                entries.append(entry)
+            }
+            trimTranscriptEntries(&entries)
         }
-        if entries.count > maxTranscriptEntriesPerSession {
-            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
-        }
-        subagentTranscriptsByRunID[runID] = entries
+        persistSubagentTranscript(runID)
+        markSubagentTranscriptUsed(runID)
+        evictTranscriptsIfNeeded()
         touchSession(parentSessionID, bumpUpdatedAt: false)
     }
 
@@ -433,35 +478,38 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     func append(_ entry: PiAgentTranscriptEntry) {
-        var entries = transcriptsBySessionID[entry.sessionID] ?? []
-        entries.append(entry)
-        if entries.count > maxTranscriptEntriesPerSession {
-            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
+        modifyTranscriptEntries(for: entry.sessionID) { entries in
+            entries.append(entry)
+            trimTranscriptEntries(&entries)
         }
-        transcriptsBySessionID[entry.sessionID] = entries
+        persistTranscript(entry.sessionID)
+        markTranscriptSessionUsed(entry.sessionID)
+        evictTranscriptsIfNeeded()
         bumpTranscriptRevision(entry.sessionID)
         touchSession(entry.sessionID, bumpUpdatedAt: true)
     }
 
     func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil, persist: Bool = true) {
-        var entries = transcriptsBySessionID[entry.sessionID] ?? []
         let isNewEntry: Bool
-        if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries[index] = entry
-            isNewEntry = false
-        } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
-            entries.insert(entry, at: beforeIndex)
-            isNewEntry = true
-        } else {
-            entries.append(entry)
-            isNewEntry = true
+        var insertedEntry = false
+        modifyTranscriptEntries(for: entry.sessionID) { entries in
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = entry
+            } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
+                entries.insert(entry, at: beforeIndex)
+                insertedEntry = true
+            } else {
+                entries.append(entry)
+                insertedEntry = true
+            }
+            trimTranscriptEntries(&entries)
         }
-        if entries.count > maxTranscriptEntriesPerSession {
-            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
-        }
-        transcriptsBySessionID[entry.sessionID] = entries
+        markTranscriptSessionUsed(entry.sessionID)
+        isNewEntry = insertedEntry
         bumpTranscriptRevision(entry.sessionID)
         guard persist else { return }
+        persistTranscript(entry.sessionID)
+        evictTranscriptsIfNeeded()
         if isNewEntry {
             touchSession(entry.sessionID, bumpUpdatedAt: true)
         } else {
@@ -470,12 +518,20 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     func updateEntry(_ entryID: UUID, in sessionID: UUID, persist: Bool = true, mutate: (inout PiAgentTranscriptEntry) -> Void) {
-        var entries = transcriptsBySessionID[sessionID] ?? []
-        guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
-        mutate(&entries[index])
-        transcriptsBySessionID[sessionID] = entries
+        loadTranscriptIfNeeded(sessionID)
+        guard transcriptsBySessionID[sessionID] != nil else { return }
+        var didUpdate = false
+        modifyTranscriptEntries(for: sessionID) { entries in
+            guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
+            mutate(&entries[index])
+            didUpdate = true
+        }
+        guard didUpdate else { return }
+        markTranscriptSessionUsed(sessionID)
         bumpTranscriptRevision(sessionID)
         if persist {
+            persistTranscript(sessionID)
+            evictTranscriptsIfNeeded()
             save()
         }
     }
@@ -491,10 +547,16 @@ final class PiAgentSessionStore: ObservableObject {
         sessions.removeAll { existingIDs.contains($0.id) }
         for sessionID in existingIDs {
             transcriptsBySessionID[sessionID] = nil
+            persistedTranscriptSessionIDs.remove(sessionID)
+            loadedTranscriptSessionOrder.removeAll { $0 == sessionID }
+            deleteTranscriptFile(sessionID)
             transcriptRevisionsBySessionID[sessionID] = nil
             let runIDs = subagentRunsBySessionID[sessionID]?.map(\.id) ?? []
             for runID in runIDs {
                 subagentTranscriptsByRunID[runID] = nil
+                persistedSubagentTranscriptRunIDs.remove(runID)
+                loadedSubagentTranscriptOrder.removeAll { $0 == runID }
+                deleteSubagentTranscriptFile(runID)
             }
             subagentRunsBySessionID[sessionID] = nil
             supervisorRequestsBySessionID[sessionID] = nil
@@ -509,6 +571,8 @@ final class PiAgentSessionStore: ObservableObject {
 
     func clearTranscript(for sessionID: UUID) {
         transcriptsBySessionID[sessionID] = []
+        persistTranscript(sessionID)
+        markTranscriptSessionUsed(sessionID)
         bumpTranscriptRevision(sessionID)
         save()
     }
@@ -517,6 +581,12 @@ final class PiAgentSessionStore: ObservableObject {
         do {
             guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
             let data = try Data(contentsOf: fileURL)
+            if lazyTranscriptLoadingEnabled, let manifest = loadTranscriptManifest() {
+                let persisted = try JSONDecoder.piAgent.decode(PersistedStateIndex.self, from: data)
+                applyPersistedIndex(persisted, manifest: manifest)
+                return
+            }
+
             let persisted = try JSONDecoder.piAgent.decode(PersistedState.self, from: data)
             sessions = persisted.sessions.map { session in
                 var session = session
@@ -599,12 +669,107 @@ final class PiAgentSessionStore: ObservableObject {
             } else {
                 selectedSessionID = sessions.first?.id
             }
+            persistedTranscriptSessionIDs = Set(transcriptsBySessionID.keys)
+            persistedSubagentTranscriptRunIDs = Set(subagentTranscriptsByRunID.keys)
+            writeLoadedTranscriptFilesAndManifest()
+            if lazyTranscriptLoadingEnabled {
+                evictTranscriptsIfNeeded()
+            }
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
             sessions = []
             transcriptsBySessionID = [:]
             selectedSessionID = nil
         }
+    }
+
+    private func applyPersistedIndex(_ persisted: PersistedStateIndex, manifest: TranscriptManifest) {
+        sessions = persisted.sessions.map { session in
+            var session = session
+            if session.status.isActive {
+                session.status = .stopped
+                session.lastError = session.lastError ?? "Stopped because \(AppBrand.displayName) was restarted."
+            }
+            session.isCompacting = false
+            return session
+        }
+        sortSessions()
+        transcriptsBySessionID = [:]
+        persistedTranscriptSessionIDs = Set(manifest.parentSessionIDs)
+        transcriptRevisionsBySessionID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, 0) })
+
+        subagentRunsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.subagentRuns ?? []).map { persistedRuns in
+            let recovered = persistedRuns.runs.map { run -> PiSubagentRunRecord in
+                var run = run
+                if run.status.isActive {
+                    let completedAt = Date()
+                    run.status = .disconnected
+                    run.error = run.error ?? "Disconnected because \(AppBrand.displayName) was restarted."
+                    run.updatedAt = completedAt
+                    run.completedAt = run.completedAt ?? completedAt
+                    run.durationMs = run.durationMs ?? max(0, Int((completedAt.timeIntervalSince(run.createdAt) * 1000).rounded()))
+                    if var child = run.child {
+                        child.status = .disconnected
+                        child.error = child.error ?? run.error
+                        child.updatedAt = completedAt
+                        child.completedAt = child.completedAt ?? completedAt
+                        child.durationMs = child.durationMs ?? max(0, Int((completedAt.timeIntervalSince(child.createdAt) * 1000).rounded()))
+                        run.child = child
+                    }
+                    if var children = run.children {
+                        for index in children.indices where children[index].status.isActive {
+                            children[index].status = .disconnected
+                            children[index].error = children[index].error ?? run.error
+                            children[index].updatedAt = completedAt
+                            children[index].completedAt = children[index].completedAt ?? completedAt
+                            children[index].durationMs = children[index].durationMs ?? max(0, Int((completedAt.timeIntervalSince(children[index].createdAt) * 1000).rounded()))
+                        }
+                        run.children = children
+                    }
+                }
+                return run
+            }
+            return (persistedRuns.sessionID, recovered)
+        })
+
+        subagentTranscriptsByRunID = [:]
+        persistedSubagentTranscriptRunIDs = Set(manifest.subagentRunIDs)
+        let subagentStatusesByRunID = Dictionary(uniqueKeysWithValues: subagentRunsBySessionID.values.flatMap { runs in
+            runs.map { ($0.id, $0.status) }
+        })
+        supervisorRequestsBySessionID = Dictionary(uniqueKeysWithValues: (persisted.supervisorRequests ?? []).map { persistedRequests in
+            let recovered = persistedRequests.requests.map { request -> PiSubagentSupervisorRequest in
+                var request = request
+                if request.status == .pending, let runStatus = subagentStatusesByRunID[request.runID], !runStatus.isActive {
+                    request.status = .cancelled
+                    request.response = request.response ?? "Cancelled because the child subagent is no longer connected."
+                    request.updatedAt = Date()
+                }
+                return request
+            }
+            return (persistedRequests.sessionID, recovered)
+        })
+        sessionPlansBySessionID = Dictionary(uniqueKeysWithValues: (persisted.sessionPlans ?? []).map { ($0.sessionID, $0) })
+        sessionPlanEventsBySessionID = Dictionary(grouping: persisted.sessionPlanEvents ?? [], by: \.sessionID)
+        for plan in sessionPlansBySessionID.values where sessionPlanEventsBySessionID[plan.sessionID]?.isEmpty != false {
+            sessionPlanEventsBySessionID[plan.sessionID] = [
+                PiSessionPlanEventRecord(
+                    id: UUID(),
+                    sessionID: plan.sessionID,
+                    planID: plan.id,
+                    kind: .created,
+                    items: plan.items,
+                    timestamp: plan.createdAt
+                )
+            ]
+        }
+        if let persistedSelectedSessionID = persisted.selectedSessionID,
+           sessions.contains(where: { $0.id == persistedSelectedSessionID }) {
+            selectedSessionID = persistedSelectedSessionID
+        } else {
+            selectedSessionID = sessions.first?.id
+        }
+        loadInitialTranscriptCache()
     }
 
     private func bumpTranscriptRevision(_ sessionID: UUID) {
@@ -648,6 +813,147 @@ final class PiAgentSessionStore: ObservableObject {
         save()
     }
 
+    private func modifyTranscriptEntries(for sessionID: UUID, _ mutate: (inout [PiAgentTranscriptEntry]) -> Void) {
+        loadTranscriptIfNeeded(sessionID)
+        mutate(&transcriptsBySessionID[sessionID, default: []])
+    }
+
+    private func modifySubagentTranscriptEntries(for runID: UUID, _ mutate: (inout [PiAgentTranscriptEntry]) -> Void) {
+        loadSubagentTranscriptIfNeeded(runID)
+        mutate(&subagentTranscriptsByRunID[runID, default: []])
+    }
+
+    private func trimTranscriptEntries(_ entries: inout [PiAgentTranscriptEntry]) {
+        if entries.count > maxTranscriptEntriesPerSession {
+            entries.removeFirst(entries.count - maxTranscriptEntriesPerSession)
+        }
+    }
+
+    private func loadInitialTranscriptCache() {
+        if let selectedSessionID {
+            loadTranscriptIfNeeded(selectedSessionID)
+            markTranscriptSessionUsed(selectedSessionID)
+        }
+        for session in sessions.prefix(transcriptCacheLimit) {
+            loadTranscriptIfNeeded(session.id)
+            markTranscriptSessionUsed(session.id)
+        }
+        evictTranscriptsIfNeeded()
+    }
+
+    private func loadAllPersistedTranscriptsIntoMemory() {
+        for sessionID in persistedTranscriptSessionIDs {
+            loadTranscriptIfNeeded(sessionID)
+            markTranscriptSessionUsed(sessionID)
+        }
+        for runID in persistedSubagentTranscriptRunIDs {
+            loadSubagentTranscriptIfNeeded(runID)
+            markSubagentTranscriptUsed(runID)
+        }
+    }
+
+    private func loadTranscriptIfNeeded(_ sessionID: UUID) {
+        guard transcriptsBySessionID[sessionID] == nil, persistedTranscriptSessionIDs.contains(sessionID) else { return }
+        transcriptsBySessionID[sessionID] = (try? Self.readParentTranscript(from: parentTranscriptURL(sessionID))) ?? []
+    }
+
+    private func loadSubagentTranscriptIfNeeded(_ runID: UUID) {
+        guard subagentTranscriptsByRunID[runID] == nil, persistedSubagentTranscriptRunIDs.contains(runID) else { return }
+        subagentTranscriptsByRunID[runID] = (try? Self.readSubagentTranscript(from: subagentTranscriptURL(runID))) ?? []
+    }
+
+    private func evictTranscriptsIfNeeded(protectingSessionID: UUID? = nil, protectingSubagentRunID: UUID? = nil) {
+        guard lazyTranscriptLoadingEnabled else { return }
+        let protectedSessionIDs = Set([selectedSessionID, protectingSessionID].compactMap { $0 })
+            .union(sessions.filter { $0.status.isActive }.map(\.id))
+        while loadedTranscriptSessionOrder.count > transcriptCacheLimit,
+              let evictID = loadedTranscriptSessionOrder.first(where: { !protectedSessionIDs.contains($0) }) {
+            loadedTranscriptSessionOrder.removeAll { $0 == evictID }
+            transcriptsBySessionID[evictID] = nil
+        }
+        while loadedSubagentTranscriptOrder.count > transcriptCacheLimit,
+              let evictID = loadedSubagentTranscriptOrder.first(where: { $0 != protectingSubagentRunID }) {
+            loadedSubagentTranscriptOrder.removeAll { $0 == evictID }
+            subagentTranscriptsByRunID[evictID] = nil
+        }
+    }
+
+    private func markTranscriptSessionUsed(_ sessionID: UUID) {
+        loadedTranscriptSessionOrder.removeAll { $0 == sessionID }
+        loadedTranscriptSessionOrder.append(sessionID)
+    }
+
+    private func markSubagentTranscriptUsed(_ runID: UUID) {
+        loadedSubagentTranscriptOrder.removeAll { $0 == runID }
+        loadedSubagentTranscriptOrder.append(runID)
+    }
+
+    private func persistTranscript(_ sessionID: UUID) {
+        guard let entries = transcriptsBySessionID[sessionID] else { return }
+        persistedTranscriptSessionIDs.insert(sessionID)
+        let url = parentTranscriptURL(sessionID)
+        saveQueue.async {
+            try? Self.writeParentTranscript(PersistedTranscript(sessionID: sessionID, entries: entries), to: url)
+        }
+    }
+
+    private func persistSubagentTranscript(_ runID: UUID) {
+        guard let entries = subagentTranscriptsByRunID[runID] else { return }
+        persistedSubagentTranscriptRunIDs.insert(runID)
+        let url = subagentTranscriptURL(runID)
+        saveQueue.async {
+            try? Self.writeSubagentTranscript(PersistedSubagentTranscript(runID: runID, entries: entries), to: url)
+        }
+    }
+
+    private func writeLoadedTranscriptFilesAndManifest() {
+        for sessionID in persistedTranscriptSessionIDs {
+            persistTranscript(sessionID)
+        }
+        for runID in persistedSubagentTranscriptRunIDs {
+            persistSubagentTranscript(runID)
+        }
+        persistTranscriptManifest()
+    }
+
+    private func loadTranscriptManifest() -> TranscriptManifest? {
+        guard let data = try? Data(contentsOf: transcriptManifestURL) else { return nil }
+        return try? JSONDecoder.piAgent.decode(TranscriptManifest.self, from: data)
+    }
+
+    private func persistTranscriptManifest() {
+        let manifest = TranscriptManifest(
+            parentSessionIDs: Array(persistedTranscriptSessionIDs),
+            subagentRunIDs: Array(persistedSubagentTranscriptRunIDs)
+        )
+        let url = transcriptManifestURL
+        saveQueue.async {
+            try? Self.writeTranscriptManifest(manifest, to: url)
+        }
+    }
+
+    private func parentTranscriptURL(_ sessionID: UUID) -> URL {
+        transcriptsDirectoryURL.appendingPathComponent("parent-\(sessionID.uuidString).json")
+    }
+
+    private func subagentTranscriptURL(_ runID: UUID) -> URL {
+        transcriptsDirectoryURL.appendingPathComponent("subagent-\(runID.uuidString).json")
+    }
+
+    private func deleteTranscriptFile(_ sessionID: UUID) {
+        let url = parentTranscriptURL(sessionID)
+        saveQueue.async {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func deleteSubagentTranscriptFile(_ runID: UUID) {
+        let url = subagentTranscriptURL(runID)
+        saveQueue.async {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     private func save() {
         scheduleSave(after: defaultSaveDebounceNanoseconds)
     }
@@ -684,9 +990,12 @@ final class PiAgentSessionStore: ObservableObject {
 
     private func saveNowAsync() {
         let fileURL = fileURL
+        let transcriptManifestURL = transcriptManifestURL
+        let manifest = makeTranscriptManifestSnapshot()
         let (sequence, persisted) = makePersistedStateSnapshot()
-        saveQueue.async { [weak self, fileURL, persisted, sequence] in
+        saveQueue.async { [weak self, fileURL, transcriptManifestURL, manifest, persisted, sequence] in
             do {
+                try Self.writeTranscriptManifest(manifest, to: transcriptManifestURL)
                 try Self.write(persisted, to: fileURL)
             } catch {
                 let message = "Could not save Pi Agent sessions: \(error.localizedDescription)"
@@ -700,9 +1009,12 @@ final class PiAgentSessionStore: ObservableObject {
 
     private func saveNow() {
         let fileURL = fileURL
+        let transcriptManifestURL = transcriptManifestURL
+        let manifest = makeTranscriptManifestSnapshot()
         let (_, persisted) = makePersistedStateSnapshot()
         do {
             try saveQueue.sync {
+                try Self.writeTranscriptManifest(manifest, to: transcriptManifestURL)
                 try Self.write(persisted, to: fileURL)
             }
         } catch {
@@ -710,8 +1022,40 @@ final class PiAgentSessionStore: ObservableObject {
         }
     }
 
+    private func makeTranscriptManifestSnapshot() -> TranscriptManifest {
+        TranscriptManifest(
+            parentSessionIDs: Array(persistedTranscriptSessionIDs),
+            subagentRunIDs: Array(persistedSubagentTranscriptRunIDs)
+        )
+    }
+
     private nonisolated static func write(_ persisted: PersistedState, to fileURL: URL) throws {
         let data = try JSONEncoder.piAgent.encode(persisted)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    private nonisolated static func writeParentTranscript(_ transcript: PersistedTranscript, to fileURL: URL) throws {
+        let data = try JSONEncoder.piAgent.encode(transcript)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    private nonisolated static func readParentTranscript(from fileURL: URL) throws -> [PiAgentTranscriptEntry] {
+        let data = try Data(contentsOf: fileURL)
+        return try JSONDecoder.piAgent.decode(PersistedTranscript.self, from: data).entries
+    }
+
+    private nonisolated static func writeSubagentTranscript(_ transcript: PersistedSubagentTranscript, to fileURL: URL) throws {
+        let data = try JSONEncoder.piAgent.encode(transcript)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    private nonisolated static func readSubagentTranscript(from fileURL: URL) throws -> [PiAgentTranscriptEntry] {
+        let data = try Data(contentsOf: fileURL)
+        return try JSONDecoder.piAgent.decode(PersistedSubagentTranscript.self, from: data).entries
+    }
+
+    private nonisolated static func writeTranscriptManifest(_ manifest: TranscriptManifest, to fileURL: URL) throws {
+        let data = try JSONEncoder.piAgent.encode(manifest)
         try data.write(to: fileURL, options: .atomic)
     }
 }
@@ -722,6 +1066,15 @@ private nonisolated struct PersistedState: Codable {
     var selectedSessionID: UUID?
     var subagentRuns: [PersistedSubagentRuns]?
     var subagentTranscripts: [PersistedSubagentTranscript]?
+    var supervisorRequests: [PersistedSupervisorRequests]?
+    var sessionPlans: [PiSessionPlanRecord]?
+    var sessionPlanEvents: [PiSessionPlanEventRecord]?
+}
+
+private nonisolated struct PersistedStateIndex: Codable {
+    var sessions: [PiAgentSessionRecord]
+    var selectedSessionID: UUID?
+    var subagentRuns: [PersistedSubagentRuns]?
     var supervisorRequests: [PersistedSupervisorRequests]?
     var sessionPlans: [PiSessionPlanRecord]?
     var sessionPlanEvents: [PiSessionPlanEventRecord]?
@@ -745,6 +1098,11 @@ private nonisolated struct PersistedSubagentTranscript: Codable {
 private nonisolated struct PersistedSupervisorRequests: Codable {
     var sessionID: UUID
     var requests: [PiSubagentSupervisorRequest]
+}
+
+private nonisolated struct TranscriptManifest: Codable {
+    var parentSessionIDs: [UUID]
+    var subagentRunIDs: [UUID]
 }
 
 private nonisolated extension JSONEncoder {

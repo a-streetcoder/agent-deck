@@ -116,7 +116,7 @@ struct PiAgentCommandSuggestions: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(AppTheme.contentSubtleFill))
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -137,12 +137,8 @@ struct PiAgentCommandSuggestions: View {
                 suggestionRows(content: content)
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.contentFill)
-                .stroke(AppTheme.contentStroke, lineWidth: 1)
-        )
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
     }
 
     private func suggestionRows<Content: View>(@ViewBuilder content: () -> Content) -> some View {

@@ -16,6 +16,9 @@ struct PiAgentOpenTerminalToolbarButton: View {
         } label: {
             Label("Resume in Terminal", systemImage: "terminal")
         }
+        .symbolRenderingMode(.monochrome)
+        .foregroundStyle(.primary)
+        .tint(.primary)
         .help("Opens a terminal continuation from this session file. Terminal messages do not sync back into \(AppBrand.displayName) yet.")
         .disabled(!canOpen)
         .alert("Resume in Terminal?", isPresented: $isParallelContinuationWarningPresented) {

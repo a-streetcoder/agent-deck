@@ -6,19 +6,22 @@ struct SidebarNavigationRow: View {
     var showsWarning = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            icon
-            Text(item.rawValue)
-                .font(.callout.weight(.medium))
-            if showsWarning {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.yellow)
-                    .help("Select a project to enable repo-aware GitHub workflows.")
-                    .accessibilityLabel("Project selection recommended")
+        Label {
+            HStack(spacing: 6) {
+                Text(item.rawValue)
+                    .font(.callout.weight(.medium))
+                if showsWarning {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.yellow)
+                        .help("Select a project to enable repo-aware GitHub workflows.")
+                        .accessibilityLabel("Project selection recommended")
+                }
             }
+            .fontWidth(.expanded)
+        } icon: {
+            icon
         }
-        .fontWidth(.expanded)
     }
 
     @ViewBuilder
@@ -29,11 +32,9 @@ struct SidebarNavigationRow: View {
                 .renderingMode(.template)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 16, height: 16)
-                .foregroundStyle(.secondary)
         } else {
             Image(systemName: item.systemImage)
                 .frame(width: 16, height: 16)
-                .foregroundStyle(.secondary)
         }
     }
 }

@@ -139,6 +139,11 @@ final class AppViewModel: NSObject, ObservableObject {
         TimeInterval(piAgentNotificationDelayMinutes * 60)
     }
 
+    private var piAgentIdleParkingTimeout: TimeInterval? {
+        guard isPiAgentIdleParkingEnabled else { return nil }
+        return TimeInterval(piAgentIdleParkingTimeoutMinutes * 60)
+    }
+
     override init() {
         super.init()
 
@@ -148,6 +153,8 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
+        configurePiAgentIdleParking()
+        configurePiAgentTranscriptMemory()
         shouldWarmAllProjectSnapshotsAfterInitialLoad = false
         refresh(includeModels: true, scanAllProjects: false)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
@@ -2295,7 +2302,7 @@ final class AppViewModel: NSObject, ObservableObject {
               session.title.hasPrefix("Draft ·"),
               !session.isTitleUserEdited,
               !piAgentTitleGeneratingSessionIDs.contains(session.id),
-              (piAgentSessionStore.transcriptsBySessionID[session.id] ?? []).filter({ $0.role == .user }).isEmpty,
+              piAgentSessionStore.transcript(for: session.id).filter({ $0.role == .user }).isEmpty,
               let model = piAgentTitleGenerationModel() else { return }
 
         piAgentTitleGeneratingSessionIDs.insert(session.id)
@@ -2659,6 +2666,22 @@ final class AppViewModel: NSObject, ObservableObject {
         appSettingsController.piAgentNotificationDelayMinutes
     }
 
+    var piAgentIdleParkingTimeoutMinutes: Int {
+        appSettingsController.piAgentIdleParkingTimeoutMinutes
+    }
+
+    var isPiAgentIdleParkingEnabled: Bool {
+        appSettingsController.isPiAgentIdleParkingEnabled
+    }
+
+    var isPiAgentLazyTranscriptLoadingEnabled: Bool {
+        appSettingsController.isPiAgentLazyTranscriptLoadingEnabled
+    }
+
+    var piAgentLoadedTranscriptCacheLimit: Int {
+        appSettingsController.piAgentLoadedTranscriptCacheLimit
+    }
+
     func setAppearanceMode(_ mode: AppAppearanceMode) {
         guard appSettingsController.setAppearanceMode(mode) else { return }
         syncAppSettings()
@@ -2666,6 +2689,26 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) {
         guard appSettingsController.setPiAgentNotificationDelayMinutes(minutes) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentIdleParkingEnabled(_ isEnabled: Bool) {
+        guard appSettingsController.setPiAgentIdleParkingEnabled(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentIdleParkingTimeoutMinutes(_ minutes: Int) {
+        guard appSettingsController.setPiAgentIdleParkingTimeoutMinutes(minutes) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentLazyTranscriptLoadingEnabled(_ isEnabled: Bool) {
+        guard appSettingsController.setPiAgentLazyTranscriptLoadingEnabled(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentLoadedTranscriptCacheLimit(_ count: Int) {
+        guard appSettingsController.setPiAgentLoadedTranscriptCacheLimit(count) else { return }
         syncAppSettings()
     }
 
@@ -2776,6 +2819,19 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func syncAppSettings() {
         appSettings = appSettingsController.settings
+        configurePiAgentIdleParking()
+        configurePiAgentTranscriptMemory()
+    }
+
+    private func configurePiAgentIdleParking() {
+        piAgentRunner.configureIdleParking(timeout: piAgentIdleParkingTimeout)
+    }
+
+    private func configurePiAgentTranscriptMemory() {
+        piAgentSessionStore.configureTranscriptMemory(
+            lazyLoadingEnabled: isPiAgentLazyTranscriptLoadingEnabled,
+            cacheLimit: piAgentLoadedTranscriptCacheLimit
+        )
     }
 
     private func handleProjectsRootSettingsChange() {
@@ -3891,6 +3947,10 @@ final class AppViewModel: NSObject, ObservableObject {
             return globalSnapshot
         }
         return projectSnapshot
+    }
+
+    func refreshModels() {
+        refreshAvailableModels()
     }
 
     private func refreshAvailableModels() {

@@ -3,6 +3,39 @@ import XCTest
 
 @MainActor
 final class PiAgentBridgeSmokeTests: XCTestCase {
+    func testIdleParkingStopsResumableIdleRPCClientWithoutMarkingSessionStopped() throws {
+        let sessionFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-deck-idle-parking-\(UUID().uuidString).jsonl")
+        let harness = try PiTestSupport.makeBridgeHarness(events: [
+            [
+                "type": "response",
+                "command": "get_state",
+                "success": true,
+                "data": [
+                    "sessionFile": sessionFile.path,
+                    "isStreaming": false
+                ]
+            ],
+            ["type": "turn_end"]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        runner.configureIdleParking(timeout: 0.1)
+        let session = store.createSession(kind: .project, title: "Idle", project: try PiTestSupport.makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { runner.isRunning(sessionID: session.id) })
+        XCTAssertTrue(PiTestSupport.waitUntil(timeout: 3) { !runner.isRunning(sessionID: session.id) })
+        let parkedSession = try XCTUnwrap(store.sessions.first(where: { $0.id == session.id }))
+        XCTAssertEqual(parkedSession.status, .idle)
+        XCTAssertEqual(parkedSession.piSessionFile, sessionFile.path)
+        XCTAssertFalse((store.transcriptsBySessionID[session.id] ?? []).contains { $0.title == "Process Ended" })
+    }
+
     func testSessionTitleGenerationUsesLaunchTimeModelThinkingAndDoesNotMutateRPCDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-title-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

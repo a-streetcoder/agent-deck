@@ -4,6 +4,9 @@ import Foundation
 final class PiAgentRunnerService {
     private let store: PiAgentSessionStore
     private var clientsBySessionID: [UUID: PiRPCClient] = [:]
+    private var clientRunIDsBySessionID: [UUID: UUID] = [:]
+    private var stoppingClientRunIDsBySessionID: [UUID: UUID] = [:]
+    private var parkingClientRunIDsBySessionID: [UUID: UUID] = [:]
     private var assistantEntryIDsBySessionID: [UUID: UUID] = [:]
     private var assistantTextBySessionID: [UUID: String] = [:]
     private var thinkingEntryIDsBySessionID: [UUID: UUID] = [:]
@@ -19,6 +22,8 @@ final class PiAgentRunnerService {
     private var pendingFreeformResponsesBySessionID: [UUID: String] = [:]
     private var pendingThinkingLevelsBySessionID: [UUID: PendingThinkingLevel] = [:]
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
+    private var idleParkingTasksBySessionID: [UUID: Task<Void, Never>] = [:]
+    private var idleParkingTimeout: TimeInterval?
     var onTurnFinished: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedChainRequest: ((UUID, PiManagedChainBridgeRequest, @escaping (String) -> Void) -> Void)?
@@ -35,6 +40,18 @@ final class PiAgentRunnerService {
 
     func isRunning(sessionID: UUID) -> Bool {
         clientsBySessionID[sessionID]?.isRunning == true
+    }
+
+    func configureIdleParking(timeout: TimeInterval?) {
+        idleParkingTimeout = timeout
+        for task in idleParkingTasksBySessionID.values {
+            task.cancel()
+        }
+        idleParkingTasksBySessionID.removeAll()
+        guard timeout != nil else { return }
+        for sessionID in clientsBySessionID.keys {
+            scheduleIdleParkingIfNeeded(sessionID: sessionID)
+        }
     }
 
     func startProjectSession(project: DiscoveredProject, initialInstruction: String) {
@@ -75,6 +92,7 @@ final class PiAgentRunnerService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
         let message = userMessage(trimmed, images: images)
+        cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID] else {
             store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
             return
@@ -106,6 +124,7 @@ final class PiAgentRunnerService {
     }
 
     func respondToExtensionUI(sessionID: UUID, requestID: String, value: String) {
+        cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID], client.isRunning else {
             store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
             return
@@ -122,6 +141,7 @@ final class PiAgentRunnerService {
     }
 
     func confirmExtensionUI(sessionID: UUID, requestID: String, confirmed: Bool) {
+        cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID], client.isRunning else {
             store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the response could not be delivered."))
             return
@@ -131,6 +151,7 @@ final class PiAgentRunnerService {
     }
 
     func cancelExtensionUI(sessionID: UUID, requestID: String) {
+        cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID], client.isRunning else {
             store.append(.init(sessionID: sessionID, role: .error, title: "Input Not Sent", text: "Pi Agent is not running, so the cancellation could not be delivered."))
             return
@@ -140,8 +161,12 @@ final class PiAgentRunnerService {
     }
 
     func stop(sessionID: UUID, recordTranscript: Bool = true) {
+        cancelIdleParking(for: sessionID)
         clearStreamingState(sessionID: sessionID)
         guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
+        if let clientRunID = clientRunIDsBySessionID.removeValue(forKey: sessionID) {
+            stoppingClientRunIDsBySessionID[sessionID] = clientRunID
+        }
         client.stop()
         mark(sessionID, status: .stopped, error: nil)
         if recordTranscript {
@@ -151,6 +176,7 @@ final class PiAgentRunnerService {
 
     func refreshPiControls(sessionID: UUID) {
         guard let client = clientsBySessionID[sessionID] else { return }
+        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
         client.getState()
         client.getAvailableModels()
         client.getSessionStats()
@@ -162,11 +188,13 @@ final class PiAgentRunnerService {
             record.modelOverrideID = modelID
         }
         guard let provider, let modelID, let client = clientsBySessionID[sessionID] else { return }
+        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
         client.setModel(provider: provider, modelID: modelID)
     }
 
     func cycleModel(sessionID: UUID) {
         guard let client = clientsBySessionID[sessionID] else { return }
+        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
         client.cycleModel()
     }
 
@@ -177,17 +205,19 @@ final class PiAgentRunnerService {
             pendingThinkingLevelsBySessionID[sessionID] = nil
             return
         }
+        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
         client.setThinkingLevel(level)
     }
 
     func compact(session: PiAgentSessionRecord, customInstructions: String? = nil) {
-        let messageCount = store.transcriptsBySessionID[session.id]?.filter { $0.role == .user || $0.role == .assistant }.count ?? 0
+        let messageCount = store.transcript(for: session.id).filter { $0.role == .user || $0.role == .assistant }.count
         guard messageCount >= 2 else {
             store.append(.init(sessionID: session.id, role: .status, title: "Compaction", text: "Nothing to compact."))
             return
         }
         let instructions = customInstructions?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let client = clientsBySessionID[session.id] {
+            resetIdleParkingDeadlineIfIdle(sessionID: session.id)
             client.compact(customInstructions: instructions.isEmpty ? nil : instructions)
         } else {
             pendingCompactionInstructionsBySessionID[session.id] = instructions
@@ -197,6 +227,7 @@ final class PiAgentRunnerService {
 
     func cycleThinkingLevel(sessionID: UUID) {
         guard let client = clientsBySessionID[sessionID] else { return }
+        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
         client.cycleThinkingLevel()
     }
 
@@ -208,6 +239,9 @@ final class PiAgentRunnerService {
 
     private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialImages: [PiAgentImageAttachment] = [], resumeExisting: Bool = false) {
         stop(sessionID: session.id)
+        cancelIdleParking(for: session.id)
+        parkingClientRunIDsBySessionID[session.id] = nil
+        stoppingClientRunIDsBySessionID[session.id] = nil
         mark(session.id, status: .starting, error: nil)
         let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
@@ -233,6 +267,7 @@ final class PiAgentRunnerService {
                 }
             }
             let sessionID = session.id
+            let clientRunID = UUID()
             let environment = EnvRuntimeEnvironment().environment(
                 projectRoot: projectURL,
                 extra: ["AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString]
@@ -261,10 +296,11 @@ final class PiAgentRunnerService {
                     }
                 },
                 onTermination: { [weak self] exitCode in
-                    Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, sessionID: sessionID) }
+                    Task { @MainActor [weak self] in self?.handleTermination(exitCode: exitCode, sessionID: sessionID, clientRunID: clientRunID) }
                 }
             )
             clientsBySessionID[session.id] = client
+            clientRunIDsBySessionID[session.id] = clientRunID
             store.updateSession(session.id) { record in
                 record.launchCommand = client.launchCommand
                 record.status = .running
@@ -280,8 +316,10 @@ final class PiAgentRunnerService {
             }
             if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
                 let message = userMessage(trimmedInitialPrompt, images: initialImages)
+                cancelIdleParking(for: session.id)
                 client.prompt(message, images: initialImages)
             } else if let instructions = pendingCompactionInstructionsBySessionID.removeValue(forKey: session.id) {
+                cancelIdleParking(for: session.id)
                 client.compact(customInstructions: instructions.isEmpty ? nil : instructions)
             } else {
                 client.getMessages()
@@ -290,6 +328,58 @@ final class PiAgentRunnerService {
             mark(session.id, status: .failed, error: error.localizedDescription)
             store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
         }
+    }
+
+    private func resetIdleParkingDeadlineIfIdle(sessionID: UUID) {
+        cancelIdleParking(for: sessionID)
+        scheduleIdleParkingIfNeeded(sessionID: sessionID)
+    }
+
+    private func cancelIdleParking(for sessionID: UUID) {
+        idleParkingTasksBySessionID[sessionID]?.cancel()
+        idleParkingTasksBySessionID[sessionID] = nil
+    }
+
+    private func scheduleIdleParkingIfNeeded(sessionID: UUID) {
+        guard let timeout = idleParkingTimeout else {
+            cancelIdleParking(for: sessionID)
+            return
+        }
+        guard idleParkingTasksBySessionID[sessionID] == nil else { return }
+        guard isEligibleForIdleParking(sessionID: sessionID) else { return }
+
+        idleParkingTasksBySessionID[sessionID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.parkIdleSessionIfStillEligible(sessionID: sessionID)
+            }
+        }
+    }
+
+    private func parkIdleSessionIfStillEligible(sessionID: UUID) {
+        idleParkingTasksBySessionID[sessionID] = nil
+        guard isEligibleForIdleParking(sessionID: sessionID),
+              let client = clientsBySessionID.removeValue(forKey: sessionID),
+              let clientRunID = clientRunIDsBySessionID.removeValue(forKey: sessionID) else { return }
+        parkingClientRunIDsBySessionID[sessionID] = clientRunID
+        clearStreamingState(sessionID: sessionID)
+        mark(sessionID, status: .idle, error: nil)
+        client.stop()
+    }
+
+    private func isEligibleForIdleParking(sessionID: UUID) -> Bool {
+        guard idleParkingTimeout != nil,
+              let client = clientsBySessionID[sessionID],
+              client.isRunning,
+              let session = store.sessions.first(where: { $0.id == sessionID }),
+              session.status == .idle,
+              session.piSessionFile?.isEmpty == false,
+              store.uiRequestsBySessionID[sessionID] == nil else { return false }
+        return assistantEntryIDsBySessionID[sessionID] == nil
+            && assistantTextBySessionID[sessionID] == nil
+            && thinkingEntryIDsBySessionID[sessionID] == nil
+            && thinkingTextBySessionID[sessionID] == nil
     }
 
     private func appendSessionInfo(name: String, to sessionFile: String) {
@@ -431,6 +521,7 @@ final class PiAgentRunnerService {
         case "response":
             handleResponse(event, rawLine: rawLine, sessionID: sessionID)
         case "agent_start", "turn_start":
+            cancelIdleParking(for: sessionID)
             mark(sessionID, status: .running, error: nil)
             if event.type == "turn_start" {
                 let entryID = UUID()
@@ -444,6 +535,7 @@ final class PiAgentRunnerService {
             mark(sessionID, status: .idle, error: nil)
             clientsBySessionID[sessionID]?.getState()
             clientsBySessionID[sessionID]?.getSessionStats()
+            scheduleIdleParkingIfNeeded(sessionID: sessionID)
             onTurnFinished?(sessionID)
         case "message_update":
             handleMessageUpdate(event, rawLine: rawLine, sessionID: sessionID)
@@ -689,6 +781,7 @@ final class PiAgentRunnerService {
     private func applyState(_ data: JSONValue, to sessionID: UUID) {
         let reportedThinkingLevel = data["thinkingLevel"]?.stringValue
         let pendingThinkingLevel = pendingThinkingLevelsBySessionID[sessionID]
+        var shouldScheduleIdleParking = false
         store.updateSession(sessionID) { record in
             record.piSessionFile = data["sessionFile"]?.stringValue ?? record.piSessionFile
             record.piSessionId = data["sessionId"]?.stringValue ?? record.piSessionId
@@ -701,15 +794,22 @@ final class PiAgentRunnerService {
                 record.thinkingLevel = reportedThinkingLevel ?? record.thinkingLevel
             }
             if let streaming = data["isStreaming"]?.compactDescription, streaming == "true" {
+                cancelIdleParking(for: sessionID)
                 if !record.needsAttention {
                     record.status = .running
                 }
             } else if record.status.isActive {
                 record.status = .idle
+                shouldScheduleIdleParking = true
+            } else if record.status == .idle {
+                shouldScheduleIdleParking = true
             }
         }
         if pendingThinkingLevel?.acknowledgedByPi == true, reportedThinkingLevel != nil {
             pendingThinkingLevelsBySessionID[sessionID] = nil
+        }
+        if shouldScheduleIdleParking {
+            scheduleIdleParkingIfNeeded(sessionID: sessionID)
         }
     }
 
@@ -856,6 +956,8 @@ final class PiAgentRunnerService {
     }
 
     private func clearStreamingState(sessionID: UUID) {
+        idleParkingTasksBySessionID[sessionID]?.cancel()
+        idleParkingTasksBySessionID[sessionID] = nil
         streamFlushTasksBySessionID[sessionID]?.cancel()
         streamFlushTasksBySessionID[sessionID] = nil
         assistantEntryIDsBySessionID[sessionID] = nil
@@ -1357,8 +1459,30 @@ final class PiAgentRunnerService {
         }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
     }
 
-    private func handleTermination(exitCode: Int32, sessionID: UUID) {
+    private func handleTermination(exitCode: Int32, sessionID: UUID, clientRunID: UUID) {
+        if parkingClientRunIDsBySessionID[sessionID] == clientRunID {
+            parkingClientRunIDsBySessionID[sessionID] = nil
+            clearStreamingState(sessionID: sessionID)
+            if clientsBySessionID[sessionID] == nil {
+                mark(sessionID, status: .idle, error: nil)
+            }
+            return
+        }
+
+        if stoppingClientRunIDsBySessionID[sessionID] == clientRunID {
+            stoppingClientRunIDsBySessionID[sessionID] = nil
+            clearStreamingState(sessionID: sessionID)
+            if clientRunIDsBySessionID[sessionID] == clientRunID {
+                clientRunIDsBySessionID[sessionID] = nil
+                clientsBySessionID[sessionID] = nil
+                mark(sessionID, status: .stopped, error: nil)
+            }
+            return
+        }
+
+        guard clientRunIDsBySessionID[sessionID] == clientRunID else { return }
         clearStreamingState(sessionID: sessionID)
+        clientRunIDsBySessionID[sessionID] = nil
         clientsBySessionID[sessionID] = nil
         let status: PiAgentRunStatus = exitCode == 0 ? .completed : .stopped
         mark(sessionID, status: status, error: nil)

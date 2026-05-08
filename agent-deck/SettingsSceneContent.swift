@@ -2,33 +2,63 @@ import SwiftUI
 
 struct SettingsSceneContent: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @State private var selectedTab: SettingsTab = .general
 
     var body: some View {
-        TabView {
-            Tab("General", systemImage: "gearshape") {
-                GeneralSettingsTab(viewModel: viewModel)
-            }
-
-            Tab("Agent", systemImage: "sparkles.rectangle.stack") {
-                AgentSettingsTab(viewModel: viewModel)
-            }
-
-            Tab("GitHub", systemImage: "chevron.left.forwardslash.chevron.right") {
-                GitHubSettingsTab(viewModel: viewModel)
-            }
-
-            Tab("Subagents", systemImage: "slider.horizontal.3") {
-                SubagentsSettingsTab(viewModel: viewModel)
-            }
-
-            Tab("Shortcuts", systemImage: "keyboard") {
-                ShortcutsSettingsTab()
+        TabView(selection: $selectedTab) {
+            ForEach(SettingsTab.allCases) { tab in
+                selectedTabContent(for: tab)
+                    .tabItem {
+                        Label(tab.rawValue, systemImage: tab.systemImage)
+                    }
+                    .tag(tab)
             }
         }
-        .frame(minWidth: 660, idealWidth: 760, minHeight: 440, idealHeight: 520)
+        .tabViewStyle(.automatic)
+        .frame(minWidth: 700, idealWidth: 780, minHeight: 560, idealHeight: 640)
         .tint(AppTheme.brandAccent)
         .accentColor(AppTheme.brandAccent)
         .background(AppTheme.windowBackground)
+    }
+
+    @ViewBuilder
+    private func selectedTabContent(for tab: SettingsTab) -> some View {
+        switch tab {
+        case .general:
+            GeneralSettingsTab(viewModel: viewModel)
+        case .agent:
+            AgentSettingsTab(viewModel: viewModel)
+        case .github:
+            GitHubSettingsTab(viewModel: viewModel)
+        case .performance:
+            PerformanceSettingsTab(viewModel: viewModel)
+        case .subagents:
+            SubagentsSettingsTab(viewModel: viewModel)
+        case .shortcuts:
+            ShortcutsSettingsTab()
+        }
+    }
+}
+
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case agent = "Agent"
+    case github = "GitHub"
+    case performance = "Performance"
+    case subagents = "Subagents"
+    case shortcuts = "Shortcuts"
+
+    var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .general: return "gearshape"
+        case .agent: return "sparkles.rectangle.stack"
+        case .github: return "chevron.left.forwardslash.chevron.right"
+        case .performance: return "speedometer"
+        case .subagents: return "slider.horizontal.3"
+        case .shortcuts: return "keyboard"
+        }
     }
 }
 
@@ -425,6 +455,80 @@ private struct AgentSettingsTab: View {
 
     private var selectedTerminalPathText: String {
         viewModel.appSettings.piAgentTerminalApplicationPath ?? "macOS default"
+    }
+}
+
+// MARK: - Performance
+
+private struct PerformanceSettingsTab: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        SettingsForm {
+            SettingsSection {
+                SettingsToggleRow(
+                    title: "Idle parking:",
+                    label: "Stop idle Pi RPC processes",
+                    note: "When enabled, idle parent chat processes are stopped and resumed from the saved session on the next prompt.",
+                    isOn: piAgentIdleParkingEnabledBinding
+                )
+
+                SettingsStepperRow(
+                    title: "Parking delay:",
+                    value: piAgentIdleParkingTimeoutBinding,
+                    range: 1...120,
+                    valueText: "\(viewModel.piAgentIdleParkingTimeoutMinutes) minutes",
+                    note: "How long an idle parent chat process can stay warm."
+                )
+                .disabled(!viewModel.isPiAgentIdleParkingEnabled)
+            }
+
+            SettingsSection {
+                SettingsToggleRow(
+                    title: "Transcript memory:",
+                    label: "Load transcripts on demand",
+                    note: "Keeps older chat transcripts on disk and loads them when opened. Turn off to keep all transcripts in memory.",
+                    isOn: piAgentLazyTranscriptLoadingEnabledBinding
+                )
+
+                SettingsStepperRow(
+                    title: "Loaded chats:",
+                    value: piAgentLoadedTranscriptCacheLimitBinding,
+                    range: 1...50,
+                    valueText: "\(viewModel.piAgentLoadedTranscriptCacheLimit)",
+                    note: "How many inactive parent-chat transcripts stay warm in memory."
+                )
+                .disabled(!viewModel.isPiAgentLazyTranscriptLoadingEnabled)
+            }
+        }
+    }
+
+    private var piAgentIdleParkingEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.isPiAgentIdleParkingEnabled },
+            set: { viewModel.setPiAgentIdleParkingEnabled($0) }
+        )
+    }
+
+    private var piAgentIdleParkingTimeoutBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.piAgentIdleParkingTimeoutMinutes },
+            set: { viewModel.setPiAgentIdleParkingTimeoutMinutes($0) }
+        )
+    }
+
+    private var piAgentLazyTranscriptLoadingEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.isPiAgentLazyTranscriptLoadingEnabled },
+            set: { viewModel.setPiAgentLazyTranscriptLoadingEnabled($0) }
+        )
+    }
+
+    private var piAgentLoadedTranscriptCacheLimitBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.piAgentLoadedTranscriptCacheLimit },
+            set: { viewModel.setPiAgentLoadedTranscriptCacheLimit($0) }
+        )
     }
 }
 

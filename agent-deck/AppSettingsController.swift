@@ -36,6 +36,22 @@ final class AppSettingsController {
         max(settings.piAgentNotificationDelayMinutes, 1)
     }
 
+    var isPiAgentIdleParkingEnabled: Bool {
+        settings.piAgentIdleParkingEnabled
+    }
+
+    var piAgentIdleParkingTimeoutMinutes: Int {
+        max(settings.piAgentIdleParkingTimeoutMinutes, 1)
+    }
+
+    var isPiAgentLazyTranscriptLoadingEnabled: Bool {
+        settings.piAgentLazyTranscriptLoadingEnabled
+    }
+
+    var piAgentLoadedTranscriptCacheLimit: Int {
+        max(settings.piAgentLoadedTranscriptCacheLimit, 1)
+    }
+
     var configuredProjectsRootURL: URL {
         let trimmed = settings.projectsRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = ProjectDiscovery.defaultRootDirectoryURL()
@@ -120,6 +136,40 @@ final class AppSettingsController {
         let normalizedMinutes = max(minutes, 1)
         guard settings.piAgentNotificationDelayMinutes != normalizedMinutes else { return false }
         settings.piAgentNotificationDelayMinutes = normalizedMinutes
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentIdleParkingEnabled(_ isEnabled: Bool) -> Bool {
+        guard settings.piAgentIdleParkingEnabled != isEnabled else { return false }
+        settings.piAgentIdleParkingEnabled = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentIdleParkingTimeoutMinutes(_ minutes: Int) -> Bool {
+        let normalizedMinutes = max(minutes, 1)
+        guard settings.piAgentIdleParkingTimeoutMinutes != normalizedMinutes else { return false }
+        settings.piAgentIdleParkingTimeoutMinutes = normalizedMinutes
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentLazyTranscriptLoadingEnabled(_ isEnabled: Bool) -> Bool {
+        guard settings.piAgentLazyTranscriptLoadingEnabled != isEnabled else { return false }
+        settings.piAgentLazyTranscriptLoadingEnabled = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentLoadedTranscriptCacheLimit(_ count: Int) -> Bool {
+        let normalizedCount = max(count, 1)
+        guard settings.piAgentLoadedTranscriptCacheLimit != normalizedCount else { return false }
+        settings.piAgentLoadedTranscriptCacheLimit = normalizedCount
         persist()
         return true
     }

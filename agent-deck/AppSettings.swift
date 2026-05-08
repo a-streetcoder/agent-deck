@@ -50,6 +50,10 @@ struct AppSettings: Codable, Hashable {
     var appearanceMode: AppAppearanceMode = .system
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentNotificationDelayMinutes: Int = 3
+    var piAgentIdleParkingEnabled: Bool = true
+    var piAgentIdleParkingTimeoutMinutes: Int = 10
+    var piAgentLazyTranscriptLoadingEnabled: Bool = true
+    var piAgentLoadedTranscriptCacheLimit: Int = 10
     var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
     var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
@@ -65,6 +69,10 @@ struct AppSettings: Codable, Hashable {
         case appearanceMode
         case gitHubBoardCacheLifetimeMinutes
         case piAgentNotificationDelayMinutes
+        case piAgentIdleParkingEnabled
+        case piAgentIdleParkingTimeoutMinutes
+        case piAgentLazyTranscriptLoadingEnabled
+        case piAgentLoadedTranscriptCacheLimit
         case piAgentThinkingDisplayMode
         case piAgentTranscriptVisibility
         case piAgentTerminalApplicationPath
@@ -84,6 +92,11 @@ struct AppSettings: Codable, Hashable {
         appearanceMode = try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system
         gitHubBoardCacheLifetimeMinutes = try container.decodeIfPresent(Int.self, forKey: .gitHubBoardCacheLifetimeMinutes) ?? 15
         piAgentNotificationDelayMinutes = try container.decodeIfPresent(Int.self, forKey: .piAgentNotificationDelayMinutes) ?? 3
+        let decodedIdleParkingTimeout = try container.decodeIfPresent(Int.self, forKey: .piAgentIdleParkingTimeoutMinutes) ?? 10
+        piAgentIdleParkingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentIdleParkingEnabled) ?? (decodedIdleParkingTimeout > 0)
+        piAgentIdleParkingTimeoutMinutes = max(decodedIdleParkingTimeout, 1)
+        piAgentLazyTranscriptLoadingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentLazyTranscriptLoadingEnabled) ?? true
+        piAgentLoadedTranscriptCacheLimit = max(try container.decodeIfPresent(Int.self, forKey: .piAgentLoadedTranscriptCacheLimit) ?? 10, 1)
         piAgentThinkingDisplayMode = try container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode) ?? .full
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)

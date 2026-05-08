@@ -1030,7 +1030,7 @@ struct PiAgentScreen: View {
                 set: { _ in }
             ),
             attachmentAnchor: .point(UnitPoint(x: 0.04, y: 0.12)),
-            arrowEdge: .bottom
+            arrowEdge: .top
         ) {
             PiAgentCommandSuggestions(
                 commands: slashSuggestions,
@@ -1401,7 +1401,7 @@ struct PiAgentScreen: View {
             session.repository ?? "",
             session.issueNumber.map(String.init) ?? "",
             session.lastSummary ?? "",
-            (store.transcriptsBySessionID[session.id] ?? []).map { "\($0.title) \($0.text)" }.joined(separator: " ")
+            store.transcript(for: session.id).map { "\($0.title) \($0.text)" }.joined(separator: " ")
         ].joined(separator: " ")
         return haystack.localizedCaseInsensitiveContains(query)
     }

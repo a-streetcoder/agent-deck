@@ -38,6 +38,29 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
     }
 
+    func testLazyTranscriptLoadingReloadsEvictedTranscriptFromDisk() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        firstStore.configureTranscriptMemory(lazyLoadingEnabled: true, cacheLimit: 1)
+        let project = try PiTestSupport.makeProject()
+        let first = firstStore.createSession(kind: .project, title: "First", project: project, repository: nil)
+        firstStore.append(.init(sessionID: first.id, role: .user, title: "User", text: "first transcript"))
+        let second = firstStore.createSession(kind: .project, title: "Second", project: project, repository: nil)
+        firstStore.append(.init(sessionID: second.id, role: .user, title: "User", text: "second transcript"))
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        reloadedStore.configureTranscriptMemory(lazyLoadingEnabled: true, cacheLimit: 1)
+        reloadedStore.select(second.id)
+
+        XCTAssertEqual(reloadedStore.transcript(for: first.id).map(\.text), ["first transcript"])
+        XCTAssertEqual(reloadedStore.transcript(for: second.id).map(\.text), ["second transcript"])
+
+        reloadedStore.configureTranscriptMemory(lazyLoadingEnabled: false, cacheLimit: 1)
+        XCTAssertEqual(reloadedStore.transcriptsBySessionID[first.id]?.map(\.text), ["first transcript"])
+        XCTAssertEqual(reloadedStore.transcriptsBySessionID[second.id]?.map(\.text), ["second transcript"])
+    }
+
     func testReloadWithNilPersistedSelectionSelectsFirstSession() throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)

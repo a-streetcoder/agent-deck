@@ -7,23 +7,24 @@ struct ModelsScreen: View {
     var body: some View {
         AppPage("Models", subtitle: "Available models from `pi --list-models`") {
             if viewModel.availableModels.isEmpty {
-                AppCard(title: "Catalog", trailing: catalogUpdatedLabel) {
-                    Text("No models loaded yet. Use Refresh to query Pi.")
-                        .foregroundStyle(AppTheme.mutedText)
+                AppCard(title: "Catalog") {
+                    HStack {
+                        Text("No models loaded yet. Use Refresh to query Pi.")
+                            .foregroundStyle(AppTheme.mutedText)
+                        Spacer()
+                        Button("Refresh") {
+                            viewModel.refreshModels()
+                        }
+                    }
                 }
             } else {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Pi’s model catalog, grouped by provider. Disable models to hide them from \(AppBrand.displayName) model pickers.")
                         .foregroundStyle(AppTheme.mutedText)
                     Spacer()
-                    Text("\(viewModel.enabledAvailableModels.count) of \(viewModel.availableModels.count) enabled")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    Button("Enable All") {
-                        viewModel.enableAllModels()
+                    Button("Refresh") {
+                        viewModel.refreshModels()
                     }
-                    .disabled(viewModel.appSettings.disabledModelIdentifiers.isEmpty)
-                    catalogUpdatedLabel()
                 }
 
                 VStack(alignment: .leading, spacing: 20) {
@@ -36,14 +37,6 @@ struct ModelsScreen: View {
         }
     }
 
-    @ViewBuilder
-    private func catalogUpdatedLabel() -> some View {
-        if let date = viewModel.modelsLastUpdatedAt {
-            Text(RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date()))
-                .foregroundStyle(AppTheme.mutedText)
-        }
-    }
-
     private func providerSection(_ group: (provider: String, models: [AvailableModel])) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center) {
@@ -51,9 +44,6 @@ struct ModelsScreen: View {
                     .font(.title3.weight(.bold))
                     .fontWidth(.expanded)
                     .foregroundStyle(.primary)
-                Text("\(group.models.filter { viewModel.isModelEnabled($0) }.count)/\(group.models.count) enabled")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(AppTheme.mutedText)
                 Spacer()
             }
             .padding(.horizontal, 2)
