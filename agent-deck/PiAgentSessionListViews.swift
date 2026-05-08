@@ -132,12 +132,9 @@ struct PiAgentSessionRow: View {
         .overlay(alignment: .leading) {
             if isSelected {
                 selectedSessionIndicator
-                    .offset(x: -15)
-                    .transition(.opacity)
+                    .padding(.leading, 5)
             }
         }
-        .padding(.leading, isSelected ? 12 : 0)
-        .animation(.easeOut(duration: 0.12), value: isSelected)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
@@ -165,6 +162,7 @@ struct PiAgentSessionRow: View {
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
             .frame(width: 10, height: 18)
+            .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 
