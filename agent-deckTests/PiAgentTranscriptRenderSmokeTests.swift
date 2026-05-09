@@ -5,6 +5,38 @@ import XCTest
 
 @MainActor
 final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
+    func testSingleLineMarkdownBlockquoteDoesNotExpandVertically() throws {
+        let source = """
+        The `slkiser/opencode-quota` project supports OpenCode Go, but importantly its README says:
+
+        > OpenCode Go — Quota source: Dashboard scraping
+
+        It does **not** use the Go API key for quota. It requires:
+        """
+        let host = NSHostingView(rootView: MarkdownTextView(source: source).frame(width: 620, alignment: .leading))
+        host.frame = NSRect(x: 0, y: 0, width: 620, height: 1_000)
+
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        runMainLoop(iterations: 6, delay: 0.02)
+        host.layoutSubtreeIfNeeded()
+
+        let height = host.fittingSize.height
+        XCTAssertLessThan(
+            height,
+            180,
+            "A single-line Markdown blockquote should render near normal paragraph height, not with a large empty vertical gap. Actual height: \(height)."
+        )
+    }
+
     func testTranscriptStackFirstPaintIsNotBlankAfterInitialBottomScroll() throws {
         let host = NSHostingView(rootView: PiAgentTranscriptFirstPaintSmokeView(
             rows: (0..<80).map { "Transcript row \($0)" }

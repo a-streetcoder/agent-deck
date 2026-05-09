@@ -1789,6 +1789,7 @@ struct PiAgentThinkingPicker: View {
                 Image(systemName: "brain.head.profile")
                 Text("Thinking: \(displayLevel.capitalized)")
                     .lineLimit(1)
+                    .truncationMode(.head)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(AppTheme.mutedText)

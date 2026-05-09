@@ -68,14 +68,15 @@ struct MarkdownTextView: View {
                     .font(.body)
             }
         case .quote(let text):
-            HStack(alignment: .top, spacing: 8) {
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(AppTheme.contentStroke)
-                    .frame(width: 3)
-                inlineText(text)
-                    .font(.body)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
+            inlineText(text)
+                .font(.body)
+                .foregroundStyle(AppTheme.mutedText)
+                .padding(.leading, 12)
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(AppTheme.contentStroke)
+                        .frame(width: 3)
+                }
         case .code(let text):
             Text(text)
                 .font(.system(.body, design: .monospaced))
