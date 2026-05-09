@@ -16,7 +16,7 @@ struct PiAgentGitActionsToolbarGroup: View {
                 .disabled(!viewModel.canCommitSelectedPiAgentSession)
                 .help("Stage all changes and create a commit with an AI-generated title and description")
                 .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
-                    Button("Commit All Changes", role: .destructive) { viewModel.commitSelectedPiAgentSession() }
+                    Button("Commit All Changes") { viewModel.commitSelectedPiAgentSession() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(PiAgentGitAction.commit.alertMessage)
@@ -40,7 +40,7 @@ struct PiAgentGitActionsToolbarGroup: View {
                 .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
                 .help("Stage all changes, commit, and push the selected session's current branch")
                 .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
-                    Button("Commit & Push All Changes", role: .destructive) { viewModel.commitAndPushSelectedPiAgentSession() }
+                    Button("Commit & Push All Changes") { viewModel.commitAndPushSelectedPiAgentSession() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(PiAgentGitAction.commitAndPush.alertMessage)
