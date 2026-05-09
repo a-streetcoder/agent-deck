@@ -127,6 +127,10 @@ final class AppSettingsController {
         settings.piAgentTitleGenerationModelIdentifier
     }
 
+    var piAgentCommitMessageModelIdentifier: String? {
+        settings.piAgentCommitMessageModelIdentifier
+    }
+
     @discardableResult
     func setAppearanceMode(_ mode: AppAppearanceMode) -> Bool {
         guard settings.appearanceMode != mode else { return false }
@@ -319,6 +323,24 @@ final class AppSettingsController {
         let stored = trimmed?.isEmpty == false ? trimmed : nil
         guard settings.piAgentTitleGenerationModelIdentifier != stored else { return false }
         settings.piAgentTitleGenerationModelIdentifier = stored
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentGitAutomationEnabled(_ isEnabled: Bool) -> Bool {
+        guard settings.piAgentGitAutomationEnabled != isEnabled else { return false }
+        settings.piAgentGitAutomationEnabled = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setPiAgentCommitMessageModelIdentifier(_ identifier: String?) -> Bool {
+        let trimmed = identifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = trimmed?.isEmpty == false ? trimmed : nil
+        guard settings.piAgentCommitMessageModelIdentifier != stored else { return false }
+        settings.piAgentCommitMessageModelIdentifier = stored
         persist()
         return true
     }

@@ -1,6 +1,102 @@
 import AppKit
 import SwiftUI
 
+struct PiAgentGitActionsToolbarGroup: ToolbarContent {
+    @ObservedObject var viewModel: AppViewModel
+    @State private var isCommitConfirmationPresented = false
+    @State private var isCommitAndPushConfirmationPresented = false
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup {
+            Button { isCommitConfirmationPresented = true } label: {
+                Label("Commit", systemImage: "checkmark.seal")
+            }
+            .disabled(!viewModel.canCommitSelectedPiAgentSession)
+            .help("Stage all changes and create a commit with an AI-generated title and description")
+            .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
+                Button("Commit All Changes", role: .destructive) { viewModel.commitSelectedPiAgentSession() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(PiAgentGitAction.commit.alertMessage)
+            }
+
+            Button { viewModel.pushSelectedPiAgentSession() } label: {
+                Label("Push", systemImage: "arrow.up.circle")
+            }
+            .disabled(!viewModel.canPushSelectedPiAgentSession)
+            .help("Push committed changes on the selected session's current branch")
+
+            Button { isCommitAndPushConfirmationPresented = true } label: {
+                Label("Commit & Push", systemImage: "shippingbox.and.arrow.backward")
+            }
+            .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
+            .help("Stage all changes, commit, and push the selected session's current branch")
+            .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
+                Button("Commit & Push All Changes", role: .destructive) { viewModel.commitAndPushSelectedPiAgentSession() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(PiAgentGitAction.commitAndPush.alertMessage)
+            }
+        }
+    }
+}
+
+struct PiAgentGitHubToolbarButton: View {
+    @ObservedObject var viewModel: AppViewModel
+    @Binding var isRepoChangesPresented: Bool
+
+    var body: some View {
+        Button {
+            isRepoChangesPresented.toggle()
+            if isRepoChangesPresented {
+                viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            }
+        } label: {
+            Image("github")
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 16, height: 16)
+        }
+        .symbolRenderingMode(.monochrome)
+        .foregroundStyle(.primary)
+        .tint(.primary)
+        .help("Show GitHub panel")
+        .accessibilityLabel("Show GitHub panel")
+        .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+    }
+}
+
+private enum PiAgentGitAction: Identifiable {
+    case commit
+    case commitAndPush
+
+    var id: String { String(describing: self) }
+
+    var alertTitle: String {
+        switch self {
+        case .commit: return "Commit all changes?"
+        case .commitAndPush: return "Commit and push all changes?"
+        }
+    }
+
+    var confirmTitle: String {
+        switch self {
+        case .commit: return "Commit All Changes"
+        case .commitAndPush: return "Commit & Push All Changes"
+        }
+    }
+
+    var alertMessage: String {
+        switch self {
+        case .commit:
+            return "This will stage all changes in the selected session's project, generate a commit title and description with a no-thinking helper model, and commit on the current branch. It will not push."
+        case .commitAndPush:
+            return "This will stage all changes in the selected session's project, generate a commit title and description with a no-thinking helper model, commit on the current branch, and push to the configured upstream. It will not ask follow-up questions."
+        }
+    }
+}
+
 struct PiAgentOpenTerminalToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore

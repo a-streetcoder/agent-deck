@@ -86,6 +86,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubIsClosingIssue = false
     @Published var githubIsCommitting = false
     @Published var githubIsPushing = false
+    @Published var piAgentShipInProgress = false
     @Published var githubIsRefreshingEverything = false
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
@@ -106,6 +107,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private let appSettingsController = AppSettingsController()
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
+    private let shipService = PiAgentShipService()
     private let subagentWorktreeService = PiSubagentWorktreeService()
     private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
@@ -2278,6 +2280,108 @@ final class AppViewModel: NSObject, ObservableObject {
         nativeSubagentRunner.cancelSupervisorRequest(requestID, parentSessionID: parentSessionID)
     }
 
+    var shouldShowPiAgentGitActions: Bool {
+        piAgentCommitMessageModel() != nil
+    }
+
+    var canCommitSelectedPiAgentSession: Bool {
+        guard shouldShowPiAgentGitActions,
+              let session = piAgentSessionStore.selectedSession else { return false }
+        return !piAgentShipInProgress && !session.status.isActive && !session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var canPushSelectedPiAgentSession: Bool {
+        guard let session = piAgentSessionStore.selectedSession,
+              !piAgentShipInProgress,
+              !session.status.isActive,
+              selectedDiscoveredProject?.path == session.projectPath,
+              let changes = githubRepositoryChanges else { return false }
+        return changes.aheadCount > 0
+    }
+
+    var canCommitAndPushSelectedPiAgentSession: Bool { canCommitSelectedPiAgentSession }
+
+    func commitSelectedPiAgentSession() {
+        shipSelectedPiAgentSession(pushAfterCommit: false)
+    }
+
+    func commitAndPushSelectedPiAgentSession() {
+        shipSelectedPiAgentSession(pushAfterCommit: true)
+    }
+
+    func pushSelectedPiAgentSession() {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        let sessionID = session.id
+        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        piAgentShipInProgress = true
+        piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Push Started", text: "Pushing committed changes on the current branch."))
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await gitRepositoryService.pushCurrentBranch(in: projectURL)
+                await MainActor.run {
+                    self.piAgentShipInProgress = false
+                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Push Completed", text: "Pushed committed changes."))
+                    self.prepareRepoChangesForSelectedPiAgentSession()
+                }
+            } catch {
+                await MainActor.run {
+                    self.piAgentShipInProgress = false
+                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Push Failed", text: error.localizedDescription))
+                    self.prepareRepoChangesForSelectedPiAgentSession()
+                }
+            }
+        }
+    }
+
+    private func shipSelectedPiAgentSession(pushAfterCommit: Bool) {
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        guard let model = piAgentCommitMessageModel() else {
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Ship Failed", text: PiAgentShipService.ShipError.noModel.localizedDescription))
+            return
+        }
+
+        let sessionID = session.id
+        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        piAgentShipInProgress = true
+        piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: pushAfterCommit ? "Commit & Push Started" : "Commit Started", text: pushAfterCommit ? "Staging all changes, generating a commit message, committing, and pushing the current branch." : "Staging all changes, generating a commit message, and committing on the current branch."))
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let before = try await gitRepositoryService.loadChanges(in: projectURL)
+                if !before.conflicted.isEmpty { throw PiAgentShipService.ShipError.conflicts }
+                if before.staged.isEmpty && before.unstaged.isEmpty && before.untracked.isEmpty { throw PiAgentShipService.ShipError.noChanges }
+
+                try await gitRepositoryService.stageAll(in: projectURL)
+                let status = try await gitRepositoryService.statusText(in: projectURL)
+                let diff = try await gitRepositoryService.stagedDiffForCommitMessage(in: projectURL)
+                let message = try await withCheckedThrowingContinuation { continuation in
+                    shipService.generateCommitMessage(status: status, diff: diff, model: model, projectURL: projectURL, environment: environment) { result in
+                        continuation.resume(with: result)
+                    }
+                }
+                try await gitRepositoryService.commit(message: message.title, description: message.body, in: projectURL)
+                if pushAfterCommit {
+                    try await gitRepositoryService.pushCurrentBranch(in: projectURL)
+                }
+
+                await MainActor.run {
+                    self.piAgentShipInProgress = false
+                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: pushAfterCommit ? "Commit & Push Completed" : "Commit Completed", text: pushAfterCommit ? "Committed and pushed `\(message.title)`." : "Committed `\(message.title)`."))
+                    self.prepareRepoChangesForSelectedPiAgentSession()
+                }
+            } catch {
+                await MainActor.run {
+                    self.piAgentShipInProgress = false
+                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: pushAfterCommit ? "Commit & Push Failed" : "Commit Failed", text: error.localizedDescription))
+                    self.prepareRepoChangesForSelectedPiAgentSession()
+                }
+            }
+        }
+    }
+
     func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, images: [PiAgentImageAttachment] = []) {
         guard let session = piAgentSessionStore.selectedSession else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2808,6 +2912,16 @@ final class AppViewModel: NSObject, ObservableObject {
         syncAppSettings()
     }
 
+    func setPiAgentGitAutomationEnabled(_ isEnabled: Bool) {
+        guard appSettingsController.setPiAgentGitAutomationEnabled(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentCommitMessageModelIdentifier(_ identifier: String?) {
+        guard appSettingsController.setPiAgentCommitMessageModelIdentifier(identifier) else { return }
+        syncAppSettings()
+    }
+
     func isInjectedCommandEnabled(_ command: PiInjectedCommand) -> Bool {
         PiInjectedCommandCatalog.isEnabled(command, settings: appSettings)
     }
@@ -2835,6 +2949,13 @@ final class AppViewModel: NSObject, ObservableObject {
             return selected
         }
         return defaultPiAgentModel() ?? enabledAvailableModels.first
+    }
+
+    func piAgentCommitMessageModel() -> AvailableModel? {
+        guard appSettings.piAgentGitAutomationEnabled,
+              let identifier = appSettings.piAgentCommitMessageModelIdentifier,
+              let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) else { return nil }
+        return selected
     }
 
     private func syncAppSettings() {

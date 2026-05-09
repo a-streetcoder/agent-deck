@@ -62,6 +62,16 @@ struct GitRepositoryService {
         try await runGitMutation(arguments: ["push"], commandDescription: "git push", in: repositoryURL, timeout: 60)
     }
 
+    func statusText(in repositoryURL: URL) async throws -> String {
+        try await runText(arguments: ["status", "--short", "--branch"], commandDescription: "git status --short --branch", in: repositoryURL)
+    }
+
+    func stagedDiffForCommitMessage(in repositoryURL: URL) async throws -> String {
+        let stat = try await runText(arguments: ["diff", "--cached", "--stat"], commandDescription: "git diff --cached --stat", in: repositoryURL)
+        let diff = try await runText(arguments: ["diff", "--cached", "--", "."], commandDescription: "git diff --cached", in: repositoryURL)
+        return [stat, diff].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+    }
+
     private func runDiff(arguments: [String], commandDescription: String, in repositoryURL: URL) async throws -> String {
         let diffResult = try await commandRunner.run(
             "git",
@@ -93,6 +103,21 @@ struct GitRepositoryService {
         }
 
         return diffResult.stdout.isEmpty ? try loadUntrackedPreview(for: filePath, in: repositoryURL) : diffResult.stdout
+    }
+
+    private func runText(arguments: [String], commandDescription: String, in repositoryURL: URL, timeout: TimeInterval = 15) async throws -> String {
+        let result = try await commandRunner.run(
+            "git",
+            arguments: arguments,
+            currentDirectoryURL: repositoryURL,
+            timeout: timeout,
+            environment: nil
+        )
+
+        guard result.exitCode == 0 else {
+            throw CommandRunnerError.nonZeroExit(command: commandDescription, exitCode: result.exitCode, stderr: result.stderr)
+        }
+        return result.stdout
     }
 
     private func runGitMutation(arguments: [String], commandDescription: String, in repositoryURL: URL, timeout: TimeInterval = 15) async throws {

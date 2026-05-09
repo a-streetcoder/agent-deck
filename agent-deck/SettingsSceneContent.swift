@@ -26,6 +26,8 @@ struct SettingsSceneContent: View {
             GeneralSettingsTab(viewModel: viewModel)
         case .agent:
             AgentSettingsTab(viewModel: viewModel)
+        case .automations:
+            AutomationsSettingsTab(viewModel: viewModel)
         case .github:
             GitHubSettingsTab(viewModel: viewModel)
         case .performance:
@@ -43,6 +45,7 @@ struct SettingsSceneContent: View {
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general = "General"
     case agent = "Agent"
+    case automations = "Automations"
     case github = "GitHub"
     case performance = "Performance"
     case subagents = "Subagents"
@@ -55,6 +58,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .agent: return "sparkles.rectangle.stack"
+        case .automations: return "wand.and.stars"
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .performance: return "speedometer"
         case .subagents: return "slider.horizontal.3"
@@ -357,26 +361,6 @@ private struct AgentSettingsTab: View {
 
             SettingsSection {
                 SettingsToggleRow(
-                    title: "Session titles:",
-                    label: "Generate titles with AI",
-                    note: "Off by default. When enabled, the first draft prompt starts a hidden one-turn Pi session with no session persistence, extensions, skills, or tools.",
-                    isOn: autoGenerateSessionTitlesBinding
-                )
-
-                SettingsPickerRow(
-                    title: "Title model:",
-                    selection: titleGenerationModelBinding,
-                    note: "Choose a cheap, fast text model. Title generation always requests thinking off."
-                ) {
-                    ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
-                        Text(model.identifier).tag(model.identifier)
-                    }
-                }
-                .disabled(!viewModel.appSettings.autoGeneratePiAgentSessionTitles || viewModel.enabledAvailableModels.isEmpty)
-            }
-
-            SettingsSection {
-                SettingsToggleRow(
                     title: "Context zones:",
                     label: "Show smart/dumb zone hint",
                     note: "Off by default. When enabled, the context meter shows a 40% smart-zone marker and explains Matt Pocock's warning that added context can degrade model decisions.",
@@ -431,22 +415,6 @@ private struct AgentSettingsTab: View {
         )
     }
 
-    private var autoGenerateSessionTitlesBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.appSettings.autoGeneratePiAgentSessionTitles },
-            set: { viewModel.setAutoGeneratePiAgentSessionTitles($0) }
-        )
-    }
-
-    private var titleGenerationModelBinding: Binding<String> {
-        Binding(
-            get: {
-                viewModel.piAgentTitleGenerationModel()?.identifier ?? viewModel.enabledAvailableModels.first?.identifier ?? ""
-            },
-            set: { viewModel.setPiAgentTitleGenerationModelIdentifier($0) }
-        )
-    }
-
     private var piAgentTerminalApplicationSelectionBinding: Binding<String> {
         Binding(
             get: { viewModel.piAgentTerminalApplicationSelectionID },
@@ -456,6 +424,87 @@ private struct AgentSettingsTab: View {
 
     private var selectedTerminalPathText: String {
         viewModel.appSettings.piAgentTerminalApplicationPath ?? "macOS default"
+    }
+}
+
+
+// MARK: - Automations
+
+private struct AutomationsSettingsTab: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        SettingsForm {
+            SettingsSection {
+                SettingsToggleRow(
+                    title: "Session titles:",
+                    label: "Generate titles with AI",
+                    note: "Off by default. When enabled, the first draft prompt starts a hidden one-turn Pi session with no session persistence, extensions, skills, or tools.",
+                    isOn: autoGenerateSessionTitlesBinding
+                )
+
+                SettingsPickerRow(
+                    title: "Title model:",
+                    selection: titleGenerationModelBinding,
+                    note: "Choose a cheap, fast text model. Title generation always requests thinking off."
+                ) {
+                    Text("Default model").tag("")
+                    ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
+                        Text(model.identifier).tag(model.identifier)
+                    }
+                }
+                .disabled(!viewModel.appSettings.autoGeneratePiAgentSessionTitles || viewModel.enabledAvailableModels.isEmpty)
+            }
+
+            SettingsSection {
+                SettingsToggleRow(
+                    title: "Git actions:",
+                    label: "Enable Commit / Push toolbar actions",
+                    note: "Off by default. When enabled with a model selected, Pi Agent shows native Commit, Push, and Commit & Push toolbar actions.",
+                    isOn: gitAutomationEnabledBinding
+                )
+
+                SettingsPickerRow(
+                    title: "Commit model:",
+                    selection: commitMessageModelBinding,
+                    note: "Required. Commit actions use a hidden no-thinking helper session to generate the commit title and description."
+                ) {
+                    Text("Choose model…").tag("")
+                    ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
+                        Text(model.identifier).tag(model.identifier)
+                    }
+                }
+                .disabled(!viewModel.appSettings.piAgentGitAutomationEnabled || viewModel.enabledAvailableModels.isEmpty)
+            }
+        }
+    }
+
+    private var autoGenerateSessionTitlesBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.autoGeneratePiAgentSessionTitles },
+            set: { viewModel.setAutoGeneratePiAgentSessionTitles($0) }
+        )
+    }
+
+    private var titleGenerationModelBinding: Binding<String> {
+        Binding(
+            get: { viewModel.appSettings.piAgentTitleGenerationModelIdentifier ?? "" },
+            set: { viewModel.setPiAgentTitleGenerationModelIdentifier($0) }
+        )
+    }
+
+    private var gitAutomationEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.piAgentGitAutomationEnabled },
+            set: { viewModel.setPiAgentGitAutomationEnabled($0) }
+        )
+    }
+
+    private var commitMessageModelBinding: Binding<String> {
+        Binding(
+            get: { viewModel.appSettings.piAgentCommitMessageModelIdentifier ?? "" },
+            set: { viewModel.setPiAgentCommitMessageModelIdentifier($0) }
+        )
     }
 }
 

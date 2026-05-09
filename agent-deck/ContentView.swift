@@ -583,25 +583,17 @@ struct ContentView: View {
                             )
                         )
                     }
+                }
 
-                    Button {
-                        isPiAgentRepoChangesPresented.toggle()
-                        if isPiAgentRepoChangesPresented {
-                            viewModel.prepareRepoChangesForSelectedPiAgentSession()
-                        }
-                    } label: {
-                        Image("github")
-                            .resizable()
-                            .renderingMode(.template)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 16, height: 16)
-                    }
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.primary)
-                    .tint(.primary)
-                    .help("Show GitHub panel")
-                    .accessibilityLabel("Show GitHub panel")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+                if viewModel.shouldShowPiAgentGitActions {
+                    PiAgentGitActionsToolbarGroup(viewModel: viewModel)
+                }
+
+                ToolbarItemGroup {
+                    PiAgentGitHubToolbarButton(
+                        viewModel: viewModel,
+                        isRepoChangesPresented: $isPiAgentRepoChangesPresented
+                    )
 
                     PiAgentOpenTerminalToolbarButton(
                         viewModel: viewModel,

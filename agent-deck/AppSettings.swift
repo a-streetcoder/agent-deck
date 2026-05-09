@@ -63,6 +63,8 @@ struct AppSettings: Codable, Hashable {
     var showContextSmartZoneHint: Bool = false
     var autoGeneratePiAgentSessionTitles: Bool = false
     var piAgentTitleGenerationModelIdentifier: String?
+    var piAgentGitAutomationEnabled: Bool = false
+    var piAgentCommitMessageModelIdentifier: String?
     var disabledModelIdentifiers: Set<String> = []
     var disabledInjectedCommandIDs: Set<String> = []
     var enabledLibraryCommandIDs: Set<String> = []
@@ -84,6 +86,8 @@ struct AppSettings: Codable, Hashable {
         case showContextSmartZoneHint
         case autoGeneratePiAgentSessionTitles
         case piAgentTitleGenerationModelIdentifier
+        case piAgentGitAutomationEnabled
+        case piAgentCommitMessageModelIdentifier
         case disabledModelIdentifiers
         case disabledInjectedCommandIDs
         case enabledLibraryCommandIDs
@@ -110,6 +114,8 @@ struct AppSettings: Codable, Hashable {
         showContextSmartZoneHint = try container.decodeIfPresent(Bool.self, forKey: .showContextSmartZoneHint) ?? false
         autoGeneratePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoGeneratePiAgentSessionTitles) ?? false
         piAgentTitleGenerationModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentTitleGenerationModelIdentifier)
+        piAgentGitAutomationEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationEnabled) ?? false
+        piAgentCommitMessageModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentCommitMessageModelIdentifier)
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
         enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []

@@ -164,7 +164,7 @@ struct SkillsScreen: View {
             }
         }
         .onAppear { synchronizeSelectionFromViewModel() }
-        .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in ensureSelection() }
+        .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in synchronizeSelectionFromViewModel() }
         .onChange(of: viewModel.selectedSkillID) { _, _ in synchronizeSelectionFromViewModel() }
         .onChange(of: selectedSkillID) { _, id in
             guard viewModel.selectedSkillID != id else { return }
