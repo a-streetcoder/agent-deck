@@ -83,28 +83,9 @@ struct PiAgentRepoChangesPanel: View {
 
             Spacer(minLength: 12)
 
-            switch selectedSection {
-            case .changes:
-                changesControls
-            case .issues:
+            if selectedSection == .issues {
                 issuesControls
             }
-        }
-    }
-
-    @ViewBuilder
-    private var changesControls: some View {
-        if let snapshot {
-            TextField("Filter files", text: $filterText)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 120)
-            Button("Include All") { viewModel.stageAllChanges() }
-                .disabled(!snapshot.canStageAll)
-            Button("Exclude All") { viewModel.unstageAllChanges() }
-                .disabled(!snapshot.canUnstageAll)
-            Text("\(snapshot.staged.count)/\(snapshot.totalChangeCount)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
         }
     }
 
@@ -283,6 +264,8 @@ struct PiAgentRepoChangesPanel: View {
     private func changesContent(_ snapshot: RepositoryChangesSnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                changesListControls(snapshot)
+
                 LazyVStack(alignment: .leading, spacing: 5) {
                     ForEach(items) { item in
                         PiAgentGitChangeRow(
@@ -299,6 +282,27 @@ struct PiAgentRepoChangesPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+    }
+
+    private func changesListControls(_ snapshot: RepositoryChangesSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Filter files", text: $filterText)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(spacing: 8) {
+                Button("Include All") { viewModel.stageAllChanges() }
+                    .disabled(!snapshot.canStageAll)
+                Button("Exclude All") { viewModel.unstageAllChanges() }
+                    .disabled(!snapshot.canUnstageAll)
+                Spacer(minLength: 8)
+                Text("\(snapshot.staged.count)/\(snapshot.totalChangeCount)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
     private func issuesContent(_ board: GitHubBoardSnapshot) -> some View {
@@ -326,52 +330,17 @@ struct PiAgentRepoChangesPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .popover(item: $presentedIssue, arrowEdge: .trailing) { issue in
-            issuePopover(issue)
-        }
-    }
-
-    private func issuePopover(_ issue: GitHubWorkItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 10) {
-                AppLabelTag(text: issue.state.capitalized, color: issue.state.lowercased() == "open" ? .green : .secondary)
-                Spacer()
-                Text("#\(issue.number)")
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-
-            Text(issue.title)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !issue.labels.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(issue.labels.prefix(6), id: \.self) { label in
-                            AppLabelTag(text: label, color: .secondary)
-                        }
-                    }
-                }
-            }
-
-            HStack(spacing: 10) {
-                Button {
+        .sheet(item: $presentedIssue) { issue in
+            PiAgentGitHubIssueSheet(
+                viewModel: viewModel,
+                issue: issue,
+                onOpenInPi: { detail in
+                    viewModel.startPiAgentForIssue(detail)
                     presentedIssue = nil
-                    viewModel.openRepoChangesForSelectedPiAgentSession()
-                    viewModel.githubSelectedSection = .projectBoard
-                } label: {
-                    Label("Open in GitHub View", systemImage: "sidebar.right")
+                    isPresented = false
                 }
-                .buttonStyle(.borderedProminent)
-
-                Link(destination: issue.url) {
-                    Label("Browser", systemImage: "arrow.up.forward.square")
-                }
-            }
+            )
         }
-        .padding(16)
-        .frame(width: 340, alignment: .leading)
     }
 
     private func branchSummary(_ snapshot: RepositoryChangesSnapshot) -> some View {
@@ -443,6 +412,293 @@ struct PiAgentRepoChangesPanel: View {
         } else {
             viewModel.stage(item.path)
         }
+    }
+}
+
+private struct PiAgentGitHubIssueSheet: View {
+    @ObservedObject var viewModel: AppViewModel
+    let issue: GitHubWorkItem
+    let onOpenInPi: (GitHubIssueDetail) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var detail: GitHubIssueDetail? {
+        guard let detail = viewModel.githubIssueDetail,
+              detail.item.repository == issue.repository,
+              detail.item.number == issue.number else { return nil }
+        return detail
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+                .padding(20)
+
+            Divider()
+
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            footer
+                .padding(20)
+        }
+        .frame(minWidth: 680, idealWidth: 760, maxWidth: 900, minHeight: 620, idealHeight: 740, maxHeight: 860)
+        .task(id: issue.id) {
+            if viewModel.githubSelectedWorkItem != issue {
+                viewModel.selectWorkItem(issue)
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text("#\(issue.number)")
+                            .font(.title2.weight(.bold).monospacedDigit())
+                            .fontWidth(.expanded)
+                            .foregroundStyle(AppTheme.mutedText)
+                        Text(issue.title)
+                            .font(.title2.weight(.bold))
+                            .fontWidth(.expanded)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 16)
+
+                HStack(spacing: 8) {
+                    Button {
+                        NSWorkspace.shared.open(issue.url)
+                    } label: {
+                        Image(systemName: "globe")
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.glass)
+                    .help("Open issue in browser")
+                    .accessibilityLabel("Open issue in browser")
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.glass)
+                    .help("Close issue details")
+                    .accessibilityLabel("Close issue details")
+                }
+            }
+
+            if !activeLabels.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(activeLabels, id: \.self) { label in
+                            AppLabelTag(text: label, color: .secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.githubIsLoadingIssueDetail && detail == nil {
+            ProgressView("Loading issue details…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let detail {
+            ScrollView(showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    metadata(detail)
+                    description(detail)
+                    comments(detail)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(.orange)
+                Text("Unable to load issue details")
+                    .font(.headline)
+                if let error = viewModel.githubLastError {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .multilineTextAlignment(.center)
+                }
+                Button("Retry") {
+                    viewModel.selectWorkItem(issue)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            Spacer()
+
+            Button("Close") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button {
+                guard let detail else { return }
+                onOpenInPi(detail)
+                dismiss()
+            } label: {
+                HStack(spacing: 8) {
+                    Image("pi")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                    Text("Open in Pi")
+                        .fontWeight(.semibold)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(detail == nil || viewModel.selectedDiscoveredProject == nil)
+            .keyboardShortcut(.defaultAction)
+            .help(viewModel.selectedDiscoveredProject == nil ? "Select the local project before starting Pi Agent." : "Create a Pi Agent issue session with the issue prompt.")
+        }
+    }
+
+    private func metadata(_ detail: GitHubIssueDetail) -> some View {
+        AppCard(title: "Details") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let author = detail.author {
+                    HStack(spacing: 10) {
+                        GitHubAvatarView(url: GitHubAvatarResolver.url(login: author, host: detail.item.url.host()), size: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(author)
+                                .fontWeight(.semibold)
+                            Text("Author")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
+                }
+
+                AppKeyValueList(rows: [
+                    ("Type", detail.type ?? "—"),
+                    ("Assignees", detail.assignees.isEmpty ? "—" : detail.assignees.joined(separator: ", ")),
+                    ("Created", relativeDate(detail.createdAt)),
+                    ("Updated", relativeDate(detail.updatedAt)),
+                    ("Closed", detail.closedAt.map(relativeDate) ?? "—")
+                ])
+            }
+        }
+    }
+
+    private func description(_ detail: GitHubIssueDetail) -> some View {
+        AppCard(title: "Description") {
+            if detail.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("No description provided.")
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                MarkdownDocumentView(source: detail.body, minimumHeight: 120)
+            }
+        }
+    }
+
+    private func comments(_ detail: GitHubIssueDetail) -> some View {
+        AppCard(title: "Comments", trailing: {
+            Text("\(detail.comments.count)")
+                .foregroundStyle(AppTheme.mutedText)
+        }) {
+            if detail.comments.isEmpty {
+                Text("No comments yet.")
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(detail.comments) { comment in
+                        AppRowCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(alignment: .center, spacing: 10) {
+                                    GitHubAvatarView(url: GitHubAvatarResolver.url(login: comment.author, host: detail.item.url.host()), size: 24)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(comment.author)
+                                            .fontWeight(.semibold)
+                                        Text(relativeDate(comment.updatedAt))
+                                            .font(.footnote)
+                                            .foregroundStyle(AppTheme.mutedText)
+                                    }
+                                    Spacer()
+                                    Link(destination: comment.url) {
+                                        Image(systemName: "arrow.up.forward.square")
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                MarkdownTextView(source: cleanedCommentBody(comment.body))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var activeState: String {
+        detail?.state ?? issue.state
+    }
+
+    private var activeType: String? {
+        detail?.type ?? issue.type
+    }
+
+    private var activeLabels: [String] {
+        detail?.labels ?? issue.labels
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
+    }
+
+    private func cleanedCommentBody(_ body: String) -> String {
+        var result = body
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let trailingPatterns = [
+            #"\n{2,}On .+ wrote:\n[\s\S]*$"#,
+            #"\n{2,}> .*$"#,
+            #"\n{2,}Reply to this email directly[\s\S]*$"#,
+            #"\n{2,}You are receiving this because[\s\S]*$"#
+        ]
+
+        for pattern in trailingPatterns {
+            if let range = result.range(of: pattern, options: .regularExpression) {
+                result = String(result[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        return result.isEmpty ? body : result
+    }
+}
+
+private func piAgentIssueTypeColor(_ issueType: String) -> Color {
+    switch issueType.lowercased() {
+    case "bug":
+        return .red
+    case "feature", "enhancement":
+        return .blue
+    case "task", "chore":
+        return .purple
+    case "epic", "initiative":
+        return .orange
+    default:
+        return .secondary
     }
 }
 

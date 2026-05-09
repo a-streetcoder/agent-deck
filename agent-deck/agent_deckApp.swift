@@ -10,23 +10,14 @@ import SwiftUI
 import UserNotifications
 
 private extension AppAppearanceMode {
-    var nsAppearanceName: NSAppearance.Name? {
+    var preferredColorScheme: ColorScheme? {
         switch self {
         case .system:
             return nil
         case .light:
-            return .aqua
+            return .light
         case .dark:
-            return .darkAqua
-        }
-    }
-
-    func applyApplicationAppearance() {
-        let appearance = nsAppearanceName.flatMap(NSAppearance.init(named:))
-        NSApp.appearance = appearance
-
-        for window in NSApp.windows {
-            window.appearance = nil
+            return .dark
         }
     }
 }
@@ -77,10 +68,7 @@ struct agent_deckApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
-                .onAppear { viewModel.appSettings.appearanceMode.applyApplicationAppearance() }
-                .onChange(of: viewModel.appSettings.appearanceMode) { _, mode in
-                    mode.applyApplicationAppearance()
-                }
+                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)
@@ -88,10 +76,7 @@ struct agent_deckApp: App {
         Settings {
             SettingsSceneContent()
                 .environmentObject(viewModel)
-                .onAppear { viewModel.appSettings.appearanceMode.applyApplicationAppearance() }
-                .onChange(of: viewModel.appSettings.appearanceMode) { _, mode in
-                    mode.applyApplicationAppearance()
-                }
+                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
         }
         .commands {
             AgentDeckCommands()

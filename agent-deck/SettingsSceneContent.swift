@@ -7,17 +7,14 @@ struct SettingsSceneContent: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             ForEach(SettingsTab.allCases) { tab in
-                selectedTabContent(for: tab)
-                    .tabItem {
-                        Label(tab.rawValue, systemImage: tab.systemImage)
-                    }
-                    .tag(tab)
+                Tab(tab.rawValue, systemImage: tab.systemImage, value: tab) {
+                    selectedTabContent(for: tab)
+                }
             }
         }
         .tabViewStyle(.automatic)
         .frame(minWidth: 700, idealWidth: 780, minHeight: 560, idealHeight: 640)
         .tint(AppTheme.brandAccent)
-        .accentColor(AppTheme.brandAccent)
         .background(AppTheme.windowBackground)
     }
 
@@ -187,7 +184,6 @@ private struct SettingsPickerRow<SelectionValue: Hashable, Content: View>: View 
             .id("\(selection)-\(colorScheme)")
             .labelsHidden()
             .tint(AppTheme.brandAccent)
-            .accentColor(AppTheme.brandAccent)
             .frame(width: 220, alignment: .leading)
         }
     }
