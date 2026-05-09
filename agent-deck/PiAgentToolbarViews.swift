@@ -8,12 +8,6 @@ struct PiAgentGitActionsToolbarGroup: View {
 
     var body: some View {
         ControlGroup {
-            if viewModel.piAgentShipInProgress {
-                ProgressView()
-                    .controlSize(.small)
-                    .help("Git automation is running…")
-            }
-
             Button { commitTapped() } label: {
                 Label("Commit", systemImage: "checkmark.seal")
             }
@@ -44,6 +38,11 @@ struct PiAgentGitActionsToolbarGroup: View {
                 Text(PiAgentGitAction.commitAndPush.alertMessage)
             }
 
+            if viewModel.piAgentShipInProgress {
+                ProgressView()
+                    .controlSize(.small)
+                    .help("Git automation is running…")
+            }
         }
     }
 
