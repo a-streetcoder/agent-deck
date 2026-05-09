@@ -2284,19 +2284,33 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentCommitMessageModel() != nil
     }
 
-    var canCommitSelectedPiAgentSession: Bool {
+    var shouldShowCommitSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
-              let session = piAgentSessionStore.selectedSession else { return false }
-        return piAgentGitAutomationAction == nil && !session.status.isActive && !session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              let session = piAgentSessionStore.selectedSession,
+              selectedDiscoveredProject?.path == session.projectPath,
+              let changes = githubRepositoryChanges else { return false }
+        return changes.conflicted.isEmpty
+            && (!changes.staged.isEmpty || !changes.unstaged.isEmpty || !changes.untracked.isEmpty)
     }
 
-    var canPushSelectedPiAgentSession: Bool {
-        guard let session = piAgentSessionStore.selectedSession,
-              piAgentGitAutomationAction == nil,
-              !session.status.isActive,
+    var shouldShowPushSelectedPiAgentSession: Bool {
+        guard shouldShowPiAgentGitActions,
+              let session = piAgentSessionStore.selectedSession,
               selectedDiscoveredProject?.path == session.projectPath,
               let changes = githubRepositoryChanges else { return false }
         return changes.aheadCount > 0
+    }
+
+    var canCommitSelectedPiAgentSession: Bool {
+        guard shouldShowCommitSelectedPiAgentSession,
+              let session = piAgentSessionStore.selectedSession else { return false }
+        return piAgentGitAutomationAction == nil && !session.status.isActive
+    }
+
+    var canPushSelectedPiAgentSession: Bool {
+        guard shouldShowPushSelectedPiAgentSession,
+              let session = piAgentSessionStore.selectedSession else { return false }
+        return piAgentGitAutomationAction == nil && !session.status.isActive
     }
 
     var canCommitAndPushSelectedPiAgentSession: Bool { canCommitSelectedPiAgentSession }

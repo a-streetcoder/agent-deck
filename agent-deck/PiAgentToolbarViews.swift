@@ -8,37 +8,43 @@ struct PiAgentGitActionsToolbarGroup: View {
 
     var body: some View {
         ControlGroup {
-            Button { commitTapped() } label: {
-                Label("Commit", systemImage: symbol(for: .commit, fallback: "checkmark.seal"))
-                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commit)
-            }
-            .disabled(!viewModel.canCommitSelectedPiAgentSession)
-            .help("Stage all changes and create a commit with an AI-generated title and description")
-            .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
-                Button("Commit All Changes", role: .destructive) { viewModel.commitSelectedPiAgentSession() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(PiAgentGitAction.commit.alertMessage)
+            if viewModel.shouldShowCommitSelectedPiAgentSession || viewModel.piAgentGitAutomationAction == .commit {
+                Button { commitTapped() } label: {
+                    Label("Commit", systemImage: symbol(for: .commit, fallback: "checkmark.seal"))
+                        .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commit)
+                }
+                .disabled(!viewModel.canCommitSelectedPiAgentSession)
+                .help("Stage all changes and create a commit with an AI-generated title and description")
+                .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
+                    Button("Commit All Changes", role: .destructive) { viewModel.commitSelectedPiAgentSession() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(PiAgentGitAction.commit.alertMessage)
+                }
             }
 
-            Button { viewModel.pushSelectedPiAgentSession() } label: {
-                Label("Push", systemImage: symbol(for: .push, fallback: "arrow.up.circle"))
-                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .push)
+            if viewModel.shouldShowPushSelectedPiAgentSession || viewModel.piAgentGitAutomationAction == .push {
+                Button { viewModel.pushSelectedPiAgentSession() } label: {
+                    Label("Push", systemImage: symbol(for: .push, fallback: "arrow.up.circle"))
+                        .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .push)
+                }
+                .disabled(!viewModel.canPushSelectedPiAgentSession)
+                .help("Push committed changes on the selected session's current branch")
             }
-            .disabled(!viewModel.canPushSelectedPiAgentSession)
-            .help("Push committed changes on the selected session's current branch")
 
-            Button { commitAndPushTapped() } label: {
-                Label("Commit & Push", systemImage: symbol(for: .commitAndPush, fallback: "shippingbox.and.arrow.backward"))
-                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
-            }
-            .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
-            .help("Stage all changes, commit, and push the selected session's current branch")
-            .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
-                Button("Commit & Push All Changes", role: .destructive) { viewModel.commitAndPushSelectedPiAgentSession() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(PiAgentGitAction.commitAndPush.alertMessage)
+            if viewModel.shouldShowCommitSelectedPiAgentSession || viewModel.piAgentGitAutomationAction == .commitAndPush {
+                Button { commitAndPushTapped() } label: {
+                    Label("Commit & Push", systemImage: symbol(for: .commitAndPush, fallback: "shippingbox.and.arrow.backward"))
+                        .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
+                }
+                .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
+                .help("Stage all changes, commit, and push the selected session's current branch")
+                .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
+                    Button("Commit & Push All Changes", role: .destructive) { viewModel.commitAndPushSelectedPiAgentSession() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(PiAgentGitAction.commitAndPush.alertMessage)
+                }
             }
 
         }
