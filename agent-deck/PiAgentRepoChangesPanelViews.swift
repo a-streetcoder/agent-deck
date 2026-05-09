@@ -455,7 +455,7 @@ private struct PiAgentGitHubIssueSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    HStack(alignment: .center, spacing: 10) {
                         Text("#\(issue.number)")
                             .font(.title2.weight(.bold).monospacedDigit())
                             .fontWidth(.expanded)
@@ -473,20 +473,26 @@ private struct PiAgentGitHubIssueSheet: View {
                     Button {
                         NSWorkspace.shared.open(issue.url)
                     } label: {
-                        Image(systemName: "globe")
-                            .frame(width: 28, height: 28)
+                        Label("Open issue in browser", systemImage: "globe")
+                            .labelStyle(.iconOnly)
                     }
+                    .font(.system(size: 13, weight: .semibold))
                     .buttonStyle(.glass)
+                    .controlSize(.regular)
+                    .clipShape(Circle())
                     .help("Open issue in browser")
                     .accessibilityLabel("Open issue in browser")
 
                     Button {
                         dismiss()
                     } label: {
-                        Image(systemName: "xmark")
-                            .frame(width: 28, height: 28)
+                        Label("Close issue details", systemImage: "xmark")
+                            .labelStyle(.iconOnly)
                     }
+                    .font(.system(size: 13, weight: .semibold))
                     .buttonStyle(.glass)
+                    .controlSize(.regular)
+                    .clipShape(Circle())
                     .help("Close issue details")
                     .accessibilityLabel("Close issue details")
                 }
@@ -510,7 +516,7 @@ private struct PiAgentGitHubIssueSheet: View {
             ProgressView("Loading issue details…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let detail {
-            ScrollView(showsIndicators: true) {
+            ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     metadata(detail)
                     description(detail)

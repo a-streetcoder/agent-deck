@@ -2518,8 +2518,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func openRepoChangesForSelectedPiAgentSession() {
         prepareRepoChangesForSelectedPiAgentSession()
-        githubSelectedSection = .repoChanges
-        selectedSidebarItem = .github
+        selectedSidebarItem = .agent
     }
 
     func isPiAgentSessionRunning(_ sessionID: UUID) -> Bool {
@@ -2925,7 +2924,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var shouldShowGitHubConnectionCard: Bool {
-        selectedSidebarItem == .github || currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
+        currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
     }
 
     private var allDisplayAgents: [EffectiveAgentRecord] {

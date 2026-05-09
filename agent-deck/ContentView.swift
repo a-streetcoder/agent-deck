@@ -101,7 +101,9 @@ struct ContentView: View {
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
+                .scrollIndicators(.hidden)
                 .tint(AppTheme.brandAccent)
+                .sidebarBottomFade(height: 34)
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
@@ -889,8 +891,6 @@ struct ContentView: View {
             )
         case .prompts:
             PromptsScreen(viewModel: viewModel)
-        case .github:
-            GitHubScreen(viewModel: viewModel)
         case .agent:
             PiAgentScreen(
                 viewModel: viewModel,

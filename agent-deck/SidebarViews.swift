@@ -24,18 +24,9 @@ struct SidebarNavigationRow: View {
         }
     }
 
-    @ViewBuilder
     private var icon: some View {
-        if item == .github {
-            Image("github")
-                .resizable()
-                .renderingMode(.template)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 16, height: 16)
-        } else {
-            Image(systemName: item.systemImage)
-                .frame(width: 16, height: 16)
-        }
+        Image(systemName: item.systemImage)
+            .frame(width: 16, height: 16)
     }
 }
 
@@ -68,8 +59,23 @@ struct PiAgentSidebarButton: View {
                         .fontWidth(.compressed)
                         .lineLimit(1)
                 }
-
-                Spacer(minLength: 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .mask {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                        if needsAttentionCount > 0 {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black, location: 0),
+                                    .init(color: .black.opacity(0), location: 1)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 36)
+                        }
+                    }
+                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
