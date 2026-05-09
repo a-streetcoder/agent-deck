@@ -932,7 +932,7 @@ private struct PiAgentCodePreview: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
             }
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
                 Text(cachedDisplayText.isEmpty ? displayText : cachedDisplayText)
                     .font(.caption.monospaced())
                     .foregroundStyle(.primary.opacity(0.82))
@@ -1026,7 +1026,7 @@ private struct PiAgentDiffView: View {
             Text("Diff")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if isLoading && lines.isEmpty {
                         HStack(spacing: 8) {

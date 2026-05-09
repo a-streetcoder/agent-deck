@@ -249,6 +249,12 @@ extension View {
     func appControlSurface(cornerRadius: CGFloat = 12) -> some View {
         modifier(AppControlSurface(cornerRadius: cornerRadius))
     }
+
+    func appResourceListStyle() -> some View {
+        listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+    }
 }
 
 struct AppPage<Content: View>: View {
@@ -367,6 +373,82 @@ struct AppLabelTag: View {
             .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .foregroundStyle(color)
     }
+}
+
+struct AppListSectionHeader: View {
+    let title: String
+    let info: String?
+    @State private var isInfoPresented = false
+
+    init(_ title: String, info: String? = nil) {
+        self.title = title
+        self.info = info
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text(title)
+                .font(.headline)
+                .fontWidth(.expanded)
+                .foregroundStyle(.primary)
+                .textCase(nil)
+
+            if let info {
+                Button {
+                    isInfoPresented.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(info)
+                .accessibilityLabel("About \(title)")
+                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                    AppListSectionInfoPopover(title: title, message: info)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 18)
+        .padding(.bottom, 6)
+    }
+}
+
+private struct AppListSectionInfoPopover: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: "info.circle")
+                .font(.headline)
+                .fontWidth(.expanded)
+                .foregroundStyle(.primary)
+
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(nil)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        .padding(16)
+        .frame(width: 380, alignment: .leading)
+    }
+}
+
+@ViewBuilder
+func appListSection<Content: View>(_ title: String, info: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+    Section {
+        content()
+    } header: {
+        AppListSectionHeader(title, info: info)
+    }
+    .listSectionSeparator(.hidden)
 }
 
 struct AppKeyValueList: View {

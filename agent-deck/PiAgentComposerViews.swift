@@ -1637,7 +1637,7 @@ struct PiAgentModelPicker: View {
                     .accessibilityLabel("Refresh models")
                 }
 
-                ScrollView(showsIndicators: true) {
+                ScrollView(showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(groupedModelOptions, id: \.provider) { group in
                             VStack(alignment: .leading, spacing: 5) {

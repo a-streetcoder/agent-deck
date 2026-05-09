@@ -379,7 +379,7 @@ private struct GitUnifiedDiffView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
+            ScrollView([.vertical, .horizontal], showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(cachedLines.indices, id: \.self) { index in
                         GitDiffLineView(lineNumber: index + 1, text: cachedLines[index], minWidth: geometry.size.width)

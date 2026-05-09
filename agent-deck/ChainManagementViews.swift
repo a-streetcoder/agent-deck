@@ -8,118 +8,242 @@ struct ChainsScreen: View {
     var body: some View {
         HStack(spacing: 0) {
             HSplitView {
-                AppPage("Chains", subtitle: "\(viewModel.allVisibleChainRecords.count) total") {
-                    List(viewModel.allVisibleChainRecords, selection: $viewModel.selectedChainID) { chain in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(chain.name)
-                                .font(.headline)
-                                .fontWidth(.expanded)
-                                .lineLimit(2)
-                            Text(chain.description.isEmpty ? "\(chain.steps.count) steps" : chain.description)
-                                .foregroundStyle(AppTheme.mutedText)
-                                .lineLimit(2)
-                        }
-                        .padding(.vertical, 6)
-                        .tag(chain.id)
-                    }
-                    .listStyle(.inset)
-                }
-                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+                chainLibraryPane
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
                 if let chain = viewModel.selectedChain {
                     AppPage(chain.name, subtitle: chain.description.nonEmpty) {
-                    AppCard(title: "How Chains Work") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("• Each step runs in order and later steps can use earlier output.")
-                            Text("• Step `output`, `reads`, `skills`, `model`, and `progress` override the agent’s defaults for that step.")
-                            Text("• `reads: false`, `skills: false`, or `output: false` explicitly turn that behavior off for the step.")
-                            Text("• Relative read/write paths are resolved from the chain working directory.")
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    AppCard(title: "Library & Source") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Reusable chains live in ~/.pi/agent/agent-library/chains. Pi only sees them when \(AppBrand.displayName) links them globally or into a project.")
-                                .foregroundStyle(AppTheme.mutedText)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            AppKeyValueList(rows: [
-                                ("Scope", chain.source.kind.rawValue),
-                                ("In Library", chain.source.kind == .library ? "Yes" : "No"),
-                                ("Active Globally", viewModel.chainIsEnabledGlobally(chain) ? "Yes" : "No"),
-                                ("Assigned Projects", assignedProjectSummary(chain)),
-                                ("Path", chain.filePath),
-                                ("Steps", "\(chain.steps.count)")
-                            ])
-
-                            if chain.source.kind != .library {
-                                Button("Move to Library") { do { try viewModel.moveChainToLibrary(chain) } catch { NSSound.beep() } }
+                        AppCard(title: "How Chains Work") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("• Each step runs in order and later steps can use earlier output.")
+                                Text("• Step `output`, `reads`, `skills`, `model`, and `progress` override the agent’s defaults for that step.")
+                                Text("• `reads: false`, `skills: false`, or `output: false` explicitly turn that behavior off for the step.")
+                                Text("• Relative read/write paths are resolved from the chain working directory.")
                             }
-                        }
-                    }
-
-                    AppCard(title: "Global Visibility") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(viewModel.chainIsEnabledGlobally(chain) ? "This chain is available in every project." : "Make this chain available globally instead of only selected projects.")
-                                .foregroundStyle(AppTheme.mutedText)
-                            if viewModel.chainIsEnabledGlobally(chain) {
-                                Button("Disable Globally") { do { try viewModel.disableChainGlobally(chain) } catch { NSSound.beep() } }
-                            } else {
-                                Button("Enable Globally") { do { try viewModel.enableChainGlobally(chain) } catch { NSSound.beep() } }
-                                    .buttonStyle(.borderedProminent)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    AppCard(title: "Project Assignment") {
-                        chainProjectAssignmentList(for: chain)
-                    }
-
-                    AppCard(title: "Raw Chain") {
-                        Text(ChainPersistence().serialize(chain))
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                            .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                        }
 
-                    ForEach(chain.steps) { step in
-                        AppCard(title: step.agent) {
-                            VStack(alignment: .leading, spacing: 14) {
-                                if step.outputDisabled || step.readsDisabled || step.model != nil || step.skillsDisabled || step.progress != nil || !(step.reads ?? []).isEmpty || !(step.skills ?? []).isEmpty {
-                                    AppKeyValueList(rows: [
-                                        ("Output", step.outputDisabled ? "false" : (step.output ?? "—")),
-                                        ("Reads", step.readsDisabled ? "false" : (step.reads?.joined(separator: ", ") ?? "—")),
-                                        ("Model", step.model ?? "—"),
-                                        ("Skills", step.skillsDisabled ? "false" : (step.skills?.joined(separator: ", ") ?? "—")),
-                                        ("Progress", step.progress.map { $0 ? "true" : "false" } ?? "—")
-                                    ])
+                        AppCard(title: "Library & Source") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Reusable chains live in ~/.pi/agent/agent-library/chains. Pi only sees them when \(AppBrand.displayName) links them globally or into a project.")
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                AppKeyValueList(rows: [
+                                    ("Scope", chain.source.kind.rawValue),
+                                    ("In Library", chain.source.kind == .library ? "Yes" : "No"),
+                                    ("Active Globally", viewModel.chainIsEnabledGlobally(chain) ? "Yes" : "No"),
+                                    ("Assigned Projects", assignedProjectSummary(chain)),
+                                    ("Path", chain.filePath),
+                                    ("Steps", "\(chain.steps.count)")
+                                ])
+
+                                if chain.source.kind != .library {
+                                    Button("Move to Library") { do { try viewModel.moveChainToLibrary(chain) } catch { NSSound.beep() } }
                                 }
-                                MarkdownDocumentView(source: step.body.isEmpty ? "No step body parsed yet." : step.body)
                             }
+                        }
+
+                        AppCard(title: "Global Visibility") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(viewModel.chainIsEnabledGlobally(chain) ? "This chain is available in every project." : "Make this chain available globally instead of only selected projects.")
+                                    .foregroundStyle(AppTheme.mutedText)
+                                if viewModel.chainIsEnabledGlobally(chain) {
+                                    Button("Disable Globally") { do { try viewModel.disableChainGlobally(chain) } catch { NSSound.beep() } }
+                                } else {
+                                    Button("Enable Globally") { do { try viewModel.enableChainGlobally(chain) } catch { NSSound.beep() } }
+                                        .buttonStyle(.borderedProminent)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        AppCard(title: "Project Assignment") {
+                            chainProjectAssignmentList(for: chain)
+                        }
+
+                        AppCard(title: "Raw Chain") {
+                            Text(ChainPersistence().serialize(chain))
+                                .font(.footnote.monospaced())
+                                .foregroundStyle(AppTheme.mutedText)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        ForEach(chain.steps) { step in
+                            AppCard(title: step.agent) {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    if step.outputDisabled || step.readsDisabled || step.model != nil || step.skillsDisabled || step.progress != nil || !(step.reads ?? []).isEmpty || !(step.skills ?? []).isEmpty {
+                                        AppKeyValueList(rows: [
+                                            ("Output", step.outputDisabled ? "false" : (step.output ?? "—")),
+                                            ("Reads", step.readsDisabled ? "false" : (step.reads?.joined(separator: ", ") ?? "—")),
+                                            ("Model", step.model ?? "—"),
+                                            ("Skills", step.skillsDisabled ? "false" : (step.skills?.joined(separator: ", ") ?? "—")),
+                                            ("Progress", step.progress.map { $0 ? "true" : "false" } ?? "—")
+                                        ])
+                                    }
+                                    MarkdownDocumentView(source: step.body.isEmpty ? "No step body parsed yet." : step.body)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No Chain Selected", systemImage: "point.3.connected.trianglepath.dotted")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+
+            if isRecapPresented, let project = viewModel.selectedDiscoveredProject {
+                Divider()
+                SubagentsProjectRecapPanel(
+                    project: project,
+                    snapshot: viewModel.startupSnapshot(forProjectPath: project.path),
+                    libraryAgents: viewModel.snapshot.libraryAgents,
+                    libraryChains: viewModel.snapshot.libraryChains,
+                    onClose: { isRecapPresented = false }
+                )
+                .frame(width: 400)
+            }
+        }
+    }
+
+    private var chainLibraryPane: some View {
+        List(selection: $viewModel.selectedChainID) {
+            if viewModel.selectedDiscoveredProject != nil {
+                appListSection("Active") {
+                    if activeChains.isEmpty {
+                        nativeEmptyRow("No chains are active for this project.")
+                    }
+                    ForEach(activeChains) { chain in
+                        chainListRow(chain)
+                            .tag(chain.id)
+                    }
+                }
+
+                if !libraryChains.isEmpty {
+                    appListSection("Chain Library", info: "Reusable chains live in ~/.pi/agent/agent-library/chains and become active when assigned to this project or enabled globally.") {
+                        ForEach(libraryChains) { chain in
+                            chainListRow(chain, inactive: chainIsUnusedLibraryChain(chain))
+                                .tag(chain.id)
                         }
                     }
                 }
             } else {
-                ContentUnavailableView("No Chain Selected", systemImage: "point.3.connected.trianglepath.dotted")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                appListSection("Global Chains") {
+                    if globalChains.isEmpty {
+                        nativeEmptyRow("No global chains.")
+                    }
+                    ForEach(globalChains) { chain in
+                        chainListRow(chain)
+                            .tag(chain.id)
+                    }
+                }
+
+                if !projectChains.isEmpty {
+                    appListSection("Project Chains") {
+                        ForEach(projectChains) { chain in
+                            chainListRow(chain)
+                                .tag(chain.id)
+                        }
+                    }
+                }
+
+                if !libraryChains.isEmpty {
+                    appListSection("Chain Library") {
+                        ForEach(libraryChains) { chain in
+                            chainListRow(chain, inactive: chainIsUnusedLibraryChain(chain))
+                                .tag(chain.id)
+                        }
+                    }
+                }
             }
         }
+        .appResourceListStyle()
+    }
 
-        if isRecapPresented, let project = viewModel.selectedDiscoveredProject {
-            Divider()
-            SubagentsProjectRecapPanel(
-                project: project,
-                snapshot: viewModel.startupSnapshot(forProjectPath: project.path),
-                libraryAgents: viewModel.snapshot.libraryAgents,
-                libraryChains: viewModel.snapshot.libraryChains,
-                onClose: { isRecapPresented = false }
-            )
-            .frame(width: 400)
+    private var activeChains: [ChainRecord] {
+        viewModel.allVisibleChainRecords.filter { $0.source.kind != .library }
+    }
+
+    private var globalChains: [ChainRecord] {
+        viewModel.allVisibleChainRecords.filter { $0.source.kind == .global }
+    }
+
+    private var projectChains: [ChainRecord] {
+        viewModel.allVisibleChainRecords.filter { $0.source.kind == .project || $0.source.kind == .legacyProject }
+    }
+
+    private var libraryChains: [ChainRecord] {
+        viewModel.allVisibleChainRecords.filter { $0.source.kind == .library }
+    }
+
+    private func chainListRow(_ chain: ChainRecord, inactive: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: chainIcon(chain))
+                .foregroundStyle(chainColor(chain))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(chain.name)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                    .lineLimit(1)
+                Text(chain.description.isEmpty ? "\(chain.steps.count) steps" : chain.description)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    nativePill(chain.source.kind.rawValue, symbol: "folder", color: chainColor(chain))
+                    if viewModel.chainIsEnabledGlobally(chain) {
+                        nativePill("Global", symbol: "globe", color: .blue)
+                    }
+                    if !viewModel.assignedProjects(for: chain).isEmpty {
+                        nativePill("Assigned", symbol: "checkmark.circle", color: .green)
+                    }
+                }
+            }
         }
-        }
+        .padding(.vertical, 6)
+        .opacity(inactive ? 0.62 : 1)
+        .saturation(inactive ? 0.25 : 1)
+        .badge("\(chain.steps.count) steps")
+    }
+
+    private func chainIcon(_ chain: ChainRecord) -> String {
+        if chain.source.kind == .library { return "building.columns" }
+        if viewModel.chainIsEnabledGlobally(chain) { return "globe" }
+        if chain.source.kind == .project || chain.source.kind == .legacyProject { return "checkmark.circle" }
+        return "point.3.connected.trianglepath.dotted"
+    }
+
+    private func chainColor(_ chain: ChainRecord) -> Color {
+        if chain.source.kind == .library { return .purple }
+        if viewModel.chainIsEnabledGlobally(chain) { return .blue }
+        if chain.source.kind == .project || chain.source.kind == .legacyProject { return .green }
+        return .blue
+    }
+
+    private func chainIsUnusedLibraryChain(_ chain: ChainRecord) -> Bool {
+        chain.source.kind == .library &&
+        !viewModel.chainIsEnabledGlobally(chain) &&
+        viewModel.assignedProjects(for: chain).isEmpty
+    }
+
+    private func nativePill(_ text: String, symbol: String, color: Color) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.10), in: Capsule(style: .continuous))
+    }
+
+    private func nativeEmptyRow(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.vertical, 4)
+            .selectionDisabled()
+            .listRowSeparator(.hidden)
     }
 
     private func chainProjectAssignmentList(for chain: ChainRecord) -> some View {

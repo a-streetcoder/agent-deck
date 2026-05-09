@@ -143,10 +143,8 @@ struct SkillsScreen: View {
     var body: some View {
         HStack(spacing: 0) {
             HSplitView {
-                AppPage("Skills", subtitle: pageSubtitle) {
-                    skillLibraryContent
-                }
-                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+                skillLibraryContent
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
                 AppPage(selectedSkill?.name ?? "Skill Details", subtitle: selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }) {
                     skillDetailContent
@@ -198,47 +196,57 @@ struct SkillsScreen: View {
 
     @ViewBuilder
     private var skillLibraryContent: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            if let selectedProject {
-                AppCard(title: "Active in \(selectedProject.name)") {
-                    skillGrid(activeSkills, emptyText: "No skills are active for this project.")
+        List(selection: skillSelection) {
+            if selectedProject != nil {
+                appListSection("Active") {
+                    if activeSkills.isEmpty {
+                        nativeEmptyRow("No skills are active for this project.")
+                    }
+                    ForEach(activeSkills, id: \.name) { skill in
+                        skillListRow(skill, inactive: false)
+                            .tag(skill.name)
+                    }
                 }
 
                 if !inactiveLibrarySkills.isEmpty {
-                    AppCard(title: "Library Skills") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Library skills are centrally stored and only become active when assigned to this project or enabled globally.")
-                                .foregroundStyle(AppTheme.mutedText)
-                            skillGrid(inactiveLibrarySkills, emptyText: "No unassigned library skills.")
+                    appListSection("Library Skills", info: "Library skills are centrally stored and only become active when assigned to this project or enabled globally.") {
+                        ForEach(inactiveLibrarySkills, id: \.name) { skill in
+                            skillListRow(skill, inactive: true)
+                                .tag(skill.name)
                         }
                     }
                 }
             } else {
-                AppCard(title: "Global Skills") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Select a project to see exactly which skills are active there and to manage project assignment.")
-                            .foregroundStyle(AppTheme.mutedText)
-                        skillGrid(globalSkills, emptyText: "No global skills.")
+                appListSection("Global Skills", info: "Select a project to see exactly which skills are active there and to manage project assignment.") {
+                    if globalSkills.isEmpty {
+                        nativeEmptyRow("No global skills.")
+                    }
+                    ForEach(globalSkills, id: \.name) { skill in
+                        skillListRow(skill, inactive: false)
+                            .tag(skill.name)
                     }
                 }
 
                 if !librarySkills.isEmpty {
-                    AppCard(title: "Library Skills") {
-                        skillGrid(librarySkills, emptyText: "No library skills.")
+                    appListSection("Library Skills") {
+                        ForEach(librarySkills, id: \.name) { skill in
+                            skillListRow(skill, inactive: false)
+                                .tag(skill.name)
+                        }
                     }
                 }
             }
 
             if !packageSkills.isEmpty {
-                AppCard(title: "Package Skills") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Package skills are active by default when their package is discovered. They are package-managed, so \(AppBrand.displayName) does not assign or unlink them per project.")
-                            .foregroundStyle(AppTheme.mutedText)
-                        skillGrid(packageSkills, emptyText: "No package skills.")
+                appListSection("Package Skills", info: "Package skills are active by default when their package is discovered. They are package-managed, so \(AppBrand.displayName) does not assign or unlink them per project.") {
+                    ForEach(packageSkills, id: \.name) { skill in
+                        skillListRow(skill, inactive: false)
+                            .tag(skill.name)
                     }
                 }
             }
         }
+        .appResourceListStyle()
     }
 
     @ViewBuilder
@@ -299,13 +307,6 @@ struct SkillsScreen: View {
 
     private var selectedProject: DiscoveredProject? {
         viewModel.selectedDiscoveredProject
-    }
-
-    private var pageSubtitle: String {
-        if let selectedProject {
-            return "Active skills for \(selectedProject.name), plus central library assignment"
-        }
-        return "Select a project to manage project-specific skill assignment"
     }
 
     private var managedSkills: [SkillRecord] {
@@ -369,59 +370,54 @@ struct SkillsScreen: View {
         return skill.source.kind == .package && selectedProject != nil
     }
 
+    private var skillSelection: Binding<String?> {
+        Binding(
+            get: { selectedSkillName },
+            set: { name in
+                selectedSkillName = name
+                if let skill = managedSkills.first(where: { $0.name == name }) {
+                    viewModel.selectedSkillID = skill.id
+                }
+            }
+        )
+    }
+
     private func ensureSelection() {
         guard selectedSkillName == nil || !managedSkills.contains(where: { $0.name == selectedSkillName }) else { return }
         selectedSkillName = managedSkills.first?.name
+        viewModel.selectedSkillID = managedSkills.first?.id
     }
 
-    private func skillGrid(_ skills: [SkillRecord], emptyText: String, inactive: Bool = false) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-            if skills.isEmpty {
-                Text(emptyText)
+    private func skillListRow(_ skill: SkillRecord, inactive: Bool) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: skillIcon(skill))
+                .foregroundStyle(skillColor(skill))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(skill.name)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(skill.description ?? "No description")
+                    .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ForEach(skills, id: \.name) { skill in
-                    skillTile(skill, inactive: inactive)
-                }
+                    .lineLimit(2)
             }
         }
+        .padding(.vertical, 6)
+        .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
+        .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)
+        .badge(statusLabel(skill))
     }
 
-    private func skillTile(_ skill: SkillRecord, inactive: Bool) -> some View {
-        Button {
-            selectedSkillName = skill.name
-            viewModel.selectedSkillID = skill.id
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: skillIcon(skill))
-                        .foregroundStyle(skillColor(skill))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(skill.name)
-                            .font(.headline)
-                            .fontWidth(.expanded)
-                            .foregroundStyle(.primary)
-                        Text(skill.description ?? "No description")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(2)
-                    }
-                    Spacer(minLength: 8)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selectedSkillName == skill.name ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
-                    .stroke(selectedSkillName == skill.name ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
-            )
-            .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
-            .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)
-        }
-        .buttonStyle(.plain)
+    private func nativeEmptyRow(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.vertical, 4)
+            .selectionDisabled()
+            .listRowSeparator(.hidden)
     }
 
     private func projectAssignmentList(for skill: SkillRecord) -> some View {

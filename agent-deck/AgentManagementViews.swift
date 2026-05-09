@@ -122,54 +122,58 @@ private struct AgentLibraryPane: View {
     @State private var warningPopoverAgentID: String?
 
     var body: some View {
-        AppPage("Agents", subtitle: subtitle) {
-            VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                if let selectedProject = viewModel.selectedDiscoveredProject {
-                    AppCard(title: "Active in \(selectedProject.name)") {
-                        agentGrid(activeCustomAgents, emptyText: "No custom agents are active for this project.")
+        List(selection: $viewModel.selectedAgentID) {
+            if viewModel.selectedDiscoveredProject != nil {
+                appListSection("Active") {
+                    if activeCustomAgents.isEmpty {
+                        nativeEmptyRow("No custom agents are active for this project.")
                     }
-
-                    if !libraryAgents.isEmpty {
-                        AppCard(title: "Library Agents") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Library agents are centrally stored and only become active when assigned to this project or enabled globally.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                agentGrid(libraryAgents, emptyText: "No unassigned library agents.", inactive: true)
-                            }
-                        }
-                    }
-                } else {
-                    AppCard(title: "Global Agents") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Select a project to see exactly which custom agents are active there and to manage project assignment.")
-                                .foregroundStyle(AppTheme.mutedText)
-                            agentGrid(globalCustomAgents, emptyText: "No global custom agents.")
-                        }
-                    }
-
-                    if !libraryAgents.isEmpty {
-                        AppCard(title: "Library Agents") {
-                            agentGrid(libraryAgents, emptyText: "No library agents.")
-                        }
+                    ForEach(activeCustomAgents) { agent in
+                        agentListRow(agent, inactive: false)
+                            .tag(agent.id)
                     }
                 }
 
-                AppCard(title: "Builtin Agents") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Builtins are bundled with \(AppBrand.displayName) and customized through settings overrides or replacement files.")
-                            .foregroundStyle(AppTheme.mutedText)
-                        agentGrid(builtinAgents, emptyText: "No builtin agents discovered.")
+                if !libraryAgents.isEmpty {
+                    appListSection("Library Agents", info: "Library agents are centrally stored and only become active when assigned to this project or enabled globally.") {
+                        ForEach(libraryAgents) { agent in
+                            agentListRow(agent, inactive: true)
+                                .tag(agent.id)
+                        }
+                    }
+                }
+            } else {
+                appListSection("Global Agents", info: "Select a project to see exactly which custom agents are active there and to manage project assignment.") {
+                    if globalCustomAgents.isEmpty {
+                        nativeEmptyRow("No global custom agents.")
+                    }
+                    ForEach(globalCustomAgents) { agent in
+                        agentListRow(agent, inactive: false)
+                            .tag(agent.id)
+                    }
+                }
+
+                if !libraryAgents.isEmpty {
+                    appListSection("Library Agents") {
+                        ForEach(libraryAgents) { agent in
+                            agentListRow(agent, inactive: false)
+                                .tag(agent.id)
+                        }
                     }
                 }
             }
-        }
-    }
 
-    private var subtitle: String {
-        if let selectedProject = viewModel.selectedDiscoveredProject {
-            return "Active agents for \(selectedProject.name), plus central library assignment"
+            appListSection("Builtin Agents", info: "Builtins are bundled with \(AppBrand.displayName) and customized through settings overrides or replacement files.") {
+                if builtinAgents.isEmpty {
+                    nativeEmptyRow("No builtin agents discovered.")
+                }
+                ForEach(builtinAgents) { agent in
+                    agentListRow(agent, inactive: false)
+                        .tag(agent.id)
+                }
+            }
         }
-        return "Select a project to manage project-specific agent assignment"
+        .appResourceListStyle()
     }
 
     private var activeCustomAgents: [EffectiveAgentRecord] {
@@ -206,79 +210,66 @@ private struct AgentLibraryPane: View {
         viewModel.filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
     }
 
-    private func agentGrid(_ agents: [EffectiveAgentRecord], emptyText: String, inactive: Bool = false) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-            if agents.isEmpty {
-                Text(emptyText)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ForEach(agents) { agent in
-                    agentTile(agent, inactive: inactive)
-                }
-            }
-        }
-    }
-
-    private func agentTile(_ agent: EffectiveAgentRecord, inactive: Bool) -> some View {
+    private func agentListRow(_ agent: EffectiveAgentRecord, inactive: Bool) -> some View {
         let warnings = viewModel.warnings(for: agent)
         let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
         let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
 
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: icon(for: agent))
-                    .foregroundStyle(color(for: agent))
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(agent.name)
-                            .font(.headline)
-                            .fontWidth(.expanded)
-                            .foregroundStyle(.primary)
-                            .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        if hasWarningDetails {
-                            Button {
-                                warningPopoverAgentID = agent.id
-                            } label: {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                    .imageScale(.small)
-                                    .accessibilityLabel("Agent warnings")
-                            }
-                            .buttonStyle(.plain)
-                            .popover(isPresented: Binding(
-                                get: { warningPopoverAgentID == agent.id },
-                                set: { if !$0 { warningPopoverAgentID = nil } }
-                            )) {
-                                AgentWarningPopover(agent: agent, warnings: warnings, skillIssues: skillIssues)
-                            }
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon(for: agent))
+                .foregroundStyle(color(for: agent))
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(agent.name)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .foregroundStyle(.primary)
+                        .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
+                        .lineLimit(1)
+
+                    if hasWarningDetails {
+                        Button {
+                            warningPopoverAgentID = agent.id
+                        } label: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .imageScale(.small)
+                                .accessibilityLabel("Agent warnings")
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: Binding(
+                            get: { warningPopoverAgentID == agent.id },
+                            set: { if !$0 { warningPopoverAgentID = nil } }
+                        )) {
+                            AgentWarningPopover(agent: agent, warnings: warnings, skillIssues: skillIssues)
                         }
                     }
-                    Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(2)
-
-                    capabilityStrip(for: agent)
                 }
+
+                Text(agent.resolved.description.isEmpty ? "No description" : agent.resolved.description)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
+
+                capabilityStrip(for: agent)
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(viewModel.selectedAgentID == agent.id ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
-                .stroke(viewModel.selectedAgentID == agent.id ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
-        )
+        .padding(.vertical, 6)
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture {
-            viewModel.selectedAgentID = agent.id
-        }
+        .badge(statusLabel(agent))
+    }
+
+    private func nativeEmptyRow(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.vertical, 4)
+            .selectionDisabled()
+            .listRowSeparator(.hidden)
     }
 
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {

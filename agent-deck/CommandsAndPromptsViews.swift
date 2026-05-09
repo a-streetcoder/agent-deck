@@ -24,73 +24,64 @@ struct PromptsScreen: View {
     }
 
     private var promptLibraryPane: some View {
-        AppPage("Prompts", subtitle: pageSubtitle) {
-            VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                if let selectedProject = viewModel.selectedDiscoveredProject {
-                    if !projectPrompts.isEmpty {
-                        AppCard(title: "Project Prompts") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Loaded from \(selectedProject.name)'s .pi/prompts directory or project settings.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                promptGrid(projectPrompts, emptyText: "No project prompt templates.")
-                            }
-                        }
-                    }
-
-                    if !globalPrompts.isEmpty {
-                        AppCard(title: "Global Prompts") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Loaded from global prompt locations and available in every project.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                promptGrid(globalPrompts, emptyText: "No global prompt templates.")
-                            }
-                        }
-                    }
-
-                    if !libraryPrompts.isEmpty {
-                        AppCard(title: "Prompt Library") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Loaded from ~/.pi/agent/prompt-library as reusable prompt templates.")
-                                    .foregroundStyle(AppTheme.mutedText)
-                                promptGrid(libraryPrompts, emptyText: "No library prompts.")
-                            }
-                        }
-                    }
-                } else {
-                    promptSourceSection("Global Prompts", prompts: globalPrompts, emptyText: "No global prompt templates.")
-                    promptSourceSection("Project Prompts", prompts: projectPrompts, emptyText: "No project prompt templates.")
-                    promptSourceSection("Prompt Library", prompts: libraryPrompts, emptyText: "No library prompts.")
+        List(selection: $viewModel.selectedCommandItemID) {
+            if let selectedProject = viewModel.selectedDiscoveredProject {
+                if !projectPrompts.isEmpty {
+                    promptSection(
+                        "Project Prompts",
+                        prompts: projectPrompts,
+                        note: "Loaded from \(selectedProject.name)'s .pi/prompts directory or project settings."
+                    )
                 }
 
-                if !settingsPrompts.isEmpty {
-                    AppCard(title: "Settings Prompts") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Loaded from explicit settings.json prompt paths.")
-                                .foregroundStyle(AppTheme.mutedText)
-                            promptGrid(settingsPrompts, emptyText: "No settings prompts.")
-                        }
-                    }
+                if !globalPrompts.isEmpty {
+                    promptSection(
+                        "Global Prompts",
+                        prompts: globalPrompts,
+                        note: "Loaded from global prompt locations and available in every project."
+                    )
                 }
 
-                if !packagePrompts.isEmpty {
-                    AppCard(title: "Package Prompts") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Package prompt templates are provided by installed packages and are read-only.")
-                                .foregroundStyle(AppTheme.mutedText)
-                            promptGrid(packagePrompts, emptyText: "No package prompts.")
-                        }
-                    }
+                if !libraryPrompts.isEmpty {
+                    promptSection(
+                        "Prompt Library",
+                        prompts: libraryPrompts,
+                        note: "Loaded from ~/.pi/agent/prompt-library as reusable prompt templates."
+                    )
                 }
+            } else {
+                promptSection("Global Prompts", prompts: globalPrompts, emptyText: "No global prompt templates.")
+                if !projectPrompts.isEmpty {
+                    promptSection("Project Prompts", prompts: projectPrompts)
+                }
+                if !libraryPrompts.isEmpty {
+                    promptSection("Prompt Library", prompts: libraryPrompts)
+                }
+            }
 
+            if !settingsPrompts.isEmpty {
+                promptSection(
+                    "Settings Prompts",
+                    prompts: settingsPrompts,
+                    note: "Loaded from explicit settings.json prompt paths."
+                )
+            }
+
+            if !packagePrompts.isEmpty {
+                promptSection(
+                    "Package Prompts",
+                    prompts: packagePrompts,
+                    note: "Package prompt templates are provided by installed packages and are read-only."
+                )
+            }
+
+            if visiblePrompts.isEmpty {
+                appListSection("Prompts") {
+                    nativeEmptyRow("No prompt templates discovered.")
+                }
             }
         }
-    }
-
-    private var pageSubtitle: String {
-        if let selectedProject = viewModel.selectedDiscoveredProject {
-            return "Prompt template locations active for \(selectedProject.name)"
-        }
-        return "Reusable prompt templates loaded from Pi prompt locations"
+        .appResourceListStyle()
     }
 
     private var visiblePrompts: [PromptTemplateRecord] {
@@ -118,65 +109,58 @@ struct PromptsScreen: View {
     }
 
     @ViewBuilder
-    private func promptSourceSection(_ title: String, prompts: [PromptTemplateRecord], emptyText: String) -> some View {
-        if !prompts.isEmpty {
-            AppCard(title: title) {
-                promptGrid(prompts, emptyText: emptyText)
+    private func promptSection(_ title: String, prompts: [PromptTemplateRecord], emptyText: String? = nil, note: String? = nil) -> some View {
+        appListSection(title, info: note) {
+            if prompts.isEmpty, let emptyText {
+                nativeEmptyRow(emptyText)
+            }
+            ForEach(prompts) { prompt in
+                promptListRow(prompt)
+                    .tag(prompt.id)
             }
         }
     }
 
-    private func promptGrid(_ prompts: [PromptTemplateRecord], emptyText: String) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-            if prompts.isEmpty {
-                Text(emptyText)
+    private func promptListRow(_ prompt: PromptTemplateRecord) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: promptIcon(prompt))
+                .foregroundStyle(promptColor(prompt))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(prompt.invocation)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(prompt.description)
+                    .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ForEach(prompts) { prompt in
-                    promptTile(prompt)
+                    .lineLimit(2)
+                if let argumentHint = prompt.argumentHint {
+                    nativePill(argumentHint, symbol: "text.cursor", color: promptColor(prompt))
                 }
             }
         }
+        .padding(.vertical, 6)
+        .badge(prompt.source.kind.rawValue)
     }
 
-    private func promptTile(_ prompt: PromptTemplateRecord) -> some View {
-        return Button { viewModel.selectedCommandItemID = prompt.id } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: promptIcon(prompt))
-                        .foregroundStyle(promptColor(prompt))
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(prompt.invocation)
-                            .font(.headline)
-                            .fontWidth(.expanded)
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                        Text(prompt.description)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(2)
-                        if let argumentHint = prompt.argumentHint {
-                            Label(argumentHint, systemImage: "text.cursor")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(promptColor(prompt))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 4)
-                                .background(promptColor(prompt).opacity(0.10), in: Capsule(style: .continuous))
-                        }
-                    }
-                    Spacer(minLength: 8)
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(viewModel.selectedCommandItemID == prompt.id ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
-                    .stroke(viewModel.selectedCommandItemID == prompt.id ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+    private func nativePill(_ text: String, symbol: String, color: Color) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.10), in: Capsule(style: .continuous))
+    }
+
+    private func nativeEmptyRow(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.vertical, 4)
+            .selectionDisabled()
+            .listRowSeparator(.hidden)
     }
 
     private func promptIcon(_ prompt: PromptTemplateRecord) -> String {
