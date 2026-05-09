@@ -86,7 +86,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubIsClosingIssue = false
     @Published var githubIsCommitting = false
     @Published var githubIsPushing = false
-    @Published var piAgentShipInProgress = false
+    @Published var piAgentGitAutomationAction: PiAgentGitAutomationAction?
     @Published var githubIsRefreshingEverything = false
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
@@ -2287,12 +2287,12 @@ final class AppViewModel: NSObject, ObservableObject {
     var canCommitSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
               let session = piAgentSessionStore.selectedSession else { return false }
-        return !piAgentShipInProgress && !session.status.isActive && !session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return piAgentGitAutomationAction == nil && !session.status.isActive && !session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var canPushSelectedPiAgentSession: Bool {
         guard let session = piAgentSessionStore.selectedSession,
-              !piAgentShipInProgress,
+              piAgentGitAutomationAction == nil,
               !session.status.isActive,
               selectedDiscoveredProject?.path == session.projectPath,
               let changes = githubRepositoryChanges else { return false }
@@ -2313,20 +2313,20 @@ final class AppViewModel: NSObject, ObservableObject {
         guard let session = piAgentSessionStore.selectedSession else { return }
         let sessionID = session.id
         let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
-        piAgentShipInProgress = true
+        piAgentGitAutomationAction = .push
         piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Push Started", text: "Pushing committed changes on the current branch."))
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await gitRepositoryService.pushCurrentBranch(in: projectURL)
                 await MainActor.run {
-                    self.piAgentShipInProgress = false
+                    self.piAgentGitAutomationAction = nil
                     self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Push Completed", text: "Pushed committed changes."))
                     self.prepareRepoChangesForSelectedPiAgentSession()
                 }
             } catch {
                 await MainActor.run {
-                    self.piAgentShipInProgress = false
+                    self.piAgentGitAutomationAction = nil
                     self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Push Failed", text: error.localizedDescription))
                     self.prepareRepoChangesForSelectedPiAgentSession()
                 }
@@ -2344,7 +2344,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let sessionID = session.id
         let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
         let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
-        piAgentShipInProgress = true
+        piAgentGitAutomationAction = pushAfterCommit ? .commitAndPush : .commit
         piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: pushAfterCommit ? "Commit & Push Started" : "Commit Started", text: pushAfterCommit ? "Staging all changes, generating a commit message, committing, and pushing the current branch." : "Staging all changes, generating a commit message, and committing on the current branch."))
 
         Task { [weak self] in
@@ -2368,13 +2368,13 @@ final class AppViewModel: NSObject, ObservableObject {
                 }
 
                 await MainActor.run {
-                    self.piAgentShipInProgress = false
+                    self.piAgentGitAutomationAction = nil
                     self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: pushAfterCommit ? "Commit & Push Completed" : "Commit Completed", text: pushAfterCommit ? "Committed and pushed `\(message.title)`." : "Committed `\(message.title)`."))
                     self.prepareRepoChangesForSelectedPiAgentSession()
                 }
             } catch {
                 await MainActor.run {
-                    self.piAgentShipInProgress = false
+                    self.piAgentGitAutomationAction = nil
                     self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: pushAfterCommit ? "Commit & Push Failed" : "Commit Failed", text: error.localizedDescription))
                     self.prepareRepoChangesForSelectedPiAgentSession()
                 }

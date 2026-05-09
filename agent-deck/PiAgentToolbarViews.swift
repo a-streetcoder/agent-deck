@@ -9,7 +9,8 @@ struct PiAgentGitActionsToolbarGroup: View {
     var body: some View {
         ControlGroup {
             Button { commitTapped() } label: {
-                Label("Commit", systemImage: "checkmark.seal")
+                Label("Commit", systemImage: symbol(for: .commit, fallback: "checkmark.seal"))
+                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commit)
             }
             .disabled(!viewModel.canCommitSelectedPiAgentSession)
             .help("Stage all changes and create a commit with an AI-generated title and description")
@@ -21,13 +22,15 @@ struct PiAgentGitActionsToolbarGroup: View {
             }
 
             Button { viewModel.pushSelectedPiAgentSession() } label: {
-                Label("Push", systemImage: "arrow.up.circle")
+                Label("Push", systemImage: symbol(for: .push, fallback: "arrow.up.circle"))
+                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .push)
             }
             .disabled(!viewModel.canPushSelectedPiAgentSession)
             .help("Push committed changes on the selected session's current branch")
 
             Button { commitAndPushTapped() } label: {
-                Label("Commit & Push", systemImage: "shippingbox.and.arrow.backward")
+                Label("Commit & Push", systemImage: symbol(for: .commitAndPush, fallback: "shippingbox.and.arrow.backward"))
+                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
             }
             .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
             .help("Stage all changes, commit, and push the selected session's current branch")
@@ -38,12 +41,11 @@ struct PiAgentGitActionsToolbarGroup: View {
                 Text(PiAgentGitAction.commitAndPush.alertMessage)
             }
 
-            if viewModel.piAgentShipInProgress {
-                ProgressView()
-                    .controlSize(.small)
-                    .help("Git automation is running…")
-            }
         }
+    }
+
+    private func symbol(for action: PiAgentGitAutomationAction, fallback: String) -> String {
+        viewModel.piAgentGitAutomationAction == action ? "arrow.triangle.2.circlepath" : fallback
     }
 
     private func commitTapped() {
