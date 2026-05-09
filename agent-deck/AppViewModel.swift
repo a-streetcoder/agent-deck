@@ -69,6 +69,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubAggregateBoard: GitHubBoardSnapshot?
     @Published var githubProjectBoard: GitHubBoardSnapshot?
     @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
+    @Published var githubRepositoryChangesProjectPath: String?
     @Published var githubSelectedChangePaths: Set<String> = []
     @Published var githubSelectedDiffFilePath: String?
     @Published var githubSelectedDiffKind: GitDiffKind?
@@ -752,6 +753,7 @@ final class AppViewModel: NSObject, ObservableObject {
         githubProjectBoardCacheKey = nil
         githubProjectBoardFetchedAt = nil
         githubRepositoryChanges = nil
+        githubRepositoryChangesProjectPath = nil
         githubSelectedChangePaths = []
         githubDiffCache.removeAll()
         githubDiffCacheOrder.removeAll()
@@ -887,6 +889,7 @@ final class AppViewModel: NSObject, ObservableObject {
         guard let project = selectedDiscoveredProject, project.isGitRepository else {
             githubRepositoryChangesRequestID += 1
             githubRepositoryChanges = nil
+            githubRepositoryChangesProjectPath = nil
             githubSelectedChangePaths = []
             githubSelectedDiffFilePath = nil
             githubSelectedDiffKind = nil
@@ -910,6 +913,7 @@ final class AppViewModel: NSObject, ObservableObject {
                           self.selectedDiscoveredProject?.path == projectPath else { return }
 
                     self.githubRepositoryChanges = snapshot
+                    self.githubRepositoryChangesProjectPath = projectPath
                     let validPaths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
                     self.githubSelectedChangePaths = self.githubSelectedChangePaths.intersection(validPaths)
                     if !preservingDiffSelection {
@@ -925,6 +929,7 @@ final class AppViewModel: NSObject, ObservableObject {
                           self.selectedDiscoveredProject?.path == projectPath else { return }
 
                     self.githubRepositoryChanges = nil
+                    self.githubRepositoryChangesProjectPath = nil
                     self.githubIsLoadingRepositoryChanges = false
                     self.githubLastError = error.localizedDescription
                 }
@@ -1343,6 +1348,7 @@ final class AppViewModel: NSObject, ObservableObject {
         if let sessionID = piAgentSessionStore.selectedSession?.id {
             ensurePiAgentModels(for: sessionID)
         }
+        prepareRepoChangesForSelectedPiAgentSession()
         acknowledgeVisibleSelectedPiAgentSession()
     }
 
@@ -1350,6 +1356,7 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentSessionStore.select(id)
         selectedSidebarItem = .agent
         ensurePiAgentModels(for: id)
+        prepareRepoChangesForSelectedPiAgentSession()
         acknowledgePiAgentSession(id)
     }
 
@@ -2287,7 +2294,7 @@ final class AppViewModel: NSObject, ObservableObject {
     var shouldShowCommitSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
               let session = piAgentSessionStore.selectedSession,
-              selectedDiscoveredProject?.path == session.projectPath,
+              githubRepositoryChangesProjectPath == session.projectPath,
               let changes = githubRepositoryChanges else { return false }
         return changes.conflicted.isEmpty
             && (!changes.staged.isEmpty || !changes.unstaged.isEmpty || !changes.untracked.isEmpty)
@@ -2296,7 +2303,7 @@ final class AppViewModel: NSObject, ObservableObject {
     var shouldShowPushSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
               let session = piAgentSessionStore.selectedSession,
-              selectedDiscoveredProject?.path == session.projectPath,
+              githubRepositoryChangesProjectPath == session.projectPath,
               let changes = githubRepositoryChanges else { return false }
         return changes.aheadCount > 0
     }
@@ -2628,10 +2635,38 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func prepareRepoChangesForSelectedPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession else { return }
-        if selectedProjectPath != session.projectPath {
-            setSelectedProject(URL(fileURLWithPath: session.projectPath))
+        refreshRepositoryChanges(forProjectPath: session.projectPath, preservingDiffSelection: true)
+    }
+
+    func refreshRepositoryChanges(forProjectPath projectPath: String, preservingDiffSelection: Bool = false) {
+        let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
+        githubRepositoryChangesRequestID += 1
+        let requestID = githubRepositoryChangesRequestID
+        githubIsLoadingRepositoryChanges = true
+        githubLastError = nil
+
+        Task {
+            do {
+                let snapshot = try await self.gitRepositoryService.loadChanges(in: projectURL)
+                await MainActor.run {
+                    guard self.githubRepositoryChangesRequestID == requestID,
+                          self.piAgentSessionStore.selectedSession?.projectPath == projectPath || self.selectedDiscoveredProject?.path == projectPath else { return }
+                    self.githubRepositoryChanges = snapshot
+                    self.githubRepositoryChangesProjectPath = projectPath
+                    let validPaths = Set(snapshot.staged.map(\.path) + snapshot.unstaged.map(\.path) + snapshot.untracked.map(\.path) + snapshot.conflicted.map(\.path))
+                    self.githubSelectedChangePaths = preservingDiffSelection ? self.githubSelectedChangePaths.intersection(validPaths) : []
+                    self.githubIsLoadingRepositoryChanges = false
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.githubRepositoryChangesRequestID == requestID else { return }
+                    self.githubRepositoryChanges = nil
+                    self.githubRepositoryChangesProjectPath = nil
+                    self.githubIsLoadingRepositoryChanges = false
+                    self.githubLastError = error.localizedDescription
+                }
+            }
         }
-        refreshRepositoryChanges(preservingDiffSelection: true)
     }
 
     func openRepoChangesForSelectedPiAgentSession() {
@@ -2746,6 +2781,7 @@ final class AppViewModel: NSObject, ObservableObject {
         githubProjectBoardCacheKey = nil
         githubProjectBoardFetchedAt = nil
         githubRepositoryChanges = nil
+        githubRepositoryChangesProjectPath = nil
         githubSelectedChangePaths = []
         githubSelectedDiffFilePath = nil
         githubSelectedDiffKind = nil
@@ -3268,7 +3304,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var selectedProjectName: String {
-        projectRootURL?.lastPathComponent ?? "All Projects"
+        projectRootURL?.lastPathComponent ?? "No Project Filter"
     }
 
     var configuredProjectsRootURL: URL {
@@ -3302,7 +3338,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var shouldWarnProjectSelection: Bool {
-        githubConnectionState.isConnected && selectedProjectPath == nil
+        enabledProjects.isEmpty
     }
 
     func piAgentSessionProjectContext() -> DiscoveredProject {

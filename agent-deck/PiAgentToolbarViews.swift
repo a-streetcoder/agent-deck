@@ -19,7 +19,7 @@ struct PiAgentGitActionsToolbarGroup: View {
                     Button("Commit All Changes") { viewModel.commitSelectedPiAgentSession() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text(PiAgentGitAction.commit.alertMessage)
+                    Text(alertMessage(for: .commit))
                 }
             }
 
@@ -43,7 +43,7 @@ struct PiAgentGitActionsToolbarGroup: View {
                     Button("Commit & Push All Changes") { viewModel.commitAndPushSelectedPiAgentSession() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text(PiAgentGitAction.commitAndPush.alertMessage)
+                    Text(alertMessage(for: .commitAndPush))
                 }
             }
 
@@ -52,6 +52,12 @@ struct PiAgentGitActionsToolbarGroup: View {
 
     private func symbol(for action: PiAgentGitAutomationAction, fallback: String) -> String {
         viewModel.piAgentGitAutomationAction == action ? "arrow.triangle.2.circlepath" : fallback
+    }
+
+    private func alertMessage(for action: PiAgentGitAction) -> String {
+        guard let session = viewModel.piAgentSessionStore.selectedSession else { return action.alertMessage }
+        let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
+        return "Repository: \(repoName)\n\n\(action.alertMessage)"
     }
 
     private func commitTapped() {

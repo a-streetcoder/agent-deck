@@ -14,8 +14,8 @@ struct SidebarNavigationRow: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.yellow)
-                        .help("Select a project to enable repo-aware GitHub workflows.")
-                        .accessibilityLabel("Project selection recommended")
+                        .help("Enable or add a project to start working.")
+                        .accessibilityLabel("No enabled projects")
                 }
             }
             .fontWidth(.expanded)
@@ -283,7 +283,7 @@ struct SidebarProjectGitHubCard: View {
         if let selectedProjectPath {
             return URL(fileURLWithPath: selectedProjectPath).lastPathComponent
         }
-        return "Select project"
+        return "All Projects"
     }
 
     private var selectedProjectSubtitle: String {
@@ -360,7 +360,7 @@ struct ProjectPickerPopover: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ProjectSidebarRow(
                         title: "All Projects",
-                        subtitle: "No project selected",
+                        subtitle: "Browse everything; Pi Agent sessions keep their own repo context",
                         symbolName: "square.grid.2x2",
                         imageURL: nil,
                         isSelected: selectedProjectPath == nil,
