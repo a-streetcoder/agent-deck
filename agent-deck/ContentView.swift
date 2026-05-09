@@ -124,7 +124,6 @@ struct ContentView: View {
                     favoriteProjectPaths: Set(viewModel.favoriteProjects.map(\.path)),
                     filterText: $projectFilterText,
                     isSearchDebouncing: projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedProjectFilterText,
-                    onSelectAll: { viewModel.clearProjectRoot() },
                     onSelectProject: { viewModel.setSelectedProject($0.url) },
                     onToggleFavorite: viewModel.toggleProjectFavorite,
                     onChooseProject: { viewModel.chooseProjectRoot() }

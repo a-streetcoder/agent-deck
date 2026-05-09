@@ -3304,7 +3304,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var selectedProjectName: String {
-        projectRootURL?.lastPathComponent ?? "No Project Filter"
+        projectRootURL?.lastPathComponent ?? "No Project Selected"
     }
 
     var configuredProjectsRootURL: URL {

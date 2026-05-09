@@ -146,7 +146,6 @@ struct SidebarProjectGitHubCard: View {
     let favoriteProjectPaths: Set<String>
     @Binding var filterText: String
     let isSearchDebouncing: Bool
-    let onSelectAll: () -> Void
     let onSelectProject: (DiscoveredProject) -> Void
     let onToggleFavorite: (DiscoveredProject) -> Void
     let onChooseProject: () -> Void
@@ -200,10 +199,6 @@ struct SidebarProjectGitHubCard: View {
                         favoriteProjectPaths: favoriteProjectPaths,
                         filterText: $filterText,
                         isSearchDebouncing: isSearchDebouncing,
-                        onSelectAll: {
-                            onSelectAll()
-                            isExpanded = false
-                        },
                         onSelectProject: { project in
                             onSelectProject(project)
                             isExpanded = false
@@ -283,7 +278,7 @@ struct SidebarProjectGitHubCard: View {
         if let selectedProjectPath {
             return URL(fileURLWithPath: selectedProjectPath).lastPathComponent
         }
-        return "All Projects"
+        return "Choose Project"
     }
 
     private var selectedProjectSubtitle: String {
@@ -344,7 +339,6 @@ struct ProjectPickerPopover: View {
     let favoriteProjectPaths: Set<String>
     @Binding var filterText: String
     let isSearchDebouncing: Bool
-    let onSelectAll: () -> Void
     let onSelectProject: (DiscoveredProject) -> Void
     let onToggleFavorite: (DiscoveredProject) -> Void
 
@@ -358,18 +352,6 @@ struct ProjectPickerPopover: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ProjectSidebarRow(
-                        title: "All Projects",
-                        subtitle: "Browse everything; Pi Agent sessions keep their own repo context",
-                        symbolName: "square.grid.2x2",
-                        imageURL: nil,
-                        isSelected: selectedProjectPath == nil,
-                        isFavorite: false,
-                        showsFavoriteButton: false,
-                        onToggleFavorite: nil,
-                        action: onSelectAll
-                    )
-
                     ForEach(projects) { project in
                         ProjectSidebarRow(
                             title: project.repositoryDisplayName,
