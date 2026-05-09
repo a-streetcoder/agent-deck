@@ -336,6 +336,14 @@ final class AppSettingsController {
     }
 
     @discardableResult
+    func setPiAgentGitAutomationRequiresConfirmation(_ isEnabled: Bool) -> Bool {
+        guard settings.piAgentGitAutomationRequiresConfirmation != isEnabled else { return false }
+        settings.piAgentGitAutomationRequiresConfirmation = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
     func setPiAgentCommitMessageModelIdentifier(_ identifier: String?) -> Bool {
         let trimmed = identifier?.trimmingCharacters(in: .whitespacesAndNewlines)
         let stored = trimmed?.isEmpty == false ? trimmed : nil

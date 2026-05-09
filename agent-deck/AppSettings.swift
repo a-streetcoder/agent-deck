@@ -64,6 +64,7 @@ struct AppSettings: Codable, Hashable {
     var autoGeneratePiAgentSessionTitles: Bool = false
     var piAgentTitleGenerationModelIdentifier: String?
     var piAgentGitAutomationEnabled: Bool = false
+    var piAgentGitAutomationRequiresConfirmation: Bool = true
     var piAgentCommitMessageModelIdentifier: String?
     var disabledModelIdentifiers: Set<String> = []
     var disabledInjectedCommandIDs: Set<String> = []
@@ -87,6 +88,7 @@ struct AppSettings: Codable, Hashable {
         case autoGeneratePiAgentSessionTitles
         case piAgentTitleGenerationModelIdentifier
         case piAgentGitAutomationEnabled
+        case piAgentGitAutomationRequiresConfirmation
         case piAgentCommitMessageModelIdentifier
         case disabledModelIdentifiers
         case disabledInjectedCommandIDs
@@ -115,6 +117,7 @@ struct AppSettings: Codable, Hashable {
         autoGeneratePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoGeneratePiAgentSessionTitles) ?? false
         piAgentTitleGenerationModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentTitleGenerationModelIdentifier)
         piAgentGitAutomationEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationEnabled) ?? false
+        piAgentGitAutomationRequiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationRequiresConfirmation) ?? true
         piAgentCommitMessageModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentCommitMessageModelIdentifier)
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []

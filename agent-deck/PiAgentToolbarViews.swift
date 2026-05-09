@@ -1,14 +1,20 @@
 import AppKit
 import SwiftUI
 
-struct PiAgentGitActionsToolbarGroup: ToolbarContent {
+struct PiAgentGitActionsToolbarGroup: View {
     @ObservedObject var viewModel: AppViewModel
     @State private var isCommitConfirmationPresented = false
     @State private var isCommitAndPushConfirmationPresented = false
 
-    var body: some ToolbarContent {
-        ToolbarItemGroup {
-            Button { isCommitConfirmationPresented = true } label: {
+    var body: some View {
+        ControlGroup {
+            if viewModel.piAgentShipInProgress {
+                ProgressView()
+                    .controlSize(.small)
+                    .help("Git automation is running…")
+            }
+
+            Button { commitTapped() } label: {
                 Label("Commit", systemImage: "checkmark.seal")
             }
             .disabled(!viewModel.canCommitSelectedPiAgentSession)
@@ -26,7 +32,7 @@ struct PiAgentGitActionsToolbarGroup: ToolbarContent {
             .disabled(!viewModel.canPushSelectedPiAgentSession)
             .help("Push committed changes on the selected session's current branch")
 
-            Button { isCommitAndPushConfirmationPresented = true } label: {
+            Button { commitAndPushTapped() } label: {
                 Label("Commit & Push", systemImage: "shippingbox.and.arrow.backward")
             }
             .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
@@ -37,6 +43,23 @@ struct PiAgentGitActionsToolbarGroup: ToolbarContent {
             } message: {
                 Text(PiAgentGitAction.commitAndPush.alertMessage)
             }
+
+        }
+    }
+
+    private func commitTapped() {
+        if viewModel.appSettings.piAgentGitAutomationRequiresConfirmation {
+            isCommitConfirmationPresented = true
+        } else {
+            viewModel.commitSelectedPiAgentSession()
+        }
+    }
+
+    private func commitAndPushTapped() {
+        if viewModel.appSettings.piAgentGitAutomationRequiresConfirmation {
+            isCommitAndPushConfirmationPresented = true
+        } else {
+            viewModel.commitAndPushSelectedPiAgentSession()
         }
     }
 }
@@ -58,9 +81,6 @@ struct PiAgentGitHubToolbarButton: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 16, height: 16)
         }
-        .symbolRenderingMode(.monochrome)
-        .foregroundStyle(.primary)
-        .tint(.primary)
         .help("Show GitHub panel")
         .accessibilityLabel("Show GitHub panel")
         .disabled(viewModel.piAgentSessionStore.selectedSession == nil)

@@ -2917,6 +2917,11 @@ final class AppViewModel: NSObject, ObservableObject {
         syncAppSettings()
     }
 
+    func setPiAgentGitAutomationRequiresConfirmation(_ isEnabled: Bool) {
+        guard appSettingsController.setPiAgentGitAutomationRequiresConfirmation(isEnabled) else { return }
+        syncAppSettings()
+    }
+
     func setPiAgentCommitMessageModelIdentifier(_ identifier: String?) {
         guard appSettingsController.setPiAgentCommitMessageModelIdentifier(identifier) else { return }
         syncAppSettings()
@@ -2936,7 +2941,7 @@ final class AppViewModel: NSObject, ObservableObject {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedFileTypes = ["ts", "js"]
+        panel.allowedContentTypes = [.sourceCode, .javaScript]
         panel.message = "Choose a Pi extension file containing pi.registerCommand(...)."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? PiInjectedCommandCatalog.importCommandFile(url)

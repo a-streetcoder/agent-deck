@@ -191,6 +191,28 @@ struct ContentView: View {
                 }
             }
 
+            if viewModel.selectedSidebarItem == .agents {
+                ToolbarItem(placement: .navigation) {
+                    Menu {
+                        ForEach(AgentFilter.allCases) { filter in
+                            Button {
+                                viewModel.selectedAgentFilter = filter
+                            } label: {
+                                if viewModel.selectedAgentFilter == filter {
+                                    Label(filter.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(filter.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    .toolbarNeutralChrome()
+                    .help("Filter agents")
+                }
+            }
+
             ToolbarSpacer(.flexible)
 
             if viewModel.selectedSidebarItem == .projects {
@@ -218,30 +240,8 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .agents {
-                ToolbarItemGroup {
-                    Group {
-                        Menu {
-                            ForEach(AgentFilter.allCases) { filter in
-                                Button {
-                                    viewModel.selectedAgentFilter = filter
-                                } label: {
-                                    if viewModel.selectedAgentFilter == filter {
-                                        Label(filter.rawValue, systemImage: "checkmark")
-                                    } else {
-                                        Text(filter.rawValue)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
-                        }
-                        .help("Filter agents")
-                    }
-                    .toolbarNeutralChrome()
-                }
-
-                ToolbarItemGroup {
-                    Group {
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
                         Button {
                             agentModelQuickEditor = currentAgentModelQuickEditorContext
                         } label: {
@@ -270,8 +270,9 @@ struct ContentView: View {
                 }
 
                 if let agent = viewModel.selectedAgent {
-                    ToolbarItemGroup {
-                        Group {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        ControlGroup {
                             Button {
                                 editingAgent = nil
                                 agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
@@ -308,8 +309,9 @@ struct ContentView: View {
                     }
                 }
 
-                ToolbarItemGroup {
-                    Group {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
                         Button {
                             isSubagentsRecapPresented.toggle()
                         } label: {
@@ -345,143 +347,134 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .chains {
-                ToolbarItemGroup {
-                    Menu {
-                        Button("New Global Chain") {
-                            chainDraft = viewModel.makeNewChainDraft(scope: .global)
-                        }
-                        if viewModel.selectedProjectPath != nil {
-                            Button("New Project Chain") {
-                                chainDraft = viewModel.makeNewChainDraft(scope: .project)
-                            }
-                        }
-                        if let selectedChain = viewModel.selectedChain {
-                            Divider()
-                            Button("Duplicate as Global Chain") {
-                                chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .global)
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Menu {
+                            Button("New Global Chain") {
+                                chainDraft = viewModel.makeNewChainDraft(scope: .global)
                             }
                             if viewModel.selectedProjectPath != nil {
-                                Button("Duplicate as Project Chain") {
-                                    chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .project)
+                                Button("New Project Chain") {
+                                    chainDraft = viewModel.makeNewChainDraft(scope: .project)
                                 }
                             }
-                            Divider()
-                            if selectedChain.source.kind != .global {
-                                Button("Move to Global Scope") {
-                                    do {
-                                        try viewModel.convertChain(selectedChain, to: .global)
-                                    } catch {
-                                        NSSound.beep()
+                            if let selectedChain = viewModel.selectedChain {
+                                Divider()
+                                Button("Duplicate as Global Chain") {
+                                    chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .global)
+                                }
+                                if viewModel.selectedProjectPath != nil {
+                                    Button("Duplicate as Project Chain") {
+                                        chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .project)
+                                    }
+                                }
+                                Divider()
+                                if selectedChain.source.kind != .global {
+                                    Button("Move to Global Scope") {
+                                        do { try viewModel.convertChain(selectedChain, to: .global) }
+                                        catch { NSSound.beep() }
+                                    }
+                                }
+                                if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
+                                    Button("Move to Project Scope") {
+                                        do { try viewModel.convertChain(selectedChain, to: .project) }
+                                        catch { NSSound.beep() }
                                     }
                                 }
                             }
-                            if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
-                                Button("Move to Project Scope") {
-                                    do {
-                                        try viewModel.convertChain(selectedChain, to: .project)
-                                    } catch {
-                                        NSSound.beep()
-                                    }
-                                }
-                            }
+                        } label: {
+                            Label("New", systemImage: "plus")
                         }
-                    } label: {
-                        Label("New", systemImage: "plus")
                     }
                     .toolbarNeutralChrome()
                 }
 
                 if let selectedChain = viewModel.selectedChain {
-                    ToolbarItemGroup {
-                        Button {
-                            chainRunTask = ""
-                            isRunChainSheetPresented = true
-                        } label: {
-                            Label("Run", systemImage: "play.circle")
-                        }
-                        .toolbarNeutralChrome()
-                        .help("Run this chain as a \(AppBrand.displayName) native chain")
-
-                        Button {
-                            openChainFile(selectedChain.filePath)
-                        } label: {
-                            Label("Open", systemImage: "folder")
-                        }
-                        .toolbarNeutralChrome()
-                        .help("Open the selected chain file")
-
-                        Button {
-                            revealChainInFinder(selectedChain.filePath)
-                        } label: {
-                            Label("Reveal", systemImage: "arrow.up.forward.app")
-                        }
-                        .toolbarNeutralChrome()
-                        .help("Reveal the selected chain file in Finder")
-
-                        Menu {
-                            Button("Duplicate as Global Chain") {
-                                chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .global)
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        ControlGroup {
+                            Button {
+                                chainRunTask = ""
+                                isRunChainSheetPresented = true
+                            } label: {
+                                Label("Run", systemImage: "play.circle")
                             }
-                            if viewModel.selectedProjectPath != nil {
-                                Button("Duplicate as Project Chain") {
-                                    chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .project)
+                            .help("Run this chain as a \(AppBrand.displayName) native chain")
+
+                            Button {
+                                openChainFile(selectedChain.filePath)
+                            } label: {
+                                Label("Open", systemImage: "folder")
+                            }
+                            .help("Open the selected chain file")
+
+                            Button {
+                                revealChainInFinder(selectedChain.filePath)
+                            } label: {
+                                Label("Reveal", systemImage: "arrow.up.forward.app")
+                            }
+                            .help("Reveal the selected chain file in Finder")
+
+                            Menu {
+                                Button("Duplicate as Global Chain") {
+                                    chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .global)
                                 }
-                            }
-                            Divider()
-                            if selectedChain.source.kind != .global {
-                                Button("Move to Global Scope") {
-                                    do {
-                                        try viewModel.convertChain(selectedChain, to: .global)
-                                    } catch {
-                                        NSSound.beep()
+                                if viewModel.selectedProjectPath != nil {
+                                    Button("Duplicate as Project Chain") {
+                                        chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .project)
                                     }
                                 }
-                            }
-                            if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
-                                Button("Move to Project Scope") {
-                                    do {
-                                        try viewModel.convertChain(selectedChain, to: .project)
-                                    } catch {
-                                        NSSound.beep()
+                                Divider()
+                                if selectedChain.source.kind != .global {
+                                    Button("Move to Global Scope") {
+                                        do { try viewModel.convertChain(selectedChain, to: .global) }
+                                        catch { NSSound.beep() }
                                     }
                                 }
+                                if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
+                                    Button("Move to Project Scope") {
+                                        do { try viewModel.convertChain(selectedChain, to: .project) }
+                                        catch { NSSound.beep() }
+                                    }
+                                }
+                            } label: {
+                                Label("More", systemImage: "ellipsis.circle")
                             }
-                        } label: {
-                            Label("More", systemImage: "ellipsis.circle")
-                        }
-                        .toolbarNeutralChrome()
-                        .help("More chain actions")
+                            .help("More chain actions")
 
-                        Button {
-                            chainDraft = viewModel.makeChainDraft(for: selectedChain)
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
+                            Button {
+                                chainDraft = viewModel.makeChainDraft(for: selectedChain)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .help("Edit selected chain")
                         }
                         .toolbarNeutralChrome()
-                        .help("Edit selected chain")
                     }
                 }
 
-                ToolbarItemGroup {
-                    Button {
-                        isSubagentsInfoPresented.toggle()
-                    } label: {
-                        Label("Info", systemImage: "info.circle")
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Explain subagent library visibility")
-                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
-                        SubagentsInfoPopover()
-                    }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Button {
+                            isSubagentsInfoPresented.toggle()
+                        } label: {
+                            Label("Info", systemImage: "info.circle")
+                        }
+                        .help("Explain subagent library visibility")
+                        .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+                            SubagentsInfoPopover()
+                        }
 
-                    Button {
-                        isSubagentsRecapPresented.toggle()
-                    } label: {
-                        Label("Project Recap", systemImage: "sidebar.right")
+                        Button {
+                            isSubagentsRecapPresented.toggle()
+                        } label: {
+                            Label("Project Recap", systemImage: "sidebar.right")
+                        }
+                        .help("Show subagents available for the selected project")
+                        .disabled(viewModel.selectedProjectPath == nil)
                     }
                     .toolbarNeutralChrome()
-                    .help("Show subagents available for the selected project")
-                    .disabled(viewModel.selectedProjectPath == nil)
                 }
             }
 
@@ -512,93 +505,106 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .skills {
-                ToolbarItem {
-                    Button {
-                        isSkillsInfoPresented.toggle()
-                    } label: {
-                        Label("Info", systemImage: "info.circle")
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Button {
+                            isSkillsInfoPresented.toggle()
+                        } label: {
+                            Label("Info", systemImage: "info.circle")
+                        }
+                        .help("Explain Pi skill visibility")
+                        .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
+                            SkillsInfoPopover()
+                        }
+
+                        Button {
+                            isSkillsRecapPresented.toggle()
+                        } label: {
+                            Label("Project Recap", systemImage: "sidebar.right")
+                        }
+                        .help("Show skills Pi will load for the selected project")
+                        .disabled(viewModel.selectedProjectPath == nil)
                     }
                     .toolbarNeutralChrome()
-                    .help("Explain Pi skill visibility")
-                    .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
-                        SkillsInfoPopover()
-                    }
                 }
 
-                ToolbarItem {
-                    Button {
-                        NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
-                    } label: {
-                        Label("Import Skills", systemImage: "plus")
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Button {
+                            NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+                        } label: {
+                            Label("Import Skills", systemImage: "plus")
+                        }
+                        .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
                     }
                     .toolbarNeutralChrome()
-                    .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
-                }
-
-                ToolbarItemGroup {
-                    Button {
-                        isSkillsRecapPresented.toggle()
-                    } label: {
-                        Label("Project Recap", systemImage: "sidebar.right")
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Show skills Pi will load for the selected project")
-                    .disabled(viewModel.selectedProjectPath == nil)
                 }
             }
 
             if viewModel.selectedSidebarItem == .agent {
-                ToolbarItemGroup {
-                    Button {
-                        isPiAgentTranscriptOptionsPresented.toggle()
-                    } label: {
-                        Label("Transcript Display", systemImage: "eye")
-                    }
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.primary)
-                    .tint(.primary)
-                    .help("Choose what appears in the agent transcript")
-                    .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-                        PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
-                    }
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Button {
+                            isPiAgentTranscriptOptionsPresented.toggle()
+                        } label: {
+                            Label("Transcript Display", systemImage: "eye")
+                        }
+                        .help("Choose what appears in the agent transcript")
+                        .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                            PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+                        }
 
-                    Button {
-                        isPiAgentSubagentsPopoverPresented.toggle()
-                    } label: {
-                        Label("Subagents", systemImage: "rectangle.connected.to.line.below")
+                        Button {
+                            isPiAgentSubagentsPopoverPresented.toggle()
+                        } label: {
+                            Label("Subagents", systemImage: "rectangle.connected.to.line.below")
+                        }
+                        .help("Toggle native subagents for this session")
+                        .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+                        .popover(isPresented: $isPiAgentSubagentsPopoverPresented, arrowEdge: .bottom) {
+                            PiAgentSubagentPopover(
+                                isEnabled: Binding(
+                                    get: { viewModel.piAgentSessionStore.selectedSession?.subagentsEnabled == true },
+                                    set: { isEnabled in
+                                        viewModel.setSubagentsEnabledForSelectedSession(isEnabled)
+                                        viewModel.setSubagentsEnabledForNewSessions(isEnabled)
+                                    }
+                                )
+                            )
+                        }
                     }
                     .symbolRenderingMode(.monochrome)
                     .foregroundStyle(.primary)
                     .tint(.primary)
-                    .help("Toggle native subagents for this session")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-                    .popover(isPresented: $isPiAgentSubagentsPopoverPresented, arrowEdge: .bottom) {
-                        PiAgentSubagentPopover(
-                            isEnabled: Binding(
-                                get: { viewModel.piAgentSessionStore.selectedSession?.subagentsEnabled == true },
-                                set: { isEnabled in
-                                    viewModel.setSubagentsEnabledForSelectedSession(isEnabled)
-                                    viewModel.setSubagentsEnabledForNewSessions(isEnabled)
-                                }
-                            )
-                        )
-                    }
                 }
 
                 if viewModel.shouldShowPiAgentGitActions {
-                    PiAgentGitActionsToolbarGroup(viewModel: viewModel)
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        PiAgentGitActionsToolbarGroup(viewModel: viewModel)
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(.primary)
+                        .tint(.primary)
+                    }
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
                 }
 
-                ToolbarItemGroup {
-                    PiAgentGitHubToolbarButton(
-                        viewModel: viewModel,
-                        isRepoChangesPresented: $isPiAgentRepoChangesPresented
-                    )
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        PiAgentGitHubToolbarButton(
+                            viewModel: viewModel,
+                            isRepoChangesPresented: $isPiAgentRepoChangesPresented
+                        )
 
-                    PiAgentOpenTerminalToolbarButton(
-                        viewModel: viewModel,
-                        store: viewModel.piAgentSessionStore
-                    )
+                        PiAgentOpenTerminalToolbarButton(
+                            viewModel: viewModel,
+                            store: viewModel.piAgentSessionStore
+                        )
+                    }
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.primary)
+                    .tint(.primary)
                 }
             }
         }

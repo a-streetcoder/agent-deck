@@ -464,6 +464,14 @@ private struct AutomationsSettingsTab: View {
                     isOn: gitAutomationEnabledBinding
                 )
 
+                SettingsToggleRow(
+                    title: "Confirm actions:",
+                    label: "Ask before committing or pushing",
+                    note: "On by default. Turn off to run Commit and Commit & Push immediately from the toolbar.",
+                    isOn: gitAutomationConfirmationBinding
+                )
+                .disabled(!viewModel.appSettings.piAgentGitAutomationEnabled)
+
                 SettingsPickerRow(
                     title: "Commit model:",
                     selection: commitMessageModelBinding,
@@ -497,6 +505,13 @@ private struct AutomationsSettingsTab: View {
         Binding(
             get: { viewModel.appSettings.piAgentGitAutomationEnabled },
             set: { viewModel.setPiAgentGitAutomationEnabled($0) }
+        )
+    }
+
+    private var gitAutomationConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.piAgentGitAutomationRequiresConfirmation },
+            set: { viewModel.setPiAgentGitAutomationRequiresConfirmation($0) }
         )
     }
 
