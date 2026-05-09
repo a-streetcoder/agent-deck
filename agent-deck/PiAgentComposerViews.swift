@@ -17,6 +17,7 @@ struct PiAgentComposerBox: View {
     let canSend: Bool
     let path: String?
     let onFiles: ([URL]) -> Void
+    let onFolders: ([URL]) -> Void
     let viewModel: AppViewModel
     let footerSession: PiAgentSessionRecord?
     let transcript: [PiAgentTranscriptEntry]
@@ -63,7 +64,8 @@ struct PiAgentComposerBox: View {
                     onDropTargeted: { isDropTargeted = $0 },
                     onImages: addImages,
                     onFiles: onFiles,
-                    onUnsupportedDrop: { attachmentError = "Drop images or files." },
+                    onFolders: onFolders,
+                    onUnsupportedDrop: { attachmentError = "Drop images, files, or folders." },
                     onSend: onSend,
                     onClear: onClear,
                     isDisabled: isDisabled
@@ -144,11 +146,14 @@ struct PiAgentComposerBox: View {
         }
         .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image, .plainText, .utf8PlainText], isTargeted: $isDropTargeted) { providers in
             PiAgentComposerImageLoader.loadDropItems(from: providers) { attachments, files in
-                if attachments.isEmpty && files.isEmpty {
-                    attachmentError = "Drop images or files."
+                let folderURLs = files.filter(\.hasDirectoryPath)
+                let fileURLs = files.filter { !$0.hasDirectoryPath }
+                if attachments.isEmpty && fileURLs.isEmpty && folderURLs.isEmpty {
+                    attachmentError = "Drop images, files, or folders."
                 } else {
                     addImages(attachments)
-                    onFiles(files)
+                    onFiles(fileURLs)
+                    onFolders(folderURLs)
                 }
             }
             return true
@@ -214,6 +219,7 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     var onDropTargeted: (Bool) -> Void
     var onImages: ([PiAgentImageAttachment]) -> Void
     var onFiles: ([URL]) -> Void
+    var onFolders: ([URL]) -> Void
     var onUnsupportedDrop: () -> Void
     var onSend: () -> Void
     var onClear: () -> Void
@@ -286,15 +292,18 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
 
         func handleDrop(_ pasteboard: NSPasteboard) -> Bool {
             let images = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard)
-            let files = PiAgentComposerImageLoader.fileURLs(from: pasteboard).filter { url in
-                PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) == nil
+            let droppedURLs = PiAgentComposerImageLoader.fileURLs(from: pasteboard).filter { url in
+                url.hasDirectoryPath || PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) == nil
             }
-            if images.isEmpty && files.isEmpty {
+            let folders = droppedURLs.filter(\.hasDirectoryPath)
+            let files = droppedURLs.filter { !$0.hasDirectoryPath }
+            if images.isEmpty && files.isEmpty && folders.isEmpty {
                 parent.onUnsupportedDrop()
                 return false
             }
             parent.onImages(images)
             parent.onFiles(files)
+            parent.onFolders(folders)
             return true
         }
 
@@ -430,9 +439,9 @@ struct PiAgentFileAttachmentChip: View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text")
                 .foregroundStyle(AppTheme.brandAccent)
-            Text(file.url.lastPathComponent)
+            Text(file.url.lastPathComponent.isEmpty ? file.url.path : file.url.lastPathComponent)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.head)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(AppTheme.mutedText)
@@ -562,7 +571,7 @@ enum PiAgentComposerImageLoader {
         }
 
         nonisolated func appendFile(_ url: URL?) {
-            guard let url, !url.hasDirectoryPath else { return }
+            guard let url else { return }
             lock.lock()
             files.append(url)
             lock.unlock()

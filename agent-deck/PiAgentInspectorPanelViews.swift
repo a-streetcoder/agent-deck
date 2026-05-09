@@ -82,6 +82,16 @@ struct PiAgentInspectorPanel: View {
                             composerFiles.append(attachment)
                         }
                     },
+                    onFolders: { urls in
+                        let unique = urls.reduce(into: [String: URL]()) { result, url in result[url.path] = url }.values.sorted { $0.path < $1.path }
+                        let insertion = unique.map { "folder: `\($0.path)`" }.joined(separator: " ")
+                        guard !insertion.isEmpty else { return }
+                        if composerText.isEmpty || composerText.last?.isWhitespace == true {
+                            composerText += insertion
+                        } else {
+                            composerText += " \(insertion)"
+                        }
+                    },
                     viewModel: viewModel,
                     footerSession: session,
                     transcript: store.selectedTranscript,

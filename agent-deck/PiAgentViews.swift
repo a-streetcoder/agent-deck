@@ -1048,6 +1048,7 @@ struct PiAgentScreen: View {
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
+                onFolders: insertFolderReferences,
                 viewModel: viewModel,
                 footerSession: store.selectedSession,
                 transcript: store.selectedTranscript,
@@ -1218,6 +1219,18 @@ struct PiAgentScreen: View {
         composerAttachmentError = nil
         for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
             composerFiles.append(attachment)
+        }
+    }
+
+    private func insertFolderReferences(_ urls: [URL]) {
+        let unique = urls.reduce(into: [String: URL]()) { result, url in result[url.path] = url }.values.sorted { $0.path < $1.path }
+        guard !unique.isEmpty else { return }
+        composerAttachmentError = nil
+        let insertion = unique.map { "folder: `\($0.path)`" }.joined(separator: " ")
+        if composerText.isEmpty || composerText.last?.isWhitespace == true {
+            composerText += insertion
+        } else {
+            composerText += " \(insertion)"
         }
     }
 
