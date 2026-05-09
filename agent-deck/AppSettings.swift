@@ -64,6 +64,8 @@ struct AppSettings: Codable, Hashable {
     var autoGeneratePiAgentSessionTitles: Bool = false
     var piAgentTitleGenerationModelIdentifier: String?
     var disabledModelIdentifiers: Set<String> = []
+    var disabledInjectedCommandIDs: Set<String> = []
+    var enabledLibraryCommandIDs: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
         case appearanceMode
@@ -83,6 +85,8 @@ struct AppSettings: Codable, Hashable {
         case autoGeneratePiAgentSessionTitles
         case piAgentTitleGenerationModelIdentifier
         case disabledModelIdentifiers
+        case disabledInjectedCommandIDs
+        case enabledLibraryCommandIDs
     }
 
     init() {}
@@ -107,6 +111,8 @@ struct AppSettings: Codable, Hashable {
         autoGeneratePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoGeneratePiAgentSessionTitles) ?? false
         piAgentTitleGenerationModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentTitleGenerationModelIdentifier)
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
+        disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
+        enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []
     }
 }
 

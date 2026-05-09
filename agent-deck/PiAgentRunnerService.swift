@@ -260,6 +260,9 @@ final class PiAgentRunnerService {
             if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", webURL.path])
             }
+            for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: AppSettingsStore.shared.settings) {
+                extraArguments.append(contentsOf: ["--extension", commandURL.path])
+            }
             if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
                 if let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty {
@@ -310,6 +313,7 @@ final class PiAgentRunnerService {
             }
             client.getState()
             client.getAvailableModels()
+            client.getCommands()
             let currentSession = store.sessions.first(where: { $0.id == session.id }) ?? session
             if currentSession.isTitleUserEdited || (session.title.hasPrefix("Draft ·") && !currentSession.title.hasPrefix("Draft ·")) {
                 client.setSessionName(currentSession.displayTitle)
@@ -581,6 +585,13 @@ final class PiAgentRunnerService {
             return
         }
 
+        if event.command == "get_commands", let data = event.data {
+            store.updateSession(sessionID) { record in
+                record.commandInvocations = parseCommandInvocations(from: data)
+            }
+            return
+        }
+
         if event.command == "set_model" || event.command == "cycle_model", let data = event.data {
             store.updateSession(sessionID) { record in
                 if let modelObject = data["model"] ?? (data["id"] == nil ? nil : data) {
@@ -822,6 +833,23 @@ final class PiAgentRunnerService {
             record.modelOverrideProvider = provider ?? record.modelOverrideProvider
             record.modelOverrideID = modelID ?? record.modelOverrideID
         }
+    }
+
+    private func parseCommandInvocations(from value: JSONValue) -> [String] {
+        let commands: [JSONValue]
+        if case let .array(items) = value {
+            commands = items
+        } else if case let .array(items)? = value["commands"] {
+            commands = items
+        } else {
+            commands = []
+        }
+
+        return Array(Set(commands.compactMap { item -> String? in
+            let raw = item["name"]?.stringValue ?? item["invocation"]?.stringValue ?? item.stringValue
+            guard let raw, !raw.isEmpty else { return nil }
+            return raw.hasPrefix("/") ? raw : "/\(raw)"
+        })).sorted()
     }
 
     private func parseModelOptions(from value: JSONValue) -> [PiAgentModelOption] {

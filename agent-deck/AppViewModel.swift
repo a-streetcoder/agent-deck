@@ -2808,6 +2808,27 @@ final class AppViewModel: NSObject, ObservableObject {
         syncAppSettings()
     }
 
+    func isInjectedCommandEnabled(_ command: PiInjectedCommand) -> Bool {
+        PiInjectedCommandCatalog.isEnabled(command, settings: appSettings)
+    }
+
+    func setInjectedCommandEnabled(_ command: PiInjectedCommand, isEnabled: Bool) {
+        guard appSettingsController.setInjectedCommandEnabled(command, isEnabled: isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func importCommandFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = ["ts", "js"]
+        panel.message = "Choose a Pi extension file containing pi.registerCommand(...)."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? PiInjectedCommandCatalog.importCommandFile(url)
+        syncAppSettings()
+    }
+
     func piAgentTitleGenerationModel() -> AvailableModel? {
         if let identifier = appSettings.piAgentTitleGenerationModelIdentifier,
            let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) {

@@ -61,7 +61,7 @@ struct PiAgentCommandSuggestions: View {
             } else if !commands.isEmpty || !skills.isEmpty {
                 suggestionPanel(scrollable: true) {
                     if !commands.isEmpty {
-                        suggestionSection(title: "Slash commands", icon: "terminal")
+                        suggestionSection(title: "Commands", icon: "terminal")
                         commandRows(commands)
                     }
                     if !skills.isEmpty {

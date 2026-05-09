@@ -816,6 +816,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var modelOverrideID: String?
     var modelOverrideProvider: String?
     var availableModels: [PiAgentModelOption]?
+    var commandInvocations: [String]?
     var thinkingLevel: String?
     var launchCommand: String?
     var branchName: String?
@@ -857,7 +858,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
-        case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, thinkingLevel, launchCommand, branchName, worktreePath
+        case model, modelProvider, modelOverrideID, modelOverrideProvider, availableModels, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
         case finalSystemPrompt, finalSystemPromptCapturedAt
@@ -880,6 +881,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         modelOverrideID: String?,
         modelOverrideProvider: String?,
         availableModels: [PiAgentModelOption]?,
+        commandInvocations: [String]? = nil,
         thinkingLevel: String?,
         launchCommand: String?,
         branchName: String?,
@@ -927,6 +929,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.modelOverrideID = modelOverrideID
         self.modelOverrideProvider = modelOverrideProvider
         self.availableModels = availableModels
+        self.commandInvocations = commandInvocations
         self.thinkingLevel = thinkingLevel
         self.launchCommand = launchCommand
         self.branchName = branchName
@@ -978,6 +981,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             modelOverrideID: try container.decodeIfPresent(String.self, forKey: .modelOverrideID),
             modelOverrideProvider: try container.decodeIfPresent(String.self, forKey: .modelOverrideProvider),
             availableModels: try container.decodeIfPresent([PiAgentModelOption].self, forKey: .availableModels),
+            commandInvocations: try container.decodeIfPresent([String].self, forKey: .commandInvocations),
             thinkingLevel: try container.decodeIfPresent(String.self, forKey: .thinkingLevel),
             launchCommand: try container.decodeIfPresent(String.self, forKey: .launchCommand),
             branchName: try container.decodeIfPresent(String.self, forKey: .branchName),

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsSceneContent: View {
@@ -31,6 +32,8 @@ struct SettingsSceneContent: View {
             PerformanceSettingsTab(viewModel: viewModel)
         case .subagents:
             SubagentsSettingsTab(viewModel: viewModel)
+        case .commands:
+            CommandsSettingsTab(viewModel: viewModel)
         case .shortcuts:
             ShortcutsSettingsTab()
         }
@@ -43,6 +46,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case github = "GitHub"
     case performance = "Performance"
     case subagents = "Subagents"
+    case commands = "Commands"
     case shortcuts = "Shortcuts"
 
     var id: String { rawValue }
@@ -54,6 +58,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .performance: return "speedometer"
         case .subagents: return "slider.horizontal.3"
+        case .commands: return "terminal"
         case .shortcuts: return "keyboard"
         }
     }
@@ -525,6 +530,178 @@ private struct PerformanceSettingsTab: View {
             get: { viewModel.piAgentLoadedTranscriptCacheLimit },
             set: { viewModel.setPiAgentLoadedTranscriptCacheLimit($0) }
         )
+    }
+}
+
+// MARK: - Commands
+
+private struct CommandsSettingsTab: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        SettingsForm {
+            SettingsSection {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Injected Slash Commands")
+                        .font(.headline)
+                    SettingsNote(text: "Only Agent Deck bundled commands are shown here. Enabled commands are loaded into parent Pi RPC sessions with explicit --extension arguments while ambient Pi extension discovery remains disabled. Future imported commands should live in \(PiInjectedCommandCatalog.commandLibraryPath).")
+                }
+
+                HStack {
+                    Button {
+                        viewModel.importCommandFile()
+                    } label: {
+                        Label("Import Command…", systemImage: "square.and.arrow.down")
+                    }
+                    Button {
+                        revealCommandLibraryInFinder()
+                    } label: {
+                        Label("Reveal Library", systemImage: "folder")
+                    }
+                }
+                .buttonStyle(.bordered)
+
+                VStack(spacing: 24) {
+                    CommandGroupSection(
+                        title: "Agent Deck Bundled",
+                        subtitle: "Commands shipped with the app.",
+                        commands: PiInjectedCommandCatalog.all.filter { $0.source == .builtIn },
+                        viewModel: viewModel
+                    )
+
+                    let importedCommands = PiInjectedCommandCatalog.all.filter { $0.source == .library }
+                    if !importedCommands.isEmpty {
+                        CommandGroupSection(
+                            title: "Imported",
+                            subtitle: "Commands copied into the Agent Deck command library. Imported commands are disabled by default.",
+                            commands: importedCommands,
+                            viewModel: viewModel
+                        )
+                    }
+                }
+                .padding(.top, 14)
+            }
+
+            SettingsNote(text: "Changes apply to newly started or resumed RPC sessions. Restart an active Pi session to change which injected commands it has loaded.")
+                .padding(.horizontal, 14)
+        }
+    }
+
+    private func revealCommandLibraryInFinder() {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let directory = appSupport
+            .appendingPathComponent(AppBrand.displayName, isDirectory: true)
+            .appendingPathComponent("Command Library", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([directory])
+    }
+}
+
+private struct CommandGroupSection: View {
+    let title: String
+    let subtitle: String
+    let commands: [PiInjectedCommand]
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption.italic())
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(commands) { command in
+                    CommandSettingsRow(command: command, viewModel: viewModel)
+                }
+            }
+        }
+    }
+}
+
+private struct CommandSettingsRow: View {
+    let command: PiInjectedCommand
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    SlashCommandKeyCap(command.slashName)
+                    Text(command.title)
+                        .font(.headline)
+                    sourcePill
+                }
+
+                Text(command.description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let path = command.extensionPath {
+                    Text(path)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer(minLength: 24)
+
+            Toggle("", isOn: Binding(
+                get: { viewModel.isInjectedCommandEnabled(command) },
+                set: { viewModel.setInjectedCommandEnabled(command, isEnabled: $0) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        }
+    }
+
+    private var sourcePill: some View {
+        Label(command.source == .builtIn ? "Bundled" : "Imported", systemImage: command.source == .builtIn ? "shippingbox" : "square.and.arrow.down")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(command.source == .builtIn ? AppTheme.brandAccent : .blue)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background((command.source == .builtIn ? AppTheme.brandAccent : Color.blue).opacity(0.10), in: Capsule(style: .continuous))
+    }
+}
+
+private struct SlashCommandKeyCap: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 24)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(AppTheme.contentSubtleFill)
+                    .shadow(color: .black.opacity(0.08), radius: 0, x: 0, y: 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(AppTheme.contentStroke, lineWidth: 1)
+            }
     }
 }
 

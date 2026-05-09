@@ -21,7 +21,7 @@ struct PiNativeSubagentBridgeExtensions {
         try writeExtension(named: "agent-deck-web-access.ts", content: webAccessExtensionSource, fileManager: fileManager)
     }
 
-    private static func writeExtension(named fileName: String, content: String, fileManager: FileManager) throws -> URL {
+    static func writeExtension(named fileName: String, content: String, fileManager: FileManager) throws -> URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let directory = appSupport

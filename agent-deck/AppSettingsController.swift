@@ -111,6 +111,10 @@ final class AppSettingsController {
         settings.disabledModelIdentifiers
     }
 
+    var disabledInjectedCommandIDs: Set<String> {
+        settings.disabledInjectedCommandIDs
+    }
+
     var shouldShowContextSmartZoneHint: Bool {
         settings.showContextSmartZoneHint
     }
@@ -361,6 +365,24 @@ final class AppSettingsController {
     func enableAllModels() -> Bool {
         guard !settings.disabledModelIdentifiers.isEmpty else { return false }
         settings.disabledModelIdentifiers = []
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setInjectedCommandEnabled(_ command: PiInjectedCommand, isEnabled: Bool) -> Bool {
+        switch command.source {
+        case .builtIn:
+            var disabled = settings.disabledInjectedCommandIDs
+            let changed = isEnabled ? (disabled.remove(command.id) != nil) : disabled.insert(command.id).inserted
+            guard changed else { return false }
+            settings.disabledInjectedCommandIDs = disabled
+        case .library:
+            var enabled = settings.enabledLibraryCommandIDs
+            let changed = isEnabled ? enabled.insert(command.id).inserted : (enabled.remove(command.id) != nil)
+            guard changed else { return false }
+            settings.enabledLibraryCommandIDs = enabled
+        }
         persist()
         return true
     }

@@ -128,7 +128,7 @@ struct SkillsProjectRecapPanel: View {
 struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isRecapPresented: Bool
-    @State private var selectedSkillName: String?
+    @State private var selectedSkillID: SkillRecord.ID?
     @State private var isImportSheetPresented = false
     @State private var shouldPromptForImportSource = false
     @State private var importSourceURL: URL?
@@ -163,8 +163,13 @@ struct SkillsScreen: View {
                 .frame(width: 380)
             }
         }
-        .onAppear { ensureSelection() }
+        .onAppear { synchronizeSelectionFromViewModel() }
         .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in ensureSelection() }
+        .onChange(of: viewModel.selectedSkillID) { _, _ in synchronizeSelectionFromViewModel() }
+        .onChange(of: selectedSkillID) { _, id in
+            guard viewModel.selectedSkillID != id else { return }
+            viewModel.selectedSkillID = id
+        }
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckImportSkillsRequested)) { _ in
             beginSkillImport()
         }
@@ -204,7 +209,7 @@ struct SkillsScreen: View {
                     }
                     ForEach(activeSkills, id: \.name) { skill in
                         skillListRow(skill, inactive: false)
-                            .tag(skill.name)
+                            .tag(skill.id)
                     }
                 }
 
@@ -212,7 +217,7 @@ struct SkillsScreen: View {
                     appListSection("Library Skills", info: "Library skills are centrally stored and only become active when assigned to this project or enabled globally.") {
                         ForEach(inactiveLibrarySkills, id: \.name) { skill in
                             skillListRow(skill, inactive: true)
-                                .tag(skill.name)
+                                .tag(skill.id)
                         }
                     }
                 }
@@ -223,7 +228,7 @@ struct SkillsScreen: View {
                     }
                     ForEach(globalSkills, id: \.name) { skill in
                         skillListRow(skill, inactive: false)
-                            .tag(skill.name)
+                            .tag(skill.id)
                     }
                 }
 
@@ -231,7 +236,7 @@ struct SkillsScreen: View {
                     appListSection("Library Skills") {
                         ForEach(librarySkills, id: \.name) { skill in
                             skillListRow(skill, inactive: false)
-                                .tag(skill.name)
+                                .tag(skill.id)
                         }
                     }
                 }
@@ -241,7 +246,7 @@ struct SkillsScreen: View {
                 appListSection("Package Skills", info: "Package skills are active by default when their package is discovered. They are package-managed, so \(AppBrand.displayName) does not assign or unlink them per project.") {
                     ForEach(packageSkills, id: \.name) { skill in
                         skillListRow(skill, inactive: false)
-                            .tag(skill.name)
+                            .tag(skill.id)
                     }
                 }
             }
@@ -316,8 +321,8 @@ struct SkillsScreen: View {
     }
 
     private var selectedSkill: SkillRecord? {
-        guard let selectedSkillName else { return managedSkills.first }
-        return managedSkills.first { $0.name == selectedSkillName } ?? managedSkills.first
+        guard let selectedSkillID else { return managedSkills.first }
+        return managedSkills.first { $0.id == selectedSkillID } ?? managedSkills.first
     }
 
     private var activeSkills: [SkillRecord] {
@@ -370,22 +375,36 @@ struct SkillsScreen: View {
         return skill.source.kind == .package && selectedProject != nil
     }
 
-    private var skillSelection: Binding<String?> {
+    private var skillSelection: Binding<SkillRecord.ID?> {
         Binding(
-            get: { selectedSkillName },
-            set: { name in
-                selectedSkillName = name
-                if let skill = managedSkills.first(where: { $0.name == name }) {
-                    viewModel.selectedSkillID = skill.id
-                }
-            }
+            get: { selectedSkillID },
+            set: { selectedSkillID = $0 }
         )
     }
 
+    private func synchronizeSelectionFromViewModel() {
+        guard let viewModelSkillID = viewModel.selectedSkillID else {
+            ensureSelection()
+            return
+        }
+
+        if managedSkills.contains(where: { $0.id == viewModelSkillID }) {
+            selectedSkillID = viewModelSkillID
+            return
+        }
+
+        if let selectedSkillName = viewModel.allVisibleSkillRecords.first(where: { $0.id == viewModelSkillID })?.name,
+           let preferredSkill = managedSkills.first(where: { $0.name == selectedSkillName }) {
+            selectedSkillID = preferredSkill.id
+            return
+        }
+
+        ensureSelection()
+    }
+
     private func ensureSelection() {
-        guard selectedSkillName == nil || !managedSkills.contains(where: { $0.name == selectedSkillName }) else { return }
-        selectedSkillName = managedSkills.first?.name
-        viewModel.selectedSkillID = managedSkills.first?.id
+        guard selectedSkillID == nil || !managedSkills.contains(where: { $0.id == selectedSkillID }) else { return }
+        selectedSkillID = managedSkills.first?.id
     }
 
     private func skillListRow(_ skill: SkillRecord, inactive: Bool) -> some View {

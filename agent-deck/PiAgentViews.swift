@@ -1121,7 +1121,12 @@ struct PiAgentScreen: View {
     private var slashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
         guard !query.hasPrefix("skill:") else { return [] }
-        let all = Array(Set(viewModel.snapshot.promptTemplates.map(\.invocation) + ["/compact"])).sorted()
+        let configuredCommands = PiInjectedCommandCatalog.all
+            .filter { PiInjectedCommandCatalog.isEnabled($0, settings: viewModel.appSettings) }
+            .map(\.slashName)
+        let runtimeCommands = store.selectedSession?.commandInvocations
+        let commandSource = runtimeCommands ?? configuredCommands
+        let all = Array(Set(viewModel.snapshot.promptTemplates.map(\.invocation) + commandSource + ["/compact"])).sorted()
         return all.filter { query.isEmpty || $0.dropFirst().lowercased().hasPrefix(query) }.prefix(8).map { $0 }
     }
 
