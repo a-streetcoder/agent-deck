@@ -4,6 +4,7 @@ import SwiftUI
 struct ChainsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isRecapPresented: Bool
+    @Binding var searchText: String
 
     var body: some View {
         HStack(spacing: 0) {
@@ -161,20 +162,31 @@ struct ChainsScreen: View {
         .appResourceListStyle()
     }
 
+    private var visibleChains: [ChainRecord] {
+        let chains = viewModel.allVisibleChainRecords
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return chains }
+        return chains.filter { chain in
+            let stepText = chain.steps.map { [$0.agent, $0.title, $0.body].joined(separator: " ") }.joined(separator: " ")
+            return [chain.name, chain.description, chain.source.kind.rawValue, chain.filePath, stepText]
+                .contains { $0.lowercased().contains(query) }
+        }
+    }
+
     private var activeChains: [ChainRecord] {
-        viewModel.allVisibleChainRecords.filter { $0.source.kind != .library }
+        visibleChains.filter { $0.source.kind != .library }
     }
 
     private var globalChains: [ChainRecord] {
-        viewModel.allVisibleChainRecords.filter { $0.source.kind == .global }
+        visibleChains.filter { $0.source.kind == .global }
     }
 
     private var projectChains: [ChainRecord] {
-        viewModel.allVisibleChainRecords.filter { $0.source.kind == .project || $0.source.kind == .legacyProject }
+        visibleChains.filter { $0.source.kind == .project || $0.source.kind == .legacyProject }
     }
 
     private var libraryChains: [ChainRecord] {
-        viewModel.allVisibleChainRecords.filter { $0.source.kind == .library }
+        visibleChains.filter { $0.source.kind == .library }
     }
 
     private func chainListRow(_ chain: ChainRecord, inactive: Bool = false) -> some View {

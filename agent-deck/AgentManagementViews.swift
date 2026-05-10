@@ -6,11 +6,12 @@ struct AgentsScreen: View {
     let editCommand: Int
     @Binding var isEditing: Bool
     @Binding var isRecapPresented: Bool
+    @Binding var searchText: String
 
     var body: some View {
         HStack(spacing: 0) {
             HSplitView {
-                AgentLibraryPane(viewModel: viewModel)
+                AgentLibraryPane(viewModel: viewModel, searchText: $searchText)
                     .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
             if let agent = viewModel.selectedAgent {
@@ -119,6 +120,7 @@ private struct AgentWarningPopover: View {
 
 private struct AgentLibraryPane: View {
     @ObservedObject var viewModel: AppViewModel
+    @Binding var searchText: String
     @State private var warningPopoverAgentID: String?
 
     var body: some View {
@@ -177,17 +179,17 @@ private struct AgentLibraryPane: View {
     }
 
     private var activeCustomAgents: [EffectiveAgentRecord] {
-        viewModel.filteredAgents.filter { agent in
+        filteredAgents.filter { agent in
             agent.resolutionKind != .library && !(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil)
         }
     }
 
     private var globalCustomAgents: [EffectiveAgentRecord] {
-        viewModel.filteredAgents.filter { $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+        filteredAgents.filter { $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
     }
 
     private var libraryAgents: [EffectiveAgentRecord] {
-        let candidates = viewModel.filteredAgents.filter { agent in
+        let candidates = filteredAgents.filter { agent in
             agent.resolutionKind == .library
         }
         return preferredAgentsByName(candidates) { records in
@@ -207,7 +209,16 @@ private struct AgentLibraryPane: View {
     }
 
     private var builtinAgents: [EffectiveAgentRecord] {
-        viewModel.filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
+        filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
+    }
+
+    private var filteredAgents: [EffectiveAgentRecord] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return viewModel.filteredAgents }
+        return viewModel.filteredAgents.filter { agent in
+            [agent.name, agent.resolved.description, agent.resolutionKind.rawValue, agent.sourcePath ?? "", agent.resolved.systemPrompt]
+                .contains { $0.lowercased().contains(query) }
+        }
     }
 
     private func agentListRow(_ agent: EffectiveAgentRecord, inactive: Bool) -> some View {

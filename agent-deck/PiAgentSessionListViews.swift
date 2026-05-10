@@ -4,13 +4,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PiAgentSessionSearchField: View {
+    var placeholder = "Search all sessions"
     @Binding var text: String
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(AppTheme.mutedText)
-            TextField("Search all sessions", text: $text)
+            TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
             if !text.isEmpty {
                 Button {
@@ -38,18 +39,56 @@ struct PiAgentAddSessionButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "plus")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(isEnabled ? .white : AppTheme.mutedText.opacity(0.55))
-                .frame(width: 30, height: 30)
-                .background(
-                    Circle()
-                        .fill(isEnabled ? AppTheme.brandAccent : AppTheme.contentStroke.opacity(0.45))
-                )
-                .contentShape(Circle())
+            PiAgentAddSessionButtonLabel(showsChevron: false, isEnabled: isEnabled)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("New Pi Agent session")
+    }
+}
+
+struct PiAgentAddSessionMenuButton: View {
+    let projects: [DiscoveredProject]
+    let onSelectProject: (DiscoveredProject) -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Menu {
+            ForEach(projects) { project in
+                Button {
+                    onSelectProject(project)
+                } label: {
+                    Label(project.repositoryDisplayName, systemImage: project.fallbackSymbolName)
+                }
+            }
+        } label: {
+            PiAgentAddSessionButtonLabel(showsChevron: true, isEnabled: isEnabled)
+        }
+        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .accessibilityLabel("New Pi Agent session")
+    }
+}
+
+private struct PiAgentAddSessionButtonLabel: View {
+    let showsChevron: Bool
+    let isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .bold))
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+        }
+        .foregroundStyle(isEnabled ? .white : AppTheme.mutedText.opacity(0.55))
+        .frame(width: showsChevron ? 42 : 30, height: 30)
+        .background(
+            Capsule(style: .continuous)
+                .fill(isEnabled ? AppTheme.brandAccent : AppTheme.contentStroke.opacity(0.45))
+        )
+        .contentShape(Capsule(style: .continuous))
     }
 }
 

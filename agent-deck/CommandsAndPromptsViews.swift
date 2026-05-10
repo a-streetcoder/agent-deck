@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PromptsScreen: View {
     @ObservedObject var viewModel: AppViewModel
+    @Binding var searchText: String
 
     var body: some View {
         HSplitView {
@@ -85,7 +86,13 @@ struct PromptsScreen: View {
     }
 
     private var visiblePrompts: [PromptTemplateRecord] {
-        viewModel.allVisiblePromptTemplateRecords
+        let prompts = viewModel.allVisiblePromptTemplateRecords
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return prompts }
+        return prompts.filter { prompt in
+            [prompt.name, prompt.invocation, prompt.description, prompt.source.kind.rawValue, prompt.filePath, prompt.body]
+                .contains { $0.lowercased().contains(query) }
+        }
     }
 
     private var projectPrompts: [PromptTemplateRecord] {

@@ -9,8 +9,14 @@ struct PiAgentGitActionsToolbarGroup: View {
     var body: some View {
         ControlGroup {
             Button { commitTapped() } label: {
-                Label("Commit", systemImage: symbol(for: .commit, fallback: "checkmark.seal"))
-                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commit)
+                Label("Commit", systemImage: "checkmark.seal")
+                    .opacity(viewModel.piAgentGitAutomationAction == .commit ? 0 : 1)
+                    .overlay {
+                        if viewModel.piAgentGitAutomationAction == .commit {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .symbolEffect(.rotate, options: .repeating)
+                        }
+                    }
             }
             .disabled(!viewModel.canCommitSelectedPiAgentSession)
             .help("Stage all changes and create a commit with an AI-generated title and description")
@@ -22,15 +28,27 @@ struct PiAgentGitActionsToolbarGroup: View {
             }
 
             Button { viewModel.pushSelectedPiAgentSession() } label: {
-                Label("Push", systemImage: symbol(for: .push, fallback: "arrow.up.circle"))
-                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .push)
+                Label("Push", systemImage: "arrow.up.circle")
+                    .opacity(viewModel.piAgentGitAutomationAction == .push ? 0 : 1)
+                    .overlay {
+                        if viewModel.piAgentGitAutomationAction == .push {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .symbolEffect(.rotate, options: .repeating)
+                        }
+                    }
             }
             .disabled(!viewModel.canPushSelectedPiAgentSession)
             .help("Push committed changes on the selected session's current branch")
 
             Button { commitAndPushTapped() } label: {
-                Label("Commit & Push", systemImage: symbol(for: .commitAndPush, fallback: "shippingbox.and.arrow.backward"))
-                    .symbolEffect(.rotate, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
+                Label("Commit & Push", systemImage: "shippingbox.and.arrow.backward")
+                    .opacity(viewModel.piAgentGitAutomationAction == .commitAndPush ? 0 : 1)
+                    .overlay {
+                        if viewModel.piAgentGitAutomationAction == .commitAndPush {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .symbolEffect(.rotate, options: .repeating)
+                        }
+                    }
             }
             .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
             .help("Stage all changes, commit, and push the selected session's current branch")
@@ -42,10 +60,6 @@ struct PiAgentGitActionsToolbarGroup: View {
             }
 
         }
-    }
-
-    private func symbol(for action: PiAgentGitAutomationAction, fallback: String) -> String {
-        viewModel.piAgentGitAutomationAction == action ? "arrow.triangle.2.circlepath" : fallback
     }
 
     private func alertMessage(for action: PiAgentGitAction) -> String {

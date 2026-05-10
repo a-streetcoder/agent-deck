@@ -128,6 +128,7 @@ struct SkillsProjectRecapPanel: View {
 struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isRecapPresented: Bool
+    @Binding var searchText: String
     @State private var selectedSkillID: SkillRecord.ID?
     @State private var isImportSheetPresented = false
     @State private var shouldPromptForImportSource = false
@@ -316,8 +317,14 @@ struct SkillsScreen: View {
 
     private var managedSkills: [SkillRecord] {
         let grouped = Dictionary(grouping: viewModel.allVisibleSkillRecords, by: \.name)
-        return grouped.values.compactMap(preferredSkillRecord)
+        let skills = grouped.values.compactMap(preferredSkillRecord)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return skills }
+        return skills.filter { skill in
+            [skill.name, skill.description ?? "", skill.source.kind.rawValue, skill.filePath, skill.body]
+                .contains { $0.lowercased().contains(query) }
+        }
     }
 
     private var selectedSkill: SkillRecord? {

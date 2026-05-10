@@ -14,8 +14,8 @@ struct SidebarNavigationRow: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.yellow)
-                        .help("Enable or add a project to start working.")
-                        .accessibilityLabel("No enabled projects")
+                        .help("This section has warnings that need attention.")
+                        .accessibilityLabel("Section warning")
                 }
             }
             .fontWidth(.expanded)
@@ -147,6 +147,7 @@ struct SidebarProjectGitHubCard: View {
     @Binding var filterText: String
     let isSearchDebouncing: Bool
     let onSelectProject: (DiscoveredProject) -> Void
+    let onSelectAllProjects: () -> Void
     let onToggleFavorite: (DiscoveredProject) -> Void
     let onChooseProject: () -> Void
 
@@ -201,6 +202,10 @@ struct SidebarProjectGitHubCard: View {
                         isSearchDebouncing: isSearchDebouncing,
                         onSelectProject: { project in
                             onSelectProject(project)
+                            isExpanded = false
+                        },
+                        onSelectAllProjects: {
+                            onSelectAllProjects()
                             isExpanded = false
                         },
                         onToggleFavorite: onToggleFavorite
@@ -278,7 +283,7 @@ struct SidebarProjectGitHubCard: View {
         if let selectedProjectPath {
             return URL(fileURLWithPath: selectedProjectPath).lastPathComponent
         }
-        return "Choose Project"
+        return "All Projects"
     }
 
     private var selectedProjectSubtitle: String {
@@ -340,6 +345,7 @@ struct ProjectPickerPopover: View {
     @Binding var filterText: String
     let isSearchDebouncing: Bool
     let onSelectProject: (DiscoveredProject) -> Void
+    let onSelectAllProjects: () -> Void
     let onToggleFavorite: (DiscoveredProject) -> Void
 
     var body: some View {
@@ -352,6 +358,20 @@ struct ProjectPickerPopover: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    ProjectSidebarRow(
+                        title: "All Projects",
+                        subtitle: "Show global resources and sessions across every project",
+                        symbolName: "rectangle.stack",
+                        imageURL: nil,
+                        isSelected: selectedProjectPath == nil,
+                        isFavorite: false,
+                        showsFavoriteButton: false,
+                        onToggleFavorite: nil,
+                        action: onSelectAllProjects
+                    )
+
+                    Divider().opacity(0.7)
+
                     ForEach(projects) { project in
                         ProjectSidebarRow(
                             title: project.repositoryDisplayName,

@@ -36,6 +36,11 @@ struct ContentView: View {
     @State private var envDraft: EnvEditorDraft?
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
+    @State private var agentSearchText = ""
+    @State private var chainSearchText = ""
+    @State private var skillSearchText = ""
+    @State private var promptSearchText = ""
+    @State private var piAgentSessionSearchText = ""
     @State private var agentDetailEditCommand = 0
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
@@ -68,6 +73,19 @@ struct ContentView: View {
             }
     }
 
+    private func sidebarWarning(for item: SidebarItem) -> Bool {
+        switch item {
+        case .projects:
+            return viewModel.shouldWarnProjectSelection
+        case .agents:
+            return viewModel.hasAgentWarnings
+        case .skills:
+            return viewModel.hasSkillWarnings
+        default:
+            return false
+        }
+    }
+
     private var mainContent: some View {
         NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
@@ -92,7 +110,7 @@ struct ContentView: View {
                             ForEach(section.items) { item in
                                 SidebarNavigationRow(
                                     item: item,
-                                    showsWarning: item == .projects && viewModel.shouldWarnProjectSelection
+                                    showsWarning: sidebarWarning(for: item)
                                 )
                                 .tag(item)
                             }
@@ -125,6 +143,7 @@ struct ContentView: View {
                     filterText: $projectFilterText,
                     isSearchDebouncing: projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedProjectFilterText,
                     onSelectProject: { viewModel.setSelectedProject($0.url) },
+                    onSelectAllProjects: { viewModel.clearProjectRoot() },
                     onToggleFavorite: viewModel.toggleProjectFavorite,
                     onChooseProject: { viewModel.chooseProjectRoot() }
                 )
@@ -709,7 +728,7 @@ struct ContentView: View {
     private var detailSplitView: some View {
         if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
             HStack(spacing: 0) {
-                detailView
+                searchableDetailView
                     .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
 
                 Divider()
@@ -717,11 +736,65 @@ struct ContentView: View {
                     .frame(width: 400)
             }
         } else {
-            detailView
+            searchableDetailView
                 .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
+
+    @ViewBuilder
+    private var searchableDetailView: some View {
+        if toolbarSearchIsVisible {
+            detailView.searchable(text: toolbarSearchBinding, placement: .toolbar, prompt: toolbarSearchPrompt)
+        } else {
+            detailView
+        }
+    }
+
+    private var toolbarSearchIsVisible: Bool {
+        switch viewModel.selectedSidebarItem {
+        case .agents, .chains, .skills, .prompts, .agent:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var toolbarSearchPrompt: String {
+        switch viewModel.selectedSidebarItem {
+        case .agents: return "Search agents"
+        case .chains: return "Search chains"
+        case .skills: return "Search skills"
+        case .prompts: return "Search prompts"
+        case .agent: return "Search sessions"
+        default: return "Search"
+        }
+    }
+
+    private var toolbarSearchBinding: Binding<String> {
+        Binding(
+            get: {
+                switch viewModel.selectedSidebarItem {
+                case .agents: return agentSearchText
+                case .chains: return chainSearchText
+                case .skills: return skillSearchText
+                case .prompts: return promptSearchText
+                case .agent: return piAgentSessionSearchText
+                default: return ""
+                }
+            },
+            set: { value in
+                switch viewModel.selectedSidebarItem {
+                case .agents: agentSearchText = value
+                case .chains: chainSearchText = value
+                case .skills: skillSearchText = value
+                case .prompts: promptSearchText = value
+                case .agent: piAgentSessionSearchText = value
+                default: break
+                }
+            }
+        )
+    }
 
     private var commandContext: AgentDeckCommandContext {
         let selectedSession = viewModel.piAgentSessionStore.selectedSession
@@ -874,24 +947,28 @@ struct ContentView: View {
                 viewModel: viewModel,
                 editCommand: agentDetailEditCommand,
                 isEditing: $agentDetailIsEditing,
-                isRecapPresented: $isSubagentsRecapPresented
+                isRecapPresented: $isSubagentsRecapPresented,
+                searchText: $agentSearchText
             )
         case .chains:
             ChainsScreen(
                 viewModel: viewModel,
-                isRecapPresented: $isSubagentsRecapPresented
+                isRecapPresented: $isSubagentsRecapPresented,
+                searchText: $chainSearchText
             )
         case .skills:
             SkillsScreen(
                 viewModel: viewModel,
-                isRecapPresented: $isSkillsRecapPresented
+                isRecapPresented: $isSkillsRecapPresented,
+                searchText: $skillSearchText
             )
         case .prompts:
-            PromptsScreen(viewModel: viewModel)
+            PromptsScreen(viewModel: viewModel, searchText: $promptSearchText)
         case .agent:
             PiAgentScreen(
                 viewModel: viewModel,
-                store: viewModel.piAgentSessionStore
+                store: viewModel.piAgentSessionStore,
+                sessionSearchText: $piAgentSessionSearchText
             )
         case .models:
             ModelsScreen(viewModel: viewModel)

@@ -121,7 +121,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private var lastWatchFingerprint: String = ""
     private var refreshTask: Task<Void, Never>?
     private var refreshRequestID = 0
-    private var shouldWarmAllProjectSnapshotsAfterInitialLoad = false
     private var isRefreshingModels = false
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
@@ -158,8 +157,7 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()
-        shouldWarmAllProjectSnapshotsAfterInitialLoad = false
-        refresh(includeModels: true, scanAllProjects: false)
+        refresh(includeModels: true)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -248,6 +246,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func refresh(includeModels: Bool = false, scanAllProjects: Bool = false, extraProjectPathsToScan: Set<String> = []) {
         let selectedProjectPath = selectedProjectPath
+        let shouldScanAllProjects = scanAllProjects
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let rootURL = configuredProjectsRootURL
         refreshRequestID += 1
@@ -260,7 +259,7 @@ final class AppViewModel: NSObject, ObservableObject {
                 rootURL: rootURL,
                 selectedProjectPath: selectedProjectPath,
                 preferencesByPath: preferencesByPath,
-                scanAllProjects: scanAllProjects,
+                scanAllProjects: shouldScanAllProjects,
                 extraProjectPathsToScan: extraProjectPathsToScan
             )
 
@@ -322,12 +321,6 @@ final class AppViewModel: NSObject, ObservableObject {
             refreshAvailableModels()
         }
 
-        if shouldWarmAllProjectSnapshotsAfterInitialLoad {
-            shouldWarmAllProjectSnapshotsAfterInitialLoad = false
-            if !result.includesAllProjectSnapshots {
-                refresh(includeModels: false)
-            }
-        }
     }
 
     func chooseProjectRoot() {
@@ -1293,7 +1286,10 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func createPiAgentDraftForSelectedProject() {
-        let project = piAgentSessionProjectContext()
+        createPiAgentDraft(for: piAgentSessionProjectContext())
+    }
+
+    func createPiAgentDraft(for project: DiscoveredProject) {
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
         let session = piAgentSessionStore.createSession(
@@ -3163,7 +3159,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private var libraryOnlyEffectiveAgents: [EffectiveAgentRecord] {
-        let effectiveNames = Set(snapshot.effectiveAgents.map(\.name))
+        // In All Projects, project-local agents should not hide reusable library agents
+        // with the same name. Global/custom winners still hide library duplicates, but
+        // project-specific winners are scoped to their project and are not shown as the
+        // reusable library entry.
+        let agentsThatHideLibrary = snapshot.projectRoot == nil
+            ? snapshot.effectiveAgents.filter { $0.projectCustom == nil && $0.projectOverride == nil }
+            : snapshot.effectiveAgents
+        let effectiveNames = Set(agentsThatHideLibrary.map(\.name))
         return snapshot.libraryAgents
             .filter { !effectiveNames.contains($0.name) }
             .map { libraryDisplayAgent(from: $0, projectRoot: snapshot.projectRoot) }
@@ -3341,6 +3344,18 @@ final class AppViewModel: NSObject, ObservableObject {
         enabledProjects.isEmpty
     }
 
+    var hasAgentWarnings: Bool {
+        filteredAgents.contains { agent in
+            !warnings(for: agent).isEmpty || !explicitSkillVisibilityIssues(for: agent).isEmpty
+        }
+    }
+
+    var hasSkillWarnings: Bool {
+        allVisibleSkillRecords.contains { skill in
+            !agentsExplicitlyUsingSkill(skill).isEmpty || !agentsAmbientlySeeingSkill(skill).isEmpty
+        }
+    }
+
     func piAgentSessionProjectContext() -> DiscoveredProject {
         if let selectedDiscoveredProject {
             return selectedDiscoveredProject
@@ -3479,7 +3494,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func prompt(_ prompt: PromptTemplateRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        allProjectSnapshots[project.path]?.promptTemplates.contains { $0.name == prompt.name && $0.source.kind == .project } == true
+        FileManager.default.fileExists(atPath: projectPromptLinkURL(name: prompt.name, projectPath: project.path).path)
     }
 
     func assignedProjects(for prompt: PromptTemplateRecord) -> [DiscoveredProject] {
@@ -3525,7 +3540,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func agent(_ agent: AgentRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        allProjectSnapshots[project.path]?.projectAgents.contains { $0.name == agent.name } == true
+        FileManager.default.fileExists(atPath: projectAgentLinkURL(name: agent.name, projectPath: project.path).path)
     }
 
     func assignedProjects(for agent: AgentRecord) -> [DiscoveredProject] {
@@ -3545,14 +3560,30 @@ final class AppViewModel: NSObject, ObservableObject {
         guard let managedRecord else { return [] }
 
         return assignedProjects(for: managedRecord).compactMap { project in
-            guard let projectSnapshot = allProjectSnapshots[project.path] else {
-                return AgentSkillVisibilityIssue(project: project, missingSkills: explicitSkills)
-            }
-            let visibleSkillNames = Set((projectSnapshot.skills + projectSnapshot.librarySkills).map(\.name))
-            let missingSkills = explicitSkills.filter { !visibleSkillNames.contains($0) }
+            let missingSkills = explicitSkills.filter { !skillNamed($0, isRuntimeVisibleIn: project) }
             guard !missingSkills.isEmpty else { return nil }
             return AgentSkillVisibilityIssue(project: project, missingSkills: missingSkills)
         }
+    }
+
+    private func skillNamed(_ skillName: String, isRuntimeVisibleIn project: DiscoveredProject) -> Bool {
+        if globalSnapshot.skills.contains(where: { $0.name == skillName && ($0.source.kind == .global || $0.source.kind == .package) }) {
+            return true
+        }
+
+        let piSkillsRoot = project.url.appendingPathComponent(".pi/skills", isDirectory: true)
+        let directorySkill = piSkillsRoot.appendingPathComponent(skillName, isDirectory: true)
+        let fileSkill = piSkillsRoot.appendingPathComponent("\(skillName).md")
+        if FileManager.default.fileExists(atPath: directorySkill.path) || FileManager.default.fileExists(atPath: fileSkill.path) {
+            return true
+        }
+
+        // Compatibility path used by Pi for legacy project skills.
+        let legacySkill = project.url
+            .appendingPathComponent(".agents/skills", isDirectory: true)
+            .appendingPathComponent(skillName, isDirectory: true)
+            .appendingPathComponent("SKILL.md")
+        return FileManager.default.fileExists(atPath: legacySkill.path)
     }
 
     func agentIsEnabledGlobally(_ agent: AgentRecord) -> Bool {
@@ -3594,7 +3625,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func chain(_ chain: ChainRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        allProjectSnapshots[project.path]?.chains.contains { $0.name == chain.name && $0.source.kind == .project } == true
+        FileManager.default.fileExists(atPath: projectChainLinkURL(name: chain.name, projectPath: project.path).path)
     }
 
     func assignedProjects(for chain: ChainRecord) -> [DiscoveredProject] {
@@ -3658,7 +3689,13 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func skill(_ skill: SkillRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        allProjectSnapshots[project.path]?.skills.contains { $0.name == skill.name && $0.source.kind == .project } == true
+        let directoryURL = URL(fileURLWithPath: project.path)
+            .appendingPathComponent(".pi/skills", isDirectory: true)
+            .appendingPathComponent(skill.name, isDirectory: true)
+        let fileURL = URL(fileURLWithPath: project.path)
+            .appendingPathComponent(".pi/skills", isDirectory: true)
+            .appendingPathComponent("\(skill.name).md")
+        return FileManager.default.fileExists(atPath: directoryURL.path) || FileManager.default.fileExists(atPath: fileURL.path)
     }
 
     func assignedProjects(for skill: SkillRecord) -> [DiscoveredProject] {
@@ -4045,42 +4082,26 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func makeAggregateSnapshot() -> ScanSnapshot {
-        let enabledProjectPaths = Set(enabledProjects.map(\.path))
-        let projectSnapshots = allProjectSnapshots
-            .filter { enabledProjectPaths.contains($0.key) }
-            .map(\.value)
-        let projectSpecificEffectiveAgents = projectSnapshots
-            .flatMap(\.effectiveAgents)
-            .filter { $0.projectCustom != nil || $0.projectOverride != nil }
-
-        let chains = deduplicateByID(globalSnapshot.chains + projectSnapshots.flatMap(\.chains))
-        let libraryAgents = deduplicateByID(globalSnapshot.libraryAgents + projectSnapshots.flatMap(\.libraryAgents))
-        let libraryChains = deduplicateByID(globalSnapshot.libraryChains + projectSnapshots.flatMap(\.libraryChains))
-        let skills = deduplicateByID(globalSnapshot.skills + projectSnapshots.flatMap(\.skills))
-        let librarySkills = deduplicateByID(globalSnapshot.librarySkills + projectSnapshots.flatMap(\.librarySkills))
-        let promptTemplates = deduplicateByID(globalSnapshot.promptTemplates + projectSnapshots.flatMap(\.promptTemplates))
-        let libraryPromptTemplates = deduplicateByID(globalSnapshot.libraryPromptTemplates + projectSnapshots.flatMap(\.libraryPromptTemplates))
-        let envKeys = deduplicateByID(globalSnapshot.envKeys + projectSnapshots.flatMap(\.envKeys))
-        let warnings = deduplicateByID(globalSnapshot.warnings + projectSnapshots.flatMap(\.warnings))
-        let settings = Array(Set(globalSnapshot.settings + projectSnapshots.flatMap(\.settings))).sorted { $0.path < $1.path }
-
-        return ScanSnapshot(
+        // All Projects is a global/library management view. Project-local resources
+        // remain visible when their project is selected; they are intentionally not
+        // merged here so global/library resources do not depend on scanning every repo.
+        ScanSnapshot(
             projectRoot: nil,
             builtinAgents: globalSnapshot.builtinAgents,
             globalAgents: globalSnapshot.globalAgents,
-            projectAgents: deduplicateByID(projectSnapshots.flatMap(\.projectAgents)),
-            legacyProjectAgents: deduplicateByID(projectSnapshots.flatMap(\.legacyProjectAgents)),
-            effectiveAgents: globalSnapshot.effectiveAgents + projectSpecificEffectiveAgents,
-            chains: chains,
-            libraryAgents: libraryAgents,
-            libraryChains: libraryChains,
-            skills: skills,
-            librarySkills: librarySkills,
-            promptTemplates: promptTemplates,
-            libraryPromptTemplates: libraryPromptTemplates,
-            settings: settings,
-            envKeys: envKeys,
-            warnings: warnings
+            projectAgents: [],
+            legacyProjectAgents: [],
+            effectiveAgents: globalSnapshot.effectiveAgents,
+            chains: globalSnapshot.chains,
+            libraryAgents: globalSnapshot.libraryAgents,
+            libraryChains: globalSnapshot.libraryChains,
+            skills: globalSnapshot.skills,
+            librarySkills: globalSnapshot.librarySkills,
+            promptTemplates: globalSnapshot.promptTemplates,
+            libraryPromptTemplates: globalSnapshot.libraryPromptTemplates,
+            settings: globalSnapshot.settings,
+            envKeys: globalSnapshot.envKeys,
+            warnings: globalSnapshot.warnings
         )
     }
 
@@ -4298,10 +4319,9 @@ final class AppViewModel: NSObject, ObservableObject {
     private func refreshIfWatchedFilesChanged() {
         guard watchFingerprintTask == nil else { return }
         let previousFingerprint = lastWatchFingerprint
-        let shouldScanAllProjects = false
         let projectsToWatch = selectedDiscoveredProject.map { [$0] } ?? []
         let urls = AppRefreshService.watchedURLs(projects: projectsToWatch, snapshot: snapshot)
-        watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, shouldScanAllProjects, urls] in
+        watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, urls] in
             let fingerprint = FileWatchFingerprint.make(urls: urls)
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -4309,7 +4329,7 @@ final class AppViewModel: NSObject, ObservableObject {
                 self.watchFingerprintTask = nil
                 guard fingerprint != previousFingerprint else { return }
                 self.lastWatchFingerprint = fingerprint
-                self.refresh(includeModels: false, scanAllProjects: shouldScanAllProjects)
+                self.refresh(includeModels: false)
             }
         }
     }

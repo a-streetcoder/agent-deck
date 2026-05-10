@@ -306,9 +306,9 @@ private extension PiAgentTranscriptThread {
 struct PiAgentScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var store: PiAgentSessionStore
+    @Binding var sessionSearchText: String
     @State private var composerText = ""
     @State private var inputMode: PiAgentInputMode = .steer
-    @State private var sessionSearchText = ""
     @State private var selectedSessionTitleDraft = ""
     @State private var renamingSessionID: UUID?
     @State private var selectedSessionIDs: Set<UUID> = []
@@ -441,6 +441,12 @@ struct PiAgentScreen: View {
         }
     }
 
+    private var piAgentNewSessionProjects: [DiscoveredProject] {
+        viewModel.enabledProjects.sorted { lhs, rhs in
+            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
     private var sessionScopePath: String? {
         viewModel.selectedProjectPath
     }
@@ -505,22 +511,16 @@ struct PiAgentScreen: View {
 
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 12) {
                     Text("Sessions")
                         .font(.title2.bold())
                         .fontWidth(.expanded)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
-                    Text("\(scopedSessions.count) saved · \(runningCount) active")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-                .layoutPriority(1)
-                Spacer()
-                if selectedSessionIDs.count > 1 {
+                        .layoutPriority(1)
+                    Spacer()
+                    if selectedSessionIDs.count > 1 {
                     Button(role: .destructive) {
                         requestDeleteSessions(selectedSessionIDs)
                     } label: {
@@ -550,10 +550,19 @@ struct PiAgentScreen: View {
                 .buttonStyle(.plain)
                 .help(sessionSortOrder.help)
                 .accessibilityLabel(sessionSortOrder.accessibilityLabel)
-                PiAgentAddSessionButton {
-                    viewModel.createPiAgentDraftForSelectedProject()
+                    if viewModel.selectedDiscoveredProject == nil {                        PiAgentAddSessionMenuButton(projects: piAgentNewSessionProjects) { project in
+                            viewModel.createPiAgentDraft(for: project)
+                        }
+                        .disabled(piAgentNewSessionProjects.isEmpty)
+                        .help("Choose a project for the new Pi Agent session")
+                    } else {
+                        PiAgentAddSessionButton {
+                            viewModel.createPiAgentDraftForSelectedProject()
+                        }
+                        .help("New Pi Agent session")
+                    }
                 }
-                .help(viewModel.selectedDiscoveredProject == nil ? "New Pi Agent session in \(viewModel.configuredProjectsRootPath)" : "New Pi Agent session")
+
             }
             .padding(.vertical, 18)
             .padding(.horizontal, 18)
@@ -575,9 +584,6 @@ struct PiAgentScreen: View {
                 Spacer()
             } else {
                 VStack(spacing: 10) {
-                    PiAgentSessionSearchField(text: $sessionSearchText)
-                        .padding(.horizontal, 18)
-
                     if visibleSessions.isEmpty {
                         ContentUnavailableView("No sessions found", systemImage: "magnifyingglass", description: Text("Try another search."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1122,23 +1128,55 @@ struct PiAgentScreen: View {
     private var slashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
         guard !query.hasPrefix("skill:") else { return [] }
-        let configuredCommands = PiInjectedCommandCatalog.all
-            .filter { PiInjectedCommandCatalog.isEnabled($0, settings: viewModel.appSettings) }
-            .map(\.slashName)
-        let runtimeCommands = store.selectedSession?.commandInvocations
-        let commandSource = runtimeCommands ?? configuredCommands
-        let all = Array(Set(viewModel.snapshot.promptTemplates.map(\.invocation) + commandSource + ["/compact"])).sorted()
+        let all = runtimeCommandInvocations(excludingSkills: true) ?? fallbackCommandInvocations
         return all.filter { query.isEmpty || $0.dropFirst().lowercased().hasPrefix(query) }.prefix(8).map { $0 }
     }
 
     private var skillSlashSuggestions: [String] {
         guard case let .slash(query) = composerSuggestionTrigger else { return [] }
         let normalizedQuery = query.hasPrefix("skill:") ? String(query.dropFirst("skill:".count)) : query
-        return visibleSkillsForSelectedSession
-            .filter { normalizedQuery.isEmpty || $0.name.lowercased().hasPrefix(normalizedQuery) }
-            .map { "/skill:\($0.name)" }
+        let all = runtimeCommandInvocations(onlySkills: true) ?? fallbackSkillInvocations
+        return all
+            .filter { invocation in
+                let name = invocation.replacingOccurrences(of: "/skill:", with: "")
+                return normalizedQuery.isEmpty || name.lowercased().hasPrefix(normalizedQuery)
+            }
             .prefix(8)
             .map { $0 }
+    }
+
+    private func runtimeCommandInvocations(onlySkills: Bool = false, excludingSkills: Bool = false) -> [String]? {
+        guard let commands = store.selectedSession?.commandInvocations else { return nil }
+        let filtered = commands.filter { invocation in
+            let isSkill = invocation.hasPrefix("/skill:")
+            if onlySkills { return isSkill }
+            if excludingSkills { return !isSkill }
+            return true
+        }
+        return Array(Set(filtered)).sorted()
+    }
+
+    private var fallbackCommandInvocations: [String] {
+        let configuredCommands = PiInjectedCommandCatalog.all
+            .filter { PiInjectedCommandCatalog.isEnabled($0, settings: viewModel.appSettings) }
+            .map(\.slashName)
+        return Array(Set(snapshotForSelectedSession.promptTemplates.map(\.invocation) + configuredCommands + ["/compact"]))
+            .sorted()
+    }
+
+    private var fallbackSkillInvocations: [String] {
+        // Runtime RPC is authoritative. Before it responds, use active skills only;
+        // library-only skills are management records, not guaranteed runtime commands.
+        var seen = Set<String>()
+        return snapshotForSelectedSession.skills
+            .filter { seen.insert($0.name).inserted }
+            .map { "/skill:\($0.name)" }
+            .sorted()
+    }
+
+    private var snapshotForSelectedSession: ScanSnapshot {
+        let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+        return projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
     }
 
     private var visibleSkillsForSelectedSession: [SkillRecord] {
