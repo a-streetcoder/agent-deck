@@ -198,6 +198,7 @@ final class PiAgentSessionStore: ObservableObject {
 
     func select(_ id: UUID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
+        guard selectedSessionID != id else { return }
         selectedSessionID = id
         if lazyTranscriptLoadingEnabled {
             requestTranscriptLoad(for: id)

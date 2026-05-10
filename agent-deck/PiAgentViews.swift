@@ -86,9 +86,16 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
             return
         }
         guard sessionID != lastSessionID || revision != lastRevision else { return }
+        let isSessionSwitch = sessionID != lastSessionID
         lastSessionID = sessionID
         lastRevision = revision
         updateTask?.cancel()
+
+        if isSessionSwitch {
+            publish(rawEntries)
+            return
+        }
+
         updateTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 33_000_000)
             guard !Task.isCancelled else { return }
@@ -679,14 +686,10 @@ private struct PiAgentSessionViewOptionsMenu: View {
             isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
             onSelect: {
                 renamingSessionID = nil
-                withAnimation(.snappy(duration: 0.22)) {
-                    selectSessionFromList(session)
-                }
+                selectSessionFromList(session)
             },
             onBeginRename: {
-                withAnimation(.snappy(duration: 0.22)) {
-                    selectSessionFromList(session, forceSingle: true)
-                }
+                selectSessionFromList(session, forceSingle: true)
                 renamingSessionID = session.id
             },
             onEndRename: { renamingSessionID = nil },

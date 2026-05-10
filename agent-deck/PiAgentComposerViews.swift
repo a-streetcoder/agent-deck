@@ -721,7 +721,7 @@ struct PiAgentSendButton: View {
         Button(action: isRunning ? stopAction : sendAction) {
             Image(systemName: isRunning ? "stop.fill" : "arrow.up")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(foregroundStyle)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 34, height: 34)
                 .background(
@@ -744,9 +744,16 @@ struct PiAgentSendButton: View {
         .animation(.snappy(duration: 0.22), value: isRunning)
     }
 
-    private var backgroundColor: Color {
-        if isRunning { return .red.opacity(0.88) }
-        return canSend ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.28)
+    private var foregroundStyle: AnyShapeStyle {
+        if isRunning { return AnyShapeStyle(Color.white.gradient) }
+        if canSend { return AnyShapeStyle(Color.black.gradient) }
+        return AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
+    }
+
+    private var backgroundColor: AnyShapeStyle {
+        if isRunning { return AnyShapeStyle(Color.red.opacity(0.88).gradient) }
+        if canSend { return AnyShapeStyle(AppTheme.brandAccent.gradient) }
+        return AnyShapeStyle(AppTheme.mutedText.opacity(0.28).gradient)
     }
 }
 
@@ -1583,8 +1590,6 @@ struct PiAgentRuntimeFooter: View {
             Image(systemName: icon)
                 .font(.caption2.weight(.semibold))
             Text(text)
-                .contentTransition(.numericText())
-                .animation(.snappy(duration: 0.18), value: text)
         }
         .lineLimit(1)
     }

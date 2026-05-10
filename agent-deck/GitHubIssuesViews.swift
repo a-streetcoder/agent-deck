@@ -105,12 +105,12 @@ private struct GitHubIssueDetailCard: View {
                                     Text("Open")
                                         .fontWeight(.semibold)
                                 }
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color.black.gradient)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                                 .background(
                                     Capsule(style: .continuous)
-                                        .fill(LinearGradient(colors: [AppTheme.brandAccent, AppTheme.brandAccent.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                        .fill(AppTheme.brandAccent.gradient)
                                 )
                             }
                             .buttonStyle(.plain)

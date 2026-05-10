@@ -119,7 +119,7 @@ struct AppPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .fontWeight(.semibold)
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.black.gradient)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(

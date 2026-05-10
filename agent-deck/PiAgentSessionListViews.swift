@@ -163,13 +163,25 @@ private struct PiAgentAddSessionButtonLabel: View {
                     .font(.system(size: 8, weight: .bold))
             }
         }
-        .foregroundStyle(isEnabled ? .white : AppTheme.mutedText.opacity(0.55))
+        .foregroundStyle(foregroundStyle)
         .frame(width: showsChevron ? 42 : 30, height: 30)
         .background(
             Capsule(style: .continuous)
-                .fill(isEnabled ? AppTheme.brandAccent : AppTheme.contentStroke.opacity(0.45))
+                .fill(backgroundStyle)
         )
         .contentShape(Capsule(style: .continuous))
+    }
+
+    private var foregroundStyle: AnyShapeStyle {
+        isEnabled
+            ? AnyShapeStyle(Color.black.gradient)
+            : AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
+    }
+
+    private var backgroundStyle: AnyShapeStyle {
+        isEnabled
+            ? AnyShapeStyle(AppTheme.brandAccent.gradient)
+            : AnyShapeStyle(AppTheme.contentStroke.opacity(0.45).gradient)
     }
 }
 
