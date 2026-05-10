@@ -2463,7 +2463,8 @@ final class AppViewModel: NSObject, ObservableObject {
         guard let session = piAgentSessionStore.selectedSession else { return }
         piAgentRunner.setModel(sessionID: session.id, provider: provider, modelID: modelID)
         if let currentLevel = session.thinkingLevel {
-            let levels = supportedPiAgentThinkingLevels(session: session, provider: provider ?? session.modelProvider, modelID: modelID ?? session.model)
+            let fallback = defaultPiAgentModel()
+            let levels = supportedPiAgentThinkingLevels(session: session, provider: provider ?? session.modelProvider ?? fallback?.provider, modelID: modelID ?? session.model ?? fallback?.model)
             if !levels.contains(currentLevel == "none" ? "off" : currentLevel) {
                 piAgentRunner.setThinkingLevel(sessionID: session.id, level: levels.first ?? "off")
             }
@@ -2471,14 +2472,22 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func cyclePiAgentModelForSelectedSession() {
-        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
-        piAgentRunner.cycleModel(sessionID: sessionID)
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        let options = piAgentModelOptions(for: session)
+        guard !options.isEmpty else { return }
+        let fallback = defaultPiAgentModel()
+        let currentProvider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
+        let currentModel = session.modelOverrideID ?? session.model ?? fallback?.model
+        let currentIndex = options.firstIndex { $0.provider == currentProvider && $0.id == currentModel } ?? -1
+        let next = options[(currentIndex + 1 + options.count) % options.count]
+        setPiAgentModelForSelectedSession(provider: next.provider, modelID: next.id)
     }
 
     func setPiAgentThinkingLevelForSelectedSession(_ level: String) {
         guard let session = piAgentSessionStore.selectedSession else { return }
         let normalized = level == "none" ? "off" : level
-        let levels = supportedPiAgentThinkingLevels(session: session, provider: session.modelOverrideProvider ?? session.modelProvider, modelID: session.modelOverrideID ?? session.model)
+        let fallback = defaultPiAgentModel()
+        let levels = supportedPiAgentThinkingLevels(session: session, provider: session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider, modelID: session.modelOverrideID ?? session.model ?? fallback?.model)
         guard levels.contains(normalized) else {
             piAgentSessionStore.updateSession(session.id) { record in
                 record.lastError = "Thinking level '\(level)' is not available for the selected model."
@@ -2576,6 +2585,26 @@ final class AppViewModel: NSObject, ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func piAgentModelOptions(for session: PiAgentSessionRecord) -> [PiAgentModelOption] {
+        if let models = session.availableModels, !models.isEmpty {
+            return models.filter { !appSettings.disabledModelIdentifiers.contains($0.selectionID) }
+        }
+        return enabledAvailableModels
+            .filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
+            .map { model in
+                PiAgentModelOption(
+                    provider: model.provider,
+                    id: model.model,
+                    name: nil,
+                    contextWindow: Int(model.contextWindow),
+                    maxOutput: Int(model.maxOutput),
+                    supportsThinking: model.supportsThinking,
+                    supportedThinkingLevels: model.supportedThinkingLevels,
+                    supportsImages: model.supportsImages
+                )
+            }
+    }
+
     private func supportedPiAgentThinkingLevels(session: PiAgentSessionRecord, provider: String?, modelID: String?) -> [String] {
         if let provider, let modelID {
             if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
@@ -2592,8 +2621,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func cyclePiAgentThinkingLevelForSelectedSession() {
-        guard let sessionID = piAgentSessionStore.selectedSession?.id else { return }
-        piAgentRunner.cycleThinkingLevel(sessionID: sessionID)
+        guard let session = piAgentSessionStore.selectedSession else { return }
+        let fallback = defaultPiAgentModel()
+        let levels = supportedPiAgentThinkingLevels(session: session, provider: session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider, modelID: session.modelOverrideID ?? session.model ?? fallback?.model)
+        guard !levels.isEmpty else { return }
+        let current = (session.thinkingLevel ?? defaultPiAgentThinkingLevel(for: levels)) == "none" ? "off" : (session.thinkingLevel ?? defaultPiAgentThinkingLevel(for: levels))
+        let currentIndex = levels.firstIndex(of: current) ?? -1
+        let next = levels[(currentIndex + 1 + levels.count) % levels.count]
+        piAgentRunner.setThinkingLevel(sessionID: session.id, level: next)
     }
 
     func stopSelectedPiAgentSession() {

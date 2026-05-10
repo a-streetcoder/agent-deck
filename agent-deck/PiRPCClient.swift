@@ -24,6 +24,7 @@ final class PiRPCClient: @unchecked Sendable {
         provider: String? = nil,
         model: String? = nil,
         modelArgument: String? = nil,
+        thinkingLevel: String? = nil,
         extraArguments: [String] = [],
         environment: [String: String] = [:],
         onEvent: @escaping EventHandler,
@@ -35,6 +36,7 @@ final class PiRPCClient: @unchecked Sendable {
             provider: provider,
             model: model,
             modelArgument: modelArgument,
+            thinkingLevel: thinkingLevel,
             extraArguments: extraArguments
         )
 
@@ -58,6 +60,7 @@ final class PiRPCClient: @unchecked Sendable {
         provider: String? = nil,
         model: String? = nil,
         modelArgument: String? = nil,
+        thinkingLevel: String? = nil,
         extraArguments: [String] = []
     ) -> [String] {
         var args = ["--mode", "rpc"]
@@ -72,6 +75,9 @@ final class PiRPCClient: @unchecked Sendable {
             args.append(contentsOf: ["--model", modelArgument])
         } else if let model, !model.isEmpty {
             args.append(contentsOf: ["--model", model])
+        }
+        if let thinkingLevel, !thinkingLevel.isEmpty {
+            args.append(contentsOf: ["--thinking", thinkingLevel])
         }
         return args
     }

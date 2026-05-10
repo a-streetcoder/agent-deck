@@ -36,6 +36,58 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertFalse((store.transcriptsBySessionID[session.id] ?? []).contains { $0.title == "Process Ended" })
     }
 
+    func testSessionThinkingUsesLaunchArgumentAndDoesNotSendDefaultMutatingRPC() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-thinking-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let argsLog = directory.appendingPathComponent("args.log")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let sessionFile = directory.appendingPathComponent("session.jsonl")
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' "$@" > \(PiTestSupport.shellSingleQuoted(argsLog.path))
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> \(PiTestSupport.shellSingleQuoted(stdinLog.path))
+          case "$line" in
+            *'"type":"get_state"'*)
+              printf '%s\\n' '{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"\(sessionFile.path)","thinkingLevel":"high","isStreaming":false}}'
+              ;;
+          esac
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let created = store.createSession(kind: .project, title: "Thinking", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+        store.updateSession(created.id) {
+            $0.modelOverrideProvider = "openai-codex"
+            $0.modelOverrideID = "gpt-5.2"
+            $0.thinkingLevel = "high"
+        }
+        let session = try XCTUnwrap(store.sessions.first(where: { $0.id == created.id }))
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { FileManager.default.fileExists(atPath: stdinLog.path) })
+        let args = try String(contentsOf: argsLog, encoding: .utf8)
+        XCTAssertTrue(args.contains("--provider\nopenai-codex"))
+        XCTAssertTrue(args.contains("--model\ngpt-5.2"))
+        XCTAssertTrue(args.contains("--thinking\nhigh"))
+
+        let stdin = try String(contentsOf: stdinLog, encoding: .utf8)
+        XCTAssertFalse(stdin.contains("set_thinking_level"))
+        XCTAssertFalse(stdin.contains("set_model"))
+        let updated = try XCTUnwrap(store.sessions.first(where: { $0.id == session.id }))
+        XCTAssertEqual(updated.thinkingLevel, "high")
+    }
+
     func testSessionTitleGenerationUsesLaunchTimeModelThinkingAndDoesNotMutateRPCDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-title-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -48,24 +48,105 @@ struct PiAgentAddSessionButton: View {
 
 struct PiAgentAddSessionMenuButton: View {
     let projects: [DiscoveredProject]
+    let selectedProject: DiscoveredProject?
     let onSelectProject: (DiscoveredProject) -> Void
     @Environment(\.isEnabled) private var isEnabled
+    @State private var isPresented = false
 
     var body: some View {
-        Menu {
-            ForEach(projects) { project in
-                Button {
-                    onSelectProject(project)
-                } label: {
-                    Label(project.repositoryDisplayName, systemImage: project.fallbackSymbolName)
-                }
-            }
+        Button {
+            isPresented.toggle()
         } label: {
             PiAgentAddSessionButtonLabel(showsChevron: true, isEnabled: isEnabled)
         }
-        .menuStyle(.borderlessButton)
         .buttonStyle(.plain)
         .accessibilityLabel("New Pi Agent session")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            PiAgentProjectPickerPopover(
+                projects: orderedProjects,
+                selectedProject: selectedProject,
+                onSelectProject: { project in
+                    isPresented = false
+                    onSelectProject(project)
+                }
+            )
+        }
+    }
+
+    private var orderedProjects: [DiscoveredProject] {
+        guard let selectedProject,
+              let index = projects.firstIndex(where: { $0.id == selectedProject.id }) else { return projects }
+        var ordered = projects
+        ordered.remove(at: index)
+        ordered.insert(selectedProject, at: 0)
+        return ordered
+    }
+}
+
+private struct PiAgentProjectPickerPopover: View {
+    let projects: [DiscoveredProject]
+    let selectedProject: DiscoveredProject?
+    let onSelectProject: (DiscoveredProject) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("New Session")
+                    .font(.headline)
+                Text("Choose a project for Pi Agent.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+
+            Divider()
+
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(projects) { project in
+                        Button {
+                            onSelectProject(project)
+                        } label: {
+                            HStack(spacing: 10) {
+                                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 24)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack(spacing: 6) {
+                                        Text(project.repositoryDisplayName)
+                                            .font(.callout.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                        if project.id == selectedProject?.id {
+                                            Text("Current")
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(AppTheme.brandAccent)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule(style: .continuous).fill(AppTheme.brandAccent.opacity(0.10)))
+                                        }
+                                    }
+                                    Text(project.path)
+                                        .font(.caption2)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 6)
+            }
+            .frame(maxHeight: 300)
+        }
+        .frame(width: 340)
+        .background(.regularMaterial)
     }
 }
 

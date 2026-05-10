@@ -268,7 +268,7 @@ private struct PiAgentTranscriptTimelineItem: Identifiable {
     let kind: Kind
 }
 
-private enum PiAgentSessionSortOrder: String {
+private enum PiAgentSessionSortOrder: String, Hashable {
     case created
     case updated
 
@@ -522,6 +522,68 @@ struct PiAgentScreen: View {
         )
     }
 
+private struct PiAgentSessionViewOptionsMenu: View {
+    let selectedProject: DiscoveredProject?
+    @Binding var showsAllSessions: Bool
+    @Binding var sessionSortOrder: PiAgentSessionSortOrder
+    let onChange: () -> Void
+
+    var body: some View {
+        Menu {
+            if selectedProject != nil {
+                Picker("Scope", selection: scopeSelection) {
+                    Label("Current Project", systemImage: "folder")
+                        .tag(false)
+                    Label("All Projects", systemImage: "square.grid.2x2")
+                        .tag(true)
+                }
+                .pickerStyle(.inline)
+            }
+
+            Picker("Sort", selection: sortSelection) {
+                Label("Creation Time", systemImage: "calendar")
+                    .tag(PiAgentSessionSortOrder.created)
+                Label("Last Edit", systemImage: "clock")
+                    .tag(PiAgentSessionSortOrder.updated)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppTheme.brandAccent)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Session view options")
+        .accessibilityLabel("Session view options")
+    }
+
+    private var scopeSelection: Binding<Bool> {
+        Binding(
+            get: { showsAllSessions },
+            set: { newValue in
+                showsAllSessions = newValue
+                onChange()
+            }
+        )
+    }
+
+    private var sortSelection: Binding<PiAgentSessionSortOrder> {
+        Binding(
+            get: { sessionSortOrder },
+            set: { newValue in
+                sessionSortOrder = newValue
+                onChange()
+            }
+        )
+    }
+}
+
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
@@ -548,23 +610,17 @@ struct PiAgentScreen: View {
                         .help("Delete selected sessions")
                         .accessibilityLabel("Delete selected sessions")
                     }
-                    Button {
-                        withAnimation(.snappy(duration: 0.18)) {
-                            sessionSortOrder.toggle()
-                        }
-                    } label: {
-                        Image(systemName: sessionSortOrder.systemImage)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AppTheme.brandAccent)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
-                    }
-                    .buttonStyle(.plain)
-                    .help(sessionSortOrder.help)
-                    .accessibilityLabel(sessionSortOrder.accessibilityLabel)
+                    PiAgentSessionViewOptionsMenu(
+                        selectedProject: viewModel.selectedDiscoveredProject,
+                        showsAllSessions: $showsAllSessions,
+                        sessionSortOrder: $sessionSortOrder,
+                        onChange: rebuildVisibleSessions
+                    )
                     if viewModel.selectedDiscoveredProject == nil || showsAllSessions {
-                        PiAgentAddSessionMenuButton(projects: piAgentNewSessionProjects) { project in
+                        PiAgentAddSessionMenuButton(
+                            projects: piAgentNewSessionProjects,
+                            selectedProject: viewModel.selectedDiscoveredProject
+                        ) { project in
                             viewModel.createPiAgentDraft(for: project)
                         }
                         .disabled(piAgentNewSessionProjects.isEmpty)
@@ -575,26 +631,6 @@ struct PiAgentScreen: View {
                         }
                         .help("New Pi Agent session")
                     }
-                }
-
-                if viewModel.selectedDiscoveredProject != nil {
-                    HStack(spacing: 6) {
-                        Toggle("", isOn: Binding(
-                            get: { showsAllSessions },
-                            set: { newValue in
-                                showsAllSessions = newValue
-                                rebuildVisibleSessions()
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-                        .labelsHidden()
-                        Text("All projects")
-                            .font(.caption)
-                            .fontWidth(.condensed)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(1)
-                    }
-                    .help("Show Pi Agent sessions across all projects")
                 }
             }
             .padding(.vertical, 18)
@@ -871,8 +907,11 @@ struct PiAgentScreen: View {
                 handleTranscriptRenderRevision(proxy: proxy)
             }
             .onChange(of: transcriptCache.autoScrollTurnRevision) { _, _ in
-                beginTranscriptAutoScrollTurn()
-                scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false, repeatCount: 2)
+                Task { @MainActor in
+                    await Task.yield()
+                    beginTranscriptAutoScrollTurn()
+                    scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false, repeatCount: 2)
+                }
             }
             .onChange(of: transcriptCache.streamingRevision) { _, _ in
                 guard !isTranscriptAutoScrollSuppressed else { return }

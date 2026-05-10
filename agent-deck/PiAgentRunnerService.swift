@@ -21,6 +21,7 @@ final class PiAgentRunnerService {
     private var pendingCompactionInstructionsBySessionID: [UUID: String] = [:]
     private var pendingFreeformResponsesBySessionID: [UUID: String] = [:]
     private var pendingThinkingLevelsBySessionID: [UUID: PendingThinkingLevel] = [:]
+    private var pendingConfigurationRestartSessionIDs: Set<UUID> = []
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     private var idleParkingTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     private var idleParkingTimeout: TimeInterval?
@@ -88,6 +89,28 @@ final class PiAgentRunnerService {
         start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialImages: images, resumeExisting: canResumePiSession)
     }
 
+    private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, images: [PiAgentImageAttachment] = []) {
+        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        start(
+            session: session,
+            projectURL: projectURL,
+            initialPrompt: initialPrompt,
+            initialImages: images,
+            resumeExisting: session.piSessionFile != nil,
+            recordStopTranscript: false
+        )
+    }
+
+    private func applyLaunchConfigurationChange(sessionID: UUID) {
+        guard clientsBySessionID[sessionID] != nil,
+              let session = store.sessions.first(where: { $0.id == sessionID }) else { return }
+        if session.status.isActive {
+            pendingConfigurationRestartSessionIDs.insert(sessionID)
+            return
+        }
+        restartForLaunchConfiguration(session: session)
+    }
+
     func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, images: [PiAgentImageAttachment] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
@@ -99,6 +122,12 @@ final class PiAgentRunnerService {
         }
         let isStreaming = store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true
         let effectiveMode: PiAgentInputMode = isStreaming ? .steer : mode
+        if effectiveMode == .prompt,
+           pendingConfigurationRestartSessionIDs.remove(sessionID) != nil,
+           let session = store.sessions.first(where: { $0.id == sessionID }) {
+            restartForLaunchConfiguration(session: session, initialPrompt: text, images: images)
+            return
+        }
         store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(message, images: images), rawJSON: transcriptAttachmentJSON(images: images)))
         switch effectiveMode {
         case .prompt:
@@ -163,6 +192,7 @@ final class PiAgentRunnerService {
     func stop(sessionID: UUID, recordTranscript: Bool = true) {
         cancelIdleParking(for: sessionID)
         clearStreamingState(sessionID: sessionID)
+        pendingConfigurationRestartSessionIDs.remove(sessionID)
         guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
         if let clientRunID = clientRunIDsBySessionID.removeValue(forKey: sessionID) {
             stoppingClientRunIDsBySessionID[sessionID] = clientRunID
@@ -187,26 +217,17 @@ final class PiAgentRunnerService {
             record.modelOverrideProvider = provider
             record.modelOverrideID = modelID
         }
-        guard let provider, let modelID, let client = clientsBySessionID[sessionID] else { return }
-        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
-        client.setModel(provider: provider, modelID: modelID)
+        applyLaunchConfigurationChange(sessionID: sessionID)
     }
 
     func cycleModel(sessionID: UUID) {
-        guard let client = clientsBySessionID[sessionID] else { return }
-        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
-        client.cycleModel()
+        // Model cycling is resolved in AppViewModel so Agent Deck can relaunch with
+        // launch-time arguments instead of Pi's default-mutating cycle_model RPC.
     }
 
     func setThinkingLevel(sessionID: UUID, level: String) {
-        pendingThinkingLevelsBySessionID[sessionID] = PendingThinkingLevel(requestedLevel: level)
-        store.updateSession(sessionID) { $0.thinkingLevel = level }
-        guard let client = clientsBySessionID[sessionID] else {
-            pendingThinkingLevelsBySessionID[sessionID] = nil
-            return
-        }
-        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
-        client.setThinkingLevel(level)
+        store.updateSession(sessionID) { $0.thinkingLevel = normalizedThinkingLevel(level) ?? "off" }
+        applyLaunchConfigurationChange(sessionID: sessionID)
     }
 
     func compact(session: PiAgentSessionRecord, customInstructions: String? = nil) {
@@ -226,9 +247,8 @@ final class PiAgentRunnerService {
     }
 
     func cycleThinkingLevel(sessionID: UUID) {
-        guard let client = clientsBySessionID[sessionID] else { return }
-        resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
-        client.cycleThinkingLevel()
+        // Thinking cycling is resolved in AppViewModel so Agent Deck can relaunch with
+        // launch-time arguments instead of Pi's default-mutating cycle_thinking_level RPC.
     }
 
     func stopAll(recordTranscript: Bool = true) {
@@ -237,8 +257,8 @@ final class PiAgentRunnerService {
         }
     }
 
-    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialImages: [PiAgentImageAttachment] = [], resumeExisting: Bool = false) {
-        stop(sessionID: session.id)
+    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialImages: [PiAgentImageAttachment] = [], resumeExisting: Bool = false, recordStopTranscript: Bool = true) {
+        stop(sessionID: session.id, recordTranscript: recordStopTranscript)
         cancelIdleParking(for: session.id)
         parkingClientRunIDsBySessionID[session.id] = nil
         stoppingClientRunIDsBySessionID[session.id] = nil
@@ -271,6 +291,7 @@ final class PiAgentRunnerService {
             }
             let sessionID = session.id
             let clientRunID = UUID()
+            let launchConfiguration = launchConfiguration(for: session)
             let environment = EnvRuntimeEnvironment().environment(
                 projectRoot: projectURL,
                 extra: ["AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString]
@@ -278,8 +299,9 @@ final class PiAgentRunnerService {
             let client = try PiRPCClient(
                 cwd: projectURL,
                 sessionFile: resumeExisting ? session.piSessionFile : nil,
-                provider: session.modelOverrideProvider,
-                model: session.modelOverrideID,
+                provider: launchConfiguration.provider,
+                model: launchConfiguration.model,
+                thinkingLevel: launchConfiguration.thinkingLevel,
                 extraArguments: extraArguments,
                 environment: environment,
                 onEvent: { [weak self] events in
@@ -308,9 +330,6 @@ final class PiAgentRunnerService {
                 record.launchCommand = client.launchCommand
                 record.status = .running
             }
-            if let thinkingLevel = session.thinkingLevel, !thinkingLevel.isEmpty {
-                setThinkingLevel(sessionID: session.id, level: thinkingLevel)
-            }
             client.getState()
             client.getAvailableModels()
             client.getCommands()
@@ -332,6 +351,19 @@ final class PiAgentRunnerService {
             mark(session.id, status: .failed, error: error.localizedDescription)
             store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
         }
+    }
+
+    private func launchConfiguration(for session: PiAgentSessionRecord) -> (provider: String?, model: String?, thinkingLevel: String?) {
+        let provider = firstNonEmpty(session.modelOverrideProvider, session.modelProvider)
+        let model = firstNonEmpty(session.modelOverrideID, session.model)
+        return (provider, model, normalizedThinkingLevel(session.thinkingLevel))
+    }
+
+    private func firstNonEmpty(_ values: String?...) -> String? {
+        values.compactMap { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }.first
     }
 
     private func resetIdleParkingDeadlineIfIdle(sessionID: UUID) {
@@ -789,6 +821,11 @@ final class PiAgentRunnerService {
         return String(first).uppercased() + String(spaced.dropFirst())
     }
 
+    private func normalizedThinkingLevel(_ level: String?) -> String? {
+        guard let level = level?.trimmingCharacters(in: .whitespacesAndNewlines), !level.isEmpty else { return nil }
+        return level == "none" ? "off" : level
+    }
+
     private func applyState(_ data: JSONValue, to sessionID: UUID) {
         let reportedThinkingLevel = data["thinkingLevel"]?.stringValue
         let pendingThinkingLevel = pendingThinkingLevelsBySessionID[sessionID]
@@ -799,7 +836,11 @@ final class PiAgentRunnerService {
             if let modelObject = data["model"] {
                 updateModelFields(on: &record, from: modelObject, useAsOverride: false)
             }
-            if let pendingThinkingLevel, !pendingThinkingLevel.acknowledgedByPi {
+            if let pendingThinkingLevel {
+                // Some Pi builds acknowledge set_thinking_level without echoing the new level,
+                // then report the launch/default level from get_state while the requested
+                // level is already what the turn will use. Keep the user's explicit choice
+                // until Pi reports that same level or another explicit control event wins.
                 record.thinkingLevel = pendingThinkingLevel.requestedLevel
             } else {
                 record.thinkingLevel = reportedThinkingLevel ?? record.thinkingLevel
@@ -816,7 +857,9 @@ final class PiAgentRunnerService {
                 shouldScheduleIdleParking = true
             }
         }
-        if pendingThinkingLevel?.acknowledgedByPi == true, reportedThinkingLevel != nil {
+        if let pendingThinkingLevel,
+           pendingThinkingLevel.acknowledgedByPi,
+           normalizedThinkingLevel(reportedThinkingLevel) == normalizedThinkingLevel(pendingThinkingLevel.requestedLevel) {
             pendingThinkingLevelsBySessionID[sessionID] = nil
         }
         if shouldScheduleIdleParking {
