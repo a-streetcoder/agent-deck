@@ -26,6 +26,14 @@ struct PromptsScreen: View {
 
     private var promptLibraryPane: some View {
         List(selection: $viewModel.selectedCommandItemID) {
+            if !viewModel.promptWarnings.isEmpty {
+                appListSection("Warnings", info: "Prompt issues that need attention.") {
+                    ForEach(viewModel.promptWarnings) { warning in
+                        promptWarningRow(warning)
+                    }
+                }
+            }
+
             if let selectedProject = viewModel.selectedDiscoveredProject {
                 if !projectPrompts.isEmpty {
                     promptSection(
@@ -83,6 +91,19 @@ struct PromptsScreen: View {
             }
         }
         .appResourceListStyle()
+    }
+
+    private func promptWarningRow(_ warning: DiagnosticWarning) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 18)
+            Text(warning.message)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 6)
     }
 
     private var visiblePrompts: [PromptTemplateRecord] {

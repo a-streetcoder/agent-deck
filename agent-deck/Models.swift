@@ -235,6 +235,14 @@ nonisolated struct AgentSkillVisibilityIssue: Identifiable, Hashable, Sendable {
     var id: String { "\(project.id):\(missingSkills.joined(separator: ","))" }
 }
 
+nonisolated struct SkillReferenceWarning: Identifiable, Hashable, Sendable {
+    let agentName: String
+    let project: DiscoveredProject
+    let missingSkill: String
+
+    var id: String { "\(agentName):\(project.id):\(missingSkill)" }
+}
+
 nonisolated struct SettingsSummary: Hashable, Sendable {
     let path: String
     let packages: [String]

@@ -110,6 +110,14 @@ struct ChainsScreen: View {
 
     private var chainLibraryPane: some View {
         List(selection: $viewModel.selectedChainID) {
+            if !viewModel.chainWarnings.isEmpty {
+                appListSection("Warnings", info: "Chain issues that need attention.") {
+                    ForEach(viewModel.chainWarnings) { warning in
+                        chainWarningRow(warning)
+                    }
+                }
+            }
+
             if viewModel.selectedDiscoveredProject != nil {
                 appListSection("Active") {
                     if activeChains.isEmpty {
@@ -160,6 +168,19 @@ struct ChainsScreen: View {
             }
         }
         .appResourceListStyle()
+    }
+
+    private func chainWarningRow(_ warning: DiagnosticWarning) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 18)
+            Text(warning.message)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 6)
     }
 
     private var visibleChains: [ChainRecord] {

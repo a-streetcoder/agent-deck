@@ -3349,8 +3349,47 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var hasSkillWarnings: Bool {
-        allVisibleSkillRecords.contains { skill in
-            !agentsExplicitlyUsingSkill(skill).isEmpty || !agentsAmbientlySeeingSkill(skill).isEmpty
+        !skillReferenceWarnings.isEmpty || !skillWarnings.isEmpty
+    }
+
+    var hasChainWarnings: Bool {
+        !chainWarnings.isEmpty
+    }
+
+    var hasPromptWarnings: Bool {
+        !promptWarnings.isEmpty
+    }
+
+    var skillWarnings: [DiagnosticWarning] {
+        snapshot.warnings.filter { warning in
+            warning.id.hasPrefix("malformed-skill:") || warning.message.localizedCaseInsensitiveContains("skill")
+        }
+    }
+
+    var chainWarnings: [DiagnosticWarning] {
+        snapshot.warnings.filter { warning in
+            warning.id.hasPrefix("chain:") || warning.id.hasPrefix("empty-chain:")
+        }
+    }
+
+    var promptWarnings: [DiagnosticWarning] {
+        snapshot.warnings.filter { warning in
+            warning.id.hasPrefix("duplicate-prompt:")
+        }
+    }
+
+    var skillReferenceWarnings: [SkillReferenceWarning] {
+        filteredAgents.flatMap { agent in
+            explicitSkillVisibilityIssues(for: agent).flatMap { issue in
+                issue.missingSkills.map { missingSkill in
+                    SkillReferenceWarning(agentName: agent.name, project: issue.project, missingSkill: missingSkill)
+                }
+            }
+        }
+        .sorted {
+            if $0.missingSkill != $1.missingSkill { return $0.missingSkill < $1.missingSkill }
+            if $0.agentName != $1.agentName { return $0.agentName < $1.agentName }
+            return $0.project.name < $1.project.name
         }
     }
 

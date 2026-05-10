@@ -79,8 +79,12 @@ struct ContentView: View {
             return viewModel.shouldWarnProjectSelection
         case .agents:
             return viewModel.hasAgentWarnings
+        case .chains:
+            return viewModel.hasChainWarnings
         case .skills:
             return viewModel.hasSkillWarnings
+        case .prompts:
+            return viewModel.hasPromptWarnings
         default:
             return false
         }

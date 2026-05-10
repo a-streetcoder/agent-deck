@@ -203,6 +203,17 @@ struct SkillsScreen: View {
     @ViewBuilder
     private var skillLibraryContent: some View {
         List(selection: skillSelection) {
+            if !viewModel.skillReferenceWarnings.isEmpty || !viewModel.skillWarnings.isEmpty {
+                appListSection("Warnings", info: "Skill issues that need attention.") {
+                    ForEach(viewModel.skillReferenceWarnings) { warning in
+                        skillWarningRow(warning)
+                    }
+                    ForEach(viewModel.skillWarnings) { warning in
+                        diagnosticWarningRow(warning)
+                    }
+                }
+            }
+
             if selectedProject != nil {
                 appListSection("Active") {
                     if activeSkills.isEmpty {
@@ -253,6 +264,42 @@ struct SkillsScreen: View {
             }
         }
         .appResourceListStyle()
+    }
+
+    private func skillWarningRow(_ warning: SkillReferenceWarning) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(warning.missingSkill)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                    .lineLimit(1)
+                Text("Referenced by \(warning.agentName) in \(warning.project.name)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            Text("Missing")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func diagnosticWarningRow(_ warning: DiagnosticWarning) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 18)
+            Text(warning.message)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
