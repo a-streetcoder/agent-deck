@@ -51,7 +51,7 @@ struct PiAgentTranscriptStack<Content: View>: View {
     }
 
     var body: some View {
-        LazyVStack(alignment: alignment, spacing: spacing) {
+        VStack(alignment: alignment, spacing: spacing) {
             content()
         }
     }
@@ -63,12 +63,14 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
     @Published private(set) var threads: [PiAgentTranscriptThread] = []
     @Published private(set) var renderRevision = 0
     @Published private(set) var streamingRevision = 0
+    @Published private(set) var autoScrollTurnRevision = 0
     @Published private(set) var lastThreadID: UUID?
 
     private var updateTask: Task<Void, Never>?
     private var lastSessionID: UUID?
     private var lastRevision = -1
     private var lastThreadSignature: [UUID] = []
+    private var lastAutoScrollTurnEntryID: UUID?
 
     func scheduleUpdate(sessionID: UUID?, revision: Int, rawEntries: [PiAgentTranscriptEntry]) {
         guard let sessionID else {
@@ -79,6 +81,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
             lastSessionID = nil
             lastRevision = -1
             lastThreadSignature = []
+            lastAutoScrollTurnEntryID = nil
             renderRevision += 1
             return
         }
@@ -102,10 +105,16 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         let nextThreads = PiAgentTranscriptThread.make(from: normalized)
         let signature = nextThreads.map(\.id)
         let structurallyChanged = signature != lastThreadSignature
+        let latestUserEntryID = normalized.last(where: { $0.role == .user })?.id
+        let userTurnAdvanced = latestUserEntryID != nil && latestUserEntryID != lastAutoScrollTurnEntryID
         entries = normalized
         threads = nextThreads
         lastThreadID = nextThreads.last?.id
         lastThreadSignature = signature
+        lastAutoScrollTurnEntryID = latestUserEntryID
+        if userTurnAdvanced {
+            autoScrollTurnRevision += 1
+        }
         if structurallyChanged {
             renderRevision += 1
         } else {
@@ -324,8 +333,8 @@ struct PiAgentScreen: View {
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
-    @State private var transcriptAutoScrollSuppressed = false
-    @State private var transcriptAutoScrollTurnID: UUID?
+    @State private var transcriptAutoScrollTurn = 0
+    @State private var transcriptAutoScrollSuppressedTurn: Int?
     @State private var showArchivedPreCompactionTranscript = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
@@ -354,6 +363,7 @@ struct PiAgentScreen: View {
             loadComposerDraft(for: store.selectedSession?.id)
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
+            resetTranscriptAutoScroll()
             requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
             viewModel.prepareRepoChangesForSelectedPiAgentSession()
@@ -390,9 +400,7 @@ struct PiAgentScreen: View {
                 lastSelectedSessionID = nil
             }
             loadComposerDraft(for: newID)
-            transcriptIsPinnedToBottom = true
-            transcriptAutoScrollSuppressed = false
-            transcriptAutoScrollTurnID = nil
+            resetTranscriptAutoScroll()
             showArchivedPreCompactionTranscript = false
             syncRuntimeFooterSnapshot()
             requestSelectedTranscriptLoadAfterViewUpdate()
@@ -764,6 +772,7 @@ struct PiAgentScreen: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
+                let timelineItems = visibleTranscriptTimelineItems
                 PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
@@ -783,7 +792,6 @@ struct PiAgentScreen: View {
                         }
                     }
 
-                    let timelineItems = visibleTranscriptTimelineItems
                     if let archive = preCompactionArchiveNotice {
                         preCompactionArchiveCard(archive)
                     }
@@ -854,7 +862,7 @@ struct PiAgentScreen: View {
                         },
                         onUserScrolledAwayFromBottom: {
                             guard store.selectedSession?.status.isActive == true else { return }
-                            transcriptAutoScrollSuppressed = true
+                            suppressTranscriptAutoScrollForCurrentTurn()
                         }
                     )
                 }
@@ -862,15 +870,19 @@ struct PiAgentScreen: View {
             .onChange(of: transcriptCache.renderRevision) { _, _ in
                 handleTranscriptRenderRevision(proxy: proxy)
             }
+            .onChange(of: transcriptCache.autoScrollTurnRevision) { _, _ in
+                beginTranscriptAutoScrollTurn()
+                scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false, repeatCount: 2)
+            }
             .onChange(of: transcriptCache.streamingRevision) { _, _ in
-                guard !transcriptAutoScrollSuppressed else { return }
+                guard !isTranscriptAutoScrollSuppressed else { return }
                 Task { @MainActor in
                     await Task.yield()
                     throttleStreamingScroll(proxy: proxy)
                 }
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
-                guard message != nil, !transcriptAutoScrollSuppressed else { return }
+                guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
             .onChange(of: transcriptBottomScrollRequest) { _, _ in
@@ -1022,20 +1034,31 @@ struct PiAgentScreen: View {
         }
     }
 
+    private var isTranscriptAutoScrollSuppressed: Bool {
+        transcriptAutoScrollSuppressedTurn == transcriptAutoScrollTurn
+    }
+
+    private func resetTranscriptAutoScroll() {
+        transcriptAutoScrollTurn &+= 1
+        transcriptAutoScrollSuppressedTurn = nil
+        transcriptIsPinnedToBottom = true
+    }
+
+    private func beginTranscriptAutoScrollTurn() {
+        resetTranscriptAutoScroll()
+    }
+
+    private func suppressTranscriptAutoScrollForCurrentTurn() {
+        transcriptAutoScrollSuppressedTurn = transcriptAutoScrollTurn
+    }
+
     private func handleTranscriptRenderRevision(proxy: ScrollViewProxy) {
-        let turnID = transcriptCache.lastThreadID
-        let didAdvanceTurn = turnID != transcriptAutoScrollTurnID
-        if didAdvanceTurn {
-            transcriptAutoScrollTurnID = turnID
-            transcriptAutoScrollSuppressed = false
-            transcriptIsPinnedToBottom = true
-        }
-        guard !transcriptAutoScrollSuppressed else { return }
+        guard !isTranscriptAutoScrollSuppressed else { return }
         scrollToConversationBottom(
             proxy: proxy,
             animated: false,
             respectSuppression: true,
-            repeatCount: didAdvanceTurn ? 3 : 2
+            repeatCount: 2
         )
     }
 
@@ -1052,8 +1075,7 @@ struct PiAgentScreen: View {
     }
 
     private func scrollToRequestedBottom(proxy: ScrollViewProxy) {
-        transcriptIsPinnedToBottom = true
-        transcriptAutoScrollSuppressed = false
+        resetTranscriptAutoScroll()
         scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false)
     }
 
@@ -1063,7 +1085,7 @@ struct PiAgentScreen: View {
             let attempts = max(1, repeatCount)
             for attempt in 0..<attempts {
                 await Task.yield()
-                guard !respectSuppression || !transcriptAutoScrollSuppressed else { return }
+                guard !respectSuppression || !isTranscriptAutoScrollSuppressed else { return }
                 withTransaction(Transaction(animation: animated && attempt == 0 ? .easeOut(duration: 0.18) : nil)) {
                     proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
                 }
@@ -1355,6 +1377,7 @@ struct PiAgentScreen: View {
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
+        beginTranscriptAutoScrollTurn()
         viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
         requestTranscriptBottomScroll()
         clearComposerInput()
