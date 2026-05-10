@@ -28,6 +28,8 @@ When a prompt starts with `/`, Pi first checks whether it matches a registered e
 
 Agent Deck discovers these with Pi RPC `get_commands` entries whose source is `extension`. They are best treated as runtime actions provided by extensions/packages.
 
+Agent Deck also ships selected app-bundled extension commands in Settings → Commands, such as `/optimize-agents-md` for creating or replacing a concise optimized `AGENTS.md` and `/create-agent-deck-command` for creating Agent Deck slash command extensions. Enabled bundled or imported commands are passed to parent Pi sessions as explicit `--extension` arguments while ambient extension discovery remains disabled.
+
 Because extension commands are code, their usefulness depends on what the handler does:
 
 - commands that send messages, inspect state, reload resources, or start workflows can work well in RPC
@@ -91,5 +93,5 @@ In Agent Deck:
 
 - **Prompts** are file-backed Markdown prompt templates.
 - **Skills** are shown in the Skills section, even though Pi can expose them as `/skill:name`.
-- Extension slash commands are not shown as first-class resources because Agent Deck-managed sessions run with discovered extensions disabled.
+- Extension slash commands are managed in Settings → Commands when bundled with or imported into Agent Deck; ambient discovered extensions stay disabled in managed sessions.
 - macOS menu commands such as New Session, Refresh, and Push Branch are Agent Deck app commands, not Pi slash commands.

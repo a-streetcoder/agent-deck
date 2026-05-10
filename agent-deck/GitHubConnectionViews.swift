@@ -81,12 +81,14 @@ struct GitHubConnectionCard: View {
         }
     }
 
-    private var timeFormatter: DateFormatter {
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter
-    }
+    }()
+
+    private var timeFormatter: DateFormatter { Self.timeFormatter }
 
     private var statusColor: Color {
         switch viewModel.githubConnectionState {

@@ -255,9 +255,10 @@ private struct MarkdownBlock: Identifiable, Hashable {
         return String(line.dropFirst(prefix.count))
     }
 
+    private static let numberedListRegex = try? NSRegularExpression(pattern: #"^(\d+)[\.)]\s+(.*)$"#)
+
     private static func parseNumbered(_ line: String) -> (number: Int, text: String)? {
-        let pattern = #"^(\d+)[\.)]\s+(.*)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
+        guard let regex = numberedListRegex,
               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..<line.endIndex, in: line)),
               let numberRange = Range(match.range(at: 1), in: line),
               let textRange = Range(match.range(at: 2), in: line),

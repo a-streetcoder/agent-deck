@@ -789,7 +789,7 @@ final class PiSubagentRunService {
             "content": "\(AppBrand.displayName) native subagent boundary: all previous forked messages are read-only reference. Do not continue a previous parent tool request or launch another managed_subagent. The next user message is the child subagent's authoritative task.",
             "display": false,
             "id": UUID().uuidString.prefix(8).lowercased(),
-            "timestamp": ISO8601DateFormatter().string(from: Date())
+            "timestamp": Self.iso8601Formatter.string(from: Date())
         ]
         entry["parentId"] = parentId ?? NSNull()
         guard JSONSerialization.isValidJSONObject(entry),
@@ -799,6 +799,8 @@ final class PiSubagentRunService {
         }
         return line
     }
+
+    private static let iso8601Formatter = ISO8601DateFormatter()
 
     private func lastSessionEntryID(in lines: [String]) -> String? {
         for line in lines.reversed() {

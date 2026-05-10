@@ -1045,11 +1045,15 @@ private enum PiInstructionPreviewBuilder {
         drafts[url.path] ?? (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
-    private static func currentDateString() -> String {
+    private static let currentDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        return formatter
+    }()
+
+    private static func currentDateString() -> String {
+        currentDateFormatter.string(from: Date())
     }
 }

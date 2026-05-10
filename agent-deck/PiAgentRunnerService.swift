@@ -445,7 +445,7 @@ final class PiAgentRunnerService {
         var entry: [String: Any] = [
             "type": "session_info",
             "id": entryID,
-            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "timestamp": Self.iso8601Formatter.string(from: Date()),
             "name": name
         ]
         entry["parentId"] = parentID ?? NSNull()
@@ -460,6 +460,8 @@ final class PiAgentRunnerService {
             handle.write(Data((prefix + line + "\n").utf8))
         }
     }
+
+    private static let iso8601Formatter = ISO8601DateFormatter()
 
     private func makeShortSessionEntryID(excluding existingIDs: Set<String>) -> String {
         for _ in 0..<100 {

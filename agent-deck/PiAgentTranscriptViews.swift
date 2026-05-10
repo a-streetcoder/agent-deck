@@ -709,11 +709,12 @@ struct PiAgentThreadDiffSummaryView: View {
         return path
     }
 
+    private static let pathTextRegexes = [#"in ([^\n]+)$"#, #"to ([^\n]+)$"#, #"from ([^\n]+)$"#]
+        .compactMap { try? NSRegularExpression(pattern: $0) }
+
     private static func pathFromText(_ text: String) -> String? {
-        let patterns = [#"in ([^\n]+)$"#, #"to ([^\n]+)$"#, #"from ([^\n]+)$"#]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
+        for regex in pathTextRegexes {
+            guard let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
                   match.numberOfRanges > 1,
                   let range = Range(match.range(at: 1), in: text) else { continue }
             return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "."))

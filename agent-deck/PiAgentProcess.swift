@@ -144,6 +144,10 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
             }
         }
 
+        if let pathResolved = resolveExecutableInPATH("pi", environment: environment) {
+            return pathResolved
+        }
+
         if let shellResolved = resolveUsingShell("pi") {
             return shellResolved
         }
@@ -173,6 +177,23 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         return nil
     }
 
+    private static func resolveExecutableInPATH(_ command: String, environment: [String: String]) -> URL? {
+        let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let path = [environment["PATH"], defaultPath]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: ":")
+        var checked: Set<String> = []
+        for directory in path.split(separator: ":").map(String.init) where !directory.isEmpty {
+            let candidate = URL(fileURLWithPath: directory).appendingPathComponent(command).path
+            guard checked.insert(candidate).inserted else { continue }
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return URL(fileURLWithPath: candidate)
+            }
+        }
+        return nil
+    }
+
     private static func resolveUsingShell(_ command: String) -> URL? {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
@@ -181,9 +202,16 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = Pipe()
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in semaphore.signal() }
+
         do {
             try process.run()
-            process.waitUntilExit()
+            if semaphore.wait(timeout: .now() + 5) == .timedOut {
+                process.terminate()
+                _ = semaphore.wait(timeout: .now() + 1)
+                return nil
+            }
             guard process.terminationStatus == 0 else { return nil }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

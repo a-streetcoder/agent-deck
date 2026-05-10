@@ -38,6 +38,9 @@ protocol CommandRunning: Sendable {
 }
 
 struct CommandRunner: CommandRunning {
+    private static let executableResolutionLock = NSLock()
+    nonisolated(unsafe) private static var executableResolutionCache: [String: URL] = [:]
+
     func run(
         _ command: String,
         arguments: [String] = [],
@@ -108,19 +111,23 @@ struct CommandRunner: CommandRunning {
             )
         }
 
-        if let shellResolvedPath = try await resolveUsingUserShell(command: command) {
-            return URL(fileURLWithPath: shellResolvedPath)
+        let cacheKey = Self.executableCacheKey(for: command)
+        if let cached = Self.cachedExecutableURL(for: cacheKey), FileManager.default.isExecutableFile(atPath: cached.path) {
+            return cached
         }
 
-        let fallbackPaths = [
-            "/opt/homebrew/bin/\(command)",
-            "/usr/local/bin/\(command)",
-            "/usr/bin/\(command)",
-            "/bin/\(command)"
-        ]
+        let resolvedURL: URL?
+        if let shellResolvedPath = try? await resolveUsingUserShell(command: command) {
+            resolvedURL = URL(fileURLWithPath: shellResolvedPath)
+        } else if let pathResolved = Self.resolveExecutableInPATH(command) {
+            resolvedURL = URL(fileURLWithPath: pathResolved)
+        } else {
+            resolvedURL = nil
+        }
 
-        if let existingPath = fallbackPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return URL(fileURLWithPath: existingPath)
+        if let resolvedURL {
+            Self.cacheExecutableURL(resolvedURL, for: cacheKey)
+            return resolvedURL
         }
 
         throw CommandRunnerError.launchFailed(
@@ -128,9 +135,44 @@ struct CommandRunner: CommandRunning {
             underlying: NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(ENOENT),
-                userInfo: [NSLocalizedDescriptionKey: "Unable to resolve executable path for `\(command)` from the user's shell environment."]
+                userInfo: [NSLocalizedDescriptionKey: "Unable to resolve executable path for `\(command)` from PATH or the user's shell environment."]
             )
         )
+    }
+
+    private static func executableCacheKey(for command: String) -> String {
+        let environment = ProcessInfo.processInfo.environment
+        return [
+            command,
+            environment["SHELL"] ?? "",
+            environment["PATH"] ?? ""
+        ].joined(separator: "\u{1f}")
+    }
+
+    private static func cachedExecutableURL(for cacheKey: String) -> URL? {
+        executableResolutionLock.lock()
+        defer { executableResolutionLock.unlock() }
+        return executableResolutionCache[cacheKey]
+    }
+
+    private static func cacheExecutableURL(_ url: URL, for cacheKey: String) {
+        executableResolutionLock.lock()
+        executableResolutionCache[cacheKey] = url
+        executableResolutionLock.unlock()
+    }
+
+    private static func resolveExecutableInPATH(_ command: String) -> String? {
+        let environment = processEnvironment(merging: nil)
+        let path = environment["PATH"] ?? ""
+        var checked: Set<String> = []
+        for directory in path.split(separator: ":").map(String.init) where !directory.isEmpty {
+            let candidate = URL(fileURLWithPath: directory).appendingPathComponent(command).path
+            guard checked.insert(candidate).inserted else { continue }
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func isSafeExecutableName(_ command: String) -> Bool {
@@ -152,20 +194,26 @@ struct CommandRunner: CommandRunning {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
             let outputCollector = LockedProcessOutputCollector(stdout: stdoutPipe.fileHandleForReading, stderr: stderrPipe.fileHandleForReading)
+            let finishGate = LockedFinishGate()
+
+            @Sendable func finish(_ value: String?) {
+                guard finishGate.tryFinish() else { return }
+                outputCollector.stop()
+                continuation.resume(returning: value)
+            }
 
             process.terminationHandler = { process in
                 outputCollector.drainRemainingData()
                 let output = outputCollector.output()
-                outputCollector.stop()
                 let stdout = output.stdout
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
                 guard process.terminationStatus == 0, !stdout.isEmpty else {
-                    continuation.resume(returning: nil)
+                    finish(nil)
                     return
                 }
 
-                continuation.resume(returning: stdout)
+                finish(stdout)
             }
 
             do {
@@ -174,6 +222,14 @@ struct CommandRunner: CommandRunning {
             } catch {
                 outputCollector.stop()
                 continuation.resume(throwing: CommandRunnerError.launchFailed(command: shell, underlying: error))
+                return
+            }
+
+            Task.detached {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard process.isRunning else { return }
+                process.terminate()
+                finish(nil)
             }
         }
     }
