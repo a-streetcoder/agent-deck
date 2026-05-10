@@ -330,6 +330,9 @@ struct PiAgentScreen: View {
     @State private var selectedSessionIDs: Set<UUID> = []
     @State private var lastSelectedSessionID: UUID?
     @State private var pendingDeleteSessionIDs: Set<UUID> = []
+    @State private var pendingDeleteIsClearAll = false
+    @State private var pendingDeleteClearAllProjects = false
+    @State private var pendingDeleteProjectName: String?
     @State private var isDeleteSessionsAlertPresented = false
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
@@ -452,8 +455,10 @@ struct PiAgentScreen: View {
             )
         }
         .alert(deleteSessionsAlertTitle, isPresented: $isDeleteSessionsAlertPresented) {
-            Button("Delete", role: .destructive, action: deletePendingSessions)
-            Button("Cancel", role: .cancel) { pendingDeleteSessionIDs = [] }
+            Button(pendingDeleteIsClearAll ? "Clear" : "Delete", role: .destructive, action: deletePendingSessions)
+            Button("Cancel", role: .cancel) {
+                resetPendingSessionDelete()
+            }
         } message: {
             Text(deleteSessionsAlertMessage)
         }
@@ -495,11 +500,23 @@ struct PiAgentScreen: View {
     }
 
     private var deleteSessionsAlertTitle: String {
-        pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
+        if pendingDeleteIsClearAll {
+            if pendingDeleteClearAllProjects { return "Clear all Pi Agent sessions?" }
+            let projectName = pendingDeleteProjectName ?? "this project"
+            return "Clear Pi Agent sessions for \(projectName)?"
+        }
+        return pendingDeleteSessionIDs.count == 1 ? "Delete Pi Agent session?" : "Delete \(pendingDeleteSessionIDs.count) Pi Agent sessions?"
     }
 
     private var deleteSessionsAlertMessage: String {
-        pendingDeleteSessionIDs.count == 1
+        if pendingDeleteIsClearAll {
+            if pendingDeleteClearAllProjects {
+                return "This removes all Pi Agent sessions and their local transcripts for every project from \(AppBrand.displayName)."
+            }
+            let projectName = pendingDeleteProjectName ?? "the current project"
+            return "This removes all Pi Agent sessions and their local transcripts for \(projectName) from \(AppBrand.displayName). Other projects are not affected."
+        }
+        return pendingDeleteSessionIDs.count == 1
             ? "This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName)."
             : "This removes the selected Pi Agent sessions and their local transcripts from \(AppBrand.displayName)."
     }
@@ -600,6 +617,18 @@ private struct PiAgentSessionViewOptionsMenu: View {
                         sessionSortOrder: $sessionSortOrder,
                         onChange: rebuildVisibleSessions
                     )
+                    if !scopedSessions.isEmpty {
+                        Button(role: .destructive) {
+                            requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true)
+                        } label: {
+                            Image(systemName: "eraser.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(showsAllSessions ? "Clear all sessions" : "Clear sessions for this project")
+                        .accessibilityLabel(showsAllSessions ? "Clear all sessions" : "Clear sessions for this project")
+                    }
                     Spacer()
                     if selectedSessionIDs.count > 1 {
                         Button(role: .destructive) {
@@ -1545,16 +1574,27 @@ private struct PiAgentSessionViewOptionsMenu: View {
         viewModel.selectPiAgentSession(session.id)
     }
 
-    private func requestDeleteSessions(_ ids: Set<UUID>) {
+    private func requestDeleteSessions(_ ids: Set<UUID>, isClearAll: Bool = false) {
         let existing = Set(store.sessions.map(\.id))
-        pendingDeleteSessionIDs = ids.intersection(existing)
-        guard !pendingDeleteSessionIDs.isEmpty else { return }
+        let deleteIDs = ids.intersection(existing)
+        guard !deleteIDs.isEmpty else { return }
+        pendingDeleteSessionIDs = deleteIDs
+        pendingDeleteIsClearAll = isClearAll
+        pendingDeleteClearAllProjects = isClearAll && showsAllSessions
+        pendingDeleteProjectName = isClearAll && !showsAllSessions ? (viewModel.selectedDiscoveredProject?.name ?? "the current project") : nil
         isDeleteSessionsAlertPresented = true
+    }
+
+    private func resetPendingSessionDelete() {
+        pendingDeleteSessionIDs = []
+        pendingDeleteIsClearAll = false
+        pendingDeleteClearAllProjects = false
+        pendingDeleteProjectName = nil
     }
 
     private func deletePendingSessions() {
         let ids = pendingDeleteSessionIDs
-        pendingDeleteSessionIDs = []
+        resetPendingSessionDelete()
         selectedSessionIDs.subtract(ids)
         withAnimation(.snappy(duration: 0.18)) {
             cachedVisibleSessions.removeAll { ids.contains($0.id) }
