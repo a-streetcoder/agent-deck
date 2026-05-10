@@ -143,7 +143,6 @@ struct ContentView: View {
                     filterText: $projectFilterText,
                     isSearchDebouncing: projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedProjectFilterText,
                     onSelectProject: { viewModel.setSelectedProject($0.url) },
-                    onSelectAllProjects: { viewModel.clearProjectRoot() },
                     onToggleFavorite: viewModel.toggleProjectFavorite,
                     onChooseProject: { viewModel.chooseProjectRoot() }
                 )

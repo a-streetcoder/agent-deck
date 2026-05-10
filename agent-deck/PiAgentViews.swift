@@ -329,6 +329,7 @@ struct PiAgentScreen: View {
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
     @AppStorage("piAgentSessionSortOrder") private var sessionSortOrder: PiAgentSessionSortOrder = .created
+    @AppStorage("piAgentShowsAllSessions") private var showsAllSessions = true
     @State private var isUIRequestSheetPresented = false
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
@@ -448,7 +449,7 @@ struct PiAgentScreen: View {
     }
 
     private var sessionScopePath: String? {
-        viewModel.selectedProjectPath
+        showsAllSessions ? nil : viewModel.selectedProjectPath
     }
 
     private var scopedSessions: [PiAgentSessionRecord] {
@@ -521,36 +522,37 @@ struct PiAgentScreen: View {
                         .layoutPriority(1)
                     Spacer()
                     if selectedSessionIDs.count > 1 {
-                    Button(role: .destructive) {
-                        requestDeleteSessions(selectedSessionIDs)
+                        Button(role: .destructive) {
+                            requestDeleteSessions(selectedSessionIDs)
+                        } label: {
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.red)
+                                .contentTransition(.symbolEffect(.replace))
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(Color.red.opacity(0.12)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Delete selected sessions")
+                        .accessibilityLabel("Delete selected sessions")
+                    }
+                    Button {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            sessionSortOrder.toggle()
+                        }
                     } label: {
-                        Image(systemName: "trash.fill")
+                        Image(systemName: sessionSortOrder.systemImage)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.red)
+                            .foregroundStyle(AppTheme.brandAccent)
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: 30, height: 30)
-                            .background(Circle().fill(Color.red.opacity(0.12)))
+                            .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
                     }
                     .buttonStyle(.plain)
-                    .help("Delete selected sessions")
-                    .accessibilityLabel("Delete selected sessions")
-                }
-                Button {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        sessionSortOrder.toggle()
-                    }
-                } label: {
-                    Image(systemName: sessionSortOrder.systemImage)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AppTheme.brandAccent)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-                .help(sessionSortOrder.help)
-                .accessibilityLabel(sessionSortOrder.accessibilityLabel)
-                    if viewModel.selectedDiscoveredProject == nil {                        PiAgentAddSessionMenuButton(projects: piAgentNewSessionProjects) { project in
+                    .help(sessionSortOrder.help)
+                    .accessibilityLabel(sessionSortOrder.accessibilityLabel)
+                    if viewModel.selectedDiscoveredProject == nil || showsAllSessions {
+                        PiAgentAddSessionMenuButton(projects: piAgentNewSessionProjects) { project in
                             viewModel.createPiAgentDraft(for: project)
                         }
                         .disabled(piAgentNewSessionProjects.isEmpty)
@@ -563,6 +565,25 @@ struct PiAgentScreen: View {
                     }
                 }
 
+                if viewModel.selectedDiscoveredProject != nil {
+                    HStack(spacing: 6) {
+                        Toggle("", isOn: Binding(
+                            get: { showsAllSessions },
+                            set: { newValue in
+                                showsAllSessions = newValue
+                                rebuildVisibleSessions()
+                            }
+                        ))
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        Text("All projects")
+                            .font(.caption)
+                            .fontWidth(.condensed)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                    }
+                    .help("Show Pi Agent sessions across all projects")
+                }
             }
             .padding(.vertical, 18)
             .padding(.horizontal, 18)

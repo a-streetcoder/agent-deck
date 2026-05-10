@@ -3159,10 +3159,8 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private var libraryOnlyEffectiveAgents: [EffectiveAgentRecord] {
-        // In All Projects, project-local agents should not hide reusable library agents
-        // with the same name. Global/custom winners still hide library duplicates, but
-        // project-specific winners are scoped to their project and are not shown as the
-        // reusable library entry.
+        // In the global view, project-local agents should not hide reusable library
+        // agents with the same name. Global/custom winners still hide library duplicates.
         let agentsThatHideLibrary = snapshot.projectRoot == nil
             ? snapshot.effectiveAgents.filter { $0.projectCustom == nil && $0.projectOverride == nil }
             : snapshot.effectiveAgents
@@ -4082,8 +4080,8 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func makeAggregateSnapshot() -> ScanSnapshot {
-        // All Projects is a global/library management view. Project-local resources
-        // remain visible when their project is selected; they are intentionally not
+        // The no-project view is a global/library management view. Project-local
+        // resources remain visible only when their project is selected; they are not
         // merged here so global/library resources do not depend on scanning every repo.
         ScanSnapshot(
             projectRoot: nil,
