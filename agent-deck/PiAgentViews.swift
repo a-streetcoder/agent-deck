@@ -325,6 +325,7 @@ struct PiAgentScreen: View {
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
     @State private var transcriptAutoScrollSuppressed = false
+    @State private var transcriptAutoScrollTurnID: UUID?
     @State private var showArchivedPreCompactionTranscript = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
@@ -355,6 +356,7 @@ struct PiAgentScreen: View {
             rebuildVisibleSessions()
             requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
+            viewModel.prepareRepoChangesForSelectedPiAgentSession()
         }
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
@@ -390,10 +392,12 @@ struct PiAgentScreen: View {
             loadComposerDraft(for: newID)
             transcriptIsPinnedToBottom = true
             transcriptAutoScrollSuppressed = false
+            transcriptAutoScrollTurnID = nil
             showArchivedPreCompactionTranscript = false
             syncRuntimeFooterSnapshot()
             requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
+            viewModel.prepareRepoChangesForSelectedPiAgentSession()
         }
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
@@ -848,31 +852,25 @@ struct PiAgentScreen: View {
                         onPinnedToBottomChange: { isPinnedToBottom in
                             transcriptIsPinnedToBottom = isPinnedToBottom
                         },
-                        onUserScrollIntent: {
-                            transcriptAutoScrollSuppressed = true
-                        },
                         onUserScrolledAwayFromBottom: {
+                            guard store.selectedSession?.status.isActive == true else { return }
                             transcriptAutoScrollSuppressed = true
                         }
                     )
                 }
             }
             .onChange(of: transcriptCache.renderRevision) { _, _ in
-                guard transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    scrollToLatestThread(proxy: proxy)
-                }
+                handleTranscriptRenderRevision(proxy: proxy)
             }
             .onChange(of: transcriptCache.streamingRevision) { _, _ in
-                guard transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
+                guard !transcriptAutoScrollSuppressed else { return }
                 Task { @MainActor in
                     await Task.yield()
                     throttleStreamingScroll(proxy: proxy)
                 }
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
-                guard message != nil, transcriptIsPinnedToBottom, !transcriptAutoScrollSuppressed else { return }
+                guard message != nil, !transcriptAutoScrollSuppressed else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
             .onChange(of: transcriptBottomScrollRequest) { _, _ in
@@ -1024,6 +1022,23 @@ struct PiAgentScreen: View {
         }
     }
 
+    private func handleTranscriptRenderRevision(proxy: ScrollViewProxy) {
+        let turnID = transcriptCache.lastThreadID
+        let didAdvanceTurn = turnID != transcriptAutoScrollTurnID
+        if didAdvanceTurn {
+            transcriptAutoScrollTurnID = turnID
+            transcriptAutoScrollSuppressed = false
+            transcriptIsPinnedToBottom = true
+        }
+        guard !transcriptAutoScrollSuppressed else { return }
+        scrollToConversationBottom(
+            proxy: proxy,
+            animated: false,
+            respectSuppression: true,
+            repeatCount: didAdvanceTurn ? 3 : 2
+        )
+    }
+
     private func scrollToLatestThread(proxy: ScrollViewProxy) {
         scrollToConversationBottom(proxy: proxy, animated: false, respectSuppression: true)
     }
@@ -1042,13 +1057,19 @@ struct PiAgentScreen: View {
         scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false)
     }
 
-    private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool, respectSuppression: Bool) {
+    private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool, respectSuppression: Bool, repeatCount: Int = 1) {
         lastStreamingScrollAt = Date()
         Task { @MainActor in
-            await Task.yield()
-            guard !respectSuppression || !transcriptAutoScrollSuppressed else { return }
-            withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
-                proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
+            let attempts = max(1, repeatCount)
+            for attempt in 0..<attempts {
+                await Task.yield()
+                guard !respectSuppression || !transcriptAutoScrollSuppressed else { return }
+                withTransaction(Transaction(animation: animated && attempt == 0 ? .easeOut(duration: 0.18) : nil)) {
+                    proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
+                }
+                if attempt < attempts - 1 {
+                    try? await Task.sleep(nanoseconds: 16_000_000)
+                }
             }
         }
     }
@@ -1532,13 +1553,11 @@ struct PiAgentScreen: View {
 
 private struct PiAgentScrollPositionObserver: NSViewRepresentable {
     let onPinnedToBottomChange: (Bool) -> Void
-    let onUserScrollIntent: () -> Void
     let onUserScrolledAwayFromBottom: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onPinnedToBottomChange: onPinnedToBottomChange,
-            onUserScrollIntent: onUserScrollIntent,
             onUserScrolledAwayFromBottom: onUserScrolledAwayFromBottom
         )
     }
@@ -1551,7 +1570,6 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
-        context.coordinator.onUserScrollIntent = onUserScrollIntent
         context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         context.coordinator.scheduleAttach(from: view)
     }
@@ -1559,7 +1577,6 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var onPinnedToBottomChange: (Bool) -> Void
-        var onUserScrollIntent: () -> Void
         var onUserScrolledAwayFromBottom: () -> Void
         private weak var scrollView: NSScrollView?
         private var lastPinnedState: Bool?
@@ -1568,11 +1585,9 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
         init(
             onPinnedToBottomChange: @escaping (Bool) -> Void,
-            onUserScrollIntent: @escaping () -> Void,
             onUserScrolledAwayFromBottom: @escaping () -> Void
         ) {
             self.onPinnedToBottomChange = onPinnedToBottomChange
-            self.onUserScrollIntent = onUserScrollIntent
             self.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         }
 
@@ -1633,8 +1648,6 @@ private struct PiAgentScrollPositionObserver: NSViewRepresentable {
 
             let location = scrollView.convert(event.locationInWindow, from: nil)
             guard scrollView.bounds.contains(location) else { return }
-
-            onUserScrollIntent()
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
