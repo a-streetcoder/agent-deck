@@ -1025,30 +1025,56 @@ private struct PiAgentSessionViewOptionsMenu: View {
         if session.isCompacting { return "Compacting context" }
 
         if let lastEntry = store.selectedTranscript.last {
-            if lastEntry.role == .assistant && !lastEntry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return nil
-            }
-            if lastEntry.role == .error || lastEntry.role == .stderr {
-                return nil
-            }
-            if lastEntry.role == .tool {
-                return lastEntry.text.localizedCaseInsensitiveContains("waiting for user input") ? nil : "Running tool"
-            }
-            if lastEntry.role == .status {
-                if lastEntry.title == "Input Sent" { return "Processing your response" }
-                if lastEntry.title == "Retry" { return "Retrying request" }
-                if lastEntry.title == "Compaction" { return "Compacting context" }
-            }
-            if lastEntry.role == .user {
-                switch lastEntry.title {
-                case "Steering": return "Applying your steering"
-                case "Queued follow-up": return "Queued follow-up"
-                default: return "Thinking about your message"
-                }
-            }
-            if lastEntry.role == .thinking { return "Reasoning" }
+            return processingMessage(after: lastEntry)
         }
-        return "Pi is thinking"
+        return "Pi is working"
+    }
+
+    private func processingMessage(after entry: PiAgentTranscriptEntry) -> String? {
+        switch entry.role {
+        case .assistant:
+            return entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Preparing response" : nil
+        case .error, .stderr:
+            return nil
+        case .tool:
+            if entry.text.localizedCaseInsensitiveContains("waiting for user input") { return nil }
+            return toolProcessingMessage(for: entry)
+        case .status:
+            return statusProcessingMessage(for: entry)
+        case .user:
+            switch entry.title {
+            case "Steering": return "Applying your steering"
+            case "Queued follow-up": return "Queued follow-up"
+            default: return "Processing your message"
+            }
+        case .thinking:
+            return "Reasoning"
+        case .raw:
+            return "Processing event"
+        }
+    }
+
+    private func statusProcessingMessage(for entry: PiAgentTranscriptEntry) -> String? {
+        switch entry.title {
+        case "Input Sent": return "Processing your response"
+        case "Input Needed": return nil
+        case "Retry": return "Retrying request"
+        case "Compaction": return "Compacting context"
+        case "Native Subagent Requested": return "Starting subagent"
+        case "Native Chain Requested": return "Starting chain"
+        case "Native Parallel Requested": return "Starting parallel run"
+        case "Supervisor Response Routed": return "Routing response"
+        case "System Prompt Captured": return "Preparing context"
+        case "Process Ended", "Stopped": return nil
+        default: return "Processing update"
+        }
+    }
+
+    private func toolProcessingMessage(for entry: PiAgentTranscriptEntry) -> String {
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.hasPrefix("Tool:") else { return "Running tool" }
+        let toolName = title.dropFirst("Tool:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return toolName.isEmpty ? "Running tool" : "Running \(toolName)"
     }
 
     private func scheduleTranscriptCacheUpdate() {
