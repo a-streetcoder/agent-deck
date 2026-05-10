@@ -26,6 +26,7 @@ enum AppTheme {
     static let accentSelectionFill = brandAccent.opacity(0.10)
     static let accentSelectionStroke = brandAccent.opacity(0.32)
     static let mutedText = Color.secondary
+    static let accentForeground = adaptiveColor(light: RGB(255, 255, 255), dark: RGB(0, 0, 0))
 
     private struct RGB {
         let red: CGFloat
@@ -119,7 +120,7 @@ struct AppPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .fontWeight(.semibold)
-            .foregroundStyle(Color.black.gradient)
+            .foregroundStyle(AppTheme.accentForeground.gradient)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(

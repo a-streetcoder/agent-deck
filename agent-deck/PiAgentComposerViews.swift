@@ -746,7 +746,7 @@ struct PiAgentSendButton: View {
 
     private var foregroundStyle: AnyShapeStyle {
         if isRunning { return AnyShapeStyle(Color.white.gradient) }
-        if canSend { return AnyShapeStyle(Color.black.gradient) }
+        if canSend { return AnyShapeStyle(AppTheme.accentForeground.gradient) }
         return AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
     }
 

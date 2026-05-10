@@ -427,11 +427,9 @@ struct PiAgentScreen: View {
             syncVisibleSessionSelection()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
         }
-        .onChange(of: store.selectedTranscriptRevision) { _, _ in
-            Task { @MainActor in
-                await Task.yield()
-                scheduleTranscriptCacheUpdate()
-            }
+        .task(id: store.selectedTranscriptRevision) {
+            await Task.yield()
+            scheduleTranscriptCacheUpdate()
         }
         .sheet(item: selectedSubagentTranscriptBinding) { run in
             PiNativeSubagentTranscriptSheet(
@@ -901,32 +899,26 @@ private struct PiAgentSessionViewOptionsMenu: View {
                     )
                 }
             }
-            .onChange(of: transcriptCache.renderRevision) { _, _ in
+            .task(id: transcriptCache.renderRevision) {
                 handleTranscriptRenderRevision(proxy: proxy)
             }
-            .onChange(of: transcriptCache.autoScrollTurnRevision) { _, _ in
-                Task { @MainActor in
-                    await Task.yield()
-                    beginTranscriptAutoScrollTurn()
-                    scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false, repeatCount: 2)
-                }
+            .task(id: transcriptCache.autoScrollTurnRevision) {
+                await Task.yield()
+                beginTranscriptAutoScrollTurn()
+                scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false, repeatCount: 2)
             }
-            .onChange(of: transcriptCache.streamingRevision) { _, _ in
+            .task(id: transcriptCache.streamingRevision) {
                 guard !isTranscriptAutoScrollSuppressed else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    throttleStreamingScroll(proxy: proxy)
-                }
+                await Task.yield()
+                throttleStreamingScroll(proxy: proxy)
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
                 guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
-            .onChange(of: transcriptBottomScrollRequest) { _, _ in
-                Task { @MainActor in
-                    await Task.yield()
-                    scrollToRequestedBottom(proxy: proxy)
-                }
+            .task(id: transcriptBottomScrollRequest) {
+                await Task.yield()
+                scrollToRequestedBottom(proxy: proxy)
             }
         }
     }

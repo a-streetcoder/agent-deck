@@ -57,6 +57,7 @@ struct ContentView: View {
     @State private var piAgentRightPanelCollapsedSidebar = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var isRunChainSheetPresented = false
+    @State private var commandContext = AgentDeckCommandContext()
     @State private var chainRunTask = ""
     @State private var chainRunUsesWorktreeIsolation = false
     @State private var isOnboardingPresented = !UserDefaults.standard.bool(forKey: "agentDeckWelcomeTourCompleted.v1")
@@ -170,6 +171,8 @@ struct ContentView: View {
         .frame(minWidth: 1180, minHeight: 700)
         .navigationTitle(toolbarTitle)
         .focusedSceneValue(\.agentDeckCommands, commandContext)
+        .onAppear(perform: updateCommandContext)
+        .onChange(of: commandContextUpdateToken) { _, _ in updateCommandContext() }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             handleSidebarSelectionChange(newValue)
         }
@@ -799,7 +802,32 @@ struct ContentView: View {
         )
     }
 
-    private var commandContext: AgentDeckCommandContext {
+    private var commandContextUpdateToken: String {
+        let selectedSession = viewModel.piAgentSessionStore.selectedSession
+        let selectedSessionID = selectedSession?.id
+        let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
+        let commitMessage = viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasGitProject = viewModel.selectedDiscoveredProject?.isGitRepository == true
+        let selectedPrompt = viewModel.selectedPromptTemplate
+        let selectedAgent = viewModel.selectedAgent
+        return [
+            viewModel.selectedSidebarItem.id,
+            selectedSessionID?.uuidString ?? "nil",
+            String(selectedSessionIsRunning),
+            String(viewModel.canOpenSelectedPiAgentSessionInTerminal),
+            commitMessage,
+            String(viewModel.githubIsCommitting),
+            String(viewModel.githubIsPushing),
+            String(hasGitProject),
+            String(viewModel.discoveredProjects.count),
+            selectedPrompt?.id ?? "nil",
+            selectedAgent?.id ?? "nil",
+            String(selectedAgent?.resolved.disabled ?? false),
+            selectedAgentFilePath ?? "nil"
+        ].joined(separator: "|")
+    }
+
+    private func updateCommandContext() {
         let selectedSession = viewModel.piAgentSessionStore.selectedSession
         let selectedSessionID = selectedSession?.id
         let selectedSessionIsRunning = selectedSessionID.map { viewModel.isPiAgentSessionRunning($0) } ?? false
@@ -810,88 +838,85 @@ struct ContentView: View {
         let selectedAgentPath = selectedAgentFilePath
         let promptsAreVisible = viewModel.selectedSidebarItem == .prompts
 
-        return AgentDeckCommandContext(
-            canCreatePiAgentSession: true,
-            canCreateAgent: true,
-            canDeletePiAgentSession: selectedSession != nil,
-            canStopPiAgentSession: selectedSessionIsRunning,
-            canOpenPiAgentRepoChanges: selectedSession != nil,
-            canTogglePiAgentInspector: viewModel.selectedSidebarItem != .agent,
-            canOpenPiAgentInTerminal: viewModel.canOpenSelectedPiAgentSessionInTerminal,
-            canCommitGitHubChanges: hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting,
-            canPushGitHubBranch: hasGitProject && !viewModel.githubIsPushing,
-            canEnableAllProjects: !viewModel.discoveredProjects.isEmpty,
-            canDisableAllProjects: !viewModel.discoveredProjects.isEmpty,
-            canAddProject: true,
-            canImportSkills: true,
-            canCreatePrompt: true,
-            canCopyPromptInvocation: promptsAreVisible && selectedPrompt != nil,
-            canOpenPromptFile: promptsAreVisible && selectedPrompt != nil,
-            canRevealPromptFile: promptsAreVisible && selectedPrompt != nil,
-            canOpenSelectedAgentFile: selectedAgentPath != nil,
-            canRevealSelectedAgentFile: selectedAgentPath != nil,
-            canEditSelectedAgent: selectedAgent != nil,
-            canToggleSelectedAgentDisabled: selectedAgent != nil,
-            selectedAgentIsDisabled: selectedAgent?.resolved.disabled == true,
-            openSettings: {
-                openSettings()
-            },
-            refresh: { viewModel.refreshEverything() },
-            createPiAgentSession: { viewModel.createPiAgentDraftForSelectedProject() },
-            createAgent: {
-                editingAgent = nil
-                agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .library : .project)
-            },
-            deletePiAgentSession: { showingPiAgentDeleteAlert = true },
-            stopPiAgentSession: { viewModel.stopSelectedPiAgentSession() },
-            showPiAgentRepoChanges: {
-                viewModel.openPiAgentScreen()
-                isPiAgentRepoChangesPresented.toggle()
-                if isPiAgentRepoChangesPresented {
-                    viewModel.prepareRepoChangesForSelectedPiAgentSession()
-                }
-            },
-            togglePiAgentInspector: {
-                if viewModel.selectedSidebarItem != .agent {
-                    viewModel.isPiAgentInspectorPresented.toggle()
-                }
-            },
-            resumePiAgentInTerminal: { viewModel.openSelectedPiAgentSessionInTerminal() },
-            refreshGitHub: { viewModel.refreshEverything() },
-            commitGitHubChanges: { viewModel.commitChanges() },
-            pushGitHubBranch: { viewModel.pushCurrentBranch() },
-            enableAllProjects: { showingEnableAllProjectsAlert = true },
-            disableAllProjects: { showingDisableAllProjectsAlert = true },
-            addProject: { viewModel.chooseProjectRoot() },
-            importSkills: {
-                NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
-            },
-            createPrompt: {
-                do { try viewModel.createLibraryPromptTemplate() }
-                catch { NSSound.beep() }
-            },
-            copyPromptInvocation: {
-                guard let selectedPrompt else { return }
-                copyCommandValue(selectedPrompt.invocation)
-            },
-            openPromptFile: {
-                guard let selectedPrompt else { return }
-                openPromptFile(selectedPrompt.filePath)
-            },
-            revealPromptFile: {
-                guard let selectedPrompt else { return }
-                revealPromptFile(selectedPrompt.filePath)
-            },
-            openSelectedAgentFile: { openSelectedAgentFile() },
-            revealSelectedAgentFile: { revealSelectedAgentFile() },
-            editSelectedAgent: {
-                guard selectedAgent != nil else { return }
-                agentDetailEditCommand += 1
-            },
-            toggleSelectedAgentDisabled: {
-                setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
+        commandContext.canCreatePiAgentSession = true
+        commandContext.canCreateAgent = true
+        commandContext.canDeletePiAgentSession = selectedSession != nil
+        commandContext.canStopPiAgentSession = selectedSessionIsRunning
+        commandContext.canOpenPiAgentRepoChanges = selectedSession != nil
+        commandContext.canTogglePiAgentInspector = viewModel.selectedSidebarItem != .agent
+        commandContext.canOpenPiAgentInTerminal = viewModel.canOpenSelectedPiAgentSessionInTerminal
+        commandContext.canCommitGitHubChanges = hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting
+        commandContext.canPushGitHubBranch = hasGitProject && !viewModel.githubIsPushing
+        commandContext.canEnableAllProjects = !viewModel.discoveredProjects.isEmpty
+        commandContext.canDisableAllProjects = !viewModel.discoveredProjects.isEmpty
+        commandContext.canAddProject = true
+        commandContext.canImportSkills = true
+        commandContext.canCreatePrompt = true
+        commandContext.canCopyPromptInvocation = promptsAreVisible && selectedPrompt != nil
+        commandContext.canOpenPromptFile = promptsAreVisible && selectedPrompt != nil
+        commandContext.canRevealPromptFile = promptsAreVisible && selectedPrompt != nil
+        commandContext.canOpenSelectedAgentFile = selectedAgentPath != nil
+        commandContext.canRevealSelectedAgentFile = selectedAgentPath != nil
+        commandContext.canEditSelectedAgent = selectedAgent != nil
+        commandContext.canToggleSelectedAgentDisabled = selectedAgent != nil
+        commandContext.selectedAgentIsDisabled = selectedAgent?.resolved.disabled == true
+
+        commandContext.openSettings = { openSettings() }
+        commandContext.refresh = { viewModel.refreshEverything() }
+        commandContext.createPiAgentSession = { viewModel.createPiAgentDraftForSelectedProject() }
+        commandContext.createAgent = {
+            editingAgent = nil
+            agentDraft = viewModel.makeNewAgentDraft(scope: viewModel.selectedProjectPath == nil ? .library : .project)
+        }
+        commandContext.deletePiAgentSession = { showingPiAgentDeleteAlert = true }
+        commandContext.stopPiAgentSession = { viewModel.stopSelectedPiAgentSession() }
+        commandContext.showPiAgentRepoChanges = {
+            viewModel.openPiAgentScreen()
+            isPiAgentRepoChangesPresented.toggle()
+            if isPiAgentRepoChangesPresented {
+                viewModel.prepareRepoChangesForSelectedPiAgentSession()
             }
-        )
+        }
+        commandContext.togglePiAgentInspector = {
+            if viewModel.selectedSidebarItem != .agent {
+                viewModel.isPiAgentInspectorPresented.toggle()
+            }
+        }
+        commandContext.resumePiAgentInTerminal = { viewModel.openSelectedPiAgentSessionInTerminal() }
+        commandContext.refreshGitHub = { viewModel.refreshEverything() }
+        commandContext.commitGitHubChanges = { viewModel.commitChanges() }
+        commandContext.pushGitHubBranch = { viewModel.pushCurrentBranch() }
+        commandContext.enableAllProjects = { showingEnableAllProjectsAlert = true }
+        commandContext.disableAllProjects = { showingDisableAllProjectsAlert = true }
+        commandContext.addProject = { viewModel.chooseProjectRoot() }
+        commandContext.importSkills = {
+            NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+        }
+        commandContext.createPrompt = {
+            do { try viewModel.createLibraryPromptTemplate() }
+            catch { NSSound.beep() }
+        }
+        commandContext.copyPromptInvocation = {
+            guard let selectedPrompt else { return }
+            copyCommandValue(selectedPrompt.invocation)
+        }
+        commandContext.openPromptFile = {
+            guard let selectedPrompt else { return }
+            openPromptFile(selectedPrompt.filePath)
+        }
+        commandContext.revealPromptFile = {
+            guard let selectedPrompt else { return }
+            revealPromptFile(selectedPrompt.filePath)
+        }
+        commandContext.openSelectedAgentFile = { openSelectedAgentFile() }
+        commandContext.revealSelectedAgentFile = { revealSelectedAgentFile() }
+        commandContext.editSelectedAgent = {
+            guard selectedAgent != nil else { return }
+            agentDetailEditCommand += 1
+        }
+        commandContext.toggleSelectedAgentDisabled = {
+            setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
+        }
     }
 
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {

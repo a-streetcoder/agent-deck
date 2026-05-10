@@ -105,7 +105,7 @@ private struct GitHubIssueDetailCard: View {
                                     Text("Open")
                                         .fontWeight(.semibold)
                                 }
-                                .foregroundStyle(Color.black.gradient)
+                                .foregroundStyle(AppTheme.accentForeground.gradient)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                                 .background(

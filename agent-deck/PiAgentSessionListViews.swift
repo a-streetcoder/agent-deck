@@ -174,7 +174,7 @@ private struct PiAgentAddSessionButtonLabel: View {
 
     private var foregroundStyle: AnyShapeStyle {
         isEnabled
-            ? AnyShapeStyle(Color.black.gradient)
+            ? AnyShapeStyle(AppTheme.accentForeground.gradient)
             : AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
     }
 

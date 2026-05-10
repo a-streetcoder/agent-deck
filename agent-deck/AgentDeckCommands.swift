@@ -95,7 +95,7 @@ private extension View {
     }
 }
 
-struct AgentDeckCommandContext {
+final class AgentDeckCommandContext {
     var canCreatePiAgentSession = false
     var canCreateAgent = false
     var canDeletePiAgentSession = false
