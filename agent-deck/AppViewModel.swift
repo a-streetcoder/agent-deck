@@ -119,6 +119,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var autoRefreshCancellable: AnyCancellable?
     private var watchFingerprintTask: Task<Void, Never>?
     private var lastWatchFingerprint: String = ""
+    private var watchedURLsForAutoRefresh: [URL] = []
     private var refreshTask: Task<Void, Never>?
     private var refreshRequestID = 0
     private var isRefreshingModels = false
@@ -287,6 +288,7 @@ final class AppViewModel: NSObject, ObservableObject {
             let discoveredProjectPaths = Set(result.discoveredProjects.map(\.path))
             allProjectSnapshots = allProjectSnapshots.filter { discoveredProjectPaths.contains($0.key) }
         }
+        watchedURLsForAutoRefresh = result.watchedURLs
         if result.includesWatchFingerprint {
             lastWatchFingerprint = result.watchFingerprint
         }
@@ -4391,8 +4393,9 @@ final class AppViewModel: NSObject, ObservableObject {
     private func refreshIfWatchedFilesChanged() {
         guard watchFingerprintTask == nil else { return }
         let previousFingerprint = lastWatchFingerprint
-        let projectsToWatch = selectedDiscoveredProject.map { [$0] } ?? []
-        let urls = AppRefreshService.watchedURLs(projects: projectsToWatch, snapshot: snapshot)
+        let urls = watchedURLsForAutoRefresh.isEmpty
+            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot)
+            : watchedURLsForAutoRefresh
         watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, urls] in
             let fingerprint = FileWatchFingerprint.make(urls: urls)
             guard !Task.isCancelled else { return }

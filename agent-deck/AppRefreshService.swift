@@ -9,6 +9,7 @@ struct AppRefreshSnapshot: Sendable {
     let includesAllProjectSnapshots: Bool
     let selectedProject: DiscoveredProject?
     let selectedProjectSnapshot: ScanSnapshot?
+    let watchedURLs: [URL]
     let watchFingerprint: String
     let includesWatchFingerprint: Bool
 }
@@ -55,9 +56,8 @@ nonisolated struct AppRefreshService: Sendable {
         } else {
             projectsToWatch = scanAllProjects ? enabledProjects : projectsToScan
         }
-        let watchFingerprint = FileWatchFingerprint.make(
-            urls: Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot)
-        )
+        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot)
+        let watchFingerprint = FileWatchFingerprint.make(urls: watchedURLs)
 
         return AppRefreshSnapshot(
             projectPreferencesByPath: preferencesByPath,
@@ -68,6 +68,7 @@ nonisolated struct AppRefreshService: Sendable {
             includesAllProjectSnapshots: scanAllProjects,
             selectedProject: selectedProject,
             selectedProjectSnapshot: selectedProjectSnapshot,
+            watchedURLs: watchedURLs,
             watchFingerprint: watchFingerprint,
             includesWatchFingerprint: scanAllProjects || selectedProject != nil
         )
