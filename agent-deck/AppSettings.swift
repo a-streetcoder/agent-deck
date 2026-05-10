@@ -9,11 +9,16 @@ enum AppAppearanceMode: String, Codable, CaseIterable, Identifiable {
 }
 
 enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
-    case full = "Full"
-    case compact = "Compact"
+    case full = "Show"
     case hidden = "Hidden"
 
     var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = PiAgentThinkingDisplayMode(rawValue: rawValue) ?? .full
+    }
 }
 
 struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
@@ -107,7 +112,7 @@ struct AppSettings: Codable, Hashable {
         piAgentIdleParkingTimeoutMinutes = max(decodedIdleParkingTimeout, 1)
         piAgentLazyTranscriptLoadingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentLazyTranscriptLoadingEnabled) ?? true
         piAgentLoadedTranscriptCacheLimit = max(try container.decodeIfPresent(Int.self, forKey: .piAgentLoadedTranscriptCacheLimit) ?? 10, 1)
-        piAgentThinkingDisplayMode = try container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode) ?? .full
+        piAgentThinkingDisplayMode = (try? container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode)) ?? .full
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path

@@ -430,7 +430,7 @@ struct PiAgentScreen: View {
             PiNativeSubagentTranscriptSheet(
                 run: run,
                 entries: store.cachedSubagentTranscript(for: run.id),
-                thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
+                thinkingDisplayMode: .full,
                 visibility: viewModel.appSettings.piAgentTranscriptVisibility
             )
             .onAppear {
@@ -861,7 +861,7 @@ private struct PiAgentSessionViewOptionsMenu: View {
                             case let .thread(thread):
                                 PiAgentTranscriptThreadCard(
                                     thread: thread,
-                                    thinkingDisplayMode: viewModel.appSettings.piAgentThinkingDisplayMode,
+                                    thinkingDisplayMode: .full,
                                     visibility: viewModel.appSettings.piAgentTranscriptVisibility,
                                     skills: visibleSkillsForSelectedSession,
                                     projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
@@ -1479,9 +1479,9 @@ private struct PiAgentSessionViewOptionsMenu: View {
 
     private var emptySessionsMessage: String {
         if let project = viewModel.selectedDiscoveredProject {
-            return "Use + to create a draft for \(project.name), or Open from a GitHub issue."
+            return "Use + to create a draft for \(project.name), or open from a GitHub issue."
         }
-        return "Use + to create a draft in \(viewModel.configuredProjectsRootPath), or select a project to narrow the list."
+        return "Use + to create a draft, or select a project to narrow the list."
     }
 
     private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {

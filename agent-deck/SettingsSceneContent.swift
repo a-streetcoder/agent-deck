@@ -338,18 +338,6 @@ private struct AgentSettingsTab: View {
     var body: some View {
         SettingsForm {
             SettingsSection {
-                SettingsPickerRow(
-                    title: "Thinking display:",
-                    selection: piAgentThinkingDisplayBinding,
-                    note: "Show full reasoning, compact previews, or hide thinking blocks from the transcript."
-                ) {
-                    ForEach(PiAgentThinkingDisplayMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-            }
-
-            SettingsSection {
                 SettingsStepperRow(
                     title: "Notification delay:",
                     value: piAgentNotificationDelayBinding,
@@ -392,13 +380,6 @@ private struct AgentSettingsTab: View {
                 }
             }
         }
-    }
-
-    private var piAgentThinkingDisplayBinding: Binding<PiAgentThinkingDisplayMode> {
-        Binding(
-            get: { viewModel.appSettings.piAgentThinkingDisplayMode },
-            set: { viewModel.setPiAgentThinkingDisplayMode($0) }
-        )
     }
 
     private var piAgentNotificationDelayBinding: Binding<Int> {

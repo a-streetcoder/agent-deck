@@ -1788,7 +1788,8 @@ struct PiAgentThinkingPicker: View {
     @State private var hoveredLevel: String?
     @State private var optimisticLevel: String?
 
-    private var levels: [String] { supportedLevels.isEmpty ? ["off"] : supportedLevels }
+    private var isLoadingLevels: Bool { supportedLevels.isEmpty }
+    private var levels: [String] { supportedLevels }
 
     var body: some View {
         Button {
@@ -1816,8 +1817,21 @@ struct PiAgentThinkingPicker: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
 
-                ForEach(levels, id: \.self) { candidate in
-                    thinkingLevelRow(candidate)
+                if isLoadingLevels {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.mutedText)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                    .padding(.horizontal, 10)
+                } else {
+                    ForEach(levels, id: \.self) { candidate in
+                        thinkingLevelRow(candidate)
+                    }
                 }
             }
             .padding(12)
@@ -1886,6 +1900,9 @@ struct PiAgentThinkingPicker: View {
     }
 
     private var displayLevel: String {
-        levels.contains(resolvedLevel) ? resolvedLevel : "\(resolvedLevel) unavailable"
+        if isLoadingLevels {
+            return resolvedLevel.isEmpty ? "loading" : resolvedLevel
+        }
+        return levels.contains(resolvedLevel) ? resolvedLevel : "\(resolvedLevel) unavailable"
     }
 }

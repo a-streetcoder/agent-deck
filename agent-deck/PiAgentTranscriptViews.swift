@@ -1939,8 +1939,6 @@ struct PiAgentTranscriptCard: View {
         switch thinkingDisplayMode {
         case .full:
             reasoningDisclosure(source: entry.text, defaultExpanded: true)
-        case .compact:
-            reasoningDisclosure(source: entry.text, defaultExpanded: false)
         case .hidden:
             Text("Thinking…")
                 .font(.body.italic())
@@ -1957,12 +1955,6 @@ struct PiAgentTranscriptCard: View {
             HStack(spacing: 6) {
                 Text("Reasoning")
                     .font(.caption.weight(.semibold))
-                if thinkingDisplayMode == .compact && !isThinkingExpanded {
-                    Text(compactPreview(displayText))
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(3)
-                }
             }
         }
         .onAppear {
@@ -1970,11 +1962,6 @@ struct PiAgentTranscriptCard: View {
         }
     }
 
-    private func compactPreview(_ text: String) -> String {
-        let allLines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        let preview = allLines.prefix(3).joined(separator: "\n")
-        return allLines.count > 3 ? preview + "…" : preview
-    }
 
     private var skillUse: (skill: SkillRecord?, invocation: String, remainingText: String)? {
         let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
