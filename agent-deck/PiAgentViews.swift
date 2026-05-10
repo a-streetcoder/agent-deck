@@ -275,35 +275,6 @@ private struct PiAgentTranscriptTimelineItem: Identifiable {
     let kind: Kind
 }
 
-private enum PiAgentSessionSortOrder: String, Hashable {
-    case created
-    case updated
-
-    var systemImage: String {
-        switch self {
-        case .created: return "calendar"
-        case .updated: return "clock"
-        }
-    }
-
-    var help: String {
-        switch self {
-        case .created: return "Currently sorted by creation time. Switch to last edited."
-        case .updated: return "Currently sorted by last edit. Switch to creation time."
-        }
-    }
-
-    var accessibilityLabel: String {
-        switch self {
-        case .created: return "Sort sessions by creation time"
-        case .updated: return "Sort sessions by last edit"
-        }
-    }
-
-    mutating func toggle() {
-        self = self == .created ? .updated : .created
-    }
-}
 
 private extension PiAgentTranscriptThread {
     var timelineTimestamp: Date {
@@ -348,8 +319,6 @@ struct PiAgentScreen: View {
     @State private var showArchivedPreCompactionTranscript = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
-    @AppStorage("piAgentSessionSortOrder") private var sessionSortOrder: PiAgentSessionSortOrder = .created
-    @AppStorage("piAgentShowsAllSessions") private var showsAllSessions = true
     @State private var isUIRequestSheetPresented = false
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
@@ -381,7 +350,6 @@ struct PiAgentScreen: View {
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessions() }
-        .onChange(of: sessionSortOrder) { _, _ in rebuildVisibleSessions() }
         .onDisappear {
             saveComposerDraft(for: store.selectedSession?.id)
         }
@@ -462,6 +430,19 @@ struct PiAgentScreen: View {
         } message: {
             Text(deleteSessionsAlertMessage)
         }
+        .toolbar {
+            if !scopedSessions.isEmpty {
+                ToolbarItem(placement: .navigation) {
+                    Button(role: .destructive) {
+                        requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true)
+                    } label: {
+                        Image(systemName: "eraser")
+                    }
+                    .help(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
+                    .accessibilityLabel(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
+                }
+            }
+        }
     }
 
     private var piAgentNewSessionProjects: [DiscoveredProject] {
@@ -471,7 +452,7 @@ struct PiAgentScreen: View {
     }
 
     private var sessionScopePath: String? {
-        showsAllSessions ? nil : viewModel.selectedProjectPath
+        viewModel.selectedProjectPath
     }
 
     private var scopedSessions: [PiAgentSessionRecord] {
@@ -544,63 +525,6 @@ struct PiAgentScreen: View {
         )
     }
 
-private struct PiAgentSessionViewOptionsMenu: View {
-    let selectedProject: DiscoveredProject?
-    @Binding var showsAllSessions: Bool
-    @Binding var sessionSortOrder: PiAgentSessionSortOrder
-    let onChange: () -> Void
-
-    var body: some View {
-        Menu {
-            if selectedProject != nil {
-                Picker("Scope", selection: scopeSelection) {
-                    Label("Current Project", systemImage: "folder")
-                        .tag(false)
-                    Label("All Projects", systemImage: "square.grid.2x2")
-                        .tag(true)
-                }
-                .pickerStyle(.inline)
-            }
-
-            Picker("Sort", selection: sortSelection) {
-                Label("Creation Time", systemImage: "calendar")
-                    .tag(PiAgentSessionSortOrder.created)
-                Label("Last Edit", systemImage: "clock")
-                    .tag(PiAgentSessionSortOrder.updated)
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 14, weight: .semibold))
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .help("Session view options")
-        .accessibilityLabel("Session view options")
-    }
-
-    private var scopeSelection: Binding<Bool> {
-        Binding(
-            get: { showsAllSessions },
-            set: { newValue in
-                showsAllSessions = newValue
-                onChange()
-            }
-        )
-    }
-
-    private var sortSelection: Binding<PiAgentSessionSortOrder> {
-        Binding(
-            get: { sessionSortOrder },
-            set: { newValue in
-                sessionSortOrder = newValue
-                onChange()
-            }
-        )
-    }
-}
 
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -611,24 +535,6 @@ private struct PiAgentSessionViewOptionsMenu: View {
                         .fontWidth(.expanded)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
-                    PiAgentSessionViewOptionsMenu(
-                        selectedProject: viewModel.selectedDiscoveredProject,
-                        showsAllSessions: $showsAllSessions,
-                        sessionSortOrder: $sessionSortOrder,
-                        onChange: rebuildVisibleSessions
-                    )
-                    if !scopedSessions.isEmpty {
-                        Button(role: .destructive) {
-                            requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true)
-                        } label: {
-                            Image(systemName: "eraser.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(showsAllSessions ? "Clear all sessions" : "Clear sessions for this project")
-                        .accessibilityLabel(showsAllSessions ? "Clear all sessions" : "Clear sessions for this project")
-                    }
                     Spacer()
                     if selectedSessionIDs.count > 1 {
                         Button(role: .destructive) {
@@ -645,7 +551,7 @@ private struct PiAgentSessionViewOptionsMenu: View {
                         .help("Delete selected sessions")
                         .accessibilityLabel("Delete selected sessions")
                     }
-                    if viewModel.selectedDiscoveredProject == nil || showsAllSessions {
+                    if viewModel.selectedDiscoveredProject == nil {
                         PiAgentAddSessionMenuButton(
                             projects: piAgentNewSessionProjects,
                             selectedProject: viewModel.selectedDiscoveredProject
@@ -1580,8 +1486,8 @@ private struct PiAgentSessionViewOptionsMenu: View {
         guard !deleteIDs.isEmpty else { return }
         pendingDeleteSessionIDs = deleteIDs
         pendingDeleteIsClearAll = isClearAll
-        pendingDeleteClearAllProjects = isClearAll && showsAllSessions
-        pendingDeleteProjectName = isClearAll && !showsAllSessions ? (viewModel.selectedDiscoveredProject?.name ?? "the current project") : nil
+        pendingDeleteClearAllProjects = isClearAll && viewModel.selectedProjectPath == nil
+        pendingDeleteProjectName = isClearAll && viewModel.selectedProjectPath != nil ? (viewModel.selectedDiscoveredProject?.name ?? "the current project") : nil
         isDeleteSessionsAlertPresented = true
     }
 
@@ -1632,12 +1538,7 @@ private struct PiAgentSessionViewOptionsMenu: View {
     private func sortedSessions(_ sessions: [PiAgentSessionRecord]) -> [PiAgentSessionRecord] {
         sessions.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
-            switch sessionSortOrder {
-            case .created:
-                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
-            case .updated:
-                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-            }
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
             return lhs.id.uuidString < rhs.id.uuidString
         }
     }

@@ -143,11 +143,9 @@ struct SidebarProjectGitHubCard: View {
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
     let selectedProjectPath: String?
-    let favoriteProjectPaths: Set<String>
     @Binding var filterText: String
     let isSearchDebouncing: Bool
-    let onSelectProject: (DiscoveredProject) -> Void
-    let onToggleFavorite: (DiscoveredProject) -> Void
+    let onSelectProject: (DiscoveredProject?) -> Void
     let onChooseProject: () -> Void
 
     @State private var isExpanded = false
@@ -157,7 +155,7 @@ struct SidebarProjectGitHubCard: View {
             HStack(alignment: .center, spacing: 10) {
                 ProjectIconView(
                     imageURL: selectedProject?.iconFileURL,
-                    symbolName: selectedProject?.fallbackSymbolName ?? "folder",
+                    symbolName: selectedProject?.fallbackSymbolName ?? "square.grid.2x2",
                     size: 34
                 )
 
@@ -194,16 +192,14 @@ struct SidebarProjectGitHubCard: View {
                 .accessibilityHint("Opens the project picker")
                 .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
                     ProjectPickerPopover(
-                        projects: orderedProjects,
+                        projects: projects,
                         selectedProjectPath: selectedProjectPath,
-                        favoriteProjectPaths: favoriteProjectPaths,
                         filterText: $filterText,
                         isSearchDebouncing: isSearchDebouncing,
                         onSelectProject: { project in
                             onSelectProject(project)
                             isExpanded = false
-                        },
-                        onToggleFavorite: onToggleFavorite
+                        }
                     )
                 }
             }
@@ -256,19 +252,10 @@ struct SidebarProjectGitHubCard: View {
         .appContentSurface(cornerRadius: 16)
     }
 
-    private var favoriteProjects: [DiscoveredProject] {
-        projects.filter { favoriteProjectPaths.contains($0.path) }
-    }
-
-    private var otherProjects: [DiscoveredProject] {
-        projects.filter { !favoriteProjectPaths.contains($0.path) }
-    }
-
-    private var orderedProjects: [DiscoveredProject] {
-        favoriteProjects + otherProjects
-    }
-
     private var selectedProjectTitle: String {
+        if selectedProject == nil && selectedProjectPath == nil {
+            return "All Projects"
+        }
         if let remote = selectedProject?.gitHubRemote {
             return remote.repo
         }
@@ -336,11 +323,9 @@ struct SidebarProjectGitHubCard: View {
 struct ProjectPickerPopover: View {
     let projects: [DiscoveredProject]
     let selectedProjectPath: String?
-    let favoriteProjectPaths: Set<String>
     @Binding var filterText: String
     let isSearchDebouncing: Bool
-    let onSelectProject: (DiscoveredProject) -> Void
-    let onToggleFavorite: (DiscoveredProject) -> Void
+    let onSelectProject: (DiscoveredProject?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -352,6 +337,15 @@ struct ProjectPickerPopover: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    ProjectSidebarRow(
+                        title: "All Projects",
+                        subtitle: "Show sessions across every project",
+                        symbolName: "square.grid.2x2",
+                        imageURL: nil,
+                        isSelected: selectedProjectPath == nil,
+                        action: { onSelectProject(nil) }
+                    )
+
                     ForEach(projects) { project in
                         ProjectSidebarRow(
                             title: project.repositoryDisplayName,
@@ -359,9 +353,6 @@ struct ProjectPickerPopover: View {
                             symbolName: project.fallbackSymbolName,
                             imageURL: project.iconFileURL,
                             isSelected: selectedProjectPath == project.path,
-                            isFavorite: favoriteProjectPaths.contains(project.path),
-                            showsFavoriteButton: true,
-                            onToggleFavorite: { onToggleFavorite(project) },
                             action: { onSelectProject(project) }
                         )
                     }
@@ -379,9 +370,6 @@ struct ProjectSidebarRow: View {
     let symbolName: String
     let imageURL: URL?
     let isSelected: Bool
-    let isFavorite: Bool
-    let showsFavoriteButton: Bool
-    let onToggleFavorite: (() -> Void)?
     let action: () -> Void
 
     var body: some View {
@@ -421,17 +409,7 @@ struct ProjectSidebarRow: View {
             }
             .buttonStyle(.plain)
 
-            if showsFavoriteButton, let onToggleFavorite {
-                Button(action: onToggleFavorite) {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
-                        .font(.caption)
-                        .foregroundStyle(isFavorite ? Color.yellow : AppTheme.mutedText)
-                        .frame(width: 24, height: 24)
-                        .background(Circle().fill(AppTheme.contentSubtleFill.opacity(0.8)))
-                }
-                .buttonStyle(.plain)
-                .help(isFavorite ? "Remove favorite" : "Add favorite")
-            }
+
         }
     }
 }

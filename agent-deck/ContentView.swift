@@ -144,11 +144,9 @@ struct ContentView: View {
                     projects: filteredProjects,
                     selectedProject: selectedProject,
                     selectedProjectPath: viewModel.selectedProjectPath,
-                    favoriteProjectPaths: Set(viewModel.favoriteProjects.map(\.path)),
                     filterText: $projectFilterText,
                     isSearchDebouncing: projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedProjectFilterText,
-                    onSelectProject: { viewModel.setSelectedProject($0.url) },
-                    onToggleFavorite: viewModel.toggleProjectFavorite,
+                    onSelectProject: { viewModel.setSelectedProject($0?.url) },
                     onChooseProject: { viewModel.chooseProjectRoot() }
                 )
                 .padding(.horizontal, 16)
@@ -567,42 +565,6 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .agent {
-                ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            isPiAgentTranscriptOptionsPresented.toggle()
-                        } label: {
-                            Label("Transcript Display", systemImage: "eye")
-                        }
-                        .help("Choose what appears in the agent transcript")
-                        .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-                            PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
-                        }
-
-                        Button {
-                            isPiAgentSubagentsPopoverPresented.toggle()
-                        } label: {
-                            Label("Subagents", systemImage: "rectangle.connected.to.line.below")
-                        }
-                        .help("Toggle native subagents for this session")
-                        .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-                        .popover(isPresented: $isPiAgentSubagentsPopoverPresented, arrowEdge: .bottom) {
-                            PiAgentSubagentPopover(
-                                isEnabled: Binding(
-                                    get: { viewModel.piAgentSessionStore.selectedSession?.subagentsEnabled == true },
-                                    set: { isEnabled in
-                                        viewModel.setSubagentsEnabledForSelectedSession(isEnabled)
-                                        viewModel.setSubagentsEnabledForNewSessions(isEnabled)
-                                    }
-                                )
-                            )
-                        }
-                    }
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.primary)
-                    .tint(.primary)
-                }
-
                 if viewModel.shouldShowPiAgentGitActions {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
                     ToolbarItem(placement: .primaryAction) {
