@@ -132,9 +132,72 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let args = try String(contentsOf: argsLog, encoding: .utf8)
         XCTAssertTrue(args.contains("--provider\nzai"))
         XCTAssertTrue(args.contains("--model\nglm-5.1:off"))
+        XCTAssertTrue(args.contains("--system-prompt\n"))
+        XCTAssertTrue(args.contains("--no-context-files"))
+        XCTAssertTrue(args.contains("--no-prompt-templates"))
+        XCTAssertTrue(args.contains("session title generator"))
+        XCTAssertTrue(args.contains("capture the concrete goal or change"))
 
         let stdin = try String(contentsOf: stdinLog, encoding: .utf8)
         XCTAssertTrue(stdin.contains(#""type":"prompt""#))
+        XCTAssertFalse(stdin.contains("set_thinking_level"))
+        XCTAssertFalse(stdin.contains("set_model"))
+    }
+
+    func testCommitMessageGenerationUsesIsolatedCustomSystemPrompt() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-commit-message-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let argsLog = directory.appendingPathComponent("args.log")
+        let stdinLog = directory.appendingPathComponent("stdin.log")
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' "$@" > \(PiTestSupport.shellSingleQuoted(argsLog.path))
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> \(PiTestSupport.shellSingleQuoted(stdinLog.path))
+          printf '%s\\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Title: Improve Session Title Prompting\\nBody: - Clarifies generated titles around user goals"}]}}'
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        var generatedMessage: PiAgentShipService.CommitMessage?
+        var generatedError: Error?
+        let shipService = PiAgentShipService()
+        shipService.generateCommitMessage(
+            status: "## main\nM  agent-deck/PiSessionTitleGenerationService.swift",
+            diff: "agent-deck/PiSessionTitleGenerationService.swift | 12 ++++++++----",
+            model: AvailableModel(provider: "zai", model: "glm-5.1:high", contextWindow: "1M", maxOutput: "64K", supportsThinking: true, supportsImages: false, supportedThinkingLevels: ["off", "low", "medium", "high"]),
+            projectURL: directory,
+            environment: [:]
+        ) { result in
+            switch result {
+            case let .success(message): generatedMessage = message
+            case let .failure(error): generatedError = error
+            }
+        }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { generatedMessage != nil || generatedError != nil })
+        XCTAssertEqual(generatedMessage?.title, "Improve Session Title Prompting")
+        XCTAssertEqual(generatedMessage?.body, "- Clarifies generated titles around user goals")
+        XCTAssertNil(generatedError)
+
+        let args = try String(contentsOf: argsLog, encoding: .utf8)
+        XCTAssertTrue(args.contains("--provider\nzai"))
+        XCTAssertTrue(args.contains("--model\nglm-5.1:off"))
+        XCTAssertTrue(args.contains("--system-prompt\n"))
+        XCTAssertTrue(args.contains("--no-context-files"))
+        XCTAssertTrue(args.contains("--no-prompt-templates"))
+        XCTAssertTrue(args.contains("git commit message generator"))
+        XCTAssertTrue(args.contains("concrete code or product change"))
+
+        let stdin = try String(contentsOf: stdinLog, encoding: .utf8)
+        XCTAssertTrue(stdin.contains(#""type":"prompt""#))
+        XCTAssertTrue(stdin.contains("Generate a git commit message for these staged changes"))
         XCTAssertFalse(stdin.contains("set_thinking_level"))
         XCTAssertFalse(stdin.contains("set_model"))
     }

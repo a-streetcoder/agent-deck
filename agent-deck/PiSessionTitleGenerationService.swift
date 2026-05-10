@@ -50,7 +50,16 @@ final class PiSessionTitleGenerationService {
                 cwd: projectURL,
                 provider: model.provider,
                 modelArgument: Self.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
-                extraArguments: ["--no-session", "--no-extensions", "--no-skills", "--no-tools"],
+                extraArguments: [
+                    "--no-session",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-tools",
+                    "--no-context-files",
+                    "--no-prompt-templates",
+                    "--system-prompt",
+                    Self.titleSystemPrompt,
+                ],
                 environment: environment,
                 onEvent: { [weak self] events in
                     Task { @MainActor [weak self] in
@@ -158,23 +167,30 @@ final class PiSessionTitleGenerationService {
         run.completion(result)
     }
 
+    private static let titleSystemPrompt = """
+    You are Agent Deck's session title generator. Your only job is to name a coding-agent chat from the user's first message.
+
+    The title must be concise and explanatory: capture the concrete goal or change the user is trying to achieve, not merely the immediate step the assistant may take. Prefer the intended product/code outcome over process wording.
+
+    Examples:
+    - If the user asks to read Liquid Glass documentation so a switch icon button can match the primary plus button, return a title like "Improve Liquid Glass Options Button", not "Reading Documentation".
+    - If the user asks to debug failing title generation tests, return a title like "Fix Title Generation Tests", not "Inspecting Test Failures".
+
+    Requirements:
+    - 3 to 7 words
+    - Title Case
+    - No quotes
+    - No markdown
+    - No trailing punctuation
+    - Return only the title
+    """
+
     private func prompt(for firstMessage: String) -> String {
         let trimmedMessage = firstMessage
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(maxFirstMessageCharacters)
         return """
-        Generate a concise title for this coding-agent chat.
-
-        Requirements:
-        - 3 to 6 words
-        - Title Case
-        - No quotes
-        - No markdown
-        - No trailing punctuation
-        - Describe the user's actual task
-        - Return only the title
-
-        User's first message:
+        Generate a session title for this user's first message:
         <message>
         \(trimmedMessage)
         </message>

@@ -227,6 +227,7 @@ struct ProjectsScreen: View {
                         Text(option.rawValue).tag(option)
                     }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 320)
             }

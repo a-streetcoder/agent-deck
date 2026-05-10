@@ -3,6 +3,25 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+private extension View {
+    func suggestionBottomFade(height: CGFloat = 24) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black.opacity(0), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: height)
+            }
+        }
+    }
+}
+
 struct PiAgentFileSuggestion: Identifiable, Hashable {
     private static let maxScanResults = 40
 
@@ -44,10 +63,19 @@ struct PiAgentCommandSuggestions: View {
     let onSelectFile: (PiAgentFileSuggestion) -> Void
     let onSelectCommand: (String) -> Void
 
+    private let maxPopoverHeight: CGFloat = 260
+    private let maxListHeight: CGFloat = 220
+    private let columnWidth: CGFloat = 260
+
     var body: some View {
         Group {
             if !fileSuggestions.isEmpty {
-                suggestionPanel(title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files", icon: "paperclip", scrollable: true) {
+                suggestionPanel(
+                    title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files",
+                    icon: "paperclip",
+                    maxHeight: maxListHeight,
+                    showsOverflowHint: fileSuggestions.prefix(10).count >= 8
+                ) {
                     ForEach(fileSuggestions.prefix(10)) { suggestion in
                         suggestionRow(action: { onSelectFile(suggestion) }) {
                             Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
@@ -58,21 +86,43 @@ struct PiAgentCommandSuggestions: View {
                         }
                     }
                 }
+                .frame(width: 520, alignment: .leading)
             } else if !commands.isEmpty || !skills.isEmpty {
-                suggestionPanel(scrollable: true) {
-                    if !commands.isEmpty {
-                        suggestionSection(title: "Commands", icon: "terminal")
-                        commandRows(commands)
-                    }
-                    if !skills.isEmpty {
-                        if !commands.isEmpty { Divider().padding(.vertical, 3) }
-                        suggestionSection(title: "Skills", icon: "sparkles")
-                        skillRows(skills)
-                    }
-                }
+                slashSuggestionColumns
             }
         }
-        .frame(width: 520, alignment: .leading)
+        .frame(maxHeight: maxPopoverHeight, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var slashSuggestionColumns: some View {
+        if !commands.isEmpty && !skills.isEmpty {
+            HStack(alignment: .top, spacing: 10) {
+                suggestionPanel(title: "Commands", icon: "terminal", maxHeight: maxListHeight, showsOverflowHint: commands.count >= 8) {
+                    commandRows(commands)
+                }
+                .frame(width: columnWidth, alignment: .topLeading)
+
+                Divider()
+                    .frame(maxHeight: maxPopoverHeight)
+
+                suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: maxListHeight, showsOverflowHint: skills.count >= 8) {
+                    skillRows(skills)
+                }
+                .frame(width: columnWidth, alignment: .topLeading)
+            }
+            .frame(width: columnWidth * 2 + 11, alignment: .topLeading)
+        } else if !commands.isEmpty {
+            suggestionPanel(title: "Commands", icon: "terminal", maxHeight: maxListHeight, showsOverflowHint: commands.count >= 8) {
+                commandRows(commands)
+            }
+            .frame(width: columnWidth, alignment: .topLeading)
+        } else if !skills.isEmpty {
+            suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: maxListHeight, showsOverflowHint: skills.count >= 8) {
+                skillRows(skills)
+            }
+            .frame(width: columnWidth, alignment: .topLeading)
+        }
     }
 
     private func commandRows(_ items: [String]) -> some View {
@@ -121,24 +171,29 @@ struct PiAgentCommandSuggestions: View {
         .buttonStyle(.plain)
     }
 
-    private func suggestionPanel<Content: View>(title: String? = nil, icon: String? = nil, scrollable: Bool = false, @ViewBuilder content: @escaping () -> Content) -> some View {
+    private func suggestionPanel<Content: View>(title: String? = nil, icon: String? = nil, maxHeight: CGFloat, showsOverflowHint: Bool, @ViewBuilder content: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title, let icon {
-                Label(title, systemImage: icon)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
+                suggestionSection(title: title, icon: icon)
             }
-            if scrollable {
-                ScrollView {
-                    suggestionRows(content: content)
-                }
-                .frame(maxHeight: 180)
-            } else {
-                suggestionRows(content: content)
-            }
+            suggestionScroll(maxHeight: maxHeight, showsOverflowHint: showsOverflowHint, content: content)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func suggestionScroll<Content: View>(maxHeight: CGFloat, showsOverflowHint: Bool, @ViewBuilder content: @escaping () -> Content) -> some View {
+        let scrollView = ScrollView(showsIndicators: false) {
+            suggestionRows(content: content)
+        }
+        .frame(maxHeight: maxHeight)
+
+        if showsOverflowHint {
+            scrollView.suggestionBottomFade()
+        } else {
+            scrollView
+        }
     }
 
     private func suggestionRows<Content: View>(@ViewBuilder content: () -> Content) -> some View {

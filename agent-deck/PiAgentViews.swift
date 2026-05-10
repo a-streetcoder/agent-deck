@@ -548,17 +548,13 @@ private struct PiAgentSessionViewOptionsMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Image(systemName: "line.3.horizontal.decrease")
+            Image(systemName: "gearshape")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(AppTheme.brandAccent)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
-                .contentShape(Circle())
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
-        .fixedSize()
         .help("Session view options")
         .accessibilityLabel("Session view options")
     }
@@ -587,13 +583,18 @@ private struct PiAgentSessionViewOptionsMenu: View {
     private var sessionsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: 6) {
                     Text("Sessions")
                         .font(.title2.bold())
                         .fontWidth(.expanded)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
-                        .layoutPriority(1)
+                    PiAgentSessionViewOptionsMenu(
+                        selectedProject: viewModel.selectedDiscoveredProject,
+                        showsAllSessions: $showsAllSessions,
+                        sessionSortOrder: $sessionSortOrder,
+                        onChange: rebuildVisibleSessions
+                    )
                     Spacer()
                     if selectedSessionIDs.count > 1 {
                         Button(role: .destructive) {
@@ -610,12 +611,6 @@ private struct PiAgentSessionViewOptionsMenu: View {
                         .help("Delete selected sessions")
                         .accessibilityLabel("Delete selected sessions")
                     }
-                    PiAgentSessionViewOptionsMenu(
-                        selectedProject: viewModel.selectedDiscoveredProject,
-                        showsAllSessions: $showsAllSessions,
-                        sessionSortOrder: $sessionSortOrder,
-                        onChange: rebuildVisibleSessions
-                    )
                     if viewModel.selectedDiscoveredProject == nil || showsAllSessions {
                         PiAgentAddSessionMenuButton(
                             projects: piAgentNewSessionProjects,

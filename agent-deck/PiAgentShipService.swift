@@ -61,7 +61,16 @@ final class PiAgentShipService {
                 cwd: projectURL,
                 provider: model.provider,
                 modelArgument: PiSessionTitleGenerationService.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
-                extraArguments: ["--no-session", "--no-extensions", "--no-skills", "--no-tools"],
+                extraArguments: [
+                    "--no-session",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-tools",
+                    "--no-context-files",
+                    "--no-prompt-templates",
+                    "--system-prompt",
+                    Self.commitMessageSystemPrompt,
+                ],
                 environment: environment,
                 onEvent: { [weak self] events in
                     Task { @MainActor [weak self] in
@@ -128,13 +137,26 @@ final class PiAgentShipService {
         run.completion(result)
     }
 
+    private static let commitMessageSystemPrompt = """
+    You are Agent Deck's git commit message generator. Your only job is to write a commit message from the supplied git status and staged diff.
+
+    The commit message must be concise and explanatory: capture the concrete code or product change being committed, not the mechanical act of editing files. Prefer the intended behavior or user-visible outcome when the diff makes it clear.
+
+    Return exactly this format, with no markdown:
+    Title: <imperative commit title, max 72 chars>
+    Body: <1-3 concise bullet points or one short paragraph>
+
+    Requirements:
+    - Title must be imperative, specific, and <= 72 characters
+    - Body must explain what changed, not repeat filenames only
+    - No quotes around the title
+    - No markdown fences
+    - Do not invent changes not supported by the status or diff
+    """
+
     private func prompt(status: String, diff: String) -> String {
         """
-        Generate a concise git commit message for these staged changes.
-
-        Return exactly this format, with no markdown:
-        Title: <imperative commit title, max 72 chars>
-        Body: <1-3 concise bullet points or one short paragraph>
+        Generate a git commit message for these staged changes.
 
         Git status:
         \(status)

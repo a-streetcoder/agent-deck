@@ -17,7 +17,6 @@ struct PiInjectedCommand: Identifiable, Hashable {
 }
 
 enum PiInjectedCommandCatalog {
-    static let shipID = "builtin:ship"
     static let commandLibraryPath = "~/Library/Application Support/Agent Deck/Command Library"
 
     static func commandLibraryURL(fileManager: FileManager = .default) -> URL {
@@ -29,9 +28,7 @@ enum PiInjectedCommandCatalog {
 
     static var all: [PiInjectedCommand] { builtIns + libraryCommands() }
 
-    static let builtIns: [PiInjectedCommand] = [
-        PiInjectedCommand(id: shipID, slashName: "/ship", title: "Ship", description: "Runs a guarded git ship workflow: inspect changes, stage intentionally, commit, and push the current branch without force-pushing.", source: .builtIn, fileName: "agent-deck-command-ship.ts", sourceText: shipExtensionSource, extensionPath: nil)
-    ]
+    static let builtIns: [PiInjectedCommand] = []
 
     static func isEnabled(_ command: PiInjectedCommand, settings: AppSettings) -> Bool {
         switch command.source {
@@ -95,16 +92,4 @@ enum PiInjectedCommandCatalog {
             return PiInjectedCommand(id: "library:\(file.path):\(name)", slashName: "/\(name)", title: name, description: "Imported command from \(file.lastPathComponent). Disabled by default.", source: source, fileName: file.lastPathComponent, sourceText: nil, extensionPath: file.path)
         }
     }
-
-    private static let shipExtensionSource = """
-        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-        const SHIP_PROMPT = `Use the commit-and-push workflow.\n\nScope:\n- act only in the current git repository and current branch\n- inspect repository, branch, staged/unstaged/untracked changes, and upstream status before acting\n- stage files deliberately; never use git add -A or git add .\n- never force-push or amend unless explicitly requested\n- stop and report merge, rebase, or conflict states\n\nWorkflow:\n1. Confirm the current repository and branch.\n2. Inspect git status, staged changes, unstaged changes, untracked files, and upstream tracking status.\n3. Prepare a deliberate commit and stage only intended files.\n4. Commit only when there is something intentionally staged.\n5. Push safely to upstream or explain/set upstream explicitly.\n6. If there is nothing to commit or push, say so explicitly.\n\nDo not perform code review; this command is only for deliberate commit and safe push.`;
-        export default function (pi: ExtensionAPI) {
-          pi.registerCommand("ship", { description: "Deliberately commit current branch changes and push safely", handler: async (args, ctx) => {
-            await ctx.waitForIdle();
-            const guidance = args?.trim();
-            pi.sendUserMessage(guidance ? `${SHIP_PROMPT}\n\nUser guidance for this /ship run:\n${guidance}` : SHIP_PROMPT);
-          }});
-        }
-        """
 }
