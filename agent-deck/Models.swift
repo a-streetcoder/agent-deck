@@ -160,8 +160,8 @@ nonisolated enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identif
 
     var description: String {
         switch self {
-        case .symlink: return "Keep the source repo as the single source of truth and link it into the library."
-        case .copy: return "Make an editable snapshot in the library that no longer tracks source updates."
+        case .symlink: return "Keep the source repo as the single source of truth and add it to the Agent Deck skill catalog."
+        case .copy: return "Make an editable snapshot in the Agent Deck skill catalog that no longer tracks source updates."
         }
     }
 }

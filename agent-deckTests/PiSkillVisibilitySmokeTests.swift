@@ -39,7 +39,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         XCTAssertTrue(invocations.contains("/skill:project-skill"))
     }
 
-    func testParentLaunchDoesNotPassLibrarySkillsAsExplicitSkillArguments() throws {
+    func testParentLaunchDisablesAmbientSkillsWhenNoAssignmentsExist() throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
         setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
@@ -61,11 +61,26 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
             store.sessions.first(where: { $0.id == session.id })?.launchCommand != nil
         })
         let launchCommand = store.sessions.first(where: { $0.id == session.id })?.launchCommand ?? ""
+        XCTAssertTrue(launchCommand.contains("--no-skills"))
         XCTAssertFalse(launchCommand.contains("--skill"))
         XCTAssertFalse(launchCommand.contains("skill-library"))
     }
 
-    func testNativeSubagentInjectsExplicitLibrarySkillBlocks() throws {
+    func testParentLaunchPassesAssignedSkillsWithNativeSkillFlag() throws {
+        let skill = SkillRecord(
+            id: "catalog:default-skill",
+            name: "default-skill",
+            description: "Default skill",
+            source: ScopeID(kind: .global, path: "/tmp/default-skill/SKILL.md"),
+            filePath: "/tmp/default-skill/SKILL.md",
+            body: "# Default Skill"
+        )
+
+        let args = try PiSkillLaunchResolver.parentSkillArguments(defaultSkillNames: ["default-skill"], projectSkillNames: [], snapshot: .empty.replacing(skills: [skill]))
+        XCTAssertEqual(args, ["--skill", "/tmp/default-skill/SKILL.md"])
+    }
+
+    func testNativeSubagentPassesExplicitSkillUsingNativeSkillFlag() throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
         setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
@@ -93,13 +108,14 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
+        let launchCommand = try XCTUnwrap(run.launchCommand)
+        XCTAssertTrue(launchCommand.contains("--no-skills"))
+        XCTAssertTrue(launchCommand.contains("--skill /tmp/library-only/SKILL.md"))
         let systemPrompt = try String(contentsOf: URL(fileURLWithPath: run.artifactDirectory).appendingPathComponent("system-prompt.md"), encoding: .utf8)
-        XCTAssertTrue(systemPrompt.contains("library-only"))
-        XCTAssertTrue(systemPrompt.contains("Use private instructions."))
-        XCTAssertNil(run.child?.error)
+        XCTAssertFalse(systemPrompt.contains("Use private instructions."))
     }
 
-    func testNativeSubagentCanKeepAmbientSkillDiscoveryWhenInherited() throws {
+    func testNativeSubagentAlwaysDisablesAmbientSkillDiscovery() throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
         setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
@@ -111,47 +127,53 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
 
         let inherited = try runner.runSingle(
             parentSession: parent,
-            agent: PiTestSupport.makeAgent(inheritSkills: true),
+            agent: PiTestSupport.makeAgent(),
             snapshot: .empty,
-            task: "Keep ambient skills.",
+            task: "Do not use ambient skills.",
             requestedContext: .fresh
         )
         defer { runner.stop(runID: inherited.id, parentSessionID: parent.id) }
-        XCTAssertFalse(inherited.launchCommand?.contains("--no-skills") == true)
-
-        let isolated = try runner.runSingle(
-            parentSession: parent,
-            agent: PiTestSupport.makeAgent(inheritSkills: false),
-            snapshot: .empty,
-            task: "Disable ambient skills.",
-            requestedContext: .fresh
-        )
-        defer { runner.stop(runID: isolated.id, parentSessionID: parent.id) }
-        XCTAssertTrue(isolated.launchCommand?.contains("--no-skills") == true)
+        XCTAssertTrue(inherited.launchCommand?.contains("--no-skills") == true)
     }
 
-    func testNativeSubagentReportsMissingExplicitSkillButStillLaunches() throws {
-        let fakePi = try PiTestSupport.makeFakePiExecutable()
-        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
-        setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
-        defer { restorePiPath(oldPiPath) }
-
+    func testNativeSubagentBlocksMissingExplicitSkill() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let runner = PiSubagentRunService(store: store)
         let parent = try PiTestSupport.makeParentSession()
 
-        let run = try runner.runSingle(
+        XCTAssertThrowsError(try runner.runSingle(
             parentSession: parent,
             agent: PiTestSupport.makeAgent(skills: ["missing-skill"]),
             snapshot: .empty,
             task: "Launch anyway.",
             requestedContext: .fresh
-        )
-        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("missing-skill"))
+        }
+    }
 
-        XCTAssertTrue(run.error?.contains("Skill not found: missing-skill") == true)
-        let systemPrompt = try String(contentsOf: URL(fileURLWithPath: run.artifactDirectory).appendingPathComponent("system-prompt.md"), encoding: .utf8)
-        XCTAssertFalse(systemPrompt.contains("missing-skill"))
+    func testNativeSubagentBlocksAssignedSkillsWithoutReadTool() throws {
+        let skill = SkillRecord(
+            id: "catalog:agent-skill",
+            name: "agent-skill",
+            description: "Agent skill",
+            source: ScopeID(kind: .global, path: "/tmp/agent-skill/SKILL.md"),
+            filePath: "/tmp/agent-skill/SKILL.md",
+            body: "# Agent Skill"
+        )
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        XCTAssertThrowsError(try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(tools: ["contact_supervisor"], skills: ["agent-skill"]),
+            snapshot: .empty.replacing(skills: [skill]),
+            task: "Use skill without read.",
+            requestedContext: .fresh
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("read"))
+        }
     }
 }
 

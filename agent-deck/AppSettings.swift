@@ -74,6 +74,7 @@ struct AppSettings: Codable, Hashable {
     var disabledModelIdentifiers: Set<String> = []
     var disabledInjectedCommandIDs: Set<String> = []
     var enabledLibraryCommandIDs: Set<String> = []
+    var defaultSkillNames: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
         case appearanceMode
@@ -98,6 +99,7 @@ struct AppSettings: Codable, Hashable {
         case disabledModelIdentifiers
         case disabledInjectedCommandIDs
         case enabledLibraryCommandIDs
+        case defaultSkillNames
     }
 
     init() {}
@@ -127,6 +129,7 @@ struct AppSettings: Codable, Hashable {
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
         enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []
+        defaultSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultSkillNames) ?? []
     }
 }
 

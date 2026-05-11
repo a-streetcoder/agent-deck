@@ -4,18 +4,18 @@ import SwiftUI
 struct SkillsInfoPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Skill visibility")
+            Text("Skill assignment")
                 .font(.headline)
                 .fontWidth(.expanded)
 
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("Library", "Central storage in ~/.pi/agent/skill-library. Pi does not load these until linked.")
-                infoRow("Global", "Linked in ~/.pi/agent/skills. Pi loads these in every project.")
-                infoRow("Project", "Linked or stored in PROJECT/.pi/skills. Pi loads these only for that project.")
-                infoRow("Package", "Provided by installed packages. Treat as read-only unless imported later.")
+                infoRow("Catalog", "Agent Deck scans skills from bundled, user, project, compatibility, package, and existing library/import locations.")
+                infoRow("Default", "Default skills are passed to every parent Pi Agent session with explicit --skill flags.")
+                infoRow("Project", "Project assignments are passed only to parent sessions for that project.")
+                infoRow("Agents", "Native subagents receive only skills explicitly assigned to that agent.")
             }
 
-            Text("Use Global Visibility and Project Assignment in the right column to manage where library skills are loaded.")
+            Text("Discovery does not inject a skill. Agent Deck launches with --no-skills and passes only assigned skills using --skill <path>.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -70,14 +70,13 @@ struct SkillsProjectRecapPanel: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the skills Pi will effectively see when launched in this project: global skills, project-assigned library skills, and package-provided skills.")
+                    Text("These are the skills Agent Deck will explicitly pass to parent Pi sessions for this project: Default skills plus project assignments.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    recapSection("Global", skills: globalSkills, color: .blue, emptyText: "No global skills")
+                    recapSection("Default", skills: globalSkills, color: .blue, emptyText: "No default skills")
                     recapSection("Project", skills: projectSkills, color: .green, emptyText: "No project-assigned skills")
-                    recapSection("Package", skills: packageSkills, color: .orange, emptyText: "No package skills")
                 }
                 .padding(16)
             }
@@ -217,7 +216,7 @@ struct SkillsScreen: View {
             if selectedProject != nil {
                 appListSection("Active") {
                     if activeSkills.isEmpty {
-                        nativeEmptyRow("No skills are active for this project.")
+                        nativeEmptyRow("No skills are assigned for this project.")
                     }
                     ForEach(activeSkills, id: \.name) { skill in
                         skillListRow(skill, inactive: false)
@@ -226,7 +225,7 @@ struct SkillsScreen: View {
                 }
 
                 if !inactiveLibrarySkills.isEmpty {
-                    appListSection("Library Skills", info: "Library skills are centrally stored and only become active when assigned to this project or enabled globally.") {
+                    appListSection("Unassigned Catalog", info: "Catalog skills are not injected until marked Default, assigned to a project, or assigned to an agent.") {
                         ForEach(inactiveLibrarySkills, id: \.name) { skill in
                             skillListRow(skill, inactive: true)
                                 .tag(skill.id)
@@ -234,9 +233,9 @@ struct SkillsScreen: View {
                     }
                 }
             } else {
-                appListSection("Global Skills", info: "Select a project to see exactly which skills are active there and to manage project assignment.") {
+                appListSection("Default Skills", info: "Select a project to manage project-specific skill assignments.") {
                     if globalSkills.isEmpty {
-                        nativeEmptyRow("No global skills.")
+                        nativeEmptyRow("No default skills.")
                     }
                     ForEach(globalSkills, id: \.name) { skill in
                         skillListRow(skill, inactive: false)
@@ -245,7 +244,7 @@ struct SkillsScreen: View {
                 }
 
                 if !librarySkills.isEmpty {
-                    appListSection("Library Skills") {
+                    appListSection("Unassigned Catalog") {
                         ForEach(librarySkills, id: \.name) { skill in
                             skillListRow(skill, inactive: false)
                                 .tag(skill.id)
@@ -255,7 +254,7 @@ struct SkillsScreen: View {
             }
 
             if !packageSkills.isEmpty {
-                appListSection("Package Skills", info: "Package skills are active by default when their package is discovered. They are package-managed, so \(AppBrand.displayName) does not assign or unlink them per project.") {
+                appListSection("Package Skills", info: "Package skills are catalog entries. They are not injected unless assigned.") {
                     ForEach(packageSkills, id: \.name) { skill in
                         skillListRow(skill, inactive: false)
                             .tag(skill.id)
@@ -307,24 +306,25 @@ struct SkillsScreen: View {
         if let skill = selectedSkill {
             if skill.source.kind == .package {
                 AppCard(title: "Package Skill") {
-                    Text("This skill is provided by an installed package and is active through Pi/package discovery. Project assignment is disabled to avoid copying or modifying package-managed content.")
+                    Text("This skill is provided by an installed package. It is not injected unless assigned as Default, assigned to a project, or assigned to an agent.")
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else {
-                AppCard(title: "Global Visibility") {
+            }
+
+            AppCard(title: "Default Skill") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(viewModel.skillIsEnabledGlobally(skill) ? "This skill is active in every project." : "Make this skill active everywhere instead of only selected projects.")
+                        Text(viewModel.skillIsEnabledGlobally(skill) ? "This skill is passed to every parent Pi Agent session." : "Make this skill available by default in every parent Pi Agent session.")
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         if viewModel.skillIsEnabledGlobally(skill) {
-                            Button("Disable Globally") {
+                            Button("Remove Default") {
                                 do { try viewModel.disableSkillGlobally(skill) }
                                 catch { presentSkillActionError(error, skill: skill, action: "disable global visibility") }
                             }
                         } else {
-                            Button("Enable Globally") {
+                            Button("Make Default") {
                                 do { try viewModel.enableSkillGlobally(skill) }
                                 catch { presentSkillActionError(error, skill: skill, action: "enable global visibility") }
                             }
@@ -333,9 +333,12 @@ struct SkillsScreen: View {
                     }
                 }
 
-                AppCard(title: "Project Assignment") {
-                    projectAssignmentList(for: skill)
-                }
+            AppCard(title: "Project Assignment") {
+                projectAssignmentList(for: skill)
+            }
+
+            AppCard(title: "Agent Assignment") {
+                agentAssignmentList(for: skill)
             }
 
             AppCard(title: "Definition") {
@@ -345,8 +348,9 @@ struct SkillsScreen: View {
             AppCard(title: "Manage \(skill.name)") {
                 AppKeyValueList(rows: [
                     ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
-                    ("Active Globally", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
+                    ("Default", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
                     ("Assigned Projects", assignedProjectSummary(skill)),
+                    ("Assigned Agents", assignedAgentSummary(skill)),
                     ("Path", skill.filePath)
                 ])
             }
@@ -383,22 +387,19 @@ struct SkillsScreen: View {
         if selectedProject != nil {
             return managedSkills.filter { skillIsActiveForCurrentProject($0) }
         }
-        return globalSkills + packageSkills
+        return globalSkills
     }
 
     private var globalSkills: [SkillRecord] {
-        managedSkills.filter { viewModel.skillIsEnabledGlobally($0) && $0.source.kind != .package }
+        managedSkills.filter { viewModel.skillIsEnabledGlobally($0) }
     }
 
     private var librarySkills: [SkillRecord] {
-        managedSkills.filter {
-            $0.source.kind == .library &&
-            !viewModel.skillIsEnabledGlobally($0)
-        }
+        managedSkills.filter { !viewModel.skillIsEnabledGlobally($0) && $0.source.kind != .package }
     }
 
     private var inactiveLibrarySkills: [SkillRecord] {
-        librarySkills.filter { !skillIsActiveForCurrentProject($0) }
+        managedSkills.filter { !skillIsActiveForCurrentProject($0) && $0.source.kind != .package }
     }
 
     private var packageSkills: [SkillRecord] {
@@ -426,7 +427,7 @@ struct SkillsScreen: View {
     private func skillIsActiveForCurrentProject(_ skill: SkillRecord) -> Bool {
         if viewModel.skillIsEnabledGlobally(skill) { return true }
         if let selectedProject, viewModel.skill(skill, isEnabledFor: selectedProject) { return true }
-        return skill.source.kind == .package && selectedProject != nil
+        return false
     }
 
     private var skillSelection: Binding<SkillRecord.ID?> {
@@ -495,7 +496,7 @@ struct SkillsScreen: View {
 
     private func projectAssignmentList(for skill: SkillRecord) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Check each project that should load this skill. The project icon helps confirm the target quickly.")
+            Text("Check each project whose parent Pi Agent sessions should receive this skill via --skill.")
                 .foregroundStyle(AppTheme.mutedText)
 
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -519,13 +520,43 @@ struct SkillsScreen: View {
         }
     }
 
+    private func agentAssignmentList(for skill: SkillRecord) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Check each native agent that should receive this skill via --skill when it runs.")
+                .foregroundStyle(AppTheme.mutedText)
+
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(viewModel.snapshot.effectiveAgents) { agent in
+                    Toggle(isOn: Binding(
+                        get: { viewModel.skill(skill, isAssignedTo: agent) },
+                        set: { enabled in
+                            do { try viewModel.setSkill(skill, enabled: enabled, for: agent) }
+                            catch { presentSkillActionError(error, skill: skill, action: enabled ? "assign this skill to agent" : "remove this skill from agent") }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(agent.name).font(.subheadline.weight(.semibold))
+                            Text(agent.resolutionKind.rawValue).font(.caption).foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                    .padding(.vertical, 8)
+
+                    if agent.id != viewModel.snapshot.effectiveAgents.last?.id {
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+
     private func statusLabel(_ skill: SkillRecord) -> String {
         if skillIsUnusedLibrarySkill(skill) { return "Unused" }
         if skill.source.kind == .package { return "Package" }
-        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "Active" }
-        if viewModel.skillIsEnabledGlobally(skill) { return "Global" }
-        if skill.source.kind == .library && !viewModel.assignedProjects(for: skill).isEmpty { return "Assigned" }
-        if skill.source.kind == .library { return "Library" }
+        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "Assigned" }
+        if viewModel.skillIsEnabledGlobally(skill) { return "Default" }
+        if !viewModel.assignedProjects(for: skill).isEmpty || !viewModel.assignedAgents(for: skill).isEmpty { return "Assigned" }
+        if !skillIsActiveForCurrentProject(skill) { return "Unassigned" }
         return skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)
     }
 
@@ -551,14 +582,20 @@ struct SkillsScreen: View {
     }
 
     private func skillIsUnusedLibrarySkill(_ skill: SkillRecord) -> Bool {
-        skill.source.kind == .library &&
         !viewModel.skillIsEnabledGlobally(skill) &&
-        viewModel.assignedProjects(for: skill).isEmpty
+        viewModel.assignedProjects(for: skill).isEmpty &&
+        viewModel.assignedAgents(for: skill).isEmpty &&
+        skill.source.kind != .package
     }
 
     private func assignedProjectSummary(_ skill: SkillRecord) -> String {
         let projects = viewModel.assignedProjects(for: skill).map(\.name)
         return projects.isEmpty ? "—" : projects.joined(separator: ", ")
+    }
+
+    private func assignedAgentSummary(_ skill: SkillRecord) -> String {
+        let agents = viewModel.assignedAgents(for: skill).map(\.name)
+        return agents.isEmpty ? "—" : agents.joined(separator: ", ")
     }
 
     private var existingLibrarySkillNames: Set<String> {
@@ -609,14 +646,14 @@ struct SkillsScreen: View {
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Toggle("Replace existing library skills with the same name", isOn: $replaceExistingImports)
+                        Toggle("Replace existing catalog skills with the same name", isOn: $replaceExistingImports)
                     }
                 }
 
                 AppCard(title: "Skills") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .center, spacing: 12) {
-                            Text("Select one or more skill roots to import into the \(AppBrand.displayName) library.")
+                            Text("Select one or more skill roots to import into the \(AppBrand.displayName) skill catalog.")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                             Spacer()

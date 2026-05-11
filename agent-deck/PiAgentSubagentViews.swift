@@ -701,7 +701,6 @@ struct PiNativeSubagentRunSheet: View {
         let thinking: String?
         let defaultContext: String?
         let inheritProjectContext: Bool
-        let inheritSkills: Bool
         let tools: [String]
         let skills: [String]
         let output: String?
@@ -712,7 +711,6 @@ struct PiNativeSubagentRunSheet: View {
             thinking = agent.resolved.thinking
             defaultContext = agent.resolved.defaultContext
             inheritProjectContext = agent.resolved.inheritProjectContext == true
-            inheritSkills = agent.resolved.inheritSkills == true
             tools = agent.resolved.tools ?? []
             skills = agent.resolved.skills
             output = agent.resolved.output
@@ -774,8 +772,7 @@ struct PiNativeSubagentRunSheet: View {
                         subagentInfoLine("Thinking", selectedInfo.thinking ?? "Default")
                         subagentInfoLine("Context", selectedInfo.defaultContext ?? "fresh")
                         subagentInfoLine("Project Context", selectedInfo.inheritProjectContext ? "Inherited" : "Off")
-                        subagentInfoLine("Ambient Skills", selectedInfo.inheritSkills ? "Inherited" : "Off")
-                        subagentInfoLine("Private Skills", selectedInfo.skills.isEmpty ? "None" : selectedInfo.skills.joined(separator: ", "))
+                        subagentInfoLine("Assigned Skills", selectedInfo.skills.isEmpty ? "None" : selectedInfo.skills.joined(separator: ", "))
                         subagentInfoLine("Tools", selectedInfo.tools.isEmpty ? "Default" : selectedInfo.tools.joined(separator: ", "))
                         subagentInfoLine("Output", selectedInfo.output ?? "App artifact")
                     }

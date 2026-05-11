@@ -185,6 +185,9 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.nativeSubagentCatalogProvider = { [weak self] session in
             self?.nativeSubagentCatalogPrompt(for: session)
         }
+        piAgentRunner.parentSkillArgumentsProvider = { [weak self] projectURL in
+            try self?.parentSkillArguments(for: projectURL) ?? []
+        }
         registerAppNotificationObservers()
         startAutoRefresh()
         cleanupOrphanedNativeSubagentArtifacts()
@@ -1800,7 +1803,26 @@ final class AppViewModel: NSObject, ObservableObject {
             completion?(placeholder)
             return placeholder
         }
-        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, contextOverride: contextOverride, completion: completion)
+        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshotWithSkillCatalog(snapshot, projectPath: parentSession.projectPath), task: task, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, contextOverride: contextOverride, completion: completion)
+    }
+
+    private func snapshotWithSkillCatalog(_ base: ScanSnapshot, projectPath: String) -> ScanSnapshot {
+        ScanSnapshot(
+            projectRoot: base.projectRoot,
+            builtinAgents: base.builtinAgents,
+            globalAgents: base.globalAgents,
+            projectAgents: base.projectAgents,
+            legacyProjectAgents: base.legacyProjectAgents,
+            effectiveAgents: base.effectiveAgents,
+            libraryAgents: base.libraryAgents,
+            skills: skillCatalog(forProjectPath: projectPath),
+            librarySkills: [],
+            promptTemplates: base.promptTemplates,
+            libraryPromptTemplates: base.libraryPromptTemplates,
+            settings: base.settings,
+            envKeys: base.envKeys,
+            warnings: base.warnings
+        )
     }
 
     @discardableResult
@@ -3259,9 +3281,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var skillWarnings: [DiagnosticWarning] {
-        snapshot.warnings.filter { warning in
+        let baseWarnings = snapshot.warnings.filter { warning in
             warning.id.hasPrefix("malformed-skill:") || warning.message.localizedCaseInsensitiveContains("skill")
         }
+        let collisionWarnings = PiSkillLaunchResolver.collisions(in: allVisibleSkillRecords).map { collision in
+            let paths = collision.skills.map(\.filePath).joined(separator: ", ")
+            return DiagnosticWarning(id: "duplicate-skill:\(collision.name)", message: "Duplicate skill name `\(collision.name)` found at: \(paths)")
+        }
+        return baseWarnings + collisionWarnings
     }
 
     var promptWarnings: [DiagnosticWarning] {
@@ -3341,7 +3368,7 @@ final class AppViewModel: NSObject, ObservableObject {
             thinking: nil,
             systemPromptMode: "replace",
             inheritProjectContext: false,
-            inheritSkills: false,
+            inheritSkills: nil,
             defaultContext: nil,
             disabled: nil,
             tools: ["read", "grep", "find", "ls", "bash"],
@@ -3480,23 +3507,9 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func skillNamed(_ skillName: String, isRuntimeVisibleIn project: DiscoveredProject) -> Bool {
-        if globalSnapshot.skills.contains(where: { $0.name == skillName && ($0.source.kind == .global || $0.source.kind == .package) }) {
-            return true
-        }
-
-        let piSkillsRoot = project.url.appendingPathComponent(".pi/skills", isDirectory: true)
-        let directorySkill = piSkillsRoot.appendingPathComponent(skillName, isDirectory: true)
-        let fileSkill = piSkillsRoot.appendingPathComponent("\(skillName).md")
-        if FileManager.default.fileExists(atPath: directorySkill.path) || FileManager.default.fileExists(atPath: fileSkill.path) {
-            return true
-        }
-
-        // Compatibility path used by Pi for legacy project skills.
-        let legacySkill = project.url
-            .appendingPathComponent(".agents/skills", isDirectory: true)
-            .appendingPathComponent(skillName, isDirectory: true)
-            .appendingPathComponent("SKILL.md")
-        return FileManager.default.fileExists(atPath: legacySkill.path)
+        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner().scan(projectRoot: project.url)
+        let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
+        return matches.count == 1
     }
 
     func agentIsEnabledGlobally(_ agent: AgentRecord) -> Bool {
@@ -3539,81 +3552,90 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func addSkillToSelectedProject(_ skill: SkillRecord) throws {
         guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
-        try addSkill(skill, toProjectPath: selectedProjectPath)
+        try setSkill(skill, enabled: true, forProjectPath: selectedProjectPath)
     }
 
     func removeSkillFromSelectedProject(_ skill: SkillRecord) throws {
         guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
-        try removeSkill(skill, fromProjectPath: selectedProjectPath)
+        try setSkill(skill, enabled: false, forProjectPath: selectedProjectPath)
     }
 
     func setSkill(_ skill: SkillRecord, enabled: Bool, for project: DiscoveredProject) throws {
-        if enabled {
-            try addSkill(skill, toProjectPath: project.path)
-        } else {
-            try removeSkill(skill, fromProjectPath: project.path)
-        }
+        try setSkill(skill, enabled: enabled, forProjectPath: project.path)
     }
 
     func skill(_ skill: SkillRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        let directoryURL = URL(fileURLWithPath: project.path)
-            .appendingPathComponent(".pi/skills", isDirectory: true)
-            .appendingPathComponent(skill.name, isDirectory: true)
-        let fileURL = URL(fileURLWithPath: project.path)
-            .appendingPathComponent(".pi/skills", isDirectory: true)
-            .appendingPathComponent("\(skill.name).md")
-        return FileManager.default.fileExists(atPath: directoryURL.path) || FileManager.default.fileExists(atPath: fileURL.path)
+        projectPreference(for: project.path).assignedSkillNames.contains(skill.name)
     }
 
     func assignedProjects(for skill: SkillRecord) -> [DiscoveredProject] {
         enabledProjects.filter { self.skill(skill, isEnabledFor: $0) }
     }
 
-    private func addSkill(_ skill: SkillRecord, toProjectPath projectPath: String) throws {
-        let libraryURL = try ensureLibrarySkill(for: skill)
-        try removeGlobalVisibility(forSkillNamed: skill.name)
-        let linkURL = URL(fileURLWithPath: projectPath)
-            .appendingPathComponent(".pi/skills", isDirectory: true)
-            .appendingPathComponent(skill.name, isDirectory: true)
-        try createSkillSymlink(from: linkURL, to: libraryURL)
-        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
-        selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
+    func skill(_ skill: SkillRecord, isAssignedTo agent: EffectiveAgentRecord) -> Bool {
+        agent.resolved.skills.contains(skill.name)
     }
 
-    private func removeSkill(_ skill: SkillRecord, fromProjectPath projectPath: String) throws {
-        try removeManagedSkillLink(URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/skills/", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true))
+    func setSkill(_ skill: SkillRecord, enabled: Bool, for agent: EffectiveAgentRecord) throws {
+        guard var draft = makeAgentDraft(for: agent) else { throw CocoaError(.fileNoSuchFile) }
+        var skills = draft.config.skills
+        if enabled {
+            if !skills.contains(skill.name) { skills.append(skill.name) }
+        } else {
+            skills.removeAll { $0 == skill.name }
+        }
+        draft.config.skills = PiSkillLaunchResolver.normalizedNames(skills)
+        try saveAgentDraft(draft, for: agent)
+    }
+
+    func assignedAgents(for skill: SkillRecord) -> [EffectiveAgentRecord] {
+        snapshot.effectiveAgents.filter { skill(skill, isAssignedTo: $0) }
+    }
+
+    private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
+        projectPreferencesStore.setAssignedSkill(skill.name, assigned: enabled, for: projectPath)
+        applyProjectPreferenceChanges()
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
 
     func enableSkillGlobally(_ skill: SkillRecord) throws {
-        let libraryURL = try ensureLibrarySkill(for: skill)
-        let linkURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true)
-        if !FileManager.default.fileExists(atPath: linkURL.path) {
-            try createSkillSymlink(from: linkURL, to: libraryURL)
-        }
-        try removeProjectVisibility(forSkillNamed: skill.name)
+        guard appSettingsController.setDefaultSkill(skill.name, enabled: true) else { return }
+        appSettings = appSettingsController.settings
         refresh(includeModels: false)
     }
 
     func disableSkillGlobally(_ skill: SkillRecord) throws {
-        let globalURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true).appendingPathComponent(skill.name, isDirectory: true)
-        if (try? globalURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-            try FileManager.default.removeItem(at: globalURL)
-        } else if skill.source.kind == .global {
-            _ = try ensureLibrarySkill(for: skill)
-        } else {
-            throw CocoaError(.fileWriteNoPermission)
-        }
+        guard appSettingsController.setDefaultSkill(skill.name, enabled: false) else { return }
+        appSettings = appSettingsController.settings
         refresh(includeModels: false)
     }
 
     func skillIsEnabledGlobally(_ skill: SkillRecord) -> Bool {
-        snapshot.skills.contains { $0.name == skill.name && $0.source.kind == .global }
+        appSettings.defaultSkillNames.contains(skill.name)
     }
 
     func skillIsEnabledForSelectedProject(_ skill: SkillRecord) -> Bool {
-        snapshot.skills.contains { $0.name == skill.name && $0.source.kind == .project }
+        guard let selectedProjectPath else { return false }
+        return projectPreference(for: selectedProjectPath).assignedSkillNames.contains(skill.name)
+    }
+
+    private func parentSkillArguments(for projectURL: URL) throws -> [String] {
+        let projectPath = projectURL.standardizedFileURL.path
+        let names = Array(appSettings.defaultSkillNames.union(projectPreference(for: projectPath).assignedSkillNames))
+        return try PiSkillLaunchResolver.skillArguments(for: names, catalog: skillCatalog(forProjectPath: projectPath))
+    }
+
+    private func skillCatalog(forProjectPath projectPath: String) -> [SkillRecord] {
+        var records = globalSnapshot.skills + globalSnapshot.librarySkills
+        if let projectSnapshot = allProjectSnapshots[projectPath] {
+            records += projectSnapshot.skills + projectSnapshot.librarySkills
+        }
+        if selectedProjectPath == projectPath {
+            records += snapshot.skills + snapshot.librarySkills
+        }
+        var seen = Set<String>()
+        return records.filter { seen.insert($0.id).inserted }
     }
 
     private func ensureLibraryAgent(for agent: AgentRecord) throws -> URL {
@@ -3911,14 +3933,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func agentsAmbientlySeeingSkill(_ skill: SkillRecord) -> [EffectiveAgentRecord] {
-        let explicitIDs = Set(agentsExplicitlyUsingSkill(skill).map(\.id))
-        return snapshot.effectiveAgents
-            .filter { agent in
-                !explicitIDs.contains(agent.id) &&
-                (agent.resolved.inheritSkills ?? false) &&
-                skillVisible(to: agent, skill: skill)
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        []
     }
 
     private func makeAggregateSnapshot() -> ScanSnapshot {

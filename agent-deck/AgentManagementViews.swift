@@ -290,9 +290,6 @@ private struct AgentLibraryPane: View {
             if !agent.resolved.skills.isEmpty {
                 capabilityPill("Skills", symbol: "sparkles", color: .green)
             }
-            if agent.resolved.inheritSkills == true {
-                capabilityPill("Inherits", symbol: "square.stack.3d.up", color: .mint)
-            }
             if !((agent.resolved.tools ?? []).isEmpty) || !((agent.resolved.mcpDirectTools ?? []).isEmpty) {
                 capabilityPill("Tools", symbol: "wrench.and.screwdriver", color: .blue)
             }
@@ -563,11 +560,6 @@ private struct AgentDetailView: View {
                                     .toggleStyle(.switch)
                             }
 
-                            configEditorRow("Skills") {
-                                Toggle("Inherit skills", isOn: inlineDefaultedOptionalBoolBinding(for: \.inheritSkills, default: false))
-                                    .toggleStyle(.switch)
-                            }
-
                             configEditorRow("Availability") {
                                 Toggle("Disabled", isOn: inlineOptionalBoolBinding(for: \.disabled))
                                     .toggleStyle(.switch)
@@ -625,7 +617,6 @@ private struct AgentDetailView: View {
                         readOnlyFieldRow("Thinking", value: agent.resolved.thinking ?? "off")
                         readOnlyFieldRow("Prompt Mode", value: agent.resolved.systemPromptMode ?? "—")
                         readOnlyFieldRow("Inherit Project Context", value: display(agent.resolved.inheritProjectContext))
-                        readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills))
                         readOnlyFieldRow("Disabled", value: display(agent.resolved.disabled))
                         readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
                         readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
@@ -885,10 +876,6 @@ private struct AgentDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            readOnlyFieldRow("Inherit Skills", value: display(agent.resolved.inheritSkills), isLast: true)
-                        }
-
                         if !skillVisibilityIssues(agent).isEmpty {
                             skillVisibilityWarningBlock(skillVisibilityIssues(agent))
                         }
@@ -913,9 +900,9 @@ private struct AgentDetailView: View {
 
             AppCard(title: "How Skills Work") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• Explicit skills are always attached to this agent when they are visible in scope.")
-                    Text("• `inheritSkills` means the child also keeps Pi’s discovered skills catalog in its prompt.")
-                    Text("• Project-local skills are only visible inside their project. Global skills are visible everywhere.")
+                    Text("• Assigned skills are attached to this agent through Pi’s native `--skill` support.")
+                    Text("• Agents do not inherit parent/default/project skills; assign required skills explicitly.")
+                    Text("• If this agent has a tool allowlist and assigned skills, include `read` so Pi can load the skill files.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -927,10 +914,10 @@ private struct AgentDetailView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 6) {
-                Text("Some assigned projects cannot resolve this agent's explicit skills.")
+                Text("Some assigned agent skills cannot be resolved unambiguously.")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text("Agents carry skill names only. Assign the missing skills to these projects or enable them globally.")
+                Text("Agents carry skill names only. Make sure each assigned skill exists once in the Agent Deck skill catalog.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1166,7 +1153,6 @@ private struct AgentDetailView: View {
             "description": agent.resolved.description,
             "systemPromptMode": agent.resolved.systemPromptMode ?? "",
             "inheritProjectContext": agent.resolved.inheritProjectContext as Any,
-            "inheritSkills": agent.resolved.inheritSkills as Any,
             "disabled": agent.resolved.disabled as Any,
             "skills": agent.resolved.skills
         ]
@@ -1449,7 +1435,6 @@ private struct AgentDetailView: View {
         add("Thinking", beforeConfig.thinking ?? "off", afterConfig.thinking ?? "off")
         add("Prompt Mode", beforeConfig.systemPromptMode ?? "—", afterConfig.systemPromptMode ?? "—")
         add("Inherit Project Context", display(beforeConfig.inheritProjectContext), display(afterConfig.inheritProjectContext))
-        add("Inherit Skills", display(beforeConfig.inheritSkills), display(afterConfig.inheritSkills))
         add("Disabled", display(beforeConfig.disabled), display(afterConfig.disabled))
         add("Tools", ((beforeConfig.tools ?? []) + (beforeConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined, ((afterConfig.tools ?? []) + (afterConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined)
         add("Extensions", (beforeConfig.extensions ?? []).nonEmptyJoined, (afterConfig.extensions ?? []).nonEmptyJoined)
@@ -1485,8 +1470,8 @@ private struct AgentDetailView: View {
             return "Replace makes this a focused specialist prompt. Append keeps more of Pi’s normal base behavior and adds this agent’s instructions on top."
         case "Inherit Project Context", "Project Context":
             return "When enabled, the agent keeps Pi’s project instruction context, including files like AGENTS.md or CLAUDE.md."
-        case "Inherit Skills", "Skills":
-            return "When enabled, the agent keeps Pi’s discovered skills catalog in its prompt. This mainly matters when the agent has the read tool. Explicit skills listed on the agent are separate."
+        case "Skills":
+            return "Skills assigned to this agent are passed to Pi with explicit --skill paths. The agent needs the read tool to load full skill files."
         case "Disabled", "Availability":
             return "Disabled agents are hidden from subagent discovery and normal launches."
         case "Output", "Output File":
@@ -1512,9 +1497,9 @@ private struct AgentDetailView: View {
         case "Add Extension":
             return "Choose from installed Pi package references already visible to \(AppBrand.displayName)."
         case "Add Skill":
-            return "Choose from skills visible in this agent’s current scope."
+            return "Choose from skills in Agent Deck's skill catalog."
         case "Skill Catalog":
-            return "Only skills discoverable in this scope are offered here."
+            return "All catalog skills are available for explicit assignment; duplicate names must be resolved before launch."
         default:
             return nil
         }

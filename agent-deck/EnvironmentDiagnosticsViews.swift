@@ -406,7 +406,7 @@ struct PiDocsScreen: View {
                         ("systemPrompt", "Main instruction body (below frontmatter)"),
                         ("defaultContext", "fresh or fork — default context mode"),
                         ("inheritProjectContext", "Whether child reads project context files"),
-                        ("inheritSkills", "Whether child keeps Pi's discovered skills catalog"),
+                        ("skills", "Explicit skill names passed to native subagents with --skill"),
                         ("tools", "Builtin tool allowlist; mcp: entries for direct MCP tools"),
                         ("extensions", "Extension loading mode: omitted, empty, or allowlist"),
                         ("skills", "Explicit skills to attach"),

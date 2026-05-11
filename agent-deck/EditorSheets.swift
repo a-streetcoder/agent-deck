@@ -150,10 +150,6 @@ struct AgentEditorSheet: View {
                                 editorFieldLabel("Inherit Project Context", help: "When enabled, the agent keeps project instruction files such as `AGENTS.md` or `CLAUDE.md`. This is prompt context, not the full parent session history.")
                             }
 
-                            Toggle(isOn: defaultedOptionalBoolBinding(for: \ .inheritSkills, default: false)) {
-                                editorFieldLabel("Inherit Skills", help: "When enabled, the agent keeps Pi’s discovered skills catalog in its prompt. This is separate from explicit skills listed on the agent itself.")
-                            }
-
                             Toggle(isOn: optionalBoolBinding(for: \ .disabled)) {
                                 editorFieldLabel("Disabled", help: "Disabled agents are hidden from normal native subagent discovery and launch flows while keeping the agent installed.")
                             }
@@ -201,7 +197,7 @@ struct AgentEditorSheet: View {
                                     }
                                 }
                             } label: {
-                                editorFieldLabel("Skills", help: "Choose from skills visible in this agent’s current scope. This includes reusable library skills as well as globally visible and project-visible skills.")
+                                editorFieldLabel("Skills", help: "Choose from Agent Deck's skill catalog. Assigned skills are passed to Pi with native --skill arguments when this agent runs.")
                             }
 
                             LabeledContent {
@@ -312,9 +308,9 @@ struct AgentEditorSheet: View {
     private var skillSelectionSummary: String {
         switch draft.target {
         case .builtinOverride(scope: .global), .custom(scope: .global), .custom(scope: .library):
-            return "Library/global agent: skills come from globally visible skills plus reusable library skills."
+            return "Choose catalog skills to assign explicitly to this agent. Agents do not inherit Default or Project skills."
         case .builtinOverride(scope: .project), .custom(scope: .project):
-            return "Project agent: skills come from globally visible skills, reusable library skills, and project-local skills in the selected project."
+            return "Choose catalog skills to assign explicitly to this agent. Agents do not inherit Default or Project skills."
         }
     }
 

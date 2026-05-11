@@ -23,6 +23,7 @@ nonisolated struct PiScanner {
         let projectPrompts = projectRoot?.appendingPathComponent(".pi/prompts", isDirectory: true)
 
         let builtinAgents = scanAgents(at: bundledAgentsDirectory(), scope: .builtin)
+        let bundledSkills = scanSkills(at: bundledSkillsDirectory(), scope: .builtin)
         let legacyGlobalAgents = scanAgents(at: legacyGlobalAgentDirectory, scope: .global)
         let globalAgents = scanAgents(at: globalAgentDirectory, scope: .global)
         let projectAgents = scanAgents(at: projectAgentDirectory, scope: .project)
@@ -42,6 +43,7 @@ nonisolated struct PiScanner {
         )
 
         let skills =
+            bundledSkills +
             scanSkills(at: globalSkills, scope: .global) +
             scanSkills(at: extraGlobalSkills, scope: .global, allowRootMarkdown: false) +
             scanSkills(at: projectSkills, scope: .project) +
@@ -111,12 +113,20 @@ nonisolated struct PiScanner {
     }
 
     private func bundledAgentsDirectory() -> URL? {
-        let bundleURL = Bundle.main.resourceURL?.appendingPathComponent("bundled-agents", isDirectory: true)
+        bundledResourceDirectory(named: "bundled-agents")
+    }
+
+    private func bundledSkillsDirectory() -> URL? {
+        bundledResourceDirectory(named: "bundled-skills")
+    }
+
+    private func bundledResourceDirectory(named name: String) -> URL? {
+        let bundleURL = Bundle.main.resourceURL?.appendingPathComponent(name, isDirectory: true)
         if let bundleURL, fileManager.fileExists(atPath: bundleURL.path) { return bundleURL }
 
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appendingPathComponent("bundled-agents", isDirectory: true)
+            .appendingPathComponent(name, isDirectory: true)
         if fileManager.fileExists(atPath: sourceURL.path) { return sourceURL }
         return nil
     }

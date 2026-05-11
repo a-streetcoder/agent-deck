@@ -115,6 +115,10 @@ final class AppSettingsController {
         settings.disabledInjectedCommandIDs
     }
 
+    var defaultSkillNames: Set<String> {
+        settings.defaultSkillNames
+    }
+
     var shouldShowContextSmartZoneHint: Bool {
         settings.showContextSmartZoneHint
     }
@@ -299,6 +303,20 @@ final class AppSettingsController {
     @discardableResult
     func togglePiAgentThinkingBlocksVisibility() -> Bool {
         setPiAgentTranscriptVisibility(\.showThinking, to: !settings.piAgentTranscriptVisibility.showThinking)
+    }
+
+    @discardableResult
+    func setDefaultSkill(_ skillName: String, enabled: Bool) -> Bool {
+        var names = settings.defaultSkillNames
+        if enabled {
+            names.insert(skillName)
+        } else {
+            names.remove(skillName)
+        }
+        guard names != settings.defaultSkillNames else { return false }
+        settings.defaultSkillNames = names
+        persist()
+        return true
     }
 
     @discardableResult

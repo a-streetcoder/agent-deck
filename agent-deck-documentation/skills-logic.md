@@ -1,113 +1,197 @@
-# Skill Visibility and Injection Logic
+# Skills in Agent Deck
 
-This document maps how Agent Deck and Pi handle skills in parent sessions, native subagents, and resource management.
+Agent Deck treats skills as an explicit assignment system.
 
-## Resource states
+Core rule:
 
-| State | Path / source | Runtime meaning |
+> A skill being discovered by Agent Deck does not mean it is injected into Pi. Agent Deck launches app-owned Pi RPC sessions with `--no-skills` and passes only assigned skills with explicit `--skill <path>` arguments.
+
+This makes Agent Deck the source of truth for which skills are available to each parent session and native subagent.
+
+## Skill catalog
+
+The skill catalog is the list of skills Agent Deck can see on the user's machine or in the app bundle.
+
+Agent Deck can discover skills from multiple sources, including:
+
+| Source | Examples |
+|---|---|
+| Bundled skills | Skills shipped with Agent Deck, such as `agent-authoring`. |
+| User skills | `~/.pi/agent/skills/<name>/SKILL.md`, `~/.pi/agent/skills/<name>.md`. |
+| Project skills | `PROJECT/.pi/skills/<name>/SKILL.md`, `PROJECT/.pi/skills/<name>.md`. |
+| Compatibility skills | `.agents/skills/<name>/SKILL.md` locations. |
+| Package skills | Package-declared `pi.skills` or conventional package `skills/` folders. |
+| Imported/catalog skills | Any existing imported skill folders Agent Deck scans. |
+
+A catalog skill keeps its original path. Agent Deck does not need to move, copy, or link a skill before using it. Runtime injection is controlled by assignment, not by the folder where the skill lives.
+
+## Assignment types
+
+A discovered skill can be assigned in three ways.
+
+| Assignment | Meaning | Runtime effect |
 |---|---|---|
-| Global active skill | `~/.pi/agent/skills/<name>/SKILL.md` or root `.md` | Pi loads it in every parent session. |
-| Project active skill | `PROJECT/.pi/skills/<name>/SKILL.md` or root `.md` | Pi loads it only for sessions launched in that project. |
-| Legacy active skill | `~/.agents/skills/**/SKILL.md`, `PROJECT/.agents/skills/**/SKILL.md` | Pi compatibility discovery. Root `.md` files are ignored there. |
-| Package/settings skill | package or `settings.json -> skills` | Pi loads according to package/settings discovery. |
-| Library skill | `~/.pi/agent/skill-library/<name>/SKILL.md` | Agent Deck storage only. Pi does not load it until linked or explicitly injected by Agent Deck native subagent logic. |
+| Default | The skill is available to every parent Pi Agent session. | Parent sessions receive `--skill <path>`. |
+| Project | The skill is available to parent Pi Agent sessions for one project. | Parent sessions for that project receive `--skill <path>`. |
+| Agent | The skill is available to one native subagent. | That child process receives `--skill <path>` when the agent runs. |
+
+Unassigned skills are visible in the catalog but are not injected anywhere.
+
+Default skills are not automatically assigned to agents. Native agents receive only skills explicitly assigned to that agent.
 
 ## Parent Pi Agent sessions
 
-Parent sessions are normal Pi RPC sessions. Agent Deck does not build a private skill prompt for the parent.
-
-Principles:
-
-- Global active skills are visible in every parent session through Pi runtime discovery.
-- Project active skills are visible only in parent sessions launched for that project.
-- Library-only skills are not parent-runtime-visible by themselves.
-- Agent Deck does not pass library skills to parent sessions as `--skill` arguments.
-- Composer `/skill:*` suggestions use Pi RPC `get_commands` as the source of truth when available.
-- Before RPC commands arrive, Agent Deck uses a conservative fallback from active skills only, not library-only skills.
-- If a skill is enabled or disabled after a parent session is already running, restart/resume the Pi RPC session to get a fresh runtime command catalog.
-
-## Native subagent sessions
-
-Native subagents are separate child Pi RPC sessions launched by Agent Deck.
-
-There are two skill paths:
-
-1. **Explicit private skill blocks** from agent frontmatter `skills:`.
-2. **Ambient Pi skill discovery** controlled by `inheritSkills`.
-
-### Explicit `skills:`
-
-Agent Deck resolves explicit skill names from the selected run snapshot:
+Parent sessions receive:
 
 ```text
-snapshot.librarySkills + snapshot.skills
+Default skills
++ skills assigned to the current project
 ```
 
-That means explicit native subagent skills can come from:
+Agent Deck launches parent Pi RPC sessions with:
 
-- project active skills
-- global active skills
-- package/settings active skills present in the snapshot
-- library skills
+```text
+--no-skills
+--skill <default-skill-path>
+--skill <project-skill-path>
+```
 
-Agent Deck writes resolved skill Markdown into the child system prompt as private skill blocks.
+Parent sessions do not receive:
 
-If an explicit skill name cannot be resolved:
+- unassigned skills,
+- skills assigned only to another project,
+- skills assigned only to native agents,
+- package/user/project skills merely because Pi could discover them on disk.
 
-- the native run still launches
-- the private skill block is omitted
-- run diagnostics include `Skill not found: <name>`
+Example:
 
-### `inheritSkills`
+```text
+pi --mode rpc \
+  --no-skills \
+  --skill /Users/me/.pi/agent/skills/default-review/SKILL.md \
+  --skill /Users/me/projects/app/.pi/skills/app-patterns/SKILL.md
+```
 
-`inheritSkills` controls Pi's ambient skill catalog in the child process:
+## Native subagents
 
-| Agent setting | Child launch behavior |
+Native subagents receive only their own assigned skills.
+
+Agent skills are stored on the agent as `skills:` names:
+
+```yaml
+---
+name: reviewer
+description: Reviews diffs and implementation plans
+tools: read, grep, find, ls, bash, contact_supervisor
+skills: review-guidelines, app-patterns
+systemPromptMode: replace
+inheritProjectContext: true
+defaultContext: fresh
+---
+```
+
+When that agent runs, Agent Deck resolves the skill names to catalog entries and launches the child with:
+
+```text
+--no-skills
+--skill <review-guidelines-path>
+--skill <app-patterns-path>
+```
+
+Native subagents do not inherit Default skills or Project skills automatically. If a subagent needs a skill, assign that skill to the agent.
+
+There is no `inheritSkills` runtime behavior.
+
+## Native Pi skill behavior
+
+Agent Deck uses Pi's native skill mechanism.
+
+Explicit `--skill <path>` arguments are honored even when `--no-skills` is present:
+
+```text
+--no-skills
+--skill /path/to/SKILL.md
+```
+
+Pi adds the skill to its native skill catalog in the system prompt, similar to:
+
+```xml
+<available_skills>
+  <skill>
+    <name>agent-authoring</name>
+    <description>Use when creating or reviewing Agent Deck native agents.</description>
+    <location>/path/to/agent-authoring/SKILL.md</location>
+  </skill>
+</available_skills>
+```
+
+Pi does not paste the full skill body into the initial system prompt. The model uses the `read` tool to load the full skill file when the skill is relevant.
+
+This also applies to native subagents whose `systemPromptMode` is `replace`: `--system-prompt` replaces Pi's base prompt, and Pi still appends the explicit skill catalog after that prompt.
+
+## Read tool requirement
+
+Because Pi's native skill system points the model at a skill file, any runtime with assigned skills must be able to use the `read` tool.
+
+Parent sessions normally have `read` available.
+
+For native subagents:
+
+- If tools are omitted, Pi's normal tool behavior applies and skills can be loaded.
+- If tools are explicitly allowlisted, the list must include `read` when the agent has assigned skills.
+- If `tools: []` or an allowlist without `read` is used with assigned skills, Agent Deck blocks the launch and shows an error.
+
+Example error:
+
+```text
+Agent `reviewer` has assigned skills but cannot load them because its tool allowlist does not include `read`. Add `read` to the agent tools or remove the assigned skills.
+```
+
+Agent Deck does not silently add `read`, because that would change the agent's declared tool boundary.
+
+## Duplicate skill names
+
+Skill assignments are resolved by skill name.
+
+If two catalog entries have the same name, Agent Deck treats that as ambiguous.
+
+Behavior:
+
+- The sidebar and Skills UI show a warning.
+- Any launch that would need the ambiguous skill is blocked.
+- Agent Deck does not pick a winner silently.
+
+Example:
+
+```text
+Cannot launch Pi session because skill `agent-authoring` is ambiguous.
+
+Matching skills:
+- Bundled: /Applications/Agent Deck.app/.../bundled-skills/agent-authoring/SKILL.md
+- User: /Users/me/.pi/agent/skills/agent-authoring/SKILL.md
+
+Rename one skill or remove one assignment, then try again.
+```
+
+## Helpers
+
+Session title generation and commit-message generation remain isolated helper sessions.
+
+They launch with:
+
+```text
+--no-skills
+--no-tools
+--no-session
+```
+
+They never receive assigned skills.
+
+## Runtime matrix
+
+| Runtime | Skill behavior |
 |---|---|
-| `inheritSkills: true` | Agent Deck does not pass `--no-skills`; Pi may discover ambient global/project/package skills. |
-| `inheritSkills: false` or omitted | Agent Deck passes `--no-skills`; normal Pi skill discovery is disabled. Explicit private skill blocks are still injected by Agent Deck. |
-
-Important: `inheritSkills: true` does not copy library-only skills into Pi discovery. Library-only skills are available to native subagents only when listed explicitly in `skills:` and resolvable by Agent Deck.
-
-## Assignment and warnings
-
-Agent Deck assignment is represented by predictable links/files:
-
-| Resource | Project assignment path |
-|---|---|
-| Agent | `PROJECT/.pi/agents/<name>.md` |
-| Chain | `PROJECT/.pi/chains/<name>.chain.md` |
-| Skill | `PROJECT/.pi/skills/<name>` or `PROJECT/.pi/skills/<name>.md` |
-| Prompt | `PROJECT/.pi/prompts/<name>.md` |
-
-Assignment checks use these paths directly, so they do not require scanning every project.
-
-Warnings:
-
-- Agents warn when explicit `skills:` are not visible in assigned projects.
-- Skills screen shows missing-skill reference warnings with the agent and project that need attention.
-- Chains and prompts expose their own scanner warnings in their screens.
-- Sidebar warning badges indicate sections with actionable warnings.
-
-## No-project view
-
-When no project is selected, Agent Deck shows a global/library management view:
-
-- global resources
-- library resources
-- builtins where applicable
-
-It does not merge project-local resources from every project. Project-local resources appear when that project is selected.
-
-This avoids continuous all-project scanning. Selecting a project scans/refreshes that project; global/library folders are watched independently.
-
-## Smoke test coverage
-
-`agent-deckTests/PiSkillVisibilitySmokeTests.swift` verifies:
-
-- Parent sessions accept runtime skill commands from Pi RPC `get_commands`.
-- Parent launch does not inject library skills as `--skill` or `skill-library` arguments.
-- Native subagents inject explicit library skill blocks into the child system prompt.
-- Native subagents with `inheritSkills: true` do not pass `--no-skills`.
-- Native subagents with `inheritSkills: false` pass `--no-skills`.
-- Missing explicit native subagent skills produce diagnostics but do not block launch.
+| Parent Pi Agent session | `--no-skills` + `--skill` for Default and current Project assignments. |
+| Native subagent child | `--no-skills` + `--skill` for that agent's assigned skills only. |
+| Session title helper | `--no-skills`, no `--skill`. |
+| Commit-message helper | `--no-skills`, no `--skill`. |

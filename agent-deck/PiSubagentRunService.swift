@@ -32,11 +32,10 @@ final class PiSubagentRunService {
         let now = Date()
         let runID = UUID()
         let artifactDirectory = try artifactDirectory(for: runID)
-        let skillBlocks = resolveSkillBlocks(named: agent.resolved.skills, snapshot: snapshot)
-        let resolvedSkillNames = Set(skillBlocks.map(\.name))
-        let missingSkillNames = agent.resolved.skills.filter { !resolvedSkillNames.contains($0) }
+        let skillArguments = try PiSkillLaunchResolver.childSkillArguments(agent: agent, snapshot: snapshot)
+        let missingSkillNames: [String] = []
         let worktreeURL = useWorktreeIsolation ? try createWorktree(for: parentSession, artifactDirectory: artifactDirectory) : nil
-        let prompt = buildSystemPrompt(agent: agent, skillBlocks: skillBlocks)
+        let prompt = buildSystemPrompt(agent: agent)
         let promptURL = artifactDirectory.appendingPathComponent("system-prompt.md")
         try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
         fileManager.createFile(atPath: artifactDirectory.appendingPathComponent("output.md").path, contents: nil)
@@ -80,16 +79,15 @@ final class PiSubagentRunService {
         } else {
             bridgeWarnings.append("\(AppBrand.displayName) could not write the system prompt audit extension.")
         }
-        if agent.resolved.inheritSkills != true {
-            extraArguments.append("--no-skills")
-        }
+        extraArguments.append("--no-skills")
+        extraArguments.append(contentsOf: skillArguments)
 
         let modelSelection = PiSubagentLaunchPlanner.modelSelection(for: agent, parentSession: parentSession)
         let modelArgument = modelSelection.modelArgument
         let modelDisplayName = modelSelection.displayName
         let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
         let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
-        try childInput(agent: agent, task: trimmedTask, skillBlocks: skillBlocks, readFirstPaths: resolvedReadFirstPaths).write(
+        try childInput(agent: agent, task: trimmedTask, readFirstPaths: resolvedReadFirstPaths).write(
             to: artifactDirectory.appendingPathComponent("input.md"),
             atomically: true,
             encoding: .utf8
@@ -851,20 +849,11 @@ final class PiSubagentRunService {
         return args
     }
 
-    private func buildSystemPrompt(agent: EffectiveAgentRecord, skillBlocks: [ResolvedSkillBlock]) -> String {
+    private func buildSystemPrompt(agent: EffectiveAgentRecord) -> String {
         var sections: [String] = []
         sections.append(nativeBoundaryPrompt(agent: agent))
         if !agent.resolved.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sections.append(agent.resolved.systemPrompt)
-        }
-        if !skillBlocks.isEmpty {
-            sections.append(skillBlocks.map { block in
-                """
-                <skill name=\"\(block.name)\" source=\"\(block.source)\" location=\"\(block.path)\">
-                \(block.content)
-                </skill>
-                """
-            }.joined(separator: "\n\n"))
         }
         return sections.joined(separator: "\n\n")
     }
@@ -930,14 +919,14 @@ final class PiSubagentRunService {
         return lines.joined(separator: "\n\n")
     }
 
-    private func childInput(agent: EffectiveAgentRecord, task: String, skillBlocks: [ResolvedSkillBlock], readFirstPaths: [String]) -> String {
+    private func childInput(agent: EffectiveAgentRecord, task: String, readFirstPaths: [String]) -> String {
         var sections = [
             """
         # Native subagent input
 
         Agent: \(agent.name)
         Description: \(agent.resolved.description)
-        Skills: \(skillBlocks.map { "\($0.name) [\($0.source)]" }.joined(separator: ", "))
+        Skills: \(PiSkillLaunchResolver.normalizedNames(agent.resolved.skills).joined(separator: ", "))
 
         ## Task
 

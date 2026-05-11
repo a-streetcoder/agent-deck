@@ -7,23 +7,25 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
     var isFavorite: Bool
     var isHidden: Bool
     var customIconPath: String?
+    var assignedSkillNames: Set<String>
 
     var id: String { path }
 
     static func `default`(for path: String) -> ProjectPreference {
-        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil)
+        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil, assignedSkillNames: [])
     }
 
     enum CodingKeys: String, CodingKey {
-        case path, isEnabled, isFavorite, isHidden, customIconPath
+        case path, isEnabled, isFavorite, isHidden, customIconPath, assignedSkillNames
     }
 
-    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?) {
+    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?, assignedSkillNames: Set<String> = []) {
         self.path = path
         self.isEnabled = isEnabled
         self.isFavorite = isFavorite
         self.isHidden = isHidden
         self.customIconPath = customIconPath
+        self.assignedSkillNames = assignedSkillNames
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +35,7 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
         customIconPath = try container.decodeIfPresent(String.self, forKey: .customIconPath)
+        assignedSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .assignedSkillNames) ?? []
     }
 }
 
@@ -77,6 +80,16 @@ final class ProjectPreferencesStore {
 
     func setHidden(_ isHidden: Bool, for path: String) {
         update(path) { $0.isHidden = isHidden }
+    }
+
+    func setAssignedSkill(_ skillName: String, assigned: Bool, for path: String) {
+        update(path) { preference in
+            if assigned {
+                preference.assignedSkillNames.insert(skillName)
+            } else {
+                preference.assignedSkillNames.remove(skillName)
+            }
+        }
     }
 
     func setAllEnabled(_ isEnabled: Bool, for paths: [String]) {
@@ -166,7 +179,8 @@ final class ProjectPreferencesStore {
                 isEnabled: preference.isEnabled,
                 isFavorite: preference.isFavorite,
                 isHidden: preference.isHidden,
-                customIconPath: preference.customIconPath
+                customIconPath: preference.customIconPath,
+                assignedSkillNames: preference.assignedSkillNames
             ))
         })
     }

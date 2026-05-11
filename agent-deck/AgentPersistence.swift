@@ -181,9 +181,6 @@ struct AgentPersistence {
         let editedProjectContext = edited.inheritProjectContext ?? defaultInheritProjectContext(name: edited.name)
         let baseProjectContext = base.inheritProjectContext ?? defaultInheritProjectContext(name: base.name)
         if editedProjectContext != baseProjectContext { values["inheritProjectContext"] = editedProjectContext }
-        let editedInheritSkills = edited.inheritSkills ?? false
-        let baseInheritSkills = base.inheritSkills ?? false
-        if editedInheritSkills != baseInheritSkills { values["inheritSkills"] = editedInheritSkills }
         if edited.defaultContext != base.defaultContext { values["defaultContext"] = edited.defaultContext ?? false }
         if edited.disabled != base.disabled { values["disabled"] = edited.disabled ?? false }
         if !arraysEqual(edited.skills, base.skills) { values["skills"] = edited.skills.isEmpty ? false : edited.skills }
@@ -293,7 +290,6 @@ struct AgentPersistence {
         if let thinking = config.thinking, thinking != "off" { lines.append("thinking: \(thinking)") }
         lines.append("systemPromptMode: \(config.systemPromptMode ?? defaultSystemPromptMode(name: config.name))")
         lines.append("inheritProjectContext: \((config.inheritProjectContext ?? defaultInheritProjectContext(name: config.name)) ? "true" : "false")")
-        lines.append("inheritSkills: \((config.inheritSkills ?? false) ? "true" : "false")")
         if let defaultContext = config.defaultContext { lines.append("defaultContext: \(defaultContext)") }
         if let skills = joinComma(config.skills) { lines.append("skills: \(skills)") }
         if let extensions = config.extensions { lines.append("extensions: \(joinComma(extensions) ?? "")") }

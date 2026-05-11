@@ -6,7 +6,6 @@ tools: read, grep, find, ls, bash, contact_supervisor
 thinking: low
 systemPromptMode: replace
 inheritProjectContext: true
-inheritSkills: false
 defaultContext: fresh
 defaultProgress: true
 ---

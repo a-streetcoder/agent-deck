@@ -216,8 +216,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             agent: PiTestSupport.makeAgent(
                 tools: ["shell", "contact_supervisor"],
                 extensions: [customExtension],
-                inheritProjectContext: false,
-                inheritSkills: false
+                inheritProjectContext: false
             ),
             snapshot: .empty,
             task: "Check isolation flags.",
@@ -264,7 +263,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(store.subagentTranscript(for: run.id).contains { $0.title == "System Prompt Captured" })
     }
 
-    func testExplicitPrivateSkillsAreInjectedByAgentDeckWhileAmbientPiSkillsStayDisabledByDefault() throws {
+    func testExplicitPrivateSkillsArePassedThroughNativePiSkillFlagWhileAmbientPiSkillsStayDisabled() throws {
         let harness = try PiTestSupport.makeBridgeHarness(events: [])
         defer { harness.restoreEnvironment() }
 
@@ -308,31 +307,27 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
         let authoredPrompt = try String(contentsOf: run.artifactDirectory.asFileURL.appendingPathComponent("system-prompt.md"), encoding: .utf8)
-        XCTAssertTrue(authoredPrompt.contains(#"<skill name="private-skill""#))
-        XCTAssertTrue(authoredPrompt.contains("# Skill\nUse this private skill."))
-        XCTAssertTrue(run.launchCommand?.contains("--no-skills") == true)
+        XCTAssertFalse(authoredPrompt.contains(#"<skill name="private-skill""#))
+        XCTAssertFalse(authoredPrompt.contains("# Skill\nUse this private skill."))
+        let command = try XCTUnwrap(run.launchCommand)
+        XCTAssertTrue(command.contains("--no-skills"))
+        XCTAssertTrue(command.contains("--skill \(skillURL.path)"))
     }
 
-    func testExplicitPrivateSkillsCanCoexistWithAmbientPiSkillListingWhenInheritanceIsExplicitlyEnabled() throws {
-        let harness = try PiTestSupport.makeBridgeHarness(events: [])
-        defer { harness.restoreEnvironment() }
-
+    func testMissingExplicitSkillsBlockLaunch() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let runner = PiSubagentRunService(store: store)
         let parent = try PiTestSupport.makeParentSession()
 
-        let run = try runner.runSingle(
+        XCTAssertThrowsError(try runner.runSingle(
             parentSession: parent,
-            agent: PiTestSupport.makeAgent(skills: ["missing-private-skill"], inheritSkills: true),
+            agent: PiTestSupport.makeAgent(skills: ["missing-private-skill"]),
             snapshot: .empty,
-            task: "Use inherited skills if needed.",
+            task: "Use missing skill if needed.",
             requestedContext: .fresh
-        )
-        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
-
-        XCTAssertFalse(try XCTUnwrap(run.launchCommand).contains("--no-skills"))
-        XCTAssertEqual(run.skills, ["missing-private-skill"])
-        XCTAssertTrue(run.error?.contains("Skill not found: missing-private-skill") == true)
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("missing-private-skill"))
+        }
     }
 
     func testExpectedOutcomePromptContractsAreSentToChildPi() throws {
