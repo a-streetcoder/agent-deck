@@ -321,6 +321,8 @@ struct PiAgentScreen: View {
     @State private var hasBuiltVisibleSessions = false
     @State private var isUIRequestSheetPresented = false
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
+    @State private var stabilizedProcessingMessage: String?
+    @State private var processingMessageUpdateTask: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -346,12 +348,15 @@ struct PiAgentScreen: View {
             requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
             viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            updateStabilizedProcessingMessage(selectedSessionProcessingMessage)
         }
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessions() }
         .onDisappear {
             saveComposerDraft(for: store.selectedSession?.id)
+            processingMessageUpdateTask?.cancel()
+            processingMessageUpdateTask = nil
         }
         .sheet(isPresented: uiRequestSheetBinding) {
             if let request = store.selectedUIRequest {
@@ -811,7 +816,7 @@ struct PiAgentScreen: View {
                                     .id(event.id)
                             }
                         }
-                        if let processingMessage = selectedSessionProcessingMessage {
+                        if let processingMessage = stabilizedProcessingMessage {
                             PiAgentProcessingIndicatorCard(message: processingMessage)
                                 .id("pi-agent-processing")
                         }
@@ -848,6 +853,7 @@ struct PiAgentScreen: View {
                 throttleStreamingScroll(proxy: proxy)
             }
             .onChange(of: selectedSessionProcessingMessage) { _, message in
+                updateStabilizedProcessingMessage(message)
                 guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
                 scrollToProcessingIndicator(proxy: proxy)
             }
@@ -938,6 +944,28 @@ struct PiAgentScreen: View {
         }.min() ?? .distantFuture
         return store.sessionPlanEvents(for: sessionID).filter { event in
             event.timestamp >= threadStart && event.timestamp < nextThreadStart
+        }
+    }
+
+    private func updateStabilizedProcessingMessage(_ message: String?) {
+        processingMessageUpdateTask?.cancel()
+        processingMessageUpdateTask = nil
+
+        guard let message else {
+            stabilizedProcessingMessage = nil
+            return
+        }
+
+        guard stabilizedProcessingMessage != nil else {
+            stabilizedProcessingMessage = message
+            return
+        }
+
+        processingMessageUpdateTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            stabilizedProcessingMessage = message
+            processingMessageUpdateTask = nil
         }
     }
 

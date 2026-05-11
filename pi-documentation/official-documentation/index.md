@@ -13,7 +13,7 @@ This is the canonical starting point for Agent Deck's official documentation.
 
 ## Power users configuring Pi
 
-- [Pi core prompt assembly](reference/pi-core-prompt-assembly.md)
+- [Agent Deck system prompt logic](../../agent-deck-documentation/agent-deck-system-prompt-logic.md)
 - [Resource scopes and resolution](concepts/resource-scopes-and-resolution.md)
 - [Pi runtime vs Agent Deck](concepts/pi-runtime-vs-agent-deck.md)
 - [Safety and artifacts](concepts/safety-and-artifacts.md)

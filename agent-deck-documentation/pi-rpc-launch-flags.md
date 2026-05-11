@@ -2,6 +2,8 @@
 
 This document maps every Agent Deck launch of `pi --mode rpc`, the Pi CLI flags that are relevant to those launches, and the runtime context each subprocess can receive.
 
+For the canonical explanation of how these launches resolve into final Pi system prompts, see [Agent Deck system prompt logic](agent-deck-system-prompt-logic.md).
+
 Verified against:
 
 - `agent-deck/PiRPCClient.swift`

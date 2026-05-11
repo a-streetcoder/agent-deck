@@ -50,15 +50,17 @@ struct MarkdownTextView: View {
         case .paragraph(let text):
             inlineText(text)
                 .font(.body)
-        case .bullet(let text):
+        case .bullet(let text, let indentLevel):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("•")
+                Text(bulletMarker(for: indentLevel))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 18, alignment: .trailing)
                 inlineText(text)
                     .font(.body)
             }
-        case .numbered(let number, let text):
+            .padding(.leading, listIndent(for: indentLevel))
+        case .numbered(let number, let text, let indentLevel):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(number).")
                     .font(.body.monospacedDigit().weight(.semibold))
@@ -67,6 +69,7 @@ struct MarkdownTextView: View {
                 inlineText(text)
                     .font(.body)
             }
+            .padding(.leading, listIndent(for: indentLevel))
         case .quote(let text):
             inlineText(text)
                 .font(.body)
@@ -92,6 +95,18 @@ struct MarkdownTextView: View {
             return Text(attributed)
         }
         return Text(text)
+    }
+
+    private func listIndent(for level: Int) -> CGFloat {
+        CGFloat(max(level, 0)) * 22
+    }
+
+    private func bulletMarker(for level: Int) -> String {
+        switch max(level, 0) % 3 {
+        case 1: return "◦"
+        case 2: return "▪"
+        default: return "•"
+        }
     }
 }
 
@@ -173,8 +188,8 @@ private struct MarkdownBlock: Identifiable, Hashable {
     enum Kind: Hashable {
         case heading(level: Int, text: String)
         case paragraph(String)
-        case bullet(String)
-        case numbered(Int, String)
+        case bullet(String, indentLevel: Int)
+        case numbered(Int, String, indentLevel: Int)
         case quote(String)
         case code(String)
     }
@@ -203,6 +218,7 @@ private struct MarkdownBlock: Identifiable, Hashable {
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let indentLevel = Self.indentLevel(for: line)
             if trimmed.hasPrefix("```") {
                 if inCode {
                     appendSimple(.code(code.joined(separator: "\n")))
@@ -226,9 +242,9 @@ private struct MarkdownBlock: Identifiable, Hashable {
             if let heading = parseHeading(trimmed) {
                 appendSimple(.heading(level: heading.level, text: heading.text))
             } else if let bullet = parseBullet(trimmed) {
-                appendSimple(.bullet(bullet))
+                appendSimple(.bullet(bullet, indentLevel: indentLevel))
             } else if let numbered = parseNumbered(trimmed) {
-                appendSimple(.numbered(numbered.number, numbered.text))
+                appendSimple(.numbered(numbered.number, numbered.text, indentLevel: indentLevel))
             } else if trimmed.hasPrefix(">") {
                 appendSimple(.quote(trimmed.dropFirst().trimmingCharacters(in: .whitespaces)))
             } else {
@@ -253,6 +269,13 @@ private struct MarkdownBlock: Identifiable, Hashable {
         let prefixes = ["- ", "* ", "+ "]
         guard let prefix = prefixes.first(where: { line.hasPrefix($0) }) else { return nil }
         return String(line.dropFirst(prefix.count))
+    }
+
+    private static func indentLevel(for line: String) -> Int {
+        let width = line.prefix { $0 == " " || $0 == "\t" }.reduce(0) { total, character in
+            total + (character == "\t" ? 4 : 1)
+        }
+        return min(width / 2, 6)
     }
 
     private static let numberedListRegex = try? NSRegularExpression(pattern: #"^(\d+)[\.)]\s+(.*)$"#)

@@ -38,4 +38,4 @@ Agent frontmatter like this:
 skills: axiom-ai
 ```
 
-means “inject the visible skill named `axiom-ai` when this agent runs.” It does not bundle or copy the skill when the agent is assigned to a project. See [Pi core prompt assembly](../reference/pi-core-prompt-assembly.md) for how `--no-skills` and explicit `--skill` paths interact.
+means “inject the visible skill named `axiom-ai` when this agent runs.” It does not bundle or copy the skill when the agent is assigned to a project. See [Agent Deck system prompt logic](../../../agent-deck-documentation/agent-deck-system-prompt-logic.md) for how `--no-skills` and explicit `--skill` paths interact.

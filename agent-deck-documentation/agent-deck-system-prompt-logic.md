@@ -1,4 +1,4 @@
-# Pi Core Prompt Assembly Reference
+# Agent Deck System Prompt Logic
 
 This is the canonical Agent Deck prompt-context reference for LLMs and maintainers.
 
