@@ -136,10 +136,12 @@ struct ModelsScreen: View {
             .labelsHidden()
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(model.model)
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                    .foregroundStyle(isEnabled ? .primary : AppTheme.mutedText)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(model.model)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .foregroundStyle(isEnabled ? .primary : AppTheme.mutedText)
+                }
                 Text(model.identifier)
                     .font(.footnote.monospaced())
                     .foregroundStyle(AppTheme.mutedText)
@@ -152,6 +154,9 @@ struct ModelsScreen: View {
                 HStack(spacing: 8) {
                     AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
                     AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
+                    if PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider, modelID: model.model) {
+                        fastModeTagButton(for: model, isModelEnabled: isEnabled)
+                    }
                 }
                 Text("ctx \(model.contextWindow) · out \(model.maxOutput)")
                     .font(.footnote.monospaced())
@@ -160,6 +165,30 @@ struct ModelsScreen: View {
         }
         .opacity(isEnabled ? 1 : 0.55)
         .padding(.vertical, 10)
+    }
+
+    private func fastModeTagButton(for model: AvailableModel, isModelEnabled: Bool) -> some View {
+        let isFastEnabled = viewModel.isOpenAIFastModeEnabled(model)
+        return Button {
+            viewModel.setOpenAIFastMode(model, isEnabled: !isFastEnabled)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: isFastEnabled ? "checkmark.square.fill" : "square")
+                    .font(.caption.weight(.semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                Text("Fast")
+                    .font(.caption.weight(.semibold))
+                    .fontWidth(.expanded)
+            }
+            .foregroundStyle(isFastEnabled ? AppTheme.brandAccent : AppTheme.mutedText)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background((isFastEnabled ? AppTheme.brandAccent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isModelEnabled)
+        .help("Use OpenAI priority service tier for this ChatGPT-auth Codex model in parent sessions and native subagents.")
+        .animation(.snappy(duration: 0.18), value: isFastEnabled)
     }
 
     private var groupedModels: [(provider: String, models: [AvailableModel])] {

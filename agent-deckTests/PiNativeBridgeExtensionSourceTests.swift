@@ -3,6 +3,22 @@ import XCTest
 
 final class PiNativeBridgeExtensionSourceTests: XCTestCase {
     @MainActor
+    func testOpenAIFastExtensionInjectsPriorityOnlyForEligibleConfiguredCodexModels() throws {
+        let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.openAIFastExtensionURL(), encoding: .utf8)
+
+        XCTAssertTrue(source.contains(#"before_provider_request"#))
+        XCTAssertTrue(source.contains(#"service_tier"#))
+        XCTAssertTrue(source.contains(#""priority""#))
+        XCTAssertTrue(source.contains(#""openai-codex""#))
+        XCTAssertTrue(source.contains(#""openai-codex-responses""#))
+        XCTAssertTrue(source.contains(#""gpt-5.4""#))
+        XCTAssertTrue(source.contains(#""gpt-5.5""#))
+        XCTAssertTrue(source.contains("AGENT_DECK_OPENAI_FAST_CONFIG"))
+        XCTAssertTrue(source.contains("ctx.modelRegistry.isUsingOAuth(model)"))
+        XCTAssertTrue(source.contains(#""service_tier" in event.payload"#))
+    }
+
+    @MainActor
     func testParentExtensionSourceRegistersEveryAppHandledBridgeTool() throws {
         let source = try String(contentsOf: PiNativeSubagentBridgeExtensions.parentExtensionURL(), encoding: .utf8)
 

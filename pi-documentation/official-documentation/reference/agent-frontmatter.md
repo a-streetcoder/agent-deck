@@ -24,7 +24,7 @@ You are a review-only agent. Inspect the requested evidence and report findings 
 | `thinking` | Preferred thinking level |
 | `systemPromptMode` | Replace/append behavior where supported |
 | `inheritProjectContext` | Whether child keeps Pi context-file discovery |
-| `inheritSkills` | Whether child keeps ambient skill discovery |
+| `inheritSkills` | Compatibility metadata; current Agent Deck native runs use explicit agent skills instead of ambient skill discovery |
 | `defaultContext` | `fresh` or `fork` default context mode |
 | `tools` | Tool names available to the child |
 | `mcpDirectTools` | Agent Deck/native integration direct-tool hint |
@@ -42,4 +42,4 @@ Agent Deck preserves unknown frontmatter fields where possible.
 
 - Use `contact_supervisor` in `tools` only when the child may need progress updates, decisions, or interviews. When present, Agent Deck injects native boundary instructions for blocker/progress/interview routing and normal final-result return.
 - Do not rely on `output` to write project files. In Agent Deck native runs, the expected outcome controls whether project writes are allowed.
-- Keep explicit `skills` references stable and ensure the skills are active in the intended project/global scope.
+- Keep explicit `skills` references stable and ensure the skills are visible in the Agent Deck skill catalog. Native runs receive those skills as explicit Pi `--skill` paths.

@@ -114,7 +114,10 @@ struct PiAgentComposerBox: View {
                     }
 
                     if let metricsSession {
-                        PiAgentRuntimeFooter(session: metricsSession)
+                        PiAgentRuntimeFooter(
+                            session: metricsSession,
+                            openAIFastStatus: openAIFastStatus(for: metricsSession)
+                        )
                     }
 
                     Spacer(minLength: 8)
@@ -165,12 +168,12 @@ struct PiAgentComposerBox: View {
         AppControlGroup(spacing: 6) {
             Button(action: attachImagesFromOpenPanel) {
                 Image(systemName: "paperclip")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 30, height: 30)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .appControlSurface(cornerRadius: 15)
             .help("Attach files")
             .accessibilityLabel("Attach files")
             .accessibilityHint("Attach images, text files, or local file paths")
@@ -188,6 +191,15 @@ struct PiAgentComposerBox: View {
         let files = panel.urls.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
         addImages(imageAttachments)
         onFiles(files)
+    }
+
+    private func openAIFastStatus(for session: PiAgentSessionRecord) -> Bool? {
+        let fallback = viewModel.defaultPiAgentModel()
+        let provider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
+        let modelID = session.modelOverrideID ?? session.model ?? fallback?.model
+        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: provider, modelID: modelID) else { return nil }
+        let identifier = "\(provider ?? "")/\(modelID?.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "")"
+        return viewModel.appSettings.openAIFastModeModelIdentifiers.contains(identifier)
     }
 
     private func shortPath(_ path: String) -> String {
@@ -803,6 +815,7 @@ struct PiAgentComposerFooterBar: View {
             )
         }
     }
+
 }
 
 struct PiAgentContextUsageMeter: View {
@@ -1557,28 +1570,20 @@ struct PiAgentShortcutChip: View {
 
 struct PiAgentRuntimeFooter: View {
     let session: PiAgentSessionRecord
+    let openAIFastStatus: Bool?
 
     var body: some View {
         HStack(spacing: 7) {
             if let total = session.totalTokens {
-                metric("total \(compact(total))", icon: "tugriksign.circle")
-            }
-            if let input = session.inputTokens {
-                metric("in \(compact(input))", icon: "arrow.down.left")
-            }
-            if let output = session.outputTokens {
-                metric("out \(compact(output))", icon: "arrow.up.right")
-            }
-            if let cacheRead = session.cacheReadTokens, cacheRead > 0 {
-                metric("cache \(compact(cacheRead))", icon: "memorychip")
-            }
-            if let toolCalls = session.toolCalls {
-                metric("\(toolCalls) tools", icon: "wrench.and.screwdriver")
+                metric("\(compact(total)) tokens", icon: "tugriksign.circle")
             }
             if let cost = session.cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }
             metric("subagents: \(session.subagentsEnabled ? "on" : "off")", icon: "rectangle.connected.to.line.below")
+            if let openAIFastStatus {
+                metric("fast: \(openAIFastStatus ? "on" : "off")", icon: openAIFastStatus ? "bolt.fill" : "bolt.slash")
+            }
         }
         .font(.caption)
         .foregroundStyle(AppTheme.mutedText)

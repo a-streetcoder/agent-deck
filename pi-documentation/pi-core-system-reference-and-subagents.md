@@ -37,9 +37,9 @@ A native subagent is a separate child Pi RPC session launched and tracked by Age
 For each native run, Agent Deck builds:
 
 - an app artifact directory under `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/`
-- a child system prompt made from native boundary instructions, the agent prompt, and any explicit private skill blocks
+- a child system prompt made from native boundary instructions and the agent prompt
 - an input file containing the task and optional read-first hints
-- child runtime arguments for model, thinking, context inheritance, skills inheritance, tools, extensions, and direct MCP isolation
+- child runtime arguments for model, thinking, context inheritance, explicit agent skills, tools, extensions, and direct MCP isolation
 - run records and transcript routing in the app session store
 
 Native subagents are not raw slash-command text inserted into the parent chat. The app owns the child lifecycle directly.

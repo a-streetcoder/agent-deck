@@ -40,7 +40,7 @@ Common files:
 - `output.md`
 - optional `worktree.patch`
 
-Each child is a separate `pi --mode rpc` process. Agent Deck builds the child system prompt from native boundary instructions, the agent prompt, and explicit private skill blocks; expected outcome, read-first files, artifact directory, and task are sent as the user prompt. See [Pi core prompt assembly](../reference/pi-core-prompt-assembly.md).
+Each child is a separate `pi --mode rpc` process. Agent Deck builds the child system prompt from native boundary instructions and the agent prompt. Expected outcome, read-first files, artifact directory, and task are sent as the user prompt. Explicit agent skills are passed to Pi with `--skill <path>` and appear through Pi's native skill catalog. See [Pi core prompt assembly](../reference/pi-core-prompt-assembly.md).
 
 ## Expected outcomes
 

@@ -80,7 +80,8 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         let harness = try PiTestSupport.makeEnvCaptureHarness(keys: [
             "AGENT_DECK_ENV_CHILD_SMOKE",
             "AGENT_DECK_NATIVE_SUBAGENT",
-            "AGENT_DECK_SUBAGENT_AGENT"
+            "AGENT_DECK_SUBAGENT_AGENT",
+            "AGENT_DECK_OPENAI_FAST_CONFIG"
         ])
         defer { harness.restoreEnvironment() }
 
@@ -107,6 +108,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertEqual(captured["AGENT_DECK_ENV_CHILD_SMOKE"], "child-project-value")
         XCTAssertEqual(captured["AGENT_DECK_NATIVE_SUBAGENT"], "1")
         XCTAssertEqual(captured["AGENT_DECK_SUBAGENT_AGENT"], "scout")
+        XCTAssertEqual(captured["AGENT_DECK_OPENAI_FAST_CONFIG"], PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path)
     }
 
     func testRunSingleCreatesArtifactsAndRecordsResolvedModelBeforeProcessEvents() throws {
@@ -234,6 +236,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(command.contains("--extension"))
         XCTAssertTrue(command.contains("contact-supervisor-bridge.ts"))
         XCTAssertTrue(command.contains("agent-deck-web-access.ts"))
+        XCTAssertTrue(command.contains("agent-deck-openai-fast.ts"))
         XCTAssertTrue(command.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(command.contains(customExtension))
         XCTAssertTrue(command.contains("--tools shell,contact_supervisor"))

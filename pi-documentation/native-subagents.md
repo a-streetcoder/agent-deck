@@ -79,10 +79,10 @@ Pi docs state:
 
 Agent Deck follows that model:
 
-1. Native boundary instructions + agent system prompt + explicit private skill blocks are passed as system prompt content.
+1. Native boundary instructions + agent system prompt are passed as system prompt content.
 2. Expected outcome, read-first files, artifact directory, and the concrete task are sent as the user task prompt.
 3. If `inheritProjectContext` is false, Agent Deck passes `--no-context-files`.
-4. If `inheritSkills` is false, Agent Deck passes `--no-skills`.
+4. Agent Deck always passes `--no-skills` and then explicit `--skill <path>` arguments for skills assigned to that agent.
 5. Ambient extension discovery is disabled with `--no-extensions`; only configured extensions and app bridge extensions are loaded.
 
 Keep system instructions compact. Do not put run-specific file contents or stale plans into the system prompt.

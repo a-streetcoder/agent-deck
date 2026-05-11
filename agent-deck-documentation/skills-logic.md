@@ -100,7 +100,7 @@ When that agent runs, Agent Deck resolves the skill names to catalog entries and
 
 Native subagents do not inherit Default skills or Project skills automatically. If a subagent needs a skill, assign that skill to the agent.
 
-There is no `inheritSkills` runtime behavior.
+The `inheritSkills` frontmatter field is preserved for compatibility, but current Agent Deck child launches always use `--no-skills` plus explicit agent-assigned `--skill` arguments. Ambient skill discovery is not used for native subagents.
 
 ## Native Pi skill behavior
 

@@ -323,6 +323,9 @@ final class PiAgentRunnerService {
             if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", webURL.path])
             }
+            if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", fastURL.path])
+            }
             for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: AppSettingsStore.shared.settings) {
                 extraArguments.append(contentsOf: ["--extension", commandURL.path])
             }
@@ -349,7 +352,10 @@ final class PiAgentRunnerService {
             let launchConfiguration = launchConfiguration(for: session)
             let environment = EnvRuntimeEnvironment().environment(
                 projectRoot: projectURL,
-                extra: ["AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString]
+                extra: [
+                    "AGENT_DECK_PARENT_SESSION_ID": session.id.uuidString,
+                    "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path
+                ]
             )
             let client = try PiRPCClient(
                 cwd: projectURL,

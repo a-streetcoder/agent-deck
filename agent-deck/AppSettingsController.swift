@@ -111,6 +111,10 @@ final class AppSettingsController {
         settings.disabledModelIdentifiers
     }
 
+    var openAIFastModeModelIdentifiers: Set<String> {
+        settings.openAIFastModeModelIdentifiers
+    }
+
     var disabledInjectedCommandIDs: Set<String> {
         settings.disabledInjectedCommandIDs
     }
@@ -462,6 +466,23 @@ final class AppSettingsController {
     func enableAllModels() -> Bool {
         guard !settings.disabledModelIdentifiers.isEmpty else { return false }
         settings.disabledModelIdentifiers = []
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setOpenAIFastMode(identifier: String, isEnabled: Bool) -> Bool {
+        let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return false }
+        var identifiers = settings.openAIFastModeModelIdentifiers
+        let changed: Bool
+        if isEnabled {
+            changed = identifiers.insert(normalized).inserted
+        } else {
+            changed = identifiers.remove(normalized) != nil
+        }
+        guard changed else { return false }
+        settings.openAIFastModeModelIdentifiers = identifiers
         persist()
         return true
     }

@@ -993,10 +993,12 @@ private struct PiInstructionFile: Identifiable, Hashable {
             if fileManager.fileExists(atPath: url.path) { paths.insert(url.path) }
         }
 
-        var seenContextFileIdentifiers = Set<String>()
         for directory in [globalDir] + contextDirectories(for: projectURL) {
             for filename in contextCandidateNames {
-                addExistingContextPath(directory.appendingPathComponent(filename), to: &paths, seenFileIdentifiers: &seenContextFileIdentifiers)
+                let url = directory.appendingPathComponent(filename)
+                if fileManager.fileExists(atPath: url.path) {
+                    paths.insert(url.path)
+                }
             }
         }
 
@@ -1103,15 +1105,6 @@ private struct PiInstructionFile: Identifiable, Hashable {
     }
 
     private static let contextCandidateNames = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
-
-    private static func addExistingContextPath(_ url: URL, to paths: inout Set<String>, seenFileIdentifiers: inout Set<String>) {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        if let identifier = (try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier {
-            let key = String(describing: identifier)
-            guard seenFileIdentifiers.insert(key).inserted else { return }
-        }
-        paths.insert(url.path)
-    }
 
     private static func activeContextFile(in directory: URL, existingPaths: Set<String>) -> URL? {
         for filename in contextCandidateNames {

@@ -72,6 +72,7 @@ struct AppSettings: Codable, Hashable {
     var piAgentGitAutomationRequiresConfirmation: Bool = true
     var piAgentCommitMessageModelIdentifier: String?
     var disabledModelIdentifiers: Set<String> = []
+    var openAIFastModeModelIdentifiers: Set<String> = []
     var disabledInjectedCommandIDs: Set<String> = []
     var enabledLibraryCommandIDs: Set<String> = []
     var defaultSkillNames: Set<String> = []
@@ -99,6 +100,7 @@ struct AppSettings: Codable, Hashable {
         case piAgentGitAutomationRequiresConfirmation
         case piAgentCommitMessageModelIdentifier
         case disabledModelIdentifiers
+        case openAIFastModeModelIdentifiers
         case disabledInjectedCommandIDs
         case enabledLibraryCommandIDs
         case defaultSkillNames
@@ -131,6 +133,7 @@ struct AppSettings: Codable, Hashable {
         piAgentGitAutomationRequiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationRequiresConfirmation) ?? true
         piAgentCommitMessageModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentCommitMessageModelIdentifier)
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
+        openAIFastModeModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .openAIFastModeModelIdentifiers) ?? []
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
         enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []
         defaultSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultSkillNames) ?? []

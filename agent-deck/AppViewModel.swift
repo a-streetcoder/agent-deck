@@ -91,6 +91,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
     @Published var appSettings: AppSettings = AppSettings()
+    @Published private(set) var hasCompletedInitialRefresh = false
     var enabledAvailableModels: [AvailableModel] {
         availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
     }
@@ -154,6 +155,7 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
+        writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()
         refresh(includeModels: true)
@@ -322,6 +324,7 @@ final class AppViewModel: NSObject, ObservableObject {
             refreshAvailableModels()
         }
 
+        hasCompletedInitialRefresh = true
     }
 
     func chooseProjectRoot() {
@@ -1368,6 +1371,16 @@ final class AppViewModel: NSObject, ObservableObject {
         guard appSettingsController.setModelEnabled(identifier: model.identifier, isEnabled: isEnabled) else { return }
         appSettings = appSettingsController.settings
         seedPiAgentSessionsWithAvailableModels(availableModels, overwriteExisting: true)
+    }
+
+    func isOpenAIFastModeEnabled(_ model: AvailableModel) -> Bool {
+        appSettings.openAIFastModeModelIdentifiers.contains(model.identifier)
+    }
+
+    func setOpenAIFastMode(_ model: AvailableModel, isEnabled: Bool) {
+        guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider, modelID: model.model) else { return }
+        guard appSettingsController.setOpenAIFastMode(identifier: model.identifier, isEnabled: isEnabled) else { return }
+        syncAppSettings()
     }
 
     func enableAllModels() {
@@ -2962,8 +2975,15 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func syncAppSettings() {
         appSettings = appSettingsController.settings
+        writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()
+    }
+
+    private func writeOpenAIFastModeConfig() {
+        PiNativeSubagentBridgeExtensions.writeOpenAIFastConfig(
+            enabledModelIdentifiers: appSettings.openAIFastModeModelIdentifiers
+        )
     }
 
     private func configurePiAgentIdleParking() {

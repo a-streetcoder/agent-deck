@@ -202,7 +202,7 @@ Therefore:
 Important distinction:
 
 - `skills: axiom-ai` tells the child run to inject the full `axiom-ai` skill content, if resolvable.
-- `inheritSkills: true` only controls whether the child keeps Pi's ambient discovered skills catalog in its prompt.
+- `inheritSkills` is compatibility metadata in current Agent Deck. Native subagent child launches use `--no-skills` plus explicit `--skill <path>` arguments for skills assigned to that agent, so they do not keep Pi's ambient discovered skills catalog.
 - Neither setting makes an inactive library skill visible.
 
 For Agent Deck specifically, reusable library skills live in:

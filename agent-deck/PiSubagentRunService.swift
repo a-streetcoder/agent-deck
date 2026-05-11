@@ -74,6 +74,11 @@ final class PiSubagentRunService {
         } else {
             bridgeWarnings.append("\(AppBrand.displayName) could not write the web access extension.")
         }
+        if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
+            extraArguments.append(contentsOf: ["--extension", fastURL.path])
+        } else {
+            bridgeWarnings.append("\(AppBrand.displayName) could not write the OpenAI Fast mode extension.")
+        }
         if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", auditURL.path])
         } else {
@@ -186,6 +191,7 @@ final class PiSubagentRunService {
                 "AGENT_DECK_NATIVE_SUBAGENT": "1",
                 "AGENT_DECK_SUBAGENT_RUN_ID": runID.uuidString,
                 "AGENT_DECK_SUBAGENT_AGENT": agent.name,
+                "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path,
                 "MCP_DIRECT_TOOLS": mcpDirectTools(for: agent).isEmpty ? "__none__" : mcpDirectTools(for: agent).joined(separator: ",")
             ]
         )

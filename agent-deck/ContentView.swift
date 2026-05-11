@@ -69,6 +69,8 @@ struct ContentView: View {
     }
 
     private func sidebarWarning(for item: SidebarItem) -> Bool {
+        guard viewModel.hasCompletedInitialRefresh else { return false }
+
         switch item {
         case .projects:
             return viewModel.shouldWarnProjectSelection

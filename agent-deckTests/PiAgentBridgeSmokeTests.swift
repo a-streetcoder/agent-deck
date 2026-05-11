@@ -245,7 +245,8 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let harness = try PiTestSupport.makeEnvCaptureHarness(keys: [
             "AGENT_DECK_ENV_SMOKE",
             "AGENT_DECK_ENV_COLLIDE",
-            "AGENT_DECK_PARENT_SESSION_ID"
+            "AGENT_DECK_PARENT_SESSION_ID",
+            "AGENT_DECK_OPENAI_FAST_CONFIG"
         ])
         defer { harness.restoreEnvironment() }
 
@@ -274,6 +275,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertEqual(captured["AGENT_DECK_ENV_SMOKE"], "project-value")
         XCTAssertEqual(captured["AGENT_DECK_ENV_COLLIDE"], "project-wins")
         XCTAssertEqual(captured["AGENT_DECK_PARENT_SESSION_ID"], session.id.uuidString)
+        XCTAssertEqual(captured["AGENT_DECK_OPENAI_FAST_CONFIG"], PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path)
     }
 
     func testManagedSubagentBridgeRoutesRequestAndResponds() throws {
@@ -413,6 +415,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(enabledCommand.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("agent-deck-ask-user-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("agent-deck-web-access.ts"))
+        XCTAssertTrue(enabledCommand.contains("agent-deck-openai-fast.ts"))
         XCTAssertTrue(enabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("--append-system-prompt"))
         XCTAssertTrue(enabledCommand.contains(projectAppend.path))
@@ -442,6 +445,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(disabledCommand.contains("system-prompt-audit-bridge.ts"))
         XCTAssertTrue(disabledCommand.contains("agent-deck-ask-user-bridge.ts"))
         XCTAssertTrue(disabledCommand.contains("agent-deck-web-access.ts"))
+        XCTAssertTrue(disabledCommand.contains("agent-deck-openai-fast.ts"))
         XCTAssertFalse(disabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("--append-system-prompt"))
         XCTAssertFalse(disabledCommand.contains("Native catalog prompt."))

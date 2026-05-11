@@ -1,6 +1,10 @@
 import Foundation
 
 struct PiNativeSubagentBridgeExtensions {
+    static func openAIFastExtensionURL(fileManager: FileManager = .default) throws -> URL {
+        try writeExtension(named: "agent-deck-openai-fast.ts", content: openAIFastExtensionSource, fileManager: fileManager)
+    }
+
     static func systemPromptAuditExtensionURL(fileManager: FileManager = .default) throws -> URL {
         try writeExtension(named: "system-prompt-audit-bridge.ts", content: systemPromptAuditExtensionSource, fileManager: fileManager)
     }
@@ -34,6 +38,89 @@ struct PiNativeSubagentBridgeExtensions {
         }
         return url
     }
+
+    static func openAIFastConfigURL(fileManager: FileManager = .default) -> URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return appSupport
+            .appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
+            .appendingPathComponent("openai-fast-mode.json")
+    }
+
+    static func writeOpenAIFastConfig(enabledModelIdentifiers: Set<String>, fileManager: FileManager = .default) {
+        let url = openAIFastConfigURL(fileManager: fileManager)
+        let payload: [String: Any] = [
+            "enabledModels": Array(enabledModelIdentifiers).sorted()
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted]) else { return }
+        try? fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if (try? Data(contentsOf: url)) != data {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    static func isOpenAIFastEligibleModel(provider: String?, modelID: String?) -> Bool {
+        guard provider == "openai-codex", let modelID else { return false }
+        let baseModel = modelID.split(separator: ":", maxSplits: 1).first.map(String.init) ?? modelID
+        return baseModel == "gpt-5.4" || baseModel == "gpt-5.5"
+    }
+
+    private static let openAIFastExtensionSource = """
+        import { existsSync, readFileSync } from "node:fs";
+        import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+        const PROVIDER_ID = "openai-codex";
+        const API_ID = "openai-codex-responses";
+        const FAST_SERVICE_TIER = "priority";
+        const SUPPORTED_MODELS = new Set(["gpt-5.4", "gpt-5.5"]);
+
+        type PayloadRecord = Record<string, unknown>;
+
+        function isRecord(value: unknown): value is PayloadRecord {
+            return typeof value === "object" && value !== null && !Array.isArray(value);
+        }
+
+        function baseModelID(value: unknown): string | undefined {
+            if (typeof value !== "string") return undefined;
+            return value.split(":", 1)[0];
+        }
+
+        function enabledModels(): Set<string> {
+            const path = process.env.AGENT_DECK_OPENAI_FAST_CONFIG;
+            if (!path || !existsSync(path)) return new Set();
+            try {
+                const parsed = JSON.parse(readFileSync(path, "utf-8"));
+                if (!Array.isArray(parsed?.enabledModels)) return new Set();
+                return new Set(parsed.enabledModels.map((item: unknown) => String(item)));
+            } catch (error) {
+                console.error(`Warning: Could not read Agent Deck OpenAI Fast config: ${error}`);
+                return new Set();
+            }
+        }
+
+        function isEligible(ctx: ExtensionContext): boolean {
+            const model = ctx.model;
+            if (!model) return false;
+            const id = baseModelID(model.id);
+            if (!id) return false;
+            if (model.provider !== PROVIDER_ID) return false;
+            if (model.api !== API_ID) return false;
+            if (!SUPPORTED_MODELS.has(id)) return false;
+            if (!enabledModels().has(`${PROVIDER_ID}/${id}`)) return false;
+            return ctx.modelRegistry.isUsingOAuth(model);
+        }
+
+        export default function (pi: ExtensionAPI) {
+            pi.on("before_provider_request", (event, ctx) => {
+                if (!isEligible(ctx)) return undefined;
+                if (!isRecord(event.payload)) return undefined;
+                if (baseModelID(event.payload.model) !== baseModelID(ctx.model?.id)) return undefined;
+                if ("service_tier" in event.payload) return undefined;
+                return { ...event.payload, service_tier: FAST_SERVICE_TIER };
+            });
+        }
+        """
 
     private static let askUserExtensionSource = """
         import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
