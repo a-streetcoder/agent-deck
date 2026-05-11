@@ -295,6 +295,7 @@ final class PiAgentRunnerService {
                 extraArguments.append(contentsOf: try parentSkillArgumentsProvider(projectURL))
             }
             extraArguments.append("--no-prompt-templates")
+            extraArguments.append("--no-themes")
             if let parentPromptTemplateArgumentsProvider {
                 extraArguments.append(contentsOf: try parentPromptTemplateArgumentsProvider(projectURL))
             }

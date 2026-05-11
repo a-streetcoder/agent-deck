@@ -81,8 +81,8 @@ Pi built-in tool names from current docs: `read`, `bash`, `edit`, `write`, `grep
 | `--no-skills`, `-ns` | Disable normal skill discovery/loading. Explicit `--skill` paths still load. | Used by all Agent Deck RPC launches. Parent and native subagent sessions combine it with explicit app-selected `--skill` paths. |
 | `--prompt-template <path>` | Load explicit prompt template file/directory. Repeatable. | Used by parent sessions for Default + current Project prompt-template assignments. |
 | `--no-prompt-templates`, `-np` | Disable prompt-template discovery/loading. Explicit `--prompt-template` paths still load. | Used by all Agent Deck RPC launches. Parent sessions combine it with explicit app-selected `--prompt-template` paths. |
-| `--theme <path>` | Load explicit theme file/directory. Repeatable. | Parser supports it. Agent Deck does not currently pass it. |
-| `--no-themes` | Disable theme discovery/loading. | Parser supports it. Agent Deck does not currently pass it. |
+| `--theme <path>` | Load explicit theme file/directory. Repeatable. | Parser supports it. Agent Deck does not pass explicit themes. |
+| `--no-themes` | Disable theme discovery/loading. | Used by all Agent Deck RPC launches. Themes are UI-only and unnecessary for app-owned Pi subprocesses. |
 | `--no-context-files`, `-nc` | Disable `AGENTS.md` / `CLAUDE.md` context discovery. | Used by title/commit helpers and by native subagents unless `inheritProjectContext == true`. Parent sessions intentionally omit it. |
 | `--system-prompt <text-or-existing-file-path>` | Replace Pi's default system prompt. Context files and skills can still append unless disabled. | Used by title helper, commit helper, and native subagents with `systemPromptMode` absent/`replace`. |
 | `--append-system-prompt <text-or-existing-file-path>` | Append text or file contents to the system prompt. Repeatable. | Used by parent sessions to inject the native subagent catalog. Used by native subagents when `systemPromptMode: append`. |
@@ -123,6 +123,7 @@ Current launch shape:
 [--skill <default-or-project-skill-path>]...
 --no-prompt-templates
 [--prompt-template <default-or-project-prompt-path>]...
+--no-themes
 [--session <existing Pi session file>]
 [--provider <provider>]
 [--model <model>]
@@ -143,6 +144,7 @@ Runtime context/resources:
 - When native subagents are enabled, Agent Deck appends a generated native subagent catalog prompt with `--append-system-prompt`.
 - Parent sessions pass `--no-skills` and then explicit `--skill <path>` arguments for Agent Deck Default + current Project skill assignments.
 - Parent sessions pass `--no-prompt-templates` and then explicit `--prompt-template <path>` arguments for Agent Deck Default + current Project prompt assignments.
+- Parent sessions pass `--no-themes`; Agent Deck does not load themes for app-owned Pi subprocesses.
 - Parent sessions do **not** pass `--no-tools` or `--no-context-files`.
 
 Privacy/context implications:
@@ -180,6 +182,7 @@ Current launch shape:
 --no-skills
 [--skill <agent-assigned-skill-path>]...
 --no-prompt-templates
+--no-themes
 [--provider <provider>]
 [--model <model[:thinking]>]
 ```
@@ -220,7 +223,7 @@ Skills/context behavior:
 - Native subagents always pass `--no-skills`; there is no ambient skill inheritance in the target runtime model.
 - Unless `inheritProjectContext: true`, Agent Deck passes `--no-context-files`.
 - Native subagents always pass `--no-prompt-templates`; prompt templates are parent-session shortcuts and are not assigned to child runs.
-- Agent Deck does not currently pass `--no-themes` for native subagents.
+- Native subagents always pass `--no-themes`.
 
 Privacy/context implications:
 
@@ -243,6 +246,7 @@ Current launch shape:
 --no-tools
 --no-context-files
 --no-prompt-templates
+--no-themes
 --system-prompt <title-generation-only prompt>
 --provider <selected provider>
 --model <selected model>:off
@@ -261,7 +265,7 @@ Privacy/context implications:
 
 - This is the most isolated Agent Deck Pi subprocess path.
 - It still sends the first user message to the selected model/provider.
-- Agent Deck does not currently pass `--no-themes` or `--offline` here.
+- Agent Deck passes `--no-themes` but does not currently pass `--offline` here.
 
 ### 4. Commit-message helper
 
@@ -281,6 +285,7 @@ Current launch shape:
 --no-tools
 --no-context-files
 --no-prompt-templates
+--no-themes
 --system-prompt <commit-message-only prompt>
 --provider <selected provider>
 --model <selected model>:off
@@ -302,7 +307,7 @@ Privacy/context implications:
 - This is highly isolated from Pi runtime resources.
 - It still sends staged diff/status content to the selected model/provider.
 - The user-facing ship confirmation should be explicit that staged diff content is sent to the selected AI model for commit-message generation.
-- Agent Deck does not currently pass `--no-themes` or `--offline` here.
+- Agent Deck passes `--no-themes` but does not currently pass `--offline` here.
 
 ## Launch flag matrix
 
@@ -332,7 +337,7 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 | `--prompt-template <path>` | ◐ Default + current Project prompt assignments | ❌ | ❌ | ❌ |
 | `--no-prompt-templates`, `-np` | ✅ | ✅ | ✅ | ✅ |
 | `--theme <path>` | ❌ | ❌ | ❌ | ❌ |
-| `--no-themes` | ❌ | ❌ | ❌ | ❌ |
+| `--no-themes` | ✅ | ✅ | ✅ | ✅ |
 | `--no-context-files`, `-nc` | ❌ | ◐ unless `inheritProjectContext == true` | ✅ | ✅ |
 | `--system-prompt <text-or-path>` | ❌ | ◐ default/replace prompt mode | ✅ | ✅ |
 | `--append-system-prompt <text-or-path>` | ◐ native subagent catalog when enabled | ◐ when `systemPromptMode == append` | ❌ | ❌ |
@@ -362,7 +367,7 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 | Ambient skills | No; disabled with `--no-skills` | No; disabled with `--no-skills` | No | No |
 | Native explicit skills | Default + current Project assignments via `--skill` | Agent-assigned skills via `--skill` | No | No |
 | Prompt templates | Default + current Project assignments via `--prompt-template` | No | No | No |
-| Themes | Normal Pi behavior | Normal Pi behavior | Normal Pi behavior | Normal Pi behavior |
+| Themes | No, disabled with `--no-themes` | No, disabled with `--no-themes` | No, disabled with `--no-themes` | No, disabled with `--no-themes` |
 | Agent Deck `.env` values | Yes | Yes | Caller-supplied | Caller-supplied |
 | Raw generated system prompt in process args | Native catalog append may be raw text | Yes for child system prompt | Yes | Yes |
 
@@ -371,11 +376,10 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 1. **Documented current behavior is mostly coherent.** Parent sessions are intentionally normal Pi sessions with explicit Agent Deck extensions; helper sessions are intentionally isolated; native subagents are stricter but configurable.
 2. **Forked native subagents are the main context-exposure hotspot.** Sanitization prevents recursive/active managed-subagent continuation, but previous parent conversation history is still provided to the child. This should be documented in UI or require confirmation for parent-triggered forked runs if privacy expectations demand it.
 3. **Native subagent prompt text is exposed in process arguments.** Since Agent Deck already writes `system-prompt.md`, prefer passing `--system-prompt <path-to-system-prompt.md>` / `--append-system-prompt <path>` if Pi's path detection semantics are acceptable for all generated prompts.
-4. **Themes are still ambient.** Consider adding `--no-themes` to child/helper launches for startup/resource hygiene, even though themes should not reach model context.
-5. **Helpers do not disable themes.** Add `--no-themes` to title and commit helpers for startup/resource hygiene, even though themes should not reach model context.
-6. **Helper and child launches do not set offline/version-check behavior.** Consider `--offline` or env vars `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` for privacy-sensitive helper/child subprocesses, while checking whether this changes extension/package behavior.
-7. **Commit-message helper disclosure should be clearer.** Shipping UI should state that staged status/diff content is sent to the selected model to generate the commit message.
-8. **Skill and prompt-template injection are app-controlled.** Parent sessions disable ambient discovery and pass only assigned skills/templates through native `--skill` and `--prompt-template` arguments. Native subagents receive assigned skills only and always disable prompt templates.
+4. **Helper and child launches do not set offline/version-check behavior.** Consider `--offline` or env vars `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` for privacy-sensitive helper/child subprocesses, while checking whether this changes extension/package behavior.
+5. **Commit-message helper disclosure should be clearer.** Shipping UI should state that staged status/diff content is sent to the selected model to generate the commit message.
+6. **Skill and prompt-template injection are app-controlled.** Parent sessions disable ambient discovery and pass only assigned skills/templates through native `--skill` and `--prompt-template` arguments. Native subagents receive assigned skills only and always disable prompt templates.
+7. **Theme loading is disabled everywhere.** All Agent Deck RPC launches pass `--no-themes` because terminal themes are not needed in app-owned Pi subprocesses.
 
 ## Verification checklist
 

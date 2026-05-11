@@ -65,6 +65,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         XCTAssertFalse(launchCommand.contains("--skill"))
         XCTAssertTrue(launchCommand.contains("--no-prompt-templates"))
         XCTAssertFalse(launchCommand.contains("--prompt-template"))
+        XCTAssertTrue(launchCommand.contains("--no-themes"))
         XCTAssertFalse(launchCommand.contains("skill-library"))
     }
 
@@ -154,6 +155,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         defer { runner.stop(runID: inherited.id, parentSessionID: parent.id) }
         XCTAssertTrue(inherited.launchCommand?.contains("--no-skills") == true)
         XCTAssertTrue(inherited.launchCommand?.contains("--no-prompt-templates") == true)
+        XCTAssertTrue(inherited.launchCommand?.contains("--no-themes") == true)
     }
 
     func testNativeSubagentBlocksMissingExplicitSkill() throws {

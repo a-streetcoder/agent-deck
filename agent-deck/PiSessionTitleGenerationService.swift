@@ -57,6 +57,7 @@ final class PiSessionTitleGenerationService {
                     "--no-tools",
                     "--no-context-files",
                     "--no-prompt-templates",
+                    "--no-themes",
                     "--system-prompt",
                     Self.titleSystemPrompt,
                 ],

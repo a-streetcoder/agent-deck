@@ -135,6 +135,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(args.contains("--system-prompt\n"))
         XCTAssertTrue(args.contains("--no-context-files"))
         XCTAssertTrue(args.contains("--no-prompt-templates"))
+        XCTAssertTrue(args.contains("--no-themes"))
         XCTAssertTrue(args.contains("session title generator"))
         XCTAssertTrue(args.contains("capture the concrete goal or change"))
 
@@ -192,6 +193,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(args.contains("--system-prompt\n"))
         XCTAssertTrue(args.contains("--no-context-files"))
         XCTAssertTrue(args.contains("--no-prompt-templates"))
+        XCTAssertTrue(args.contains("--no-themes"))
         XCTAssertTrue(args.contains("git commit message generator"))
         XCTAssertTrue(args.contains("concrete code or product change"))
 

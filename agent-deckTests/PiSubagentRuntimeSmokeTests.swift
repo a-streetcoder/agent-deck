@@ -229,6 +229,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(command.contains("--no-skills"))
         XCTAssertTrue(command.contains("--no-prompt-templates"))
         XCTAssertFalse(command.contains("--prompt-template"))
+        XCTAssertTrue(command.contains("--no-themes"))
         XCTAssertTrue(command.contains("--no-extensions"))
         XCTAssertTrue(command.contains("--extension"))
         XCTAssertTrue(command.contains("contact-supervisor-bridge.ts"))
@@ -316,6 +317,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertTrue(command.contains("--skill \(skillURL.path)"))
         XCTAssertTrue(command.contains("--no-prompt-templates"))
         XCTAssertFalse(command.contains("--prompt-template"))
+        XCTAssertTrue(command.contains("--no-themes"))
     }
 
     func testMissingExplicitSkillsBlockLaunch() throws {
