@@ -209,7 +209,7 @@ struct PiAgentStartupResourcesCard: View {
     private func hintChip(_ key: String, _ label: String) -> some View {
         HStack(spacing: 4) {
             Text(key)
-                .font(.caption.monospaced().weight(.bold))
+                .font(.caption.monospaced())
                 .lineLimit(1)
                 .foregroundStyle(.primary)
             Text(label)

@@ -116,7 +116,11 @@ struct PiAgentComposerBox: View {
                     if let metricsSession {
                         PiAgentRuntimeFooter(
                             session: metricsSession,
-                            openAIFastStatus: openAIFastStatus(for: metricsSession)
+                            openAIFastStatus: openAIFastStatus(for: metricsSession),
+                            onToggleSubagents: {
+                                viewModel.setSubagentsEnabledForSelectedSession(!metricsSession.subagentsEnabled)
+                            },
+                            onToggleOpenAIFast: openAIFastToggleAction(for: metricsSession)
                         )
                     }
 
@@ -194,12 +198,25 @@ struct PiAgentComposerBox: View {
     }
 
     private func openAIFastStatus(for session: PiAgentSessionRecord) -> Bool? {
+        openAIFastModel(for: session).map { viewModel.appSettings.openAIFastModeModelIdentifiers.contains($0.identifier) }
+    }
+
+    private func openAIFastToggleAction(for session: PiAgentSessionRecord) -> (() -> Void)? {
+        guard let model = openAIFastModel(for: session) else { return nil }
+        return {
+            viewModel.setOpenAIFastMode(model, isEnabled: !viewModel.isOpenAIFastModeEnabled(model))
+        }
+    }
+
+    private func openAIFastModel(for session: PiAgentSessionRecord) -> AvailableModel? {
         let fallback = viewModel.defaultPiAgentModel()
         let provider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
         let modelID = session.modelOverrideID ?? session.model ?? fallback?.model
         guard PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: provider, modelID: modelID) else { return nil }
-        let identifier = "\(provider ?? "")/\(modelID?.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "")"
-        return viewModel.appSettings.openAIFastModeModelIdentifiers.contains(identifier)
+        let baseModelID = modelID?.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
+        let identifier = "\(provider ?? "")/\(baseModelID)"
+        return viewModel.availableModels.first { $0.identifier == identifier }
+            ?? viewModel.enabledAvailableModels.first { $0.identifier == identifier }
     }
 
     private func shortPath(_ path: String) -> String {
@@ -1571,6 +1588,8 @@ struct PiAgentShortcutChip: View {
 struct PiAgentRuntimeFooter: View {
     let session: PiAgentSessionRecord
     let openAIFastStatus: Bool?
+    let onToggleSubagents: () -> Void
+    let onToggleOpenAIFast: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 7) {
@@ -1580,23 +1599,45 @@ struct PiAgentRuntimeFooter: View {
             if let cost = session.cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }
-            metric("subagents: \(session.subagentsEnabled ? "on" : "off")", icon: "rectangle.connected.to.line.below")
+            metricButton(
+                "subagents: \(session.subagentsEnabled ? "on" : "off")",
+                icon: "rectangle.connected.to.line.below",
+                action: onToggleSubagents
+            )
             if let openAIFastStatus {
-                metric("fast: \(openAIFastStatus ? "on" : "off")", icon: openAIFastStatus ? "bolt.fill" : "bolt.slash")
+                metricButton(
+                    "fast: \(openAIFastStatus ? "on" : "off")",
+                    icon: openAIFastStatus ? "bolt.fill" : "bolt.slash",
+                    action: { onToggleOpenAIFast?() }
+                )
+                .disabled(onToggleOpenAIFast == nil)
             }
         }
         .font(.caption)
         .foregroundStyle(AppTheme.mutedText)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.snappy(duration: 0.18), value: session.subagentsEnabled)
+        .animation(.snappy(duration: 0.18), value: openAIFastStatus)
     }
 
     private func metric(_ text: String, icon: String) -> some View {
         HStack(spacing: 3) {
             Image(systemName: icon)
                 .font(.caption2.weight(.semibold))
+                .contentTransition(.opacity)
             Text(text)
+                .contentTransition(.opacity)
         }
         .lineLimit(1)
+    }
+
+    private func metricButton(_ text: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            metric(text, icon: icon)
+                .foregroundStyle(AppTheme.brandAccent.gradient)
+        }
+        .buttonStyle(.plain)
+        .help("Toggle \(text.split(separator: ":").first.map(String.init) ?? text)")
     }
 
     private func compact(_ value: Int) -> String {
