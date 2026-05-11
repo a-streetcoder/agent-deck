@@ -87,7 +87,7 @@ Pi built-in tool names from current docs: `read`, `bash`, `edit`, `write`, `grep
 | `--no-themes` | Disable theme discovery/loading. | Used by all Agent Deck RPC launches. Themes are UI-only and unnecessary for app-owned Pi subprocesses. |
 | `--no-context-files`, `-nc` | Disable `AGENTS.md` / `CLAUDE.md` context discovery. | Used by title/commit helpers and by native subagents unless `inheritProjectContext == true`. Parent sessions intentionally omit it. |
 | `--system-prompt <text-or-existing-file-path>` | Replace Pi's default system prompt. Context files and skills can still append unless disabled. | Used by title helper, commit helper, and native subagents with `systemPromptMode` absent/`replace`. |
-| `--append-system-prompt <text-or-existing-file-path>` | Append text or file contents to the system prompt. Repeatable. Explicit values suppress Pi's automatic `APPEND_SYSTEM.md` discovery. | Used by parent sessions to preserve the active append file before injecting the native subagent catalog. Used by native subagents when `systemPromptMode: append`. |
+| `--append-system-prompt <text-or-existing-file-path>` | Append text or file contents to the system prompt. Repeatable. Explicit values suppress Pi's automatic `APPEND_SYSTEM.md` discovery. | Used by parent sessions to preserve the active append file before injecting the native subagent catalog. Used by native subagents when `systemPromptMode: append`. Passed as an empty value for replace-mode native subagents and isolated helpers to suppress `APPEND_SYSTEM.md`. |
 
 ### Miscellaneous / exiting flags
 
@@ -176,7 +176,8 @@ Current launch shape:
 # or, when resolved context is fork:
 --fork <artifact-dir>/fork-context.jsonl --session-dir <artifact-dir>/sessions
 --system-prompt <native boundary + agent prompt>
-# or --append-system-prompt <...> when systemPromptMode == append
+# plus --append-system-prompt "" to suppress APPEND_SYSTEM.md discovery
+# or only --append-system-prompt <...> when systemPromptMode == append
 [--no-context-files]                 # when inheritProjectContext != true
 [--extension <contact-supervisor-bridge.ts>]
 [--tools <agent tool allowlist>]
@@ -228,6 +229,7 @@ Skills/context behavior:
 - Agent Deck no longer pastes full skill bodies into the child system prompt.
 - Native subagents always pass `--no-skills`; there is no ambient skill inheritance in the target runtime model.
 - Unless `inheritProjectContext: true`, Agent Deck passes `--no-context-files`.
+- Replace-mode native subagents pass `--append-system-prompt ""` so Pi does not append project/global `APPEND_SYSTEM.md`.
 - Native subagents always pass `--no-prompt-templates`; prompt templates are parent-session shortcuts and are not assigned to child runs.
 - Native subagents always pass `--no-themes`.
 
@@ -254,6 +256,7 @@ Current launch shape:
 --no-prompt-templates
 --no-themes
 --system-prompt <title-generation-only prompt>
+--append-system-prompt ""
 --provider <selected provider>
 --model <selected model>:off
 ```
@@ -263,7 +266,7 @@ Runtime context/resources:
 - Working directory is the project URL supplied by the caller.
 - Environment is supplied by the caller.
 - No persistent Pi session file is created.
-- No tools, extensions, skills, prompt templates, or context files are available.
+- No tools, extensions, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available.
 - The prompt includes only the first user message, trimmed and capped at 2,000 characters.
 - Timeout is 20 seconds.
 
@@ -293,6 +296,7 @@ Current launch shape:
 --no-prompt-templates
 --no-themes
 --system-prompt <commit-message-only prompt>
+--append-system-prompt ""
 --provider <selected provider>
 --model <selected model>:off
 ```
@@ -302,7 +306,7 @@ Runtime context/resources:
 - Working directory is the project URL supplied by the caller.
 - Environment is supplied by the caller.
 - No persistent Pi session file is created.
-- No tools, extensions, skills, prompt templates, or context files are available.
+- No tools, extensions, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available.
 - Before this helper runs, `AppViewModel.shipSelectedPiAgentSession` stages changes with `git add -A`.
 - `GitRepositoryService` supplies `git status --short --branch` and staged diff/stat content.
 - The prompt includes status and staged diff/stat capped at 12,000 characters.

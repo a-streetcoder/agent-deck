@@ -1563,11 +1563,7 @@ struct PiAgentScreen: View {
     }
 
     private func sortedSessions(_ sessions: [PiAgentSessionRecord]) -> [PiAgentSessionRecord] {
-        sessions.sorted { lhs, rhs in
-            if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
-            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        sessions.sorted { PiAgentSessionRecord.sessionListPrecedes($0, $1) }
     }
 
     private func sessionMatchesSearch(_ session: PiAgentSessionRecord, query: String) -> Bool {

@@ -14,8 +14,8 @@ Agents are Markdown files with YAML frontmatter and a compact role prompt body:
 ```markdown
 ---
 name: example-agent
-description: Short description of what this agent does
-whenToUse: Use when the parent should delegate this kind of bounded work.
+description: Short human/UI summary of what this agent does
+whenToUse: Use for the precise delegation condition that should make the parent choose this agent.
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
@@ -35,12 +35,21 @@ When creating an agent, decide:
 
 1. Scope: project, global, library/catalog, builtin override, or builtin replacement.
 2. Role: scout, planner, worker, reviewer, tester, docs writer, release helper, etc.
-3. Tool boundary: prefer `read`, `grep`, `find`, `ls`; add `bash`, `edit`, `write` only when needed.
-4. Supervisor behavior: include `contact_supervisor` only when the child should ask for decisions or meaningful blockers.
-5. Context: `fresh` by default; `fork` only when parent history is useful and safe to disclose.
-6. Project context: use `inheritProjectContext: true` when project conventions such as `AGENTS.md` matter.
-7. Skills: assign explicit skill names in `skills:`. Agent Deck passes them through Pi native `--skill` injection. Do not use `inheritSkills`.
-8. Validation: specify what files, commands, or evidence the agent should inspect before completion.
+3. Routing: write `whenToUse` as one concise sentence that tells the parent exactly when to delegate to this agent; keep it distinct from the human-facing `description`.
+4. Tool boundary: prefer `read`, `grep`, `find`, `ls`; add `bash`, `edit`, `write` only when needed.
+5. Supervisor behavior: include `contact_supervisor` only when the child should ask for decisions or meaningful blockers.
+6. Context: `fresh` by default; `fork` only when parent history is useful and safe to disclose.
+7. Project context: use `inheritProjectContext: true` when project conventions such as `AGENTS.md` matter.
+8. Skills: assign explicit skill names in `skills:`. Agent Deck passes them through Pi native `--skill` injection. Do not use `inheritSkills`.
+9. Validation: specify what files, commands, or evidence the agent should inspect before completion.
+
+## Routing metadata rules
+
+- `description` is for humans and UI lists; keep it short but descriptive.
+- `whenToUse` is for parent-session delegation; make it a direct routing rule beginning with "Use for..." or "Use when...".
+- Keep `whenToUse` to one sentence and avoid repeating long descriptions.
+- Include scope/approval constraints in `whenToUse` when they matter, such as "approved implementation", "review-only", or "reconnaissance before planning".
+- Parent sessions use `whenToUse` first and fall back to `description` only when `whenToUse` is missing.
 
 ## Skill rules
 

@@ -1018,6 +1018,18 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     }
 }
 
+extension PiAgentSessionRecord {
+    static func sessionListPrecedes(_ lhs: PiAgentSessionRecord, _ rhs: PiAgentSessionRecord, calendar: Calendar = .current) -> Bool {
+        if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
+
+        let updatedDayComparison = calendar.compare(lhs.updatedAt, to: rhs.updatedAt, toGranularity: .day)
+        if updatedDayComparison != .orderedSame { return updatedDayComparison == .orderedDescending }
+
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
+}
+
 enum PiAgentTranscriptRole: String, Codable, Hashable {
     case user
     case assistant

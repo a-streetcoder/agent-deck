@@ -228,7 +228,7 @@ struct PiAgentRepoChangesPanel: View {
     private func refreshSelectedSection(force: Bool) {
         switch selectedSection {
         case .changes:
-            viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            viewModel.prepareRepoChangesForSelectedPiAgentSession(force: force)
         case .issues:
             Task {
                 await viewModel.prepareGitHubScreen()

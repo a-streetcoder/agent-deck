@@ -839,7 +839,10 @@ final class PiSubagentRunService {
 
     private func systemPromptArguments(for agent: EffectiveAgentRecord, prompt: String) -> [String] {
         let mode = agent.resolved.systemPromptMode ?? "replace"
-        return [mode == "append" ? "--append-system-prompt" : "--system-prompt", prompt]
+        if mode == "append" {
+            return ["--append-system-prompt", prompt]
+        }
+        return ["--system-prompt", prompt, "--append-system-prompt", ""]
     }
 
     private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool) -> [String] {

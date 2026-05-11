@@ -18,7 +18,8 @@ You are a review-only agent. Inspect the requested evidence and report findings 
 | Field | Meaning |
 |---|---|
 | `name` | Runtime agent name |
-| `description` | Human-readable summary |
+| `description` | Human-readable summary for UI and lists |
+| `whenToUse` | Concise parent-session routing rule; Agent Deck uses this before falling back to `description` |
 | `model` | Preferred model |
 | `fallbackModels` | Fallback model list |
 | `thinking` | Preferred thinking level |
@@ -40,6 +41,7 @@ Agent Deck preserves unknown frontmatter fields where possible.
 
 ## Native subagent guidance
 
+- Set `whenToUse` to one concise sentence that tells the parent exactly when to delegate to this agent. Keep it distinct from the human-facing `description`.
 - Use `contact_supervisor` in `tools` only when the child may need progress updates, decisions, or interviews. When present, Agent Deck injects native boundary instructions for blocker/progress/interview routing and normal final-result return.
 - Do not rely on `output` to write project files. In Agent Deck native runs, the expected outcome controls whether project writes are allowed.
 - Keep explicit `skills` references stable and ensure the skills are visible in the Agent Deck skill catalog. Native runs receive those skills as explicit Pi `--skill` paths.

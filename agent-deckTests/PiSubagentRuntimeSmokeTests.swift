@@ -228,6 +228,8 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
 
         let command = try XCTUnwrap(run.launchCommand)
         XCTAssertTrue(command.contains("--no-context-files"))
+        XCTAssertTrue(command.contains("--system-prompt"))
+        XCTAssertTrue(command.contains("--append-system-prompt ''"))
         XCTAssertTrue(command.contains("--no-skills"))
         XCTAssertTrue(command.contains("--no-prompt-templates"))
         XCTAssertFalse(command.contains("--prompt-template"))

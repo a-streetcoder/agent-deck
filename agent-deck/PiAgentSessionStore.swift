@@ -867,11 +867,7 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     private func sortSessions() {
-        sessions.sort { lhs, rhs in
-            if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
-            if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        sessions.sort { PiAgentSessionRecord.sessionListPrecedes($0, $1) }
     }
 
     private func touchSession(_ id: UUID, bumpUpdatedAt: Bool) {

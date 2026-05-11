@@ -24,7 +24,9 @@ For a normal Pi session, Pi builds the effective system prompt in this order:
    - Else `~/.pi/agent/SYSTEM.md`, if present.
    - Else Pi's built-in default system prompt.
 2. **Tool-aware built-in guidance**
-   - When Pi uses its built-in default prompt, active tools can contribute available-tool entries and guidelines.
+   - When Pi uses its built-in default prompt, the prompt includes an `Available tools` section.
+   - Active tools can contribute tool-specific snippets and guidelines.
+   - The built-in prompt also includes Pi documentation guidance.
    - If a custom base prompt is used, Pi does not prepend the built-in default prompt.
 3. **Append system prompt text**
    - All explicit `--append-system-prompt <text-or-existing-file-path>` values, in flag order, joined by blank lines.
@@ -145,7 +147,8 @@ pi --mode rpc
   --session-dir <artifact-dir>/sessions
   [--fork <artifact-dir>/fork-context.jsonl]
   --system-prompt <native boundary + agent prompt>
-  # or --append-system-prompt <native boundary + agent prompt> when systemPromptMode: append
+  --append-system-prompt ""
+  # or only --append-system-prompt <native boundary + agent prompt> when systemPromptMode: append
   [--no-context-files]
   [--tools <agent tool allowlist> | --no-tools]
   --no-extensions
@@ -163,6 +166,8 @@ pi --mode rpc
 ```
 
 If `systemPromptMode` is absent or `replace`, Agent Deck uses `--system-prompt`. This replaces Pi's base prompt, but Pi may still append context files, explicit skills, date, and cwd unless disabled.
+
+Replace-mode native subagents also pass `--append-system-prompt ""`. This is intentional: in Pi, any explicit append value suppresses automatic `APPEND_SYSTEM.md` discovery. The empty append keeps project/global `APPEND_SYSTEM.md` out of native child prompts while preserving Pi's later context-file, explicit-skill, date, and cwd footer behavior.
 
 If `systemPromptMode: append`, Agent Deck uses `--append-system-prompt`. In that mode Pi keeps its normal base prompt selection and appends the agent prompt.
 
@@ -190,9 +195,10 @@ Session title generation and commit-message generation use `--system-prompt` wit
 --no-context-files
 --no-prompt-templates
 --no-themes
+--append-system-prompt ""
 ```
 
-They do not receive project context files, skills, prompt templates, extensions, or tools.
+They do not receive project context files, skills, prompt templates, extensions, tools, or project/global `APPEND_SYSTEM.md` content.
 
 ## Projects View Preview
 

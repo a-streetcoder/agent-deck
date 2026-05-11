@@ -254,6 +254,9 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
     }
 
     private nonisolated static func shellEscape(_ value: String) -> String {
+        if value.isEmpty {
+            return "''"
+        }
         if value.allSatisfy({ $0.isLetter || $0.isNumber || "-_/.:,=".contains($0) }) {
             return value
         }

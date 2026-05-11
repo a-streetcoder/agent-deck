@@ -60,6 +60,8 @@ final class PiSessionTitleGenerationService {
                     "--no-themes",
                     "--system-prompt",
                     Self.titleSystemPrompt,
+                    "--append-system-prompt",
+                    "",
                 ],
                 environment: environment,
                 onEvent: { [weak self] events in

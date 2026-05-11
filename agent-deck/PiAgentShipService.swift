@@ -71,6 +71,8 @@ final class PiAgentShipService {
                     "--no-themes",
                     "--system-prompt",
                     Self.commitMessageSystemPrompt,
+                    "--append-system-prompt",
+                    "",
                 ],
                 environment: environment,
                 onEvent: { [weak self] events in

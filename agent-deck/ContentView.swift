@@ -420,6 +420,19 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .agent {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isPiAgentTranscriptOptionsPresented.toggle()
+                    } label: {
+                        Label("Transcript Display", systemImage: "eye")
+                    }
+                    .help("Choose what appears in the agent transcript")
+                    .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                        PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+                    }
+                    .toolbarNeutralChrome()
+                }
+
                 if viewModel.shouldShowPiAgentGitActions {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
                     ToolbarItem(placement: .primaryAction) {
