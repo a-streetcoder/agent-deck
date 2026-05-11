@@ -85,7 +85,7 @@ Pi built-in tool names from current docs: `read`, `bash`, `edit`, `write`, `grep
 | `--no-themes` | Disable theme discovery/loading. | Used by all Agent Deck RPC launches. Themes are UI-only and unnecessary for app-owned Pi subprocesses. |
 | `--no-context-files`, `-nc` | Disable `AGENTS.md` / `CLAUDE.md` context discovery. | Used by title/commit helpers and by native subagents unless `inheritProjectContext == true`. Parent sessions intentionally omit it. |
 | `--system-prompt <text-or-existing-file-path>` | Replace Pi's default system prompt. Context files and skills can still append unless disabled. | Used by title helper, commit helper, and native subagents with `systemPromptMode` absent/`replace`. |
-| `--append-system-prompt <text-or-existing-file-path>` | Append text or file contents to the system prompt. Repeatable. | Used by parent sessions to inject the native subagent catalog. Used by native subagents when `systemPromptMode: append`. |
+| `--append-system-prompt <text-or-existing-file-path>` | Append text or file contents to the system prompt. Repeatable. Explicit values suppress Pi's automatic `APPEND_SYSTEM.md` discovery. | Used by parent sessions to preserve the active append file before injecting the native subagent catalog. Used by native subagents when `systemPromptMode: append`. |
 
 ### Miscellaneous / exiting flags
 
@@ -118,6 +118,7 @@ Current launch shape:
 --extension <agent-deck-web-access.ts>
 --extension <enabled Agent Deck command extension>...
 [--extension <managed-subagent-bridge.ts>]
+[--append-system-prompt <project .pi/APPEND_SYSTEM.md if present, else global ~/.pi/agent/APPEND_SYSTEM.md if present>]
 [--append-system-prompt <native subagent catalog prompt>]
 --no-skills
 [--skill <default-or-project-skill-path>]...
@@ -141,7 +142,10 @@ Runtime context/resources:
   - web access extension backed by Agent Deck/Exa environment credentials;
   - enabled Agent Deck command extensions;
   - native subagent parent bridge when subagents are enabled.
+- Parent sessions intentionally omit `--system-prompt`; Pi still owns base prompt selection from project `.pi/SYSTEM.md`, global `~/.pi/agent/SYSTEM.md`, or its built-in default prompt.
 - When native subagents are enabled, Agent Deck appends a generated native subagent catalog prompt with `--append-system-prompt`.
+- Because Pi skips automatic `APPEND_SYSTEM.md` discovery whenever any explicit `--append-system-prompt` is present, Agent Deck first explicitly preserves the same active append file Pi would have discovered: project `.pi/APPEND_SYSTEM.md`, otherwise global `~/.pi/agent/APPEND_SYSTEM.md`, otherwise no file append.
+- Multiple explicit parent `--append-system-prompt` values stack, so the effective parent append order is active `APPEND_SYSTEM.md` first, then Agent Deck's native subagent catalog.
 - Parent sessions pass `--no-skills` and then explicit `--skill <path>` arguments for Agent Deck Default + current Project skill assignments.
 - Parent sessions pass `--no-prompt-templates` and then explicit `--prompt-template <path>` arguments for Agent Deck Default + current Project prompt assignments.
 - Parent sessions pass `--no-themes`; Agent Deck does not load themes for app-owned Pi subprocesses.

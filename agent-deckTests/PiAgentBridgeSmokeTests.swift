@@ -393,7 +393,11 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         let enabledStore = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let enabledRunner = PiAgentRunnerService(store: enabledStore)
         enabledRunner.nativeSubagentCatalogProvider = { _ in "Native catalog prompt." }
-        var enabledSession = enabledStore.createSession(kind: .project, title: "Enabled", project: try PiTestSupport.makeProject(), repository: nil)
+        let enabledProjectURL = try PiTestSupport.temporaryProjectURL()
+        let projectAppend = enabledProjectURL.appendingPathComponent(".pi/APPEND_SYSTEM.md")
+        try FileManager.default.createDirectory(at: projectAppend.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Project append prompt.".write(to: projectAppend, atomically: true, encoding: .utf8)
+        var enabledSession = enabledStore.createSession(kind: .project, title: "Enabled", project: try PiTestSupport.makeProject(url: enabledProjectURL), repository: nil)
         enabledStore.updateSession(enabledSession.id) {
             $0.modelOverrideProvider = "zai"
             $0.modelOverrideID = "glm-4.7"
@@ -411,7 +415,12 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(enabledCommand.contains("agent-deck-web-access.ts"))
         XCTAssertTrue(enabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertTrue(enabledCommand.contains("--append-system-prompt"))
+        XCTAssertTrue(enabledCommand.contains(projectAppend.path))
         XCTAssertTrue(enabledCommand.contains("Native catalog prompt."))
+        XCTAssertLessThan(
+            try XCTUnwrap(enabledCommand.range(of: projectAppend.path)?.lowerBound),
+            try XCTUnwrap(enabledCommand.range(of: "Native catalog prompt.")?.lowerBound)
+        )
         XCTAssertTrue(enabledCommand.contains("--provider zai"))
         XCTAssertTrue(enabledCommand.contains("--model glm-4.7"))
 
@@ -436,6 +445,40 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertFalse(disabledCommand.contains("managed-subagent-bridge.ts"))
         XCTAssertFalse(disabledCommand.contains("--append-system-prompt"))
         XCTAssertFalse(disabledCommand.contains("Native catalog prompt."))
+    }
+
+    func testParentAppendPromptResolverMirrorsPiAppendDiscoveryOnlyWhenAgentDeckAppends() throws {
+        let root = try PiTestSupport.temporaryProjectURL()
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let projectAppend = project.appendingPathComponent(".pi/APPEND_SYSTEM.md")
+        let globalAppend = home.appendingPathComponent(".pi/agent/APPEND_SYSTEM.md")
+        try FileManager.default.createDirectory(at: projectAppend.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: globalAppend.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Project append".write(to: projectAppend, atomically: true, encoding: .utf8)
+        try "Global append".write(to: globalAppend, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            PiParentAppendPromptResolver.appendSystemPromptArguments(projectURL: project, agentDeckAppendPrompts: [], homeDirectory: home),
+            []
+        )
+
+        XCTAssertEqual(
+            PiParentAppendPromptResolver.appendSystemPromptArguments(projectURL: project, agentDeckAppendPrompts: ["Native catalog"], homeDirectory: home),
+            ["--append-system-prompt", projectAppend.path, "--append-system-prompt", "Native catalog"]
+        )
+
+        try FileManager.default.removeItem(at: projectAppend)
+        XCTAssertEqual(
+            PiParentAppendPromptResolver.appendSystemPromptArguments(projectURL: project, agentDeckAppendPrompts: ["Native catalog"], homeDirectory: home),
+            ["--append-system-prompt", globalAppend.path, "--append-system-prompt", "Native catalog"]
+        )
+
+        try FileManager.default.removeItem(at: globalAppend)
+        XCTAssertEqual(
+            PiParentAppendPromptResolver.appendSystemPromptArguments(projectURL: project, agentDeckAppendPrompts: ["Native catalog"], homeDirectory: home),
+            ["--append-system-prompt", "Native catalog"]
+        )
     }
 
     func testNativeAskUserBridgeHandlesOpenQuestionWithGLM47Session() throws {

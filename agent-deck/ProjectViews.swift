@@ -199,7 +199,10 @@ struct ProjectsScreen: View {
             }
             .frame(minWidth: 460, idealWidth: 540, maxWidth: 700)
 
-            PiSystemInstructionsProjectDetail(project: selectedInstructionProject)
+            PiSystemInstructionsProjectDetail(
+                project: selectedInstructionProject,
+                includesNativeSubagentCatalog: viewModel.areSubagentsEnabledForNewSessions
+            )
                 .frame(minWidth: 420)
         }
         .task(id: searchText) {
@@ -356,9 +359,7 @@ struct ProjectsScreen: View {
                     }
 
                     if isActiveSessionProject {
-                        Circle()
-                            .fill(AppTheme.brandAccent)
-                            .frame(width: 8, height: 8)
+                        AppLabelTag(text: "Active", color: AppTheme.brandAccent)
                             .help("Active session project")
                     }
                 }
@@ -398,7 +399,7 @@ struct ProjectsScreen: View {
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
-            .help("Show resolved skills for this project")
+            .help("Show skills for this project")
 
             Button(role: .destructive) {
                 viewModel.removeProjectFromLibrary(project)
@@ -428,6 +429,7 @@ struct ProjectsScreen: View {
 
 private struct PiSystemInstructionsProjectDetail: View {
     let project: DiscoveredProject?
+    let includesNativeSubagentCatalog: Bool
 
     @State private var drafts: [String: String] = [:]
     @State private var originals: [String: String] = [:]
@@ -465,7 +467,7 @@ private struct PiSystemInstructionsProjectDetail: View {
 
                         instructionSection(
                             title: "Append system prompt",
-                            description: "Pi appends one file from this group: project `.pi/APPEND_SYSTEM.md` if it exists, otherwise global `~/.pi/agent/APPEND_SYSTEM.md`. They do not stack.",
+                            description: "Pi appends one file from this group: project `.pi/APPEND_SYSTEM.md` if it exists, otherwise global `~/.pi/agent/APPEND_SYSTEM.md`. When Agent Deck adds parent append content, this active file is preserved first.",
                             files: files(for: .append)
                         )
 
@@ -611,7 +613,12 @@ private struct PiSystemInstructionsProjectDetail: View {
     }
 
     private func previewText(for project: DiscoveredProject) -> String {
-        PiInstructionPreviewBuilder.preview(projectURL: project.url, existingPaths: existingPaths, drafts: drafts)
+        PiInstructionPreviewBuilder.preview(
+            projectURL: project.url,
+            existingPaths: existingPaths,
+            drafts: drafts,
+            includesNativeSubagentCatalog: includesNativeSubagentCatalog
+        )
     }
 }
 
@@ -694,7 +701,7 @@ private struct PiSystemInstructionsInfoPopover: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 infoRow("Base prompt", "Project `.pi/SYSTEM.md` replaces the base prompt. If it does not exist, Pi uses global `~/.pi/agent/SYSTEM.md`; otherwise it uses the built-in Pi prompt.")
-                infoRow("Append prompt", "Explicit `--append-system-prompt` values win first. Without those, only one append file is used: project `.pi/APPEND_SYSTEM.md`, then global `~/.pi/agent/APPEND_SYSTEM.md`. The two file-based append prompts do not stack.")
+                infoRow("Append prompt", "Without explicit append values, Pi uses one file: project `.pi/APPEND_SYSTEM.md`, then global `~/.pi/agent/APPEND_SYSTEM.md`. When Agent Deck adds parent append content, it explicitly preserves that active file first and then stacks its own append prompt.")
                 infoRow("Context files", "Pi loads one global `AGENTS.md`/`CLAUDE.md`, then walks from filesystem root to the project directory. In each directory, `AGENTS.md` wins over `CLAUDE.md`.")
                 infoRow("Runtime pieces", "Tools, extension prompt changes, skill catalogs, date, and working directory are runtime-specific. The preview includes placeholders where Agent Deck cannot know the exact Pi runtime text.")
             }
@@ -765,7 +772,7 @@ private struct ProjectSkillsRecapSheet: View {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Resolved Skills")
+                    Text("Project Skills")
                         .font(.headline)
                         .fontWidth(.expanded)
                     Text(project.repositoryDisplayName)
@@ -803,7 +810,7 @@ private struct ProjectSkillsRecapSheet: View {
                         ContentUnavailableView(
                             "No Skills",
                             systemImage: "wand.and.stars",
-                            description: Text("No default or project-assigned skills resolve for this project.")
+                            description: Text("No default or project-assigned skills are configured for this project.")
                         )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
@@ -1145,7 +1152,7 @@ private struct PiInstructionFile: Identifiable, Hashable {
 }
 
 private enum PiInstructionPreviewBuilder {
-    static func preview(projectURL: URL, existingPaths: Set<String>, drafts: [String: String]) -> String {
+    static func preview(projectURL: URL, existingPaths: Set<String>, drafts: [String: String], includesNativeSubagentCatalog: Bool = false) -> String {
         let projectURL = projectURL.standardizedFileURL
         let draftedNewPaths = drafts.compactMap { path, content in
             existingPaths.contains(path) || content.isEmpty ? nil : path
@@ -1165,6 +1172,10 @@ private enum PiInstructionPreviewBuilder {
 
         if let appendFile = catalog.first(where: { $0.role == .append && $0.status == .active }) {
             prompt += "\n\n\(content(for: appendFile.url, drafts: drafts))"
+        }
+
+        if includesNativeSubagentCatalog {
+            prompt += "\n\n[AGENT DECK NATIVE SUBAGENT CATALOG]"
         }
 
         let contextFiles = PiInstructionFile.activeContextFiles(for: projectURL, existingPaths: previewExistingPaths)
