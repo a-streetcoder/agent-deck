@@ -15,7 +15,6 @@ nonisolated struct PiScanner {
         let globalSettings = homeDirectory().appendingPathComponent(".pi/agent/settings.json")
         let globalEnv = homeDirectory().appendingPathComponent(".pi/agent/.env")
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
-        let librarySkillsDirectory = homeDirectory().appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
         let globalPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompts", isDirectory: true)
         let libraryPrompts = homeDirectory().appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
@@ -53,9 +52,7 @@ nonisolated struct PiScanner {
             scanSkills(at: extraGlobalSkills, scope: .global, allowRootMarkdown: false) +
             scanSkills(at: projectSkills, scope: .project) +
             packageSkillScan.skills
-        let librarySkills =
-            scanSkills(at: librarySkillsDirectory, scope: .library) +
-            scanExternalSkills(paths: externalSkillPaths)
+        let librarySkills = scanExternalSkills(paths: externalSkillPaths)
 
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +

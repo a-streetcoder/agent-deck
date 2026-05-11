@@ -16,7 +16,7 @@ See [Chains](chains.md).
 
 ## Skills
 
-Skills are named instruction bundles, normally a directory containing `SKILL.md`. Agents can reference skills by name. Agent Deck can activate library skills globally or per project, but an agent reference does not automatically copy the skill file.
+Skills are named instruction bundles, normally a directory containing `SKILL.md`. Agents can reference skills by name. Agent Deck injects only assigned skills into parent sessions or native subagents; an agent reference does not automatically copy the skill file.
 
 See [Skills](skills.md).
 

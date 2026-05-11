@@ -939,7 +939,7 @@ func skillScopeLabel(_ skill: SkillRecord, selectedProjectRoot: String?) -> Stri
     case .package:
         return "Package"
     case .library:
-        return "Library"
+        return "External"
     default:
         return "Global"
     }
@@ -980,6 +980,9 @@ func skillLocationLabel(_ skill: SkillRecord, selectedProjectRoot: String?) -> S
     }
     if skill.source.kind == .builtin {
         return "Bundled"
+    }
+    if skill.source.kind == .library {
+        return "External"
     }
     return "User"
 }

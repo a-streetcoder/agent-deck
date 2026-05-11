@@ -85,7 +85,6 @@ nonisolated struct AppRefreshService: Sendable {
             globalAgentRoot.appendingPathComponent("settings.json"),
             globalAgentRoot.appendingPathComponent(".env"),
             globalAgentRoot.appendingPathComponent("skills", isDirectory: true),
-            globalAgentRoot.appendingPathComponent("skill-library", isDirectory: true),
             globalAgentRoot.appendingPathComponent("prompts", isDirectory: true),
             globalAgentRoot.appendingPathComponent("prompt-library", isDirectory: true),
             legacyGlobalAgentRoot,

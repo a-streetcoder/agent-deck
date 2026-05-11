@@ -41,6 +41,7 @@
 				"bundled-skills",
 				"bundled-skills/agent-authoring/SKILL.md",
 				"bundled-skills/prompt-authoring/SKILL.md",
+				"bundled-skills/skill-authoring/SKILL.md",
 			);
 			target = 6572B16A2FA2391500596CE4 /* agent-deck */;
 		};

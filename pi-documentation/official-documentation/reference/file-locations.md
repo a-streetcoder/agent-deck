@@ -43,7 +43,6 @@ This page lists the important paths Agent Deck scans or writes.
 |---|---|
 | Global active | `~/.pi/agent/skills/<skill>/SKILL.md` or root `.md` |
 | Legacy global | recursive `~/.agents/skills/**/SKILL.md`; root `.md` files are ignored |
-| Library | `~/.pi/agent/skill-library/<skill>/SKILL.md` |
 | Project active | `PROJECT/.pi/skills/<skill>/SKILL.md` or root `.md` |
 | Legacy project | recursive `PROJECT/.agents/skills/**/SKILL.md` from cwd/ancestors; root `.md` files are ignored |
 | Package/settings | package manifest/conventional paths and `settings.json -> skills` |

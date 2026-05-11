@@ -1247,7 +1247,7 @@ struct PiAgentScreen: View {
 
     private var fallbackSkillInvocations: [String] {
         // Runtime RPC is authoritative. Before it responds, use active skills only;
-        // library-only skills are management records, not guaranteed runtime commands.
+        // External/catalog-only skills are management records, not guaranteed runtime commands.
         var seen = Set<String>()
         return snapshotForSelectedSession.skills
             .filter { seen.insert($0.name).inserted }

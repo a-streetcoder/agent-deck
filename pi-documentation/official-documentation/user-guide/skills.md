@@ -2,17 +2,11 @@
 
 Skills are reusable instruction bundles. The normal convention is a directory with a `SKILL.md` file.
 
-## Active vs library skills
+## Active and assigned skills
 
 - **Active global skills** are visible to Pi everywhere.
 - **Active project skills** are visible only inside a selected project.
-- **Library skills** are centrally stored by Agent Deck and become active only when linked globally or into a project.
-
-Library storage:
-
-```text
-~/.pi/agent/skill-library/<skill>/SKILL.md
-```
+- **Bundled and external skills** can appear in Agent Deck's catalog, but they are not injected unless assigned.
 
 Active targets:
 
@@ -20,6 +14,8 @@ Active targets:
 ~/.pi/agent/skills/<skill>/SKILL.md
 PROJECT/.pi/skills/<skill>/SKILL.md
 ```
+
+Agent Deck also ships bundled catalog skills such as `agent-authoring`, `prompt-authoring`, and `skill-authoring`. Discovery alone does not inject them into Pi; assign them as Default, Project, or Agent skills when they should be available at runtime.
 
 ## Discovery rules that matter
 

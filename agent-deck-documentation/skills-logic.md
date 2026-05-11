@@ -16,7 +16,7 @@ Agent Deck can discover skills from multiple sources, including:
 
 | Source | Examples |
 |---|---|
-| Bundled skills | Skills shipped with Agent Deck, such as `agent-authoring`. |
+| Bundled skills | Skills shipped with Agent Deck, such as `agent-authoring`, `prompt-authoring`, and `skill-authoring`. |
 | User skills | `~/.pi/agent/skills/<name>/SKILL.md`, `~/.pi/agent/skills/<name>.md`. |
 | Project skills | `PROJECT/.pi/skills/<name>/SKILL.md`, `PROJECT/.pi/skills/<name>.md`. |
 | Compatibility skills | `.agents/skills/<name>/SKILL.md` locations. |
@@ -24,6 +24,18 @@ Agent Deck can discover skills from multiple sources, including:
 | Imported/catalog skills | Any existing imported skill folders Agent Deck scans. |
 
 A catalog skill keeps its original path. Agent Deck does not need to move, copy, or link a skill before using it. Runtime injection is controlled by assignment, not by the folder where the skill lives.
+
+## Bundled authoring skills
+
+Agent Deck ships focused authoring skills for common resource creation workflows:
+
+| Skill | Purpose |
+|---|---|
+| `agent-authoring` | Create or review Agent Deck native agent markdown files. |
+| `prompt-authoring` | Create or improve reusable prompt templates for parent sessions. |
+| `skill-authoring` | Create or improve Agent Deck/Pi skills and explain assignment behavior. |
+
+These bundled skills are catalog resources. They follow the same assignment rules as other skills: they are not injected into a parent session or native subagent unless assigned.
 
 ## Assignment types
 

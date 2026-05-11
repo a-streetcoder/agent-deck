@@ -18,7 +18,7 @@ The app sidebar is organized around these concepts:
 
 - **Agents** — builtin, global, project, library, and overridden agents
 - **Chains** — app-managed `.chain.md` workflows
-- **Skills** — active and library skills, including project assignment
+- **Skills** — active, bundled, and assigned skills
 - **Prompts** — file-backed prompt templates
 - **Subagents** — subagent configuration and native-run behavior
 

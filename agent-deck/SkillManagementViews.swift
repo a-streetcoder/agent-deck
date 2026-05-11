@@ -9,7 +9,7 @@ struct SkillsInfoPopover: View {
                 .fontWidth(.expanded)
 
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("Catalog", "Agent Deck scans skills from bundled, user, project, compatibility, package, and existing library/import locations.")
+                infoRow("Catalog", "Agent Deck scans skills from bundled, user, project, compatibility, package, and imported external locations.")
                 infoRow("Default", "Default skills are passed to every parent Pi Agent session with explicit --skill flags.")
                 infoRow("Project", "Project assignments are passed only to parent sessions for that project.")
                 infoRow("Agents", "Native subagents receive only skills explicitly assigned to that agent.")
