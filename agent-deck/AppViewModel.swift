@@ -52,7 +52,6 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var snapshot: ScanSnapshot = .empty
     @Published var selectedSidebarItem: SidebarItem = .agent
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
-    @Published var selectedChainID: ChainRecord.ID?
     @Published var selectedSkillID: SkillRecord.ID?
     @Published var selectedCommandItemID: String?
     @Published var selectedAgentFilter: AgentFilter = .all
@@ -102,7 +101,6 @@ final class AppViewModel: NSObject, ObservableObject {
     let piAgentSessionStore = PiAgentSessionStore()
 
     private let agentPersistence = AgentPersistence()
-    private let chainPersistence = ChainPersistence()
     private let envPersistence = EnvPersistence()
     private let projectPreferencesStore = ProjectPreferencesStore.shared
     private let appSettingsController = AppSettingsController()
@@ -165,11 +163,6 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.onManagedSubagentRequest = { [weak self] sessionID, request, completion in
             Task { @MainActor in
                 self?.runManagedNativeSubagent(parentSessionID: sessionID, request: request, completion: completion)
-            }
-        }
-        piAgentRunner.onManagedChainRequest = { [weak self] sessionID, request, completion in
-            Task { @MainActor in
-                self?.runManagedNativeChain(parentSessionID: sessionID, request: request, completion: completion)
             }
         }
         piAgentRunner.onManagedParallelRequest = { [weak self] sessionID, request, completion in
@@ -304,12 +297,10 @@ final class AppViewModel: NSObject, ObservableObject {
         }
 
         let currentAgentID = selectedAgentID
-        let currentChainID = selectedChainID
         let currentSkillID = selectedSkillID
         let currentCommandItemID = selectedCommandItemID
 
         selectedAgentID = filteredAgents.contains(where: { $0.id == currentAgentID }) ? currentAgentID : filteredAgents.first?.id
-        selectedChainID = allVisibleChainRecords.contains(where: { $0.id == currentChainID }) ? currentChainID : allVisibleChainRecords.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == currentSkillID }) ? currentSkillID : allVisibleSkillRecords.first?.id
         let availablePromptIDs = Set(allVisiblePromptTemplateRecords.map(\.id))
         if availablePromptIDs.contains(currentCommandItemID ?? "") {
@@ -1728,12 +1719,6 @@ final class AppViewModel: NSObject, ObservableObject {
         runNativeSubagent(parentSession: session, agentName: agentName, task: task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: allowDirectProjectWrites, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, completion: nil)
     }
 
-    func runNativeChain(chainName: String, task: String, useWorktreeIsolation: Bool = false) {
-        guard let session = piAgentSessionStore.selectedSession,
-              let chain = allVisibleChainRecords.first(where: { $0.name == chainName }) else { return }
-        runNativeChain(parentSession: session, chain: chain, task: task, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
-    }
-
     func runNativeParallel(agentTasks: [(agentName: String, task: String)], concurrency: Int = 4, useWorktreeIsolation: Bool = false) {
         guard let session = piAgentSessionStore.selectedSession else { return }
         runNativeParallel(parentSession: session, agentTasks: agentTasks, concurrency: concurrency, useWorktreeIsolation: useWorktreeIsolation, completion: nil)
@@ -1772,26 +1757,6 @@ final class AppViewModel: NSObject, ObservableObject {
                     }
                 }
             }
-        }
-    }
-
-    private func runManagedNativeChain(parentSessionID: UUID, request: PiManagedChainBridgeRequest, completion: @escaping (String) -> Void) {
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else {
-            completion("\(AppBrand.displayName) could not find the parent session.")
-            return
-        }
-        guard session.subagentsEnabled else {
-            completion("Native subagents are disabled for this \(AppBrand.displayName) session.")
-            return
-        }
-        guard let chain = allVisibleChainRecords.first(where: { $0.name == request.chain }) else {
-            completion("\(AppBrand.displayName) could not find a native chain named `\(request.chain)`." )
-            return
-        }
-        let useWorktreeIsolation = request.worktree == true
-        runNativeChain(parentSession: session, chain: chain, task: request.task, useWorktreeIsolation: useWorktreeIsolation) { run in
-            let status = run.status == .completed ? "completed" : run.status.rawValue
-            completion("Native chain \(chain.name) \(status).\n\n\(run.summary ?? run.error ?? "No summary returned.")")
         }
     }
 
@@ -1848,63 +1813,6 @@ final class AppViewModel: NSObject, ObservableObject {
             completion?(placeholder)
             return placeholder
         }
-    }
-
-    private func runNativeChain(parentSession: PiAgentSessionRecord, chain: ChainRecord, task: String, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
-        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTask.isEmpty, !chain.steps.isEmpty else { return }
-        let now = Date()
-        let runID = UUID()
-        let artifactDirectory = nativeGraphArtifactDirectory(for: runID)
-        let childRecords = chain.steps.enumerated().map { index, step in
-            PiSubagentChildRecord(
-                id: UUID(), runID: runID, index: index, agentName: step.agent, task: step.body.isEmpty ? nil : step.body,
-                status: .queued, requestedContext: .agentDefault, resolvedContext: nil, model: step.model,
-                expectedOutcome: useWorktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false,
-                currentTool: nil, inputTokens: nil, outputTokens: nil, totalTokens: nil, toolCount: nil, durationMs: nil,
-                artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil, launchCommand: nil, executionRunID: nil,
-                summary: nil, error: nil, dependencies: index == 0 ? nil : [UUID](), completedAt: nil, createdAt: now, updatedAt: now
-            )
-        }
-        let run = nativeGraphRun(id: runID, parentSession: parentSession, mode: .chain, title: chain.name, task: trimmedTask, artifactDirectory: artifactDirectory, children: childRecords, edges: chainEdges(for: childRecords), concurrency: 1, worktreeIsolation: useWorktreeIsolation)
-        piAgentSessionStore.upsertSubagentRun(run)
-        piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .status, title: "Native Chain Started", text: "\(chain.name) started with \(chain.steps.count) step(s)."))
-        runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: runID, originalTask: trimmedTask, previous: "", index: 0, useWorktreeIsolation: useWorktreeIsolation, completion: completion)
-    }
-
-    private func runNativeChainStep(parentSession: PiAgentSessionRecord, chain: ChainRecord, graphRunID: UUID, originalTask: String, previous: String, index: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
-        guard index < chain.steps.count else {
-            finishNativeGraphRun(graphRunID, parentSessionID: parentSession.id, status: .completed, summary: previous.isEmpty ? "Chain completed." : previous, completion: completion)
-            return
-        }
-        let step = chain.steps[index]
-        let template = step.body.isEmpty ? (index == 0 ? "{task}" : "{previous}") : step.body
-        let stepTask = renderChainTemplate(template, originalTask: originalTask, previous: previous, chainDir: nativeGraphChainDirectory(graphRunID: graphRunID))
-        updateNativeGraphChild(graphRunID, parentSessionID: parentSession.id, index: index) { child in
-            child.status = .running
-            child.task = stepTask
-        }
-        let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
-        guard let agent = snapshot.effectiveAgents.first(where: { $0.name == step.agent && $0.resolved.disabled != true }) else {
-            updateNativeGraphChild(graphRunID, parentSessionID: parentSession.id, index: index) { child in
-                child.status = .failed
-                child.error = "Agent not found: \(step.agent)"
-            }
-            finishNativeGraphRun(graphRunID, parentSessionID: parentSession.id, status: .failed, summary: "Chain failed: agent not found `\(step.agent)`.", completion: completion)
-            return
-        }
-        let stepAgent = agentApplying(chainStep: step, to: agent)
-        let stepOutcome: PiSubagentExpectedOutcome = useWorktreeIsolation ? .editFilesInWorktree : .reportOnly
-        let childRun = runNativeSubagent(parentSession: parentSession, agent: stepAgent, snapshot: snapshot, task: stepTask, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: stepOutcome) { [weak self] childResult in
-            guard let self else { return }
-            self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSession.id, index: index, childResult: childResult)
-            guard childResult.status == .completed else {
-                self.finishNativeGraphRun(graphRunID, parentSessionID: parentSession.id, status: .failed, summary: childResult.error ?? "Chain failed at step \(index + 1).", completion: completion)
-                return
-            }
-            self.runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: graphRunID, originalTask: originalTask, previous: childResult.summary ?? "", index: index + 1, useWorktreeIsolation: useWorktreeIsolation, completion: completion)
-        }
-        updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSession.id, index: index, childResult: childRun)
     }
 
     private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, completion: ((PiSubagentRunRecord) -> Void)?) {
@@ -1983,7 +1891,7 @@ final class AppViewModel: NSObject, ObservableObject {
         PiSubagentRunRecord(
             id: id, parentSessionID: parentSession.id, mode: mode, status: .running,
             agentName: title, task: task, requestedContext: .agentDefault, resolvedContext: .fresh,
-            model: nil, thinking: nil, expectedOutcome: worktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false, tools: [], skills: [], chainName: mode == .chain ? title : nil,
+            model: nil, thinking: nil, expectedOutcome: worktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false, tools: [], skills: [],
             concurrencyLimit: concurrency, worktreePolicy: worktreeIsolation ? "isolated-per-child" : "parent", aggregateSummary: nil,
             artifactDirectory: artifactDirectory.path, outputPath: artifactDirectory.appendingPathComponent("summary.md").path,
             worktreePath: nil, parentRepoPath: parentSession.worktreePath ?? parentSession.projectPath, baseCommit: nil,
@@ -2041,44 +1949,12 @@ final class AppViewModel: NSObject, ObservableObject {
         finishNativeGraphRun(graphRunID, parentSessionID: parentSessionID, status: children.allSatisfy { $0.status == .completed } ? .completed : .failed, summary: summary, completion: nil)
     }
 
-    private func agentApplying(chainStep step: ChainStepRecord, to agent: EffectiveAgentRecord) -> EffectiveAgentRecord {
-        var config = agent.resolved
-        if let model = step.model, !model.isEmpty { config.model = model }
-        if let skills = step.skills { config.skills = skills }
-        if step.skillsDisabled { config.skills = [] }
-        if step.readsDisabled { config.defaultReads = [] }
-        else if let reads = step.reads { config.defaultReads = reads }
-        if step.outputDisabled { config.output = nil }
-        else if let output = step.output { config.output = output }
-        if let progress = step.progress { config.defaultProgress = progress }
-        return EffectiveAgentRecord(id: agent.id, name: agent.name, projectRoot: agent.projectRoot, builtin: agent.builtin, globalCustom: agent.globalCustom, projectCustom: agent.projectCustom, userOverride: agent.userOverride, projectOverride: agent.projectOverride, resolved: config, resolutionKind: agent.resolutionKind)
-    }
-
-    private func renderChainTemplate(_ template: String, originalTask: String, previous: String, chainDir: String) -> String {
-        template
-            .replacingOccurrences(of: "{task}", with: originalTask)
-            .replacingOccurrences(of: "{previous}", with: previous)
-            .replacingOccurrences(of: "{chain_dir}", with: chainDir)
-    }
-
     private func nativeGraphArtifactDirectory(for runID: UUID) -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let directory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true).appendingPathComponent("Subagent Runs", isDirectory: true).appendingPathComponent(runID.uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: directory.appendingPathComponent("chain_dir", isDirectory: true), withIntermediateDirectories: true)
         return directory
-    }
-
-    private func nativeGraphChainDirectory(graphRunID: UUID) -> String {
-        nativeGraphArtifactDirectory(for: graphRunID).appendingPathComponent("chain_dir", isDirectory: true).path
-    }
-
-    private func chainEdges(for children: [PiSubagentChildRecord]) -> [PiSubagentGraphEdgeRecord] {
-        guard children.count > 1 else { return [] }
-        return (1..<children.count).map { index in
-            PiSubagentGraphEdgeRecord(id: "\(children[index - 1].id.uuidString)->\(children[index].id.uuidString)", fromChildID: children[index - 1].id, toChildID: children[index].id)
-        }
     }
 
     private func pendingSupervisorRequestsJSON(parentSessionID: UUID) -> String {
@@ -2141,13 +2017,8 @@ final class AppViewModel: NSObject, ObservableObject {
             let tools = (agent.resolved.tools ?? []).isEmpty ? "default tools" : "tools: \((agent.resolved.tools ?? []).joined(separator: ", "))"
             return "- \(agent.name): \(routing.isEmpty ? "Use when this specialist fits the requested task." : routing) [context: \(context), \(tools)]"
         }
-        let chains = allVisibleChainRecords
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { "- \($0.name): \($0.description.isEmpty ? "\($0.steps.count) step(s)" : $0.description)" }
-            .joined(separator: "\n")
-        let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`.
+        Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`.
         - Act as the orchestrator: clarify, plan, delegate, supervise, update the visible plan, and synthesize results.
         - Handle work directly only when it is trivial, low-risk, and faster than delegation.
         - Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent.
@@ -2156,7 +2027,7 @@ final class AppViewModel: NSObject, ObservableObject {
         - Update the visible plan when steps start, complete, block, skip, or materially change.
         - Delegate bounded work with `managed_subagent`; include expected output and `reads` when known. Use worktrees for writer tasks.
         Available native subagents:
-        \(lines.joined(separator: "\n"))\(chainSection)
+        \(lines.joined(separator: "\n"))
         """
     }
 
@@ -2207,7 +2078,6 @@ final class AppViewModel: NSObject, ObservableObject {
             children[index].completedAt = completedAt
             children[index].durationMs = max(0, Int((completedAt.timeIntervalSince(children[index].createdAt) * 1000).rounded()))
             run.children = children
-            if run.mode == .chain { run.status = .stopped }
         }
         piAgentSessionStore.append(.init(sessionID: parentSessionID, role: .status, title: "Native Graph Child Stopped", text: "Stopped \(child.agentName)."))
     }
@@ -2221,38 +2091,22 @@ final class AppViewModel: NSObject, ObservableObject {
             run.status = .running
             run.error = nil
             guard var children = run.children else { return }
-            if run.mode == .chain {
-                for index in childIndex..<children.count {
-                    children[index].status = index == childIndex ? .running : .queued
-                    children[index].summary = nil
-                    children[index].error = nil
-                    children[index].completedAt = nil
-                    children[index].durationMs = nil
-                    children[index].executionRunID = nil
-                }
-            } else {
-                children[childIndex].status = .running
-                children[childIndex].summary = nil
-                children[childIndex].error = nil
-                children[childIndex].completedAt = nil
-                children[childIndex].durationMs = nil
-                children[childIndex].executionRunID = nil
-            }
+            children[childIndex].status = .running
+            children[childIndex].summary = nil
+            children[childIndex].error = nil
+            children[childIndex].completedAt = nil
+            children[childIndex].durationMs = nil
+            children[childIndex].executionRunID = nil
             run.children = children
         }
-        if run.mode == .chain, let chainName = run.chainName, let chain = allVisibleChainRecords.first(where: { $0.name == chainName }) {
-            let previous = childIndex > 0 ? (children[childIndex - 1].summary ?? "") : ""
-            runNativeChainStep(parentSession: parentSession, chain: chain, graphRunID: graphRunID, originalTask: run.task, previous: previous, index: childIndex, useWorktreeIsolation: run.worktreePolicy == "isolated-per-child", completion: nil)
-        } else {
-            let child = children[childIndex]
-            let isolated = run.worktreePolicy == "isolated-per-child"
-            let childRun = runNativeSubagent(parentSession: parentSession, agentName: child.agentName, task: child.task ?? run.task, useWorktreeIsolation: isolated, expectedOutcome: isolated ? .editFilesInWorktree : (child.expectedOutcome ?? .reportOnly), requestedOutputPath: child.requestedOutputPath, allowOverwrite: child.allowOverwrite == true) { [weak self] childResult in
-                guard let self else { return }
-                self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childResult)
-                self.recomputeNativeGraphCompletion(graphRunID, parentSessionID: parentSessionID)
-            }
-            updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childRun)
+        let child = children[childIndex]
+        let isolated = run.worktreePolicy == "isolated-per-child"
+        let childRun = runNativeSubagent(parentSession: parentSession, agentName: child.agentName, task: child.task ?? run.task, useWorktreeIsolation: isolated, expectedOutcome: isolated ? .editFilesInWorktree : (child.expectedOutcome ?? .reportOnly), requestedOutputPath: child.requestedOutputPath, allowOverwrite: child.allowOverwrite == true) { [weak self] childResult in
+            guard let self else { return }
+            self.updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childResult)
+            self.recomputeNativeGraphCompletion(graphRunID, parentSessionID: parentSessionID)
         }
+        updateNativeGraphChildFromRun(graphRunID, parentSessionID: parentSessionID, index: childIndex, childResult: childRun)
     }
 
     func openNativeSubagentWorktreePatch(runID: UUID, parentSessionID: UUID) {
@@ -3278,43 +3132,10 @@ final class AppViewModel: NSObject, ObservableObject {
         )
     }
 
-    var selectedChain: ChainRecord? {
-        allVisibleChainRecords.first(where: { $0.id == selectedChainID })
-    }
-
     var allVisibleAgentRecords: [AgentRecord] {
         let activeCustom = snapshot.effectiveAgents.compactMap { $0.projectCustom ?? $0.globalCustom }
         return deduplicateByID(activeCustom + snapshot.libraryAgents)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    var allVisibleChainRecords: [ChainRecord] {
-        var byName: [String: ChainRecord] = [:]
-        for chain in snapshot.chains {
-            if shouldReplaceChain(existing: byName[chain.name], candidate: chain) {
-                byName[chain.name] = chain
-            }
-        }
-        for chain in snapshot.libraryChains where byName[chain.name] == nil {
-            byName[chain.name] = chain
-        }
-        return Array(byName.values)
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private func shouldReplaceChain(existing: ChainRecord?, candidate: ChainRecord) -> Bool {
-        guard let existing else { return true }
-        return chainPrecedence(candidate.source.kind) >= chainPrecedence(existing.source.kind)
-    }
-
-    private func chainPrecedence(_ kind: ResourceScopeKind) -> Int {
-        switch kind {
-        case .project: return 4
-        case .legacyProject: return 3
-        case .global: return 2
-        case .library: return 1
-        default: return 0
-        }
     }
 
     var selectedSkill: SkillRecord? {
@@ -3433,10 +3254,6 @@ final class AppViewModel: NSObject, ObservableObject {
         !skillReferenceWarnings.isEmpty || !skillWarnings.isEmpty
     }
 
-    var hasChainWarnings: Bool {
-        !chainWarnings.isEmpty
-    }
-
     var hasPromptWarnings: Bool {
         !promptWarnings.isEmpty
     }
@@ -3444,12 +3261,6 @@ final class AppViewModel: NSObject, ObservableObject {
     var skillWarnings: [DiagnosticWarning] {
         snapshot.warnings.filter { warning in
             warning.id.hasPrefix("malformed-skill:") || warning.message.localizedCaseInsensitiveContains("skill")
-        }
-    }
-
-    var chainWarnings: [DiagnosticWarning] {
-        snapshot.warnings.filter { warning in
-            warning.id.hasPrefix("chain:") || warning.id.hasPrefix("empty-chain:")
         }
     }
 
@@ -3570,23 +3381,6 @@ final class AppViewModel: NSObject, ObservableObject {
     func saveNewAgentDraft(_ draft: AgentEditorDraft) throws {
         try agentPersistence.saveNewCustomAgent(draft, projectRoot: selectedProjectPath)
         refreshAfterAgentDraftChange(draft)
-    }
-
-    func makeChainDraft(for chain: ChainRecord) -> ChainEditorDraft {
-        ChainEditorDraft(originalName: chain.name, chain: chain)
-    }
-
-    func makeNewChainDraft(scope: AgentEditingTarget.CustomAgentScope) -> ChainEditorDraft {
-        chainPersistence.makeNewDraft(scope: scope, projectRoot: selectedProjectPath)
-    }
-
-    func makeDuplicateChainDraft(from chain: ChainRecord, scope: AgentEditingTarget.CustomAgentScope) -> ChainEditorDraft {
-        chainPersistence.makeDuplicateDraft(from: chain, scope: scope, projectRoot: selectedProjectPath)
-    }
-
-    func saveChainDraft(_ draft: ChainEditorDraft) throws {
-        try chainPersistence.save(draft)
-        refreshAfterFileScopedChange(sourceKind: draft.chain.source.kind, filePath: draft.chain.filePath)
     }
 
     func createLibraryPromptTemplate() throws {
@@ -3743,52 +3537,6 @@ final class AppViewModel: NSObject, ObservableObject {
         try createManagedSymlink(from: projectAgentLinkURL(name: agent.name, projectPath: projectPath), to: libraryURL)
     }
 
-    func chain(_ chain: ChainRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        FileManager.default.fileExists(atPath: projectChainLinkURL(name: chain.name, projectPath: project.path).path)
-    }
-
-    func assignedProjects(for chain: ChainRecord) -> [DiscoveredProject] {
-        enabledProjects.filter { self.chain(chain, isEnabledFor: $0) }
-    }
-
-    func chainIsEnabledGlobally(_ chain: ChainRecord) -> Bool {
-        globalSnapshot.chains.contains { $0.name == chain.name && $0.source.kind == .global }
-    }
-
-    func setChain(_ chain: ChainRecord, enabled: Bool, for project: DiscoveredProject) throws {
-        if enabled { try addChain(chain, toProjectPath: project.path) }
-        else { try removeManagedFileLink(projectChainLinkURL(name: chain.name, projectPath: project.path)) }
-        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
-    }
-
-    func enableChainGlobally(_ chain: ChainRecord) throws {
-        let libraryURL = try ensureLibraryChain(for: chain)
-        try createManagedSymlink(from: globalChainLinkURL(name: chain.name), to: libraryURL)
-        try removeProjectVisibility(forChainNamed: chain.name)
-        refresh(includeModels: false)
-    }
-
-    func disableChainGlobally(_ chain: ChainRecord) throws {
-        if chain.source.kind == .global {
-            _ = try ensureLibraryChain(for: chain)
-        } else if let globalRecord = globalSnapshot.chains.first(where: { $0.name == chain.name && $0.source.kind == .global }) {
-            _ = try ensureLibraryChain(for: globalRecord)
-        }
-        try removeManagedFileLinkIfExists(globalChainLinkURL(name: chain.name))
-        refresh(includeModels: false)
-    }
-
-    func moveChainToLibrary(_ chain: ChainRecord) throws {
-        _ = try ensureLibraryChain(for: chain)
-        refresh(includeModels: false)
-    }
-
-    private func addChain(_ chain: ChainRecord, toProjectPath projectPath: String) throws {
-        let libraryURL = try ensureLibraryChain(for: chain)
-        try removeGlobalVisibility(forChainNamed: chain.name)
-        try createManagedSymlink(from: projectChainLinkURL(name: chain.name, projectPath: projectPath), to: libraryURL)
-    }
-
     func addSkillToSelectedProject(_ skill: SkillRecord) throws {
         guard let selectedProjectPath else { throw CocoaError(.fileNoSuchFile) }
         try addSkill(skill, toProjectPath: selectedProjectPath)
@@ -3886,24 +3634,6 @@ final class AppViewModel: NSObject, ObservableObject {
         return libraryURL
     }
 
-    private func ensureLibraryChain(for chain: ChainRecord) throws -> URL {
-        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agent-library/chains", isDirectory: true)
-        let libraryURL = libraryRoot.appendingPathComponent("\(chain.name).chain.md")
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: libraryURL.path) { return libraryURL }
-
-        let sourceURL = URL(fileURLWithPath: chain.filePath)
-        if chain.source.kind == .global {
-            try fileManager.moveItem(at: sourceURL, to: libraryURL)
-        } else if chain.source.kind == .library {
-            return sourceURL
-        } else {
-            try fileManager.copyItem(at: sourceURL, to: libraryURL)
-        }
-        return libraryURL
-    }
-
     private func createManagedSymlink(from linkURL: URL, to targetURL: URL) throws {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -3935,8 +3665,6 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
     private func removeProjectVisibility(forAgentNamed name: String) throws { for project in enabledProjects { try removeManagedFileLinkIfExists(projectAgentLinkURL(name: name, projectPath: project.path)) } }
-    private func removeGlobalVisibility(forChainNamed name: String) throws { try removeManagedFileLinkIfExists(globalChainLinkURL(name: name)) }
-    private func removeProjectVisibility(forChainNamed name: String) throws { for project in enabledProjects { try removeManagedFileLinkIfExists(projectChainLinkURL(name: name, projectPath: project.path)) } }
 
     private func removeManagedFileLinkIfExists(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
@@ -3960,8 +3688,6 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func projectAgentLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/agents/\(name).md") }
-    private func globalChainLinkURL(name: String) -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/chains/\(name).chain.md") }
-    private func projectChainLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/chains/\(name).chain.md") }
 
     private func ensureLibraryPrompt(for prompt: PromptTemplateRecord) throws -> URL {
         let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
@@ -4109,11 +3835,6 @@ final class AppViewModel: NSObject, ObservableObject {
         return values
     }
 
-    func convertChain(_ chain: ChainRecord, to scope: AgentEditingTarget.CustomAgentScope) throws {
-        try chainPersistence.convert(chain, to: scope, projectRoot: selectedProjectPath)
-        refresh(includeModels: false)
-    }
-
     func makeEnvDraft(for record: EnvKeyRecord) -> EnvEditorDraft {
         envPersistence.makeDraft(for: record)
     }
@@ -4211,9 +3932,7 @@ final class AppViewModel: NSObject, ObservableObject {
             projectAgents: [],
             legacyProjectAgents: [],
             effectiveAgents: globalSnapshot.effectiveAgents,
-            chains: globalSnapshot.chains,
             libraryAgents: globalSnapshot.libraryAgents,
-            libraryChains: globalSnapshot.libraryChains,
             skills: globalSnapshot.skills,
             librarySkills: globalSnapshot.librarySkills,
             promptTemplates: globalSnapshot.promptTemplates,

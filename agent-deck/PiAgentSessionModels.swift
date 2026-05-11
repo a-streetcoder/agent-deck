@@ -91,12 +91,6 @@ struct PiManagedSubagentBridgeRequest: Codable, Hashable {
     var reads: [String]?
 }
 
-struct PiManagedChainBridgeRequest: Codable, Hashable {
-    var chain: String
-    var task: String
-    var worktree: Bool?
-}
-
 struct PiManagedParallelTaskRequest: Codable, Hashable {
     var agent: String
     var task: String
@@ -246,8 +240,17 @@ struct PiSessionPlanEventRecord: Codable, Hashable, Identifiable {
 
 enum PiSubagentRunMode: String, Codable, Hashable {
     case single
-    case chain
     case parallel
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = value == Self.single.rawValue ? .single : .parallel
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 enum PiSubagentWorktreeStatus: String, Codable, Hashable, CaseIterable, Identifiable {
@@ -354,7 +357,6 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var readFirstPaths: [String]?
     var tools: [String]
     var skills: [String]
-    var chainName: String?
     var concurrencyLimit: Int?
     var worktreePolicy: String?
     var aggregateSummary: String?
@@ -400,7 +402,6 @@ extension PiSubagentRunRecord {
             readFirstPaths: nil,
             tools: [],
             skills: [],
-            chainName: nil,
             concurrencyLimit: nil,
             worktreePolicy: nil,
             aggregateSummary: nil,

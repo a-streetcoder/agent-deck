@@ -17,7 +17,7 @@ private enum WelcomeTourContent {
             TourPage(
                 imageName: "pi",
                 title: "Native Subagents",
-                description: "Delegate single, chain, or parallel work through app-managed child Pi sessions with supervisor cards and worktree safety."
+                description: "Delegate single or parallel work through app-managed child Pi sessions with supervisor cards and worktree safety."
             ),
             TourPage(
                 imageName: "github",

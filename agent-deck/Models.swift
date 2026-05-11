@@ -136,31 +136,6 @@ nonisolated struct EffectiveAgentRecord: Identifiable, Hashable, Sendable {
     }
 }
 
-nonisolated struct ChainStepRecord: Identifiable, Hashable, Sendable {
-    let id: String
-    var agent: String
-    var title: String
-    var output: String?
-    var outputDisabled: Bool
-    var reads: [String]?
-    var readsDisabled: Bool
-    var model: String?
-    var skills: [String]?
-    var skillsDisabled: Bool
-    var progress: Bool?
-    var body: String
-}
-
-nonisolated struct ChainRecord: Identifiable, Hashable, Sendable {
-    let id: String
-    var name: String
-    let source: ScopeID
-    let filePath: String
-    var description: String
-    var steps: [ChainStepRecord]
-    var extraFields: [String: String]
-}
-
 nonisolated struct SkillRecord: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
@@ -283,9 +258,7 @@ nonisolated struct ScanSnapshot: Hashable, Sendable {
     let projectAgents: [AgentRecord]
     let legacyProjectAgents: [AgentRecord]
     let effectiveAgents: [EffectiveAgentRecord]
-    let chains: [ChainRecord]
     let libraryAgents: [AgentRecord]
-    let libraryChains: [ChainRecord]
     let skills: [SkillRecord]
     let librarySkills: [SkillRecord]
     let promptTemplates: [PromptTemplateRecord]
@@ -301,9 +274,7 @@ nonisolated struct ScanSnapshot: Hashable, Sendable {
         projectAgents: [],
         legacyProjectAgents: [],
         effectiveAgents: [],
-        chains: [],
         libraryAgents: [],
-        libraryChains: [],
         skills: [],
         librarySkills: [],
         promptTemplates: [],

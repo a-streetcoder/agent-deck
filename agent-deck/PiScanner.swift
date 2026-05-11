@@ -6,9 +6,7 @@ nonisolated struct PiScanner {
     func scan(projectRoot: URL?) -> ScanSnapshot {
         let globalAgentDirectory = homeDirectory().appendingPathComponent(".pi/agent/agents", isDirectory: true)
         let legacyGlobalAgentDirectory = homeDirectory().appendingPathComponent(".agents", isDirectory: true)
-        let globalChainDirectory = homeDirectory().appendingPathComponent(".pi/agent/chains", isDirectory: true)
         let agentLibraryDirectory = homeDirectory().appendingPathComponent(".pi/agent/agent-library/agents", isDirectory: true)
-        let chainLibraryDirectory = homeDirectory().appendingPathComponent(".pi/agent/agent-library/chains", isDirectory: true)
         let globalSettings = homeDirectory().appendingPathComponent(".pi/agent/settings.json")
         let globalEnv = homeDirectory().appendingPathComponent(".pi/agent/.env")
         let globalSkills = homeDirectory().appendingPathComponent(".pi/agent/skills", isDirectory: true)
@@ -18,7 +16,6 @@ nonisolated struct PiScanner {
         let extraGlobalSkills = homeDirectory().appendingPathComponent(".agents/skills", isDirectory: true)
 
         let projectAgentDirectory = projectRoot?.appendingPathComponent(".pi/agents", isDirectory: true)
-        let projectChainDirectory = projectRoot?.appendingPathComponent(".pi/chains", isDirectory: true)
         let legacyProjectAgentDirectory = projectRoot?.appendingPathComponent(".agents", isDirectory: true)
         let projectSettings = projectRoot?.appendingPathComponent(".pi/settings.json")
         let projectEnv = projectRoot?.appendingPathComponent(".pi/.env")
@@ -36,11 +33,7 @@ nonisolated struct PiScanner {
             scanSettings(at: projectSettings, scope: .project)
         ].compactMap { $0 }
 
-        let chains =
-            scanChains(at: globalChainDirectory, scope: .global) +
-            scanChains(at: projectChainDirectory, scope: .project)
         let libraryAgents = scanAgents(at: agentLibraryDirectory, scope: .library)
-        let libraryChains = scanChains(at: chainLibraryDirectory, scope: .library)
 
         let packageSkillScan = scanPackageSkills(
             projectRoot: projectRoot,
@@ -86,12 +79,11 @@ nonisolated struct PiScanner {
         let warnings = buildWarnings(
             effectiveAgents: effectiveAgents,
             rawAgents: builtinAgents + legacyGlobalAgents + globalAgents + legacyProjectAgents + projectAgents,
-            chains: chains,
             skills: skills,
             promptTemplates: promptScan.templates,
             envKeys: envKeys,
             malformedWarnings: malformedResourceWarnings(
-                agentDirectories: [bundledAgentsDirectory(), legacyGlobalAgentDirectory, globalAgentDirectory, globalChainDirectory, legacyProjectAgentDirectory, projectAgentDirectory, projectChainDirectory, agentLibraryDirectory, chainLibraryDirectory].compactMap { $0 },
+                agentDirectories: [bundledAgentsDirectory(), legacyGlobalAgentDirectory, globalAgentDirectory, legacyProjectAgentDirectory, projectAgentDirectory, agentLibraryDirectory].compactMap { $0 },
                 skillDirectories: [globalSkills, extraGlobalSkills, projectSkills].compactMap { $0 } + packageSkillScan.skillDirectories
             ) + packageSkillScan.warnings + promptScan.warnings
         )
@@ -103,9 +95,7 @@ nonisolated struct PiScanner {
             projectAgents: projectAgents,
             legacyProjectAgents: legacyProjectAgents,
             effectiveAgents: effectiveAgents,
-            chains: chains,
             libraryAgents: libraryAgents,
-            libraryChains: libraryChains,
             skills: skills,
             librarySkills: librarySkills,
             promptTemplates: promptScan.templates,
@@ -156,34 +146,6 @@ nonisolated struct PiScanner {
                     rawFrontmatter: document.frontmatter,
                     promptBody: document.body,
                     parsed: AgentConfig(name: name, description: config.description, whenToUse: config.whenToUse, model: config.model, fallbackModels: config.fallbackModels, thinking: config.thinking, systemPromptMode: config.systemPromptMode, inheritProjectContext: config.inheritProjectContext, inheritSkills: config.inheritSkills, defaultContext: config.defaultContext, disabled: config.disabled, tools: config.tools, mcpDirectTools: config.mcpDirectTools, extensions: config.extensions, skills: config.skills, output: config.output, defaultReads: config.defaultReads, defaultProgress: config.defaultProgress, interactive: config.interactive, maxSubagentDepth: config.maxSubagentDepth, systemPrompt: config.systemPrompt, unknownFields: config.unknownFields)
-                )
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private func scanChains(at directory: URL?, scope: ResourceScopeKind) -> [ChainRecord] {
-        let urls = markdownFiles(in: directory)
-
-        return urls
-            .filter { $0.lastPathComponent.hasSuffix(".chain.md") }
-            .compactMap { url in
-                guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-                let document = parseMarkdownDocument(text)
-                let localName = document.frontmatter["name"]?.nonEmpty ?? url.deletingPathExtension().deletingPathExtension().lastPathComponent
-                let name = runtimeName(localName: localName, packageName: document.frontmatter["package"])
-                let description = document.frontmatter["description"]?.nonEmpty ?? ""
-                let steps = parseChainSteps(document.body)
-                var extraFields = document.frontmatter
-                extraFields.removeValue(forKey: "name")
-                extraFields.removeValue(forKey: "description")
-                return ChainRecord(
-                    id: "\(scope.rawValue):\(name):\(url.path)",
-                    name: name,
-                    source: ScopeID(kind: scope, path: url.path),
-                    filePath: url.path,
-                    description: description,
-                    steps: steps,
-                    extraFields: extraFields
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -727,7 +689,6 @@ nonisolated struct PiScanner {
     private func buildWarnings(
         effectiveAgents: [EffectiveAgentRecord],
         rawAgents: [AgentRecord],
-        chains: [ChainRecord],
         skills: [SkillRecord],
         promptTemplates: [PromptTemplateRecord],
         envKeys: [EnvKeyRecord],
@@ -735,7 +696,6 @@ nonisolated struct PiScanner {
     ) -> [DiagnosticWarning] {
         var warnings: [DiagnosticWarning] = malformedWarnings
         let skillNames = Set(skills.map(\.name))
-        let agentNames = Set(effectiveAgents.map(\.name))
         let envNames = Set(envKeys.map(\.key))
         let duplicatePromptNames = Dictionary(grouping: promptTemplates, by: \.name).compactMapValues { records in
             let uniqueRecords = dedupePromptWarningRecords(records)
@@ -763,12 +723,6 @@ nonisolated struct PiScanner {
             }
         }
 
-        for chain in chains {
-            for step in chain.steps where !agentNames.contains(step.agent) {
-                warnings.append(.init(id: "chain:\(chain.name):\(step.agent)", message: "Chain \(chain.name) references missing agent \(step.agent)."))
-            }
-        }
-
         return warnings.sorted { $0.message.localizedCaseInsensitiveCompare($1.message) == .orderedAscending }
     }
 
@@ -777,19 +731,15 @@ nonisolated struct PiScanner {
 
         for directory in agentDirectories {
             guard let urls = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { continue }
-            for url in urls where url.pathExtension == "md" {
+            for url in urls where url.pathExtension == "md" && !url.lastPathComponent.hasSuffix(".chain.md") {
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
                 let document = parseMarkdownDocument(text)
                 if !text.hasPrefix("---") {
                     warnings.append(.init(id: "malformed-agent:\(url.path)", message: "Malformed frontmatter in \(url.path). Markdown agent files should start with frontmatter."))
                     continue
                 }
-                if !url.lastPathComponent.hasSuffix(".chain.md") {
-                    if document.frontmatter["name"]?.isEmpty != false || document.frontmatter["description"]?.isEmpty != false {
-                        warnings.append(.init(id: "incomplete-agent:\(url.path)", message: "Malformed frontmatter in \(url.path). Agent files need at least name and description."))
-                    }
-                } else if parseChainSteps(document.body).isEmpty {
-                    warnings.append(.init(id: "empty-chain:\(url.path)", message: "Malformed step block in \(url.path). No chain steps were parsed."))
+                if document.frontmatter["name"]?.isEmpty != false || document.frontmatter["description"]?.isEmpty != false {
+                    warnings.append(.init(id: "incomplete-agent:\(url.path)", message: "Malformed frontmatter in \(url.path). Agent files need at least name and description."))
                 }
             }
         }
@@ -849,20 +799,6 @@ nonisolated struct PiScanner {
         )
     }
 
-    private func parseChainSteps(_ body: String) -> [ChainStepRecord] {
-        let sections = body.components(separatedBy: "\n## ")
-        return sections.enumerated().compactMap { index, section in
-            let normalized = index == 0 ? section : "## " + section
-            guard normalized.hasPrefix("## ") else { return nil }
-            let lines = normalized.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-            guard let first = lines.first else { return nil }
-            let title = first.replacingOccurrences(of: "## ", with: "").trimmingCharacters(in: .whitespaces)
-            let body = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            let parsed = parseChainStep(title: title, body: body, index: index)
-            return parsed
-        }
-    }
-
     private func parseMarkdownDocument(_ text: String) -> (frontmatter: [String: String], body: String) {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         guard normalized.hasPrefix("---") else {
@@ -907,14 +843,6 @@ nonisolated struct PiScanner {
         }
     }
 
-    private func parseStrictBool(_ value: String?) -> Bool? {
-        switch value?.lowercased() {
-        case "true": return true
-        case "false": return false
-        default: return nil
-        }
-    }
-
     private func parseSystemPromptMode(_ value: String?, name: String) -> String {
         switch value {
         case "append", "replace": return value ?? "replace"
@@ -945,52 +873,6 @@ nonisolated struct PiScanner {
         case "fresh", "fork": return value
         default: return nil
         }
-    }
-
-    private func parseChainStep(title: String, body: String, index: Int) -> ChainStepRecord {
-        let lines = body.components(separatedBy: "\n")
-        let blankIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-        let configLines = blankIndex.map { Array(lines[..<$0]) } ?? lines
-        let taskBody = blankIndex.map { lines.suffix(from: $0 + 1).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
-
-        var output: String?
-        var outputDisabled = false
-        var reads: [String]?
-        var readsDisabled = false
-        var model: String?
-        var skills: [String]?
-        var skillsDisabled = false
-        var progress: Bool?
-
-        for line in configLines {
-            guard let separator = line.firstIndex(of: ":") else { continue }
-            let key = String(line[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            switch key {
-            case "output":
-                if value == "false" { output = nil; outputDisabled = true }
-                else { output = value.nonEmpty }
-            case "reads":
-                if value == "false" { reads = nil; readsDisabled = true }
-                else {
-                    let parsed = splitList(value)
-                    reads = parsed.isEmpty ? nil : parsed
-                    readsDisabled = parsed.isEmpty
-                }
-            case "model": model = value.nonEmpty
-            case "skills":
-                if value == "false" { skills = nil; skillsDisabled = true }
-                else {
-                    let parsed = splitList(value)
-                    skills = parsed.isEmpty ? nil : parsed
-                    skillsDisabled = parsed.isEmpty
-                }
-            case "progress": progress = parseStrictBool(value)
-            default: break
-            }
-        }
-
-        return ChainStepRecord(id: "\(index):\(title)", agent: title, title: title, output: output, outputDisabled: outputDisabled, reads: reads, readsDisabled: readsDisabled, model: model, skills: skills, skillsDisabled: skillsDisabled, progress: progress, body: taskBody)
     }
 
     private func splitToolList(_ value: String?) -> (tools: [String]?, mcpDirectTools: [String]?) {

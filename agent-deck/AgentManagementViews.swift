@@ -56,7 +56,6 @@ struct AgentsScreen: View {
                     project: project,
                     snapshot: viewModel.startupSnapshot(forProjectPath: project.path),
                     libraryAgents: viewModel.snapshot.libraryAgents,
-                    libraryChains: viewModel.snapshot.libraryChains,
                     onClose: { isRecapPresented = false }
                 )
                 .frame(width: 400)
@@ -1491,7 +1490,7 @@ private struct AgentDetailView: View {
         case "Disabled", "Availability":
             return "Disabled agents are hidden from subagent discovery and normal launches."
         case "Output", "Output File":
-            return "Default output file for single-agent runs. Most useful in managed workflows such as chains and parallel runs."
+            return "Default output file for single-agent runs. Most useful in managed workflows such as parallel runs."
         case "Default Reads":
             return "Files Pi should read before execution when this agent is launched through managed workflows."
         case "Default Progress", "Progress":
@@ -1589,4 +1588,100 @@ struct SaveConfirmation: Identifiable {
     let id = UUID()
     let summary: String
     let exitEditMode: Bool
+}
+
+private struct SubagentsProjectRecapPanel: View {
+    let project: DiscoveredProject
+    let snapshot: ScanSnapshot
+    let libraryAgents: [AgentRecord]
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pi Subagents Recap").font(.headline).fontWidth(.expanded)
+                    Text(project.name).font(.caption).foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close recap")
+            }
+            .padding(16)
+            Divider()
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("These are the native agents \(AppBrand.displayName) discovers for this project, after global/project precedence and builtin overrides.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    agentRecapSection("Effective Agents", agents: snapshot.effectiveAgents, color: AppTheme.assistantAccent)
+                    if !libraryAgents.isEmpty { libraryAgentSection }
+                }
+                .padding(16)
+            }
+        }
+        .background(AppTheme.contentSubtleFill)
+    }
+
+    private func agentRecapSection(_ title: String, agents: [EffectiveAgentRecord], color: Color) -> some View {
+        recapShell(title, count: agents.count, color: color) {
+            ForEach(agents) { agent in
+                recapRow(icon: agent.resolved.disabled == true ? "nosign" : "sparkles.rectangle.stack", color: agent.resolved.disabled == true ? .red : color, title: agent.name, subtitle: agent.resolutionKind.rawValue)
+            }
+        }
+    }
+
+    private var libraryAgentSection: some View {
+        recapShell("Library Agents", count: libraryAgents.count, color: .secondary) {
+            ForEach(libraryAgents) { agent in recapRow(icon: "books.vertical", color: .secondary, title: agent.name, subtitle: "Stored, not loaded until assigned") }
+        }
+    }
+
+    private func recapShell<Content: View>(_ title: String, count: Int, color: Color, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { Text(title).font(.headline).fontWidth(.expanded); Spacer() }
+            if count == 0 { Text("None").font(.caption).foregroundStyle(AppTheme.mutedText) } else { VStack(alignment: .leading, spacing: 8) { content() } }
+        }
+    }
+
+    private func recapRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(subtitle).font(.caption).foregroundStyle(AppTheme.mutedText).lineLimit(2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+struct SubagentsInfoPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Subagent library")
+                .font(.headline)
+                .fontWidth(.expanded)
+            VStack(alignment: .leading, spacing: 10) {
+                infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until linked.")
+                infoRow("Global", "Agent links are created in the standard global agent locations (~/.agents when present, otherwise ~/.pi/agent/agents).")
+                infoRow("Project", "Project links are created in PROJECT/.pi/agents.")
+                infoRow("Builtins", "\(AppBrand.displayName) bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
+            }
+        }
+        .padding(16)
+        .frame(width: 390, alignment: .leading)
+    }
+
+    private func infoRow(_ title: String, _ description: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.subheadline.weight(.semibold)).fontWidth(.expanded)
+            Text(description).font(.caption).foregroundStyle(AppTheme.mutedText).fixedSize(horizontal: false, vertical: true)
+        }
+    }
 }

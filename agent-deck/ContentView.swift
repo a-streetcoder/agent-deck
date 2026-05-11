@@ -32,12 +32,10 @@ struct ContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
-    @State private var chainDraft: ChainEditorDraft?
     @State private var envDraft: EnvEditorDraft?
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
     @State private var agentSearchText = ""
-    @State private var chainSearchText = ""
     @State private var skillSearchText = ""
     @State private var promptSearchText = ""
     @State private var piAgentSessionSearchText = ""
@@ -56,10 +54,7 @@ struct ContentView: View {
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var piAgentRightPanelCollapsedSidebar = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
-    @State private var isRunChainSheetPresented = false
     @State private var commandContext = AgentDeckCommandContext()
-    @State private var chainRunTask = ""
-    @State private var chainRunUsesWorktreeIsolation = false
     @State private var isOnboardingPresented = !UserDefaults.standard.bool(forKey: "agentDeckWelcomeTourCompleted.v1")
 
     var body: some View {
@@ -80,8 +75,6 @@ struct ContentView: View {
             return viewModel.shouldWarnProjectSelection
         case .agents:
             return viewModel.hasAgentWarnings
-        case .chains:
-            return viewModel.hasChainWarnings
         case .skills:
             return viewModel.hasSkillWarnings
         case .prompts:
@@ -368,138 +361,6 @@ struct ContentView: View {
                 }
             }
 
-            if viewModel.selectedSidebarItem == .chains {
-                ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Menu {
-                            Button("New Global Chain") {
-                                chainDraft = viewModel.makeNewChainDraft(scope: .global)
-                            }
-                            if viewModel.selectedProjectPath != nil {
-                                Button("New Project Chain") {
-                                    chainDraft = viewModel.makeNewChainDraft(scope: .project)
-                                }
-                            }
-                            if let selectedChain = viewModel.selectedChain {
-                                Divider()
-                                Button("Duplicate as Global Chain") {
-                                    chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .global)
-                                }
-                                if viewModel.selectedProjectPath != nil {
-                                    Button("Duplicate as Project Chain") {
-                                        chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .project)
-                                    }
-                                }
-                                Divider()
-                                if selectedChain.source.kind != .global {
-                                    Button("Move to Global Scope") {
-                                        do { try viewModel.convertChain(selectedChain, to: .global) }
-                                        catch { NSSound.beep() }
-                                    }
-                                }
-                                if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
-                                    Button("Move to Project Scope") {
-                                        do { try viewModel.convertChain(selectedChain, to: .project) }
-                                        catch { NSSound.beep() }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("New", systemImage: "plus")
-                        }
-                    }
-                    .toolbarNeutralChrome()
-                }
-
-                if let selectedChain = viewModel.selectedChain {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                    ToolbarItem(placement: .primaryAction) {
-                        ControlGroup {
-                            Button {
-                                chainRunTask = ""
-                                isRunChainSheetPresented = true
-                            } label: {
-                                Label("Run", systemImage: "play.circle")
-                            }
-                            .help("Run this chain as a \(AppBrand.displayName) native chain")
-
-                            Button {
-                                openChainFile(selectedChain.filePath)
-                            } label: {
-                                Label("Open", systemImage: "folder")
-                            }
-                            .help("Open the selected chain file")
-
-                            Button {
-                                revealChainInFinder(selectedChain.filePath)
-                            } label: {
-                                Label("Reveal", systemImage: "arrow.up.forward.app")
-                            }
-                            .help("Reveal the selected chain file in Finder")
-
-                            Menu {
-                                Button("Duplicate as Global Chain") {
-                                    chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .global)
-                                }
-                                if viewModel.selectedProjectPath != nil {
-                                    Button("Duplicate as Project Chain") {
-                                        chainDraft = viewModel.makeDuplicateChainDraft(from: selectedChain, scope: .project)
-                                    }
-                                }
-                                Divider()
-                                if selectedChain.source.kind != .global {
-                                    Button("Move to Global Scope") {
-                                        do { try viewModel.convertChain(selectedChain, to: .global) }
-                                        catch { NSSound.beep() }
-                                    }
-                                }
-                                if viewModel.selectedProjectPath != nil, selectedChain.source.kind != .project {
-                                    Button("Move to Project Scope") {
-                                        do { try viewModel.convertChain(selectedChain, to: .project) }
-                                        catch { NSSound.beep() }
-                                    }
-                                }
-                            } label: {
-                                Label("More", systemImage: "ellipsis.circle")
-                            }
-                            .help("More chain actions")
-
-                            Button {
-                                chainDraft = viewModel.makeChainDraft(for: selectedChain)
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .help("Edit selected chain")
-                        }
-                        .toolbarNeutralChrome()
-                    }
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            isSubagentsInfoPresented.toggle()
-                        } label: {
-                            Label("Info", systemImage: "info.circle")
-                        }
-                        .help("Explain subagent library visibility")
-                        .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
-                            SubagentsInfoPopover()
-                        }
-
-                        Button {
-                            isSubagentsRecapPresented.toggle()
-                        } label: {
-                            Label("Project Recap", systemImage: "sidebar.right")
-                        }
-                        .help("Show subagents available for the selected project")
-                        .disabled(viewModel.selectedProjectPath == nil)
-                    }
-                    .toolbarNeutralChrome()
-                }
-            }
-
             if viewModel.selectedSidebarItem == .prompts {
                 ToolbarItemGroup {
                     Button {
@@ -622,43 +483,6 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(item: $chainDraft) { draft in
-            ChainEditorSheet(
-                draft: draft,
-                onCancel: { chainDraft = nil },
-                onSave: { updated in
-                    try viewModel.saveChainDraft(updated)
-                    chainDraft = nil
-                }
-            )
-        }
-        .sheet(isPresented: $isRunChainSheetPresented) {
-            if let chain = viewModel.selectedChain {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Run Native Chain")
-                        .font(.title3.bold())
-                    Text(chain.name)
-                        .font(.headline)
-                    TextEditor(text: $chainRunTask)
-                        .frame(minHeight: 140)
-                        .padding(8)
-                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
-                    Toggle("Use isolated worktree per step", isOn: $chainRunUsesWorktreeIsolation)
-                    HStack {
-                        Spacer()
-                        Button("Cancel") { isRunChainSheetPresented = false }
-                        Button("Run") {
-                            viewModel.runNativeChain(chainName: chain.name, task: chainRunTask, useWorktreeIsolation: chainRunUsesWorktreeIsolation)
-                            isRunChainSheetPresented = false
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(chainRunTask.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-                .padding(22)
-                .frame(width: 560)
-            }
-        }
         .sheet(item: $agentModelQuickEditor) { context in
             AgentModelQuickEditorSheet(
                 context: context,
@@ -721,7 +545,7 @@ struct ContentView: View {
 
     private var toolbarSearchIsVisible: Bool {
         switch viewModel.selectedSidebarItem {
-        case .agents, .chains, .skills, .prompts, .agent:
+        case .agents, .skills, .prompts, .agent:
             return true
         default:
             return false
@@ -731,7 +555,6 @@ struct ContentView: View {
     private var toolbarSearchPrompt: String {
         switch viewModel.selectedSidebarItem {
         case .agents: return "Search agents"
-        case .chains: return "Search chains"
         case .skills: return "Search skills"
         case .prompts: return "Search prompts"
         case .agent: return "Search sessions"
@@ -744,7 +567,6 @@ struct ContentView: View {
             get: {
                 switch viewModel.selectedSidebarItem {
                 case .agents: return agentSearchText
-                case .chains: return chainSearchText
                 case .skills: return skillSearchText
                 case .prompts: return promptSearchText
                 case .agent: return piAgentSessionSearchText
@@ -754,7 +576,6 @@ struct ContentView: View {
             set: { value in
                 switch viewModel.selectedSidebarItem {
                 case .agents: agentSearchText = value
-                case .chains: chainSearchText = value
                 case .skills: skillSearchText = value
                 case .prompts: promptSearchText = value
                 case .agent: piAgentSessionSearchText = value
@@ -940,12 +761,6 @@ struct ContentView: View {
                 isRecapPresented: $isSubagentsRecapPresented,
                 searchText: $agentSearchText
             )
-        case .chains:
-            ChainsScreen(
-                viewModel: viewModel,
-                isRecapPresented: $isSubagentsRecapPresented,
-                searchText: $chainSearchText
-            )
         case .skills:
             SkillsScreen(
                 viewModel: viewModel,
@@ -1048,14 +863,6 @@ struct ContentView: View {
 
     private func revealSelectedAgentFile() {
         guard let path = selectedAgentFilePath else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-    }
-
-    private func openChainFile(_ path: String) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
-    }
-
-    private func revealChainInFinder(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 

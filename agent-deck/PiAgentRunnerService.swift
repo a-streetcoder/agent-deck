@@ -27,7 +27,6 @@ final class PiAgentRunnerService {
     private var idleParkingTimeout: TimeInterval?
     var onTurnFinished: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
-    var onManagedChainRequest: ((UUID, PiManagedChainBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onSupervisorRequestsList: ((UUID) -> String)?
     var onSupervisorRequestAnswer: ((UUID, String, String) -> String)?
@@ -1158,8 +1157,6 @@ final class PiAgentRunnerService {
             switch bridgeName {
             case "managed_subagent":
                 handleManagedSubagentBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            case "managed_chain":
-                handleManagedChainBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "managed_parallel":
                 handleManagedParallelBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "list_supervisor_requests":
@@ -1223,24 +1220,6 @@ final class PiAgentRunnerService {
             return
         }
         onManagedSubagentRequest(sessionID, request) { [weak self] result in
-            Task { @MainActor in
-                self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
-            }
-        }
-    }
-
-    private func handleManagedChainBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
-        guard let payload = bridgePayload(from: event),
-              let request = try? JSONDecoder().decode(PiManagedChainBridgeRequest.self, from: Data(payload.utf8)) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the managed_chain request.")
-            return
-        }
-        store.append(.init(sessionID: sessionID, role: .status, title: "Native Chain Requested", text: "\(request.chain): \(request.task)", rawJSON: rawLine))
-        guard let onManagedChainRequest else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) native chain bridge is not available.")
-            return
-        }
-        onManagedChainRequest(sessionID, request) { [weak self] result in
             Task { @MainActor in
                 self?.clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
             }

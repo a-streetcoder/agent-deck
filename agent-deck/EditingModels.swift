@@ -40,15 +40,6 @@ struct AgentEditorDraft: Identifiable, Hashable {
     }
 }
 
-struct ChainEditorDraft: Identifiable, Hashable {
-    let originalName: String
-    var chain: ChainRecord
-
-    var id: String {
-        "chain::\(originalName)::\(chain.filePath)"
-    }
-}
-
 struct EnvEditorDraft: Identifiable, Hashable {
     let originalKey: String?
     var key: String

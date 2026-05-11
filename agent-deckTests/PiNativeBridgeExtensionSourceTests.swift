@@ -8,7 +8,6 @@ final class PiNativeBridgeExtensionSourceTests: XCTestCase {
 
         for toolName in [
             "managed_subagent",
-            "managed_chain",
             "managed_parallel",
             "list_supervisor_requests",
             "set_session_plan",

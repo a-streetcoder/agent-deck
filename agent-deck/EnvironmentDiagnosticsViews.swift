@@ -195,7 +195,7 @@ struct PiDocsScreen: View {
         case core = "Core System"
         case skills = "Skills"
         case prompts = "Prompts & Commands"
-        case agents = "Agents & Chains"
+        case agents = "Agents"
         case architecture = "Architecture"
 
         var id: String { rawValue }
@@ -383,7 +383,7 @@ struct PiDocsScreen: View {
         }
     }
 
-    // MARK: - Agents & Chains
+    // MARK: - Agents
 
     private var agentsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
@@ -411,21 +411,12 @@ struct PiDocsScreen: View {
                         ("extensions", "Extension loading mode: omitted, empty, or allowlist"),
                         ("skills", "Explicit skills to attach"),
                         ("disabled", "Disable this agent"),
-                        ("output", "File path for chain step output"),
+                        ("output", "Default output file path"),
                         ("defaultReads", "Files Pi should read before execution"),
                         ("defaultProgress", "Enable progress.md tracking"),
                         ("maxSubagentDepth", "Max nested subagent launches (0-10)")
                     ])
                 }
-            }
-
-            AppCard(title: "Chains") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Chains are `.chain.md` files defining sequential pipelines where each step's output becomes `{previous}` for the next.")
-                    Text("Locations: `~/.pi/agent/agents/*.chain.md` (user) or `.pi/agents/*.chain.md` (project).")
-                    Text("Steps are defined with `## agent-name` headers. Each step supports: `output`, `reads`, `model`, `skill`/`skills`, `progress`.")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             AppCard(title: "Settings Overrides") {
@@ -445,10 +436,9 @@ struct PiDocsScreen: View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Entry Points") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Four entry points can trigger a subagent:")
-                    Text("• **Managed tools** — parent sessions call \(AppBrand.displayName) bridge tools for single, chain, and parallel delegation")
+                    Text("Three entry points can trigger a subagent:")
+                    Text("• **Managed tools** — parent sessions call \(AppBrand.displayName) bridge tools for single and parallel delegation")
                     Text("• **Manual run picker** — users start native child sessions from the composer or inspector")
-                    Text("• **Chains** — app-managed sequential workflows where each step receives previous output")
                     Text("• **Parallel runs** — app-managed concurrent child sessions with optional worktree isolation")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -458,8 +448,7 @@ struct PiDocsScreen: View {
                 VStack(alignment: .leading, spacing: 12) {
                     docKeyValueRows([
                         ("SINGLE", "`params.agent?` → one agent, one task"),
-                        ("PARALLEL", "`params.tasks?` → concurrent agents"),
-                        ("CHAIN", "`params.chain?` → sequential pipeline with {previous} templating")
+                        ("PARALLEL", "`params.tasks?` → concurrent agents")
                     ])
                 }
             }
@@ -467,7 +456,6 @@ struct PiDocsScreen: View {
             AppCard(title: "Foreground vs Background") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("• **Single**: one app-owned child Pi RPC session for a bounded task.")
-                    Text("• **Chain**: sequential native child runs where each step receives the previous result.")
                     Text("• **Parallel**: independent native child runs with app-owned status, stop, retry, and worktree controls.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

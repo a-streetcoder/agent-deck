@@ -175,12 +175,6 @@ struct PiNativeSubagentBridgeExtensions {
             reads: Type.Optional(Type.Array(Type.String(), { description: "Project-relative files the subagent should read first if current and relevant." }))
         }, { additionalProperties: false });
 
-        const ManagedChainParams = Type.Object({
-            chain: Type.String({ description: "Name of the native chain to run." }),
-            task: Type.String({ description: "Initial task available as {task}." }),
-            worktree: Type.Optional(Type.Boolean({ description: "Use an isolated worktree for each writer step." }))
-        }, { additionalProperties: false });
-
         const ManagedParallelTask = Type.Object({
             agent: Type.String({ description: "Name of the native subagent to run." }),
             task: Type.String({ description: "Specific bounded task for this subagent." })
@@ -238,27 +232,6 @@ struct PiNativeSubagentBridgeExtensions {
                     onUpdate?.({ content: [{ type: "text", text: `Starting native subagent ${(params as any).agent}…` }] });
                     const result = await ctx.ui.editor("AGENT_DECK_BRIDGE managed_subagent", payload);
                     return { content: [{ type: "text", text: result || "Native subagent finished without a result." }] };
-                }
-            });
-
-            pi.registerTool({
-                name: "managed_chain",
-                description: "Run a \(AppBrand.displayName) native chain as a supervised sequential workflow.",
-                parameters: ManagedChainParams,
-                promptSnippet: "managed_chain(chain, task, worktree?): run a native \(AppBrand.displayName) chain and get an aggregate result.",
-                promptGuidelines: ["Use managed_chain for multi-step workflows where each step depends on previous output."],
-                async execute(toolCallId, params, _signal, onUpdate, ctx) {
-                    const payload = JSON.stringify({
-                        bridge: "agent_deck_native_subagents",
-                        kind: "managed_chain",
-                        toolCallId,
-                        chain: String((params as any).chain ?? ""),
-                        task: String((params as any).task ?? ""),
-                        worktree: Boolean((params as any).worktree ?? false)
-                    });
-                    onUpdate?.({ content: [{ type: "text", text: `Starting native chain ${(params as any).chain}…` }] });
-                    const result = await ctx.ui.editor("AGENT_DECK_BRIDGE managed_chain", payload);
-                    return { content: [{ type: "text", text: result || "Native chain finished without a result." }] };
                 }
             });
 

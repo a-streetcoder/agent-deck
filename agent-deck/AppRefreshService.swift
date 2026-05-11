@@ -80,9 +80,7 @@ nonisolated struct AppRefreshService: Sendable {
         let legacyGlobalAgentRoot = home.appendingPathComponent(".agents", isDirectory: true)
         var urls: [URL] = [
             globalAgentRoot.appendingPathComponent("agents", isDirectory: true),
-            globalAgentRoot.appendingPathComponent("chains", isDirectory: true),
             globalAgentRoot.appendingPathComponent("agent-library/agents", isDirectory: true),
-            globalAgentRoot.appendingPathComponent("agent-library/chains", isDirectory: true),
             globalAgentRoot.appendingPathComponent("settings.json"),
             globalAgentRoot.appendingPathComponent(".env"),
             globalAgentRoot.appendingPathComponent("skills", isDirectory: true),
@@ -96,7 +94,6 @@ nonisolated struct AppRefreshService: Sendable {
         for project in projects {
             let piRoot = project.url.appendingPathComponent(".pi", isDirectory: true)
             urls.append(piRoot.appendingPathComponent("agents", isDirectory: true))
-            urls.append(piRoot.appendingPathComponent("chains", isDirectory: true))
             urls.append(piRoot.appendingPathComponent("settings.json"))
             urls.append(piRoot.appendingPathComponent(".env"))
             urls.append(piRoot.appendingPathComponent("skills", isDirectory: true))
@@ -105,9 +102,7 @@ nonisolated struct AppRefreshService: Sendable {
         }
 
         urls += snapshot.effectiveAgents.compactMap(\.sourcePath).map { URL(fileURLWithPath: $0) }
-        urls += snapshot.chains.map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.libraryAgents.map { URL(fileURLWithPath: $0.filePath) }
-        urls += snapshot.libraryChains.map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.skills.map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.librarySkills.map { URL(fileURLWithPath: $0.filePath) }
         urls += (snapshot.promptTemplates + snapshot.libraryPromptTemplates).map { URL(fileURLWithPath: $0.filePath) }

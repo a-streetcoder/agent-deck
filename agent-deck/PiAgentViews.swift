@@ -986,7 +986,6 @@ struct PiAgentScreen: View {
         case "Retry": return "Retrying request"
         case "Compaction": return "Compacting context"
         case "Native Subagent Requested": return "Starting subagent"
-        case "Native Chain Requested": return "Starting chain"
         case "Native Parallel Requested": return "Starting parallel run"
         case "Supervisor Response Routed": return "Routing response"
         case "System Prompt Captured": return "Preparing context"

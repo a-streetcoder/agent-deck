@@ -302,29 +302,6 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertEqual(store.transcriptsBySessionID[session.id]?.last?.title, "Native Subagent Requested")
     }
 
-    func testManagedChainBridgeRoutesRequestAndResponds() throws {
-        let payload = #"{"chain":"review-chain","task":"Review current changes.","worktree":true}"#
-        let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "bridge-chain-1", name: "managed_chain", payload: payload))
-        defer { harness.restoreEnvironment() }
-
-        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
-        let runner = PiAgentRunnerService(store: store)
-        var captured: PiManagedChainBridgeRequest?
-        runner.onManagedChainRequest = { _, request, completion in
-            captured = request
-            completion("chain accepted")
-        }
-        let session = store.createSession(kind: .project, title: "Bridge", project: try PiTestSupport.makeProject(), repository: nil)
-
-        runner.resume(session: session)
-        defer { runner.stop(sessionID: session.id) }
-
-        XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "bridge-chain-1", in: harness.stdinLog) == "chain accepted" })
-        XCTAssertEqual(captured?.chain, "review-chain")
-        XCTAssertEqual(captured?.task, "Review current changes.")
-        XCTAssertEqual(captured?.worktree, true)
-    }
-
     func testManagedParallelBridgeRoutesRequestAndResponds() throws {
         let payload = #"{"tasks":[{"agent":"scout","task":"Map"},{"agent":"reviewer","task":"Review"}],"concurrency":2,"worktree":true}"#
         let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "bridge-parallel-1", name: "managed_parallel", payload: payload))

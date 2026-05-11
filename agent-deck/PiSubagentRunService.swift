@@ -112,7 +112,6 @@ final class PiSubagentRunService {
             readFirstPaths: resolvedReadFirstPaths,
             tools: tools,
             skills: agent.resolved.skills,
-            chainName: nil,
             concurrencyLimit: nil,
             worktreePolicy: useWorktreeIsolation ? "isolated" : "parent",
             aggregateSummary: nil,
@@ -760,7 +759,7 @@ final class PiSubagentRunService {
               let content = message["content"] as? [[String: Any]] else {
             return []
         }
-        let managedToolNames: Set<String> = ["managed_subagent", "managed_chain", "managed_parallel"]
+        let managedToolNames: Set<String> = ["managed_subagent", "managed_parallel"]
         return Set(content.compactMap { item in
             guard item["type"] as? String == "toolCall",
                   let name = item["name"] as? String,

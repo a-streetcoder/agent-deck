@@ -4,7 +4,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case projects = "Projects"
     case agent = "Pi Agent"
     case agents = "Agents"
-    case chains = "Chains"
     case skills = "Skills"
     case prompts = "Prompts"
     case subagents = "Subagents"
@@ -21,7 +20,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .projects: return "folder"
         case .agent: return "sparkles.rectangle.stack"
         case .agents: return "rectangle.connected.to.line.below"
-        case .chains: return "point.3.connected.trianglepath.dotted"
         case .skills: return "wand.and.stars"
         case .prompts: return "rectangle.and.pencil.and.ellipsis"
         case .subagents: return "slider.horizontal.3"
@@ -47,7 +45,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .workspace:
             return [.projects]
         case .piResources:
-            return [.agents, .chains, .skills, .prompts]
+            return [.agents, .skills, .prompts]
         case .runtime:
             return [.models, .environment, .diagnostics]
         case .reference:

@@ -129,7 +129,6 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
             readFirstPaths: nil,
             tools: [],
             skills: [],
-            chainName: nil,
             concurrencyLimit: nil,
             worktreePolicy: "isolated",
             aggregateSummary: nil,

@@ -187,7 +187,7 @@ struct SubagentsScreen: View {
         AppCard(title: "Native Runtime") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("• \(AppBrand.displayName) launches child Pi sessions itself and keeps parent, child, transcript, artifact, and supervisor state in the app.")
-                Text("• Parent sessions receive app-provided managed tools for single, chain, and parallel delegation.")
+                Text("• Parent sessions receive app-provided managed tools for single and parallel delegation.")
                 Text("• Child sessions can contact the supervisor through \(AppBrand.displayName)'s native request cards.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -199,8 +199,7 @@ struct SubagentsScreen: View {
             AppKeyValueList(rows: [
                 ("New Sessions", viewModel.areSubagentsEnabledForNewSessions ? "Native subagents enabled" : "Native subagents disabled"),
                 ("Selected Session", selectedSessionStatus),
-                ("Available Agents", "\(viewModel.snapshot.effectiveAgents.filter { $0.resolved.disabled != true }.count)"),
-                ("Available Chains", "\(viewModel.snapshot.chains.count)")
+                ("Available Agents", "\(viewModel.snapshot.effectiveAgents.filter { $0.resolved.disabled != true }.count)")
             ])
         }
     }
