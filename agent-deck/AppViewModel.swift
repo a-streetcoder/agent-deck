@@ -188,6 +188,9 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.parentSkillArgumentsProvider = { [weak self] projectURL in
             try self?.parentSkillArguments(for: projectURL) ?? []
         }
+        piAgentRunner.parentPromptTemplateArgumentsProvider = { [weak self] projectURL in
+            try self?.parentPromptTemplateArguments(for: projectURL) ?? []
+        }
         registerAppNotificationObservers()
         startAutoRefresh()
         cleanupOrphanedNativeSubagentArtifacts()
@@ -3292,9 +3295,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var promptWarnings: [DiagnosticWarning] {
-        snapshot.warnings.filter { warning in
+        let baseWarnings = snapshot.warnings.filter { warning in
             warning.id.hasPrefix("duplicate-prompt:")
         }
+        let collisionWarnings = PiPromptTemplateLaunchResolver.collisions(in: allVisiblePromptTemplateRecords).map { collision in
+            let paths = collision.prompts.map(\.filePath).joined(separator: ", ")
+            return DiagnosticWarning(id: "duplicate-prompt-template:\(collision.name)", message: "Duplicate prompt template name `/\(collision.name)` found at: \(paths)")
+        }
+        return baseWarnings + collisionWarnings
     }
 
     var skillReferenceWarnings: [SkillReferenceWarning] {
@@ -3426,7 +3434,7 @@ final class AppViewModel: NSObject, ObservableObject {
         argument-hint: <task>
         ---
 
-        Write the reusable prompt template here. Use {argument} where the slash-command argument should be inserted.
+        Write the reusable prompt template here. Use $ARGUMENTS where all slash-command arguments should be inserted.
         """
         try text.write(to: url, atomically: true, encoding: .utf8)
         refresh(includeModels: false)
@@ -3434,7 +3442,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func prompt(_ prompt: PromptTemplateRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        FileManager.default.fileExists(atPath: projectPromptLinkURL(name: prompt.name, projectPath: project.path).path)
+        projectPreference(for: project.path).assignedPromptTemplateNames.contains(prompt.name)
     }
 
     func assignedProjects(for prompt: PromptTemplateRecord) -> [DiscoveredProject] {
@@ -3442,29 +3450,25 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func promptIsEnabledGlobally(_ prompt: PromptTemplateRecord) -> Bool {
-        globalSnapshot.promptTemplates.contains { $0.name == prompt.name && $0.source.kind == .global }
+        appSettings.defaultPromptTemplateNames.contains(prompt.name)
     }
 
     func setPrompt(_ prompt: PromptTemplateRecord, enabled: Bool, for project: DiscoveredProject) throws {
-        if enabled { try addPrompt(prompt, toProjectPath: project.path) }
-        else { try removeManagedPromptLink(projectPromptLinkURL(name: prompt.name, projectPath: project.path)) }
+        projectPreferencesStore.setAssignedPromptTemplate(prompt.name, assigned: enabled, for: project.path)
+        applyProjectPreferenceChanges()
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
+        selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == prompt.name }?.id ?? selectedCommandItemID
     }
 
     func enablePromptGlobally(_ prompt: PromptTemplateRecord) throws {
-        let libraryURL = try ensureLibraryPrompt(for: prompt)
-        try createPromptSymlink(from: globalPromptLinkURL(name: prompt.name), to: libraryURL)
-        try removeProjectVisibility(forPromptNamed: prompt.name)
+        guard appSettingsController.setDefaultPromptTemplate(prompt.name, enabled: true) else { return }
+        appSettings = appSettingsController.settings
         refresh(includeModels: false)
     }
 
     func disablePromptGlobally(_ prompt: PromptTemplateRecord) throws {
-        if prompt.source.kind == .global {
-            _ = try ensureLibraryPrompt(for: prompt)
-        } else if let globalRecord = globalSnapshot.promptTemplates.first(where: { $0.name == prompt.name && $0.source.kind == .global }) {
-            _ = try ensureLibraryPrompt(for: globalRecord)
-        }
-        try removeManagedPromptLinkIfExists(globalPromptLinkURL(name: prompt.name))
+        guard appSettingsController.setDefaultPromptTemplate(prompt.name, enabled: false) else { return }
+        appSettings = appSettingsController.settings
         refresh(includeModels: false)
     }
 
@@ -3624,6 +3628,24 @@ final class AppViewModel: NSObject, ObservableObject {
         let projectPath = projectURL.standardizedFileURL.path
         let names = Array(appSettings.defaultSkillNames.union(projectPreference(for: projectPath).assignedSkillNames))
         return try PiSkillLaunchResolver.skillArguments(for: names, catalog: skillCatalog(forProjectPath: projectPath))
+    }
+
+    private func parentPromptTemplateArguments(for projectURL: URL) throws -> [String] {
+        let projectPath = projectURL.standardizedFileURL.path
+        let names = Array(appSettings.defaultPromptTemplateNames.union(projectPreference(for: projectPath).assignedPromptTemplateNames))
+        return try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: names, catalog: promptTemplateCatalog(forProjectPath: projectPath))
+    }
+
+    private func promptTemplateCatalog(forProjectPath projectPath: String) -> [PromptTemplateRecord] {
+        var records = globalSnapshot.promptTemplates + globalSnapshot.libraryPromptTemplates
+        if let projectSnapshot = allProjectSnapshots[projectPath] {
+            records += projectSnapshot.promptTemplates + projectSnapshot.libraryPromptTemplates
+        }
+        if selectedProjectPath == projectPath {
+            records += snapshot.promptTemplates + snapshot.libraryPromptTemplates
+        }
+        var seen = Set<String>()
+        return records.filter { seen.insert($0.id).inserted }
     }
 
     private func skillCatalog(forProjectPath projectPath: String) -> [SkillRecord] {

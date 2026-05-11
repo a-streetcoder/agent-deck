@@ -8,24 +8,26 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
     var isHidden: Bool
     var customIconPath: String?
     var assignedSkillNames: Set<String>
+    var assignedPromptTemplateNames: Set<String>
 
     var id: String { path }
 
     static func `default`(for path: String) -> ProjectPreference {
-        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil, assignedSkillNames: [])
+        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil, assignedSkillNames: [], assignedPromptTemplateNames: [])
     }
 
     enum CodingKeys: String, CodingKey {
-        case path, isEnabled, isFavorite, isHidden, customIconPath, assignedSkillNames
+        case path, isEnabled, isFavorite, isHidden, customIconPath, assignedSkillNames, assignedPromptTemplateNames
     }
 
-    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?, assignedSkillNames: Set<String> = []) {
+    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?, assignedSkillNames: Set<String> = [], assignedPromptTemplateNames: Set<String> = []) {
         self.path = path
         self.isEnabled = isEnabled
         self.isFavorite = isFavorite
         self.isHidden = isHidden
         self.customIconPath = customIconPath
         self.assignedSkillNames = assignedSkillNames
+        self.assignedPromptTemplateNames = assignedPromptTemplateNames
     }
 
     init(from decoder: Decoder) throws {
@@ -36,6 +38,7 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
         isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
         customIconPath = try container.decodeIfPresent(String.self, forKey: .customIconPath)
         assignedSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .assignedSkillNames) ?? []
+        assignedPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .assignedPromptTemplateNames) ?? []
     }
 }
 
@@ -88,6 +91,16 @@ final class ProjectPreferencesStore {
                 preference.assignedSkillNames.insert(skillName)
             } else {
                 preference.assignedSkillNames.remove(skillName)
+            }
+        }
+    }
+
+    func setAssignedPromptTemplate(_ promptName: String, assigned: Bool, for path: String) {
+        update(path) { preference in
+            if assigned {
+                preference.assignedPromptTemplateNames.insert(promptName)
+            } else {
+                preference.assignedPromptTemplateNames.remove(promptName)
             }
         }
     }
@@ -180,7 +193,8 @@ final class ProjectPreferencesStore {
                 isFavorite: preference.isFavorite,
                 isHidden: preference.isHidden,
                 customIconPath: preference.customIconPath,
-                assignedSkillNames: preference.assignedSkillNames
+                assignedSkillNames: preference.assignedSkillNames,
+                assignedPromptTemplateNames: preference.assignedPromptTemplateNames
             ))
         })
     }

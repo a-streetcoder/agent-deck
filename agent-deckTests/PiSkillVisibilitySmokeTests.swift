@@ -63,6 +63,8 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         let launchCommand = store.sessions.first(where: { $0.id == session.id })?.launchCommand ?? ""
         XCTAssertTrue(launchCommand.contains("--no-skills"))
         XCTAssertFalse(launchCommand.contains("--skill"))
+        XCTAssertTrue(launchCommand.contains("--no-prompt-templates"))
+        XCTAssertFalse(launchCommand.contains("--prompt-template"))
         XCTAssertFalse(launchCommand.contains("skill-library"))
     }
 
@@ -78,6 +80,23 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
 
         let args = try PiSkillLaunchResolver.parentSkillArguments(defaultSkillNames: ["default-skill"], projectSkillNames: [], snapshot: .empty.replacing(skills: [skill]))
         XCTAssertEqual(args, ["--skill", "/tmp/default-skill/SKILL.md"])
+    }
+
+    func testParentLaunchPassesAssignedPromptsWithNativePromptTemplateFlag() throws {
+        let prompt = PromptTemplateRecord(
+            id: "catalog:review-prompt",
+            name: "review-prompt",
+            description: "Review prompt",
+            argumentHint: nil,
+            source: ScopeID(kind: .global, path: "/tmp/review-prompt.md"),
+            filePath: "/tmp/review-prompt.md",
+            body: "Review $ARGUMENTS",
+            discoveryKind: .standardDirectory,
+            packageName: nil
+        )
+
+        let args = try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: ["/review-prompt"], catalog: [prompt])
+        XCTAssertEqual(args, ["--prompt-template", "/tmp/review-prompt.md"])
     }
 
     func testNativeSubagentPassesExplicitSkillUsingNativeSkillFlag() throws {
@@ -134,6 +153,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         )
         defer { runner.stop(runID: inherited.id, parentSessionID: parent.id) }
         XCTAssertTrue(inherited.launchCommand?.contains("--no-skills") == true)
+        XCTAssertTrue(inherited.launchCommand?.contains("--no-prompt-templates") == true)
     }
 
     func testNativeSubagentBlocksMissingExplicitSkill() throws {

@@ -119,6 +119,10 @@ final class AppSettingsController {
         settings.defaultSkillNames
     }
 
+    var defaultPromptTemplateNames: Set<String> {
+        settings.defaultPromptTemplateNames
+    }
+
     var shouldShowContextSmartZoneHint: Bool {
         settings.showContextSmartZoneHint
     }
@@ -315,6 +319,20 @@ final class AppSettingsController {
         }
         guard names != settings.defaultSkillNames else { return false }
         settings.defaultSkillNames = names
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setDefaultPromptTemplate(_ promptName: String, enabled: Bool) -> Bool {
+        var names = settings.defaultPromptTemplateNames
+        if enabled {
+            names.insert(promptName)
+        } else {
+            names.remove(promptName)
+        }
+        guard names != settings.defaultPromptTemplateNames else { return false }
+        settings.defaultPromptTemplateNames = names
         persist()
         return true
     }

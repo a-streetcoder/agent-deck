@@ -34,6 +34,7 @@ final class PiAgentRunnerService {
     var onSessionPlanUpdate: ((UUID, PiSessionPlanUpdateBridgeRequest) -> String)?
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
     var parentSkillArgumentsProvider: ((URL) throws -> [String])?
+    var parentPromptTemplateArgumentsProvider: ((URL) throws -> [String])?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -292,6 +293,10 @@ final class PiAgentRunnerService {
             extraArguments.append("--no-skills")
             if let parentSkillArgumentsProvider {
                 extraArguments.append(contentsOf: try parentSkillArgumentsProvider(projectURL))
+            }
+            extraArguments.append("--no-prompt-templates")
+            if let parentPromptTemplateArgumentsProvider {
+                extraArguments.append(contentsOf: try parentPromptTemplateArgumentsProvider(projectURL))
             }
             let sessionID = session.id
             let clientRunID = UUID()

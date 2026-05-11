@@ -220,7 +220,7 @@ struct PromptsScreen: View {
             } else {
                 AppCard(title: "Location") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Pi loads prompt templates from global, project, library, package, and settings-declared prompt locations.")
+                        Text("Agent Deck scans prompt templates into a catalog. Parent Pi sessions launch with --no-prompt-templates and receive only Default and Project prompt assignments via --prompt-template.")
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
                         AppKeyValueList(rows: [
@@ -236,6 +236,37 @@ struct PromptsScreen: View {
                     }
                 }
             }
+
+            AppCard(title: "Assignments") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Toggle("Default prompt", isOn: Binding(
+                            get: { viewModel.promptIsEnabledGlobally(prompt) },
+                            set: { enabled in
+                                do {
+                                    if enabled { try viewModel.enablePromptGlobally(prompt) }
+                                    else { try viewModel.disablePromptGlobally(prompt) }
+                                } catch {
+                                    NSSound.beep()
+                                }
+                            }
+                        ))
+                        Text("Default prompts are passed to every parent Pi Agent session with explicit --prompt-template flags.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+
+                        if !viewModel.enabledProjects.isEmpty {
+                            Divider()
+                            Text("Project assignments")
+                                .font(.headline)
+                            ForEach(viewModel.enabledProjects) { project in
+                                Toggle(project.name, isOn: Binding(
+                                    get: { viewModel.prompt(prompt, isEnabledFor: project) },
+                                    set: { enabled in do { try viewModel.setPrompt(prompt, enabled: enabled, for: project) } catch { NSSound.beep() } }
+                                ))
+                            }
+                        }
+                    }
+                }
 
             AppCard(title: "Template") {
                 MarkdownDocumentView(source: prompt.body, minimumHeight: 120)

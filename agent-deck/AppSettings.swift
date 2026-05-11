@@ -75,6 +75,7 @@ struct AppSettings: Codable, Hashable {
     var disabledInjectedCommandIDs: Set<String> = []
     var enabledLibraryCommandIDs: Set<String> = []
     var defaultSkillNames: Set<String> = []
+    var defaultPromptTemplateNames: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
         case appearanceMode
@@ -100,6 +101,7 @@ struct AppSettings: Codable, Hashable {
         case disabledInjectedCommandIDs
         case enabledLibraryCommandIDs
         case defaultSkillNames
+        case defaultPromptTemplateNames
     }
 
     init() {}
@@ -130,6 +132,7 @@ struct AppSettings: Codable, Hashable {
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
         enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []
         defaultSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultSkillNames) ?? []
+        defaultPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultPromptTemplateNames) ?? []
     }
 }
 

@@ -81,6 +81,7 @@ final class PiSubagentRunService {
         }
         extraArguments.append("--no-skills")
         extraArguments.append(contentsOf: skillArguments)
+        extraArguments.append("--no-prompt-templates")
 
         let modelSelection = PiSubagentLaunchPlanner.modelSelection(for: agent, parentSession: parentSession)
         let modelArgument = modelSelection.modelArgument
