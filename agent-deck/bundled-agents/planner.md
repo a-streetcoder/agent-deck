@@ -1,6 +1,7 @@
 ---
 name: planner
-description: Native planning agent that turns requirements and code context into an implementation plan
+description: Planning agent that turns requirements and code context into an implementation plan
+whenToUse: Use for non-trivial multi-step work that needs an implementation plan before execution; parent should convert the returned plan into set_session_plan.
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace

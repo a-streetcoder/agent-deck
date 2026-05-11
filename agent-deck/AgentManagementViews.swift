@@ -490,6 +490,15 @@ private struct AgentDetailView: View {
                         }
 
                         settingsSection("Model & Prompt") {
+                            configEditorRow("When to Use") {
+                                TextField("Use when…", text: inlineOptionalStringBinding(for: \.whenToUse))
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 640)
+                                Text("Concise routing guidance injected into parent sessions when subagents are enabled.")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
+
                             configEditorRow("Model") {
                                 Picker("Model", selection: inlineModelSelectionBinding) {
                                     Text("Use Pi Default Model").tag("")
@@ -1162,6 +1171,7 @@ private struct AgentDetailView: View {
             "disabled": agent.resolved.disabled as Any,
             "skills": agent.resolved.skills
         ]
+        if let whenToUse = agent.resolved.whenToUse { values["whenToUse"] = whenToUse }
         if let model = agent.resolved.model { values["model"] = model }
         if !agent.resolved.fallbackModels.isEmpty { values["fallbackModels"] = agent.resolved.fallbackModels }
         if let thinking = agent.resolved.thinking { values["thinking"] = thinking }
@@ -1403,6 +1413,7 @@ private struct AgentDetailView: View {
 
     private func normalizedInlineDraft(_ draft: AgentEditorDraft) -> AgentEditorDraft {
         var copy = draft
+        copy.config.whenToUse = copy.config.whenToUse?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         copy.config.fallbackModels = normalizedList(copy.config.fallbackModels) ?? []
         copy.config.tools = normalizedList(copy.config.tools)
         copy.config.mcpDirectTools = normalizedList(copy.config.mcpDirectTools)
@@ -1463,6 +1474,8 @@ private struct AgentDetailView: View {
 
     private func fieldHelpText(for title: String) -> String? {
         switch title {
+        case "When to Use":
+            return "Concise routing guidance for parent sessions deciding whether to delegate to this agent. Prefer one short sentence."
         case "Model":
             return "Default model for this agent. Builtin overrides can change this. Custom agents save it in frontmatter."
         case "Fallback Models":

@@ -1,6 +1,7 @@
 ---
 name: worker
-description: Native implementation agent for approved, scoped code changes
+description: Implementation agent for approved, scoped code changes
+whenToUse: Use for approved, bounded implementation after the parent has a clear plan or scope; prefer for non-trivial code edits over doing implementation in the parent session.
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
 thinking: high
 systemPromptMode: replace

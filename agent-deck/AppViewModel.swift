@@ -2136,12 +2136,10 @@ final class AppViewModel: NSObject, ObservableObject {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         guard !agents.isEmpty else { return nil }
         let lines = agents.map { agent in
-            let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let routing = (agent.resolved.whenToUse ?? agent.resolved.description).trimmingCharacters(in: .whitespacesAndNewlines)
             let context = agent.resolved.defaultContext ?? "fresh"
-            let model = agent.resolved.model ?? "default"
             let tools = (agent.resolved.tools ?? []).isEmpty ? "default tools" : "tools: \((agent.resolved.tools ?? []).joined(separator: ", "))"
-            let skills = agent.resolved.skills.isEmpty ? "no private skills" : "skills: \(agent.resolved.skills.joined(separator: ", "))"
-            return "- \(agent.name): \(description.isEmpty ? "No description" : description) [context: \(context), model: \(model), \(tools), \(skills)]"
+            return "- \(agent.name): \(routing.isEmpty ? "Use when this specialist fits the requested task." : routing) [context: \(context), \(tools)]"
         }
         let chains = allVisibleChainRecords
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -2150,11 +2148,14 @@ final class AppViewModel: NSObject, ObservableObject {
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
         Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`.
+        - Act as the orchestrator: clarify, plan, delegate, supervise, update the visible plan, and synthesize results.
+        - Handle work directly only when it is trivial, low-risk, and faster than delegation.
         - Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent.
         - For multi-step work, keep a short parent-owned visible plan with `set_session_plan` and `update_session_plan`.
         - If you delegate planning to `planner`, convert its returned implementation plan into `set_session_plan` before implementation unless the user only asked for a report. Planner text alone does not update the visible \(AppBrand.displayName) plan.
         - Update the visible plan when steps start, complete, block, skip, or materially change.
-        - Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
+        - Delegate bounded work with `managed_subagent`; include expected output and `reads` when known. Use worktrees for writer tasks.
+        Available native subagents:
         \(lines.joined(separator: "\n"))\(chainSection)
         """
     }
@@ -3523,6 +3524,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let base = AgentConfig(
             name: "new-agent",
             description: "",
+            whenToUse: nil,
             model: nil,
             fallbackModels: [],
             thinking: nil,

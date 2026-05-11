@@ -69,6 +69,8 @@ struct AgentEditorSheet: View {
                             Section("Identity") {
                                 TextField("Name", text: $draft.config.name)
                                 TextField("Description", text: $draft.config.description)
+                                TextField("When to Use", text: binding(for: \.whenToUse))
+                                    .help("Concise routing guidance injected into parent sessions when subagents are enabled. Prefer one short sentence.")
                             }
                         } else {
                             Section("Builtin") {
@@ -381,6 +383,7 @@ struct AgentEditorSheet: View {
 
     private func normalizedDraft() -> AgentEditorDraft {
         var copy = draft
+        copy.config.whenToUse = copy.config.whenToUse?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         copy.config.fallbackModels = normalizedList(copy.config.fallbackModels) ?? []
         copy.config.tools = normalizedList(copy.config.tools)
         copy.config.mcpDirectTools = normalizedList(copy.config.mcpDirectTools)

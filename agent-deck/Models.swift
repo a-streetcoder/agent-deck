@@ -21,6 +21,7 @@ nonisolated struct ScopeID: Hashable, Identifiable, Sendable {
 nonisolated struct AgentConfig: Hashable, Sendable {
     var name: String
     var description: String
+    var whenToUse: String?
     var model: String?
     var fallbackModels: [String]
     var thinking: String?
@@ -44,6 +45,7 @@ nonisolated struct AgentConfig: Hashable, Sendable {
     static let empty = AgentConfig(
         name: "",
         description: "",
+        whenToUse: nil,
         model: nil,
         fallbackModels: [],
         thinking: nil,

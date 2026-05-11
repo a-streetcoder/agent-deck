@@ -91,6 +91,9 @@ struct AgentPersistence {
 
         for (key, rawValue) in override.values {
             switch key {
+            case "whenToUse":
+                if let value = rawValue as? String { result.whenToUse = value }
+                else if rawValue as? Bool == false { result.whenToUse = nil }
             case "model":
                 if let value = rawValue as? String { result.model = value }
                 else if rawValue as? Bool == false { result.model = nil }
@@ -168,6 +171,7 @@ struct AgentPersistence {
     private func buildBuiltinOverride(base: AgentConfig, edited: AgentConfig) -> [String: Any]? {
         var values: [String: Any] = [:]
 
+        if edited.whenToUse != base.whenToUse { values["whenToUse"] = edited.whenToUse ?? false }
         if edited.model != base.model { values["model"] = edited.model ?? false }
         if !arraysEqual(edited.fallbackModels, base.fallbackModels) { values["fallbackModels"] = edited.fallbackModels.isEmpty ? false : edited.fallbackModels }
         if edited.thinking != base.thinking { values["thinking"] = edited.thinking ?? false }
@@ -282,6 +286,7 @@ struct AgentPersistence {
         var lines: [String] = ["---"]
         lines.append("name: \(config.name)")
         lines.append("description: \(config.description)")
+        if let whenToUse = config.whenToUse?.trimmingCharacters(in: .whitespacesAndNewlines), !whenToUse.isEmpty { lines.append("whenToUse: \(whenToUse)") }
         if let tools = joinComma(joinedTools(from: config)) { lines.append("tools: \(tools)") }
         if let model = config.model { lines.append("model: \(model)") }
         if let fallbackModels = joinComma(config.fallbackModels) { lines.append("fallbackModels: \(fallbackModels)") }

@@ -1,6 +1,7 @@
 ---
 name: scout
-description: Fast native codebase reconnaissance for focused handoff context
+description: Fast codebase reconnaissance for focused handoff context
+whenToUse: Use for quick reconnaissance when relevant files, architecture, data flow, or project context are uncertain before planning or implementation.
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: low
 systemPromptMode: replace

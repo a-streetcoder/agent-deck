@@ -155,7 +155,7 @@ nonisolated struct PiScanner {
                     filePath: url.path,
                     rawFrontmatter: document.frontmatter,
                     promptBody: document.body,
-                    parsed: AgentConfig(name: name, description: config.description, model: config.model, fallbackModels: config.fallbackModels, thinking: config.thinking, systemPromptMode: config.systemPromptMode, inheritProjectContext: config.inheritProjectContext, inheritSkills: config.inheritSkills, defaultContext: config.defaultContext, disabled: config.disabled, tools: config.tools, mcpDirectTools: config.mcpDirectTools, extensions: config.extensions, skills: config.skills, output: config.output, defaultReads: config.defaultReads, defaultProgress: config.defaultProgress, interactive: config.interactive, maxSubagentDepth: config.maxSubagentDepth, systemPrompt: config.systemPrompt, unknownFields: config.unknownFields)
+                    parsed: AgentConfig(name: name, description: config.description, whenToUse: config.whenToUse, model: config.model, fallbackModels: config.fallbackModels, thinking: config.thinking, systemPromptMode: config.systemPromptMode, inheritProjectContext: config.inheritProjectContext, inheritSkills: config.inheritSkills, defaultContext: config.defaultContext, disabled: config.disabled, tools: config.tools, mcpDirectTools: config.mcpDirectTools, extensions: config.extensions, skills: config.skills, output: config.output, defaultReads: config.defaultReads, defaultProgress: config.defaultProgress, interactive: config.interactive, maxSubagentDepth: config.maxSubagentDepth, systemPrompt: config.systemPrompt, unknownFields: config.unknownFields)
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -679,6 +679,9 @@ nonisolated struct PiScanner {
 
         for (key, rawValue) in override.values {
             switch key {
+            case "whenToUse":
+                if let value = rawValue as? String { result.whenToUse = value }
+                else if rawValue as? Bool == false { result.whenToUse = nil }
             case "model":
                 if let value = rawValue as? String { result.model = value }
                 else if rawValue as? Bool == false { result.model = nil }
@@ -823,6 +826,7 @@ nonisolated struct PiScanner {
         return AgentConfig(
             name: name,
             description: pop("description") ?? "",
+            whenToUse: pop("whenToUse"),
             model: pop("model"),
             fallbackModels: splitList(pop("fallbackModels")),
             thinking: pop("thinking"),

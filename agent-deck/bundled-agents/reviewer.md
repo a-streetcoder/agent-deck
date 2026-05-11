@@ -1,6 +1,7 @@
 ---
 name: reviewer
-description: Native review agent for diffs, plans, implementations, and risk checks
+description: Review agent for diffs, plans, implementations, and risk checks
+whenToUse: Use after meaningful edits, before finalizing risky changes, or when validation confidence is low and an evidence-backed review would reduce risk.
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
