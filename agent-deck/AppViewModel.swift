@@ -249,6 +249,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let shouldScanAllProjects = scanAllProjects
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let rootURL = configuredProjectsRootURL
+        let externalSkillPaths = appSettings.externalSkillPaths
         refreshRequestID += 1
         let requestID = refreshRequestID
 
@@ -259,6 +260,7 @@ final class AppViewModel: NSObject, ObservableObject {
                 rootURL: rootURL,
                 selectedProjectPath: selectedProjectPath,
                 preferencesByPath: preferencesByPath,
+                externalSkillPaths: externalSkillPaths,
                 scanAllProjects: shouldScanAllProjects,
                 extraProjectPathsToScan: extraProjectPathsToScan
             )
@@ -366,7 +368,7 @@ final class AppViewModel: NSObject, ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Skills Folder"
-        panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to import into the \(AppBrand.displayName) library."
+        panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to add to the \(AppBrand.displayName) skill catalog."
         panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
         let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -428,36 +430,25 @@ final class AppViewModel: NSObject, ObservableObject {
         return results
     }
 
-    func importExternalSkills(_ candidates: [ExternalSkillCandidate], mode: SkillLibraryImportMode, replaceExisting: Bool) throws -> SkillImportResult {
-        let fileManager = FileManager.default
-        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
-        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
-
+    func importExternalSkills(_ candidates: [ExternalSkillCandidate]) throws -> SkillImportResult {
         var importedNames: [String] = []
         var skippedNames: [String] = []
+        var importedPaths: [String] = []
+        let existingPaths = appSettings.externalSkillPaths
 
         for candidate in candidates {
-            let sourceURL = URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL
-            let destinationURL = libraryRoot.appendingPathComponent(candidate.name, isDirectory: true)
-
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                if replaceExisting {
-                    try fileManager.removeItem(at: destinationURL)
-                } else {
-                    skippedNames.append(candidate.name)
-                    continue
-                }
+            let sourcePath = URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path
+            if existingPaths.contains(sourcePath) {
+                skippedNames.append(candidate.name)
+                continue
             }
-
-            switch mode {
-            case .symlink:
-                try fileManager.createSymbolicLink(at: destinationURL, withDestinationURL: sourceURL)
-            case .copy:
-                try fileManager.copyItem(at: sourceURL, to: destinationURL)
-            }
+            importedPaths.append(sourcePath)
             importedNames.append(candidate.name)
         }
 
+        if appSettingsController.addExternalSkillPaths(importedPaths) {
+            appSettings = appSettingsController.settings
+        }
         refresh(includeModels: false)
         if let firstImported = importedNames.first {
             selectedSkillID = allVisibleSkillRecords.first { $0.name == firstImported }?.id ?? selectedSkillID
@@ -3511,7 +3502,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func skillNamed(_ skillName: String, isRuntimeVisibleIn project: DiscoveredProject) -> Bool {
-        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner().scan(projectRoot: project.url)
+        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths).scan(projectRoot: project.url)
         let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
         return matches.count == 1
     }
@@ -3592,8 +3583,8 @@ final class AppViewModel: NSObject, ObservableObject {
         try saveAgentDraft(draft, for: agent)
     }
 
-    func assignedAgents(for skill: SkillRecord) -> [EffectiveAgentRecord] {
-        snapshot.effectiveAgents.filter { skill(skill, isAssignedTo: $0) }
+    func assignedAgents(for skillRecord: SkillRecord) -> [EffectiveAgentRecord] {
+        snapshot.effectiveAgents.filter { skill(skillRecord, isAssignedTo: $0) }
     }
 
     private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
@@ -3615,6 +3606,26 @@ final class AppViewModel: NSObject, ObservableObject {
         refresh(includeModels: false)
     }
 
+    func canDeleteSkill(_ skill: SkillRecord) -> Bool {
+        switch skill.source.kind {
+        case .builtin, .package:
+            return false
+        case .global, .project, .legacyProject, .override, .library:
+            return true
+        }
+    }
+
+    func deleteSkill(_ skill: SkillRecord) throws {
+        guard canDeleteSkill(skill) else { throw CocoaError(.fileWriteNoPermission) }
+
+        let targetURL = skillDeletionTargetURL(for: skill)
+        try removeSkillReferences(named: skill.name)
+        try FileManager.default.trashItem(at: targetURL, resultingItemURL: nil)
+        removeExternalSkillCatalogReferences(for: skill, deletedTarget: targetURL)
+        refresh(includeModels: false)
+        selectedSkillID = allVisibleSkillRecords.first?.id
+    }
+
     func skillIsEnabledGlobally(_ skill: SkillRecord) -> Bool {
         appSettings.defaultSkillNames.contains(skill.name)
     }
@@ -3622,6 +3633,42 @@ final class AppViewModel: NSObject, ObservableObject {
     func skillIsEnabledForSelectedProject(_ skill: SkillRecord) -> Bool {
         guard let selectedProjectPath else { return false }
         return projectPreference(for: selectedProjectPath).assignedSkillNames.contains(skill.name)
+    }
+
+    func skillRecap(for project: DiscoveredProject) -> ProjectSkillRecap {
+        let defaultNames = appSettings.defaultSkillNames
+        let projectNames = projectPreference(for: project.path).assignedSkillNames.subtracting(defaultNames)
+        let catalog = skillCatalog(forProjectPath: project.path)
+        let grouped = Dictionary(grouping: catalog, by: \.name)
+
+        func resolvedSkills(for names: Set<String>) -> ([SkillRecord], [String]) {
+            var skills: [SkillRecord] = []
+            var unresolved: [String] = []
+
+            for name in names.sorted() {
+                let matches = grouped[name] ?? []
+                if matches.count == 1, let skill = matches.first {
+                    skills.append(skill)
+                } else {
+                    unresolved.append(name)
+                }
+            }
+
+            return (
+                skills.sorted { lhs, rhs in
+                    lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                },
+                unresolved
+            )
+        }
+
+        let defaultResult = resolvedSkills(for: defaultNames)
+        let projectResult = resolvedSkills(for: projectNames)
+        return ProjectSkillRecap(
+            defaultSkills: defaultResult.0,
+            projectSkills: projectResult.0,
+            unresolvedNames: (defaultResult.1 + projectResult.1).sorted()
+        )
     }
 
     private func parentSkillArguments(for projectURL: URL) throws -> [String] {
@@ -3658,6 +3705,41 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         var seen = Set<String>()
         return records.filter { seen.insert($0.id).inserted }
+    }
+
+    private func skillDeletionTargetURL(for skill: SkillRecord) -> URL {
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        if fileURL.lastPathComponent == "SKILL.md" {
+            return fileURL.deletingLastPathComponent()
+        }
+        return fileURL
+    }
+
+    private func removeSkillReferences(named skillName: String) throws {
+        _ = appSettingsController.setDefaultSkill(skillName, enabled: false)
+        appSettings = appSettingsController.settings
+
+        for projectPath in projectPreferencesStore.preferencesByPath.keys {
+            projectPreferencesStore.setAssignedSkill(skillName, assigned: false, for: projectPath)
+        }
+        applyProjectPreferenceChanges()
+
+        for agent in snapshot.effectiveAgents where agent.resolved.skills.contains(skillName) {
+            guard var draft = makeAgentDraft(for: agent) else { continue }
+            draft.config.skills.removeAll { $0 == skillName }
+            try saveAgentDraft(draft, for: agent)
+        }
+    }
+
+    private func removeExternalSkillCatalogReferences(for skill: SkillRecord, deletedTarget: URL) {
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        let deletedTargetPath = deletedTarget.standardizedFileURL.path
+        let pathsToRemove = appSettings.externalSkillPaths.filter { rawPath in
+            let url = URL(fileURLWithPath: rawPath).standardizedFileURL
+            return url.path == fileURL.path || url.path == deletedTargetPath
+        }
+        guard appSettingsController.removeExternalSkillPaths(pathsToRemove) else { return }
+        appSettings = appSettingsController.settings
     }
 
     private func ensureLibraryAgent(for agent: AgentRecord) throws -> URL {
@@ -3785,80 +3867,6 @@ final class AppViewModel: NSObject, ObservableObject {
     private func removeProjectVisibility(forPromptNamed name: String) throws { for project in enabledProjects { try removeManagedPromptLinkIfExists(projectPromptLinkURL(name: name, projectPath: project.path)) } }
     private func globalPromptLinkURL(name: String) -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompts/\(name).md") }
     private func projectPromptLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/prompts/\(name).md") }
-
-    private func ensureLibrarySkill(for skill: SkillRecord) throws -> URL {
-        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skill-library", isDirectory: true)
-        let libraryURL = libraryRoot.appendingPathComponent(skill.name, isDirectory: true)
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: libraryURL.appendingPathComponent("SKILL.md").path) { return libraryURL }
-
-        let sourceURL = skillRootURL(for: skill)
-        var isDirectory: ObjCBool = false
-        fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory)
-
-        if isDirectory.boolValue {
-            if skill.source.kind == .global {
-                try fileManager.moveItem(at: sourceURL, to: libraryURL)
-            } else if skill.source.kind == .library {
-                return sourceURL
-            } else {
-                try fileManager.copyItem(at: sourceURL, to: libraryURL)
-            }
-        } else {
-            try fileManager.createDirectory(at: libraryURL, withIntermediateDirectories: true)
-            let destinationFile = libraryURL.appendingPathComponent("SKILL.md")
-            if skill.source.kind == .global {
-                try fileManager.moveItem(at: sourceURL, to: destinationFile)
-            } else if skill.source.kind == .library {
-                try fileManager.copyItem(at: sourceURL, to: destinationFile)
-            } else {
-                try fileManager.copyItem(at: sourceURL, to: destinationFile)
-            }
-        }
-        return libraryURL
-    }
-
-    private func createSkillSymlink(from linkURL: URL, to targetURL: URL) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard !fileManager.fileExists(atPath: linkURL.path) else { throw CocoaError(.fileWriteFileExists) }
-        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
-    }
-
-    private func removeManagedSkillLink(_ linkURL: URL) throws {
-        let values = try linkURL.resourceValues(forKeys: [.isSymbolicLinkKey])
-        guard values.isSymbolicLink == true else { throw CocoaError(.fileWriteNoPermission) }
-        try FileManager.default.removeItem(at: linkURL)
-    }
-
-    private func removeGlobalVisibility(forSkillNamed skillName: String) throws {
-        let fileManager = FileManager.default
-        for globalSkill in snapshot.skills where globalSkill.name == skillName && globalSkill.source.kind == .global {
-            let url = skillRootURL(for: globalSkill)
-            guard fileManager.fileExists(atPath: url.path) else { continue }
-            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-                try fileManager.removeItem(at: url)
-            }
-        }
-    }
-
-    private func removeProjectVisibility(forSkillNamed skillName: String) throws {
-        let fileManager = FileManager.default
-        for project in enabledProjects {
-            let url = URL(fileURLWithPath: project.path).appendingPathComponent(".pi/skills", isDirectory: true).appendingPathComponent(skillName, isDirectory: true)
-            guard fileManager.fileExists(atPath: url.path) else { continue }
-            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-                try fileManager.removeItem(at: url)
-            }
-        }
-    }
-
-    private func skillRootURL(for skill: SkillRecord) -> URL {
-        let fileURL = URL(fileURLWithPath: skill.filePath)
-        if fileURL.lastPathComponent == "SKILL.md" { return fileURL.deletingLastPathComponent() }
-        return fileURL
-    }
 
     private func parseSimpleFrontmatter(_ text: String) -> [String: String] {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
@@ -4195,7 +4203,7 @@ final class AppViewModel: NSObject, ObservableObject {
         guard watchFingerprintTask == nil else { return }
         let previousFingerprint = lastWatchFingerprint
         let urls = watchedURLsForAutoRefresh.isEmpty
-            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot)
+            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths)
             : watchedURLsForAutoRefresh
         watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, urls] in
             let fingerprint = FileWatchFingerprint.make(urls: urls)

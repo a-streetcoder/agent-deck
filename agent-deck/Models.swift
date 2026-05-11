@@ -145,25 +145,10 @@ nonisolated struct SkillRecord: Identifiable, Hashable, Sendable {
     let body: String
 }
 
-nonisolated enum SkillLibraryImportMode: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case symlink
-    case copy
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .symlink: return "Symlink"
-        case .copy: return "Copy"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .symlink: return "Keep the source repo as the single source of truth and add it to the Agent Deck skill catalog."
-        case .copy: return "Make an editable snapshot in the Agent Deck skill catalog that no longer tracks source updates."
-        }
-    }
+nonisolated struct ProjectSkillRecap: Hashable, Sendable {
+    let defaultSkills: [SkillRecord]
+    let projectSkills: [SkillRecord]
+    let unresolvedNames: [String]
 }
 
 nonisolated struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {

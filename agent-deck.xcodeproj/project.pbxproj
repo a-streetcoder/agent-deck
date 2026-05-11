@@ -29,9 +29,29 @@
 		7B7E7C862FA60178000A7C01 /* agent-deckTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "agent-deckTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9D1B4A5C7E8F901234567892 /* Exceptions for "agent-deck" folder in "agent-deck" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"bundled-agents",
+				"bundled-agents/planner.md",
+				"bundled-agents/reviewer.md",
+				"bundled-agents/scout.md",
+				"bundled-agents/worker.md",
+				"bundled-skills",
+				"bundled-skills/agent-authoring/SKILL.md",
+				"bundled-skills/prompt-authoring/SKILL.md",
+			);
+			target = 6572B16A2FA2391500596CE4 /* agent-deck */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6572B16D2FA2391500596CE4 /* agent-deck */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9D1B4A5C7E8F901234567892 /* Exceptions for "agent-deck" folder in "agent-deck" target */,
+			);
 			path = "agent-deck";
 			sourceTree = "<group>";
 		};

@@ -83,6 +83,28 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         XCTAssertEqual(args, ["--skill", "/tmp/default-skill/SKILL.md"])
     }
 
+    func testExternalSkillPathIsScannedAsLibraryCatalogSkillWithoutCopying() throws {
+        let skillRoot = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-external-skill-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: skillRoot, withIntermediateDirectories: true)
+        let skillFile = skillRoot.appendingPathComponent("SKILL.md")
+        try """
+        ---
+        name: external-review
+        description: Review from external source.
+        ---
+
+        # External Review
+        """.write(to: skillFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: skillRoot) }
+
+        let snapshot = PiScanner(externalSkillPaths: [skillRoot.path]).scan(projectRoot: nil)
+        let skill = try XCTUnwrap(snapshot.librarySkills.first { $0.name == "external-review" })
+
+        XCTAssertEqual(URL(fileURLWithPath: skill.filePath).standardizedFileURL.path, skillFile.standardizedFileURL.path)
+        XCTAssertEqual(skill.source.kind, .library)
+        XCTAssertEqual(try PiSkillLaunchResolver.skillArguments(for: ["external-review"], catalog: PiSkillLaunchResolver.catalog(from: snapshot)), ["--skill", skillFile.path])
+    }
+
     func testParentLaunchPassesAssignedPromptsWithNativePromptTemplateFlag() throws {
         let prompt = PromptTemplateRecord(
             id: "catalog:review-prompt",

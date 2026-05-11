@@ -119,6 +119,10 @@ final class AppSettingsController {
         settings.defaultSkillNames
     }
 
+    var externalSkillPaths: Set<String> {
+        settings.externalSkillPaths
+    }
+
     var defaultPromptTemplateNames: Set<String> {
         settings.defaultPromptTemplateNames
     }
@@ -319,6 +323,33 @@ final class AppSettingsController {
         }
         guard names != settings.defaultSkillNames else { return false }
         settings.defaultSkillNames = names
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func addExternalSkillPaths(_ paths: [String]) -> Bool {
+        let normalizedPaths = paths
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            .filter { !$0.isEmpty }
+        guard !normalizedPaths.isEmpty else { return false }
+        var existingPaths = settings.externalSkillPaths
+        for path in normalizedPaths {
+            existingPaths.insert(path)
+        }
+        guard existingPaths != settings.externalSkillPaths else { return false }
+        settings.externalSkillPaths = existingPaths
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func removeExternalSkillPaths(_ paths: Set<String>) -> Bool {
+        let normalizedPaths = Set(paths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        guard !normalizedPaths.isEmpty else { return false }
+        let updatedPaths = settings.externalSkillPaths.subtracting(normalizedPaths)
+        guard updatedPaths != settings.externalSkillPaths else { return false }
+        settings.externalSkillPaths = updatedPaths
         persist()
         return true
     }

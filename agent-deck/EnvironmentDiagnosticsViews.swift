@@ -932,6 +932,8 @@ private func projectName(from path: String) -> String? {
 
 func skillScopeLabel(_ skill: SkillRecord, selectedProjectRoot: String?) -> String {
     switch skill.source.kind {
+    case .builtin:
+        return "Bundled"
     case .project, .legacyProject:
         return "Project"
     case .package:
@@ -975,6 +977,9 @@ func skillLocationLabel(_ skill: SkillRecord, selectedProjectRoot: String?) -> S
     }
     if let package = skillPackageLabel(skill) {
         return package
+    }
+    if skill.source.kind == .builtin {
+        return "Bundled"
     }
     return "User"
 }

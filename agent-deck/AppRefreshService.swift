@@ -19,11 +19,12 @@ nonisolated struct AppRefreshService: Sendable {
         rootURL: URL,
         selectedProjectPath: String?,
         preferencesByPath: [String: ProjectPreference],
+        externalSkillPaths: Set<String>,
         scanAllProjects: Bool = true,
         extraProjectPathsToScan: Set<String> = []
     ) -> AppRefreshSnapshot {
         let discovery = ProjectDiscovery()
-        let scanner = PiScanner()
+        let scanner = PiScanner(externalSkillPaths: externalSkillPaths)
         let discoveredProjects = discovery.discoverProjects(
             rootDirectoryURL: rootURL,
             additionalProjectPaths: Array(preferencesByPath.keys),
@@ -56,7 +57,7 @@ nonisolated struct AppRefreshService: Sendable {
         } else {
             projectsToWatch = scanAllProjects ? enabledProjects : projectsToScan
         }
-        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot)
+        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: externalSkillPaths)
         let watchFingerprint = FileWatchFingerprint.make(urls: watchedURLs)
 
         return AppRefreshSnapshot(
@@ -74,7 +75,7 @@ nonisolated struct AppRefreshService: Sendable {
         )
     }
 
-    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot) -> [URL] {
+    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot, externalSkillPaths: Set<String>) -> [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let globalAgentRoot = home.appendingPathComponent(".pi/agent", isDirectory: true)
         let legacyGlobalAgentRoot = home.appendingPathComponent(".agents", isDirectory: true)
@@ -105,6 +106,7 @@ nonisolated struct AppRefreshService: Sendable {
         urls += snapshot.libraryAgents.map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.skills.map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.librarySkills.map { URL(fileURLWithPath: $0.filePath) }
+        urls += externalSkillPaths.map { URL(fileURLWithPath: $0) }
         urls += (snapshot.promptTemplates + snapshot.libraryPromptTemplates).map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.settings.flatMap(\.prompts).map { URL(fileURLWithPath: $0) }
 

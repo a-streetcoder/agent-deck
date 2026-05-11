@@ -187,6 +187,7 @@ struct ProjectsScreen: View {
     @State private var searchText = ""
     @State private var debouncedSearchText = ""
     @State private var selectedInstructionProjectPath: String?
+    @State private var skillsRecapProject: DiscoveredProject?
 
     var body: some View {
         HSplitView {
@@ -210,6 +211,12 @@ struct ProjectsScreen: View {
         .onAppear(perform: ensureInstructionSelection)
         .onChange(of: visibleProjects.map(\.path)) { _, _ in
             ensureInstructionSelection()
+        }
+        .sheet(item: $skillsRecapProject) { project in
+            ProjectSkillsRecapSheet(
+                project: project,
+                recap: viewModel.skillRecap(for: project)
+            )
         }
     }
 
@@ -382,6 +389,16 @@ struct ProjectsScreen: View {
             }
             .buttonStyle(.plain)
             .help(preference.isFavorite ? "Remove favorite" : "Add favorite")
+
+            Button {
+                skillsRecapProject = project
+            } label: {
+                Image(systemName: "wand.and.stars")
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Show resolved skills for this project")
 
             Button(role: .destructive) {
                 viewModel.removeProjectFromLibrary(project)
@@ -733,6 +750,133 @@ private struct PiSystemPromptPreviewSheet: View {
             }
         }
         .frame(minWidth: 760, minHeight: 620)
+    }
+}
+
+private struct ProjectSkillsRecapSheet: View {
+    let project: DiscoveredProject
+    let recap: ProjectSkillRecap
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Resolved Skills")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text(project.repositoryDisplayName)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    dismiss()
+                }
+            }
+            .padding(18)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("These are the skills Agent Deck will pass to parent Pi sessions for this project with explicit --skill arguments.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if hasResolvedSkills {
+                        if !recap.defaultSkills.isEmpty {
+                            skillRecapSection(title: "Default", skills: recap.defaultSkills, color: .blue)
+                        }
+
+                        if !recap.projectSkills.isEmpty {
+                            skillRecapSection(title: "Project", skills: recap.projectSkills, color: .green)
+                        }
+                    } else {
+                        ContentUnavailableView(
+                            "No Skills",
+                            systemImage: "wand.and.stars",
+                            description: Text("No default or project-assigned skills resolve for this project.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 32)
+                    }
+
+                    if !recap.unresolvedNames.isEmpty {
+                        unresolvedSection
+                    }
+                }
+                .padding(18)
+            }
+        }
+        .frame(width: 520, height: 560)
+    }
+
+    private var hasResolvedSkills: Bool {
+        !recap.defaultSkills.isEmpty || !recap.projectSkills.isEmpty
+    }
+
+    private func skillRecapSection(title: String, skills: [SkillRecord], color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(skills, id: \.id) { skill in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "wand.and.stars")
+                            .foregroundStyle(color)
+                            .frame(width: 18)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(skill.name)
+                                .font(.subheadline.weight(.semibold))
+                            if let description = skill.description, !description.isEmpty {
+                                Text(description)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private var unresolvedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Needs Attention")
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(recap.unresolvedNames, id: \.self) { name in
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(name)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
     }
 }
 

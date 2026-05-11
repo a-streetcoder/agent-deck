@@ -9,7 +9,7 @@ This file explains the narrower model Agent Deck uses to keep things understanda
 
 1. **Builtin** resources shipped by packages
 2. **Active global** resources Pi sees everywhere
-3. **Library** resources stored centrally by Agent Deck and activated with symlinks
+3. **Imported/catalog** resources Agent Deck remembers by path
 4. **Ad-hoc project** resources that only exist for one repo
 
 If you want to understand the current app UX, start here.
@@ -18,19 +18,21 @@ If you want to understand the current app UX, start here.
 
 ## The mental model
 
-Agent Deck treats reusable resources and active resources as different things.
+Agent Deck treats discovered resources and assigned resources as different things.
 
-- **Library** = central storage managed by the app
-- **Active global** = visible to Pi everywhere
-- **Active project** = visible only inside one project
+- **Catalog** = resources Agent Deck can see
+- **Default assignment** = passed to every parent Pi Agent session
+- **Project assignment** = passed to parent sessions for one project
 - **Builtin** = package-owned, read-only
 
-For reusable resources, the app usually wants this flow:
+For skills, the app does not need to copy or symlink files into Pi discovery locations. It stores skill names/paths in its catalog and launches Pi with explicit skill arguments:
 
-1. store the canonical copy in a **library** folder under `~/.pi/agent/`
-2. expose it globally or per-project by creating a **symlink** into Pi's active discovery paths
+```text
+--no-skills
+--skill /path/to/skill/SKILL.md
+```
 
-That gives you one canonical file plus explicit visibility.
+Agents, chains, and prompts may still use library storage and symlink-based activation where noted below.
 
 ---
 
@@ -122,16 +124,16 @@ Also important: the current app scanner does **not** actively discover legacy ch
 - `~/.pi/agent/skills/<skill>/SKILL.md`
 - legacy global skills are also scanned from `~/.agents/skills/`
 
-### Library
-- `~/.pi/agent/skill-library/<skill>/SKILL.md`
+### Imported/catalog
+- external skill roots remembered in Agent Deck app settings
+- legacy imported skills may still be scanned from `~/.pi/agent/skill-library/<skill>/SKILL.md`
 
 ### Project
 - `PROJECT/.pi/skills/<skill>/SKILL.md`
 - root `PROJECT/.pi/skills/<name>.md` also scans as a standalone skill
 
 ### Important nuance
-Agent Deck's reusable-skill model is directory-based.
-When it activates a library skill globally or for a project, it creates a symlink for the **skill directory**, not just the markdown file.
+Agent Deck's skill assignment model is name-based and launch-time explicit. A discovered skill is not injected until it is marked Default, assigned to a project, or assigned to a native agent.
 
 ### Agent-assigned skills are references, not bundled files
 
@@ -143,26 +145,19 @@ skills: axiom-ai
 
 That means: "when this agent runs, inject the skill named `axiom-ai` into that child session."
 
-For Agent Deck native subagents, the app resolves these explicit skills from the current scan snapshot and writes their current `SKILL.md` content into the child system prompt as private skill blocks.
+For Agent Deck native subagents, the app resolves these explicit skills from the current scan snapshot and passes them through Pi's native `--skill <path>` support.
 
 It does **not** mean Agent Deck copies, bundles, or carries the skill directory together with the agent.
 The agent stores only the skill name.
 
-For the skill to actually be injected at runtime, the skill must be visible in the scope Agent Deck scans for the selected project/session:
+For the skill to actually be injected at runtime, the skill must be visible in the Agent Deck skill catalog:
 
-- enabled globally in `~/.pi/agent/skills/<skill>`
-- assigned to that same project in `PROJECT/.pi/skills/<skill>`
+- bundled with Agent Deck
+- discovered from Pi global/project skill locations
+- remembered as an imported external skill path
 - provided by an installed package/settings source that Agent Deck scans
 
-A skill that exists only in Agent Deck's library folder is **not active**:
-
-```text
-~/.pi/agent/skill-library/<skill>
-```
-
-Pi does not load that folder directly. Agent Deck must link the library skill into a global or project active skill location first.
-
-So if an `ios-engineer` agent has `skills: axiom-ai` and you assign that agent to a project, the skill does **not** automatically follow it. You must also make `axiom-ai` visible to that project, or enable it globally.
+So if an `ios-engineer` agent has `skills: axiom-ai` and you assign that agent to a project, the skill does **not** automatically follow the agent as a copied file. The skill name must resolve to exactly one catalog entry at launch time.
 
 ---
 
@@ -204,28 +199,26 @@ Why:
 
 ## Skills
 
-Skills follow the same idea, but at the skill-root level:
-- directory skill: move/copy the whole directory
-- standalone `.md` skill: wrap it into a library folder as `SKILL.md`
+Skills are different from agents/chains/prompts. Importing an external skill records its existing skill root path in Agent Deck settings. Agent Deck keeps the source file in place and passes that path to Pi at launch.
 
 ---
 
 ## What “enable globally” or “assign to project” means
 
-For library-managed resources, Agent Deck treats **global visibility** and **project visibility** as mutually exclusive, but project assignment itself is **not** exclusive.
+For agents, chains, and prompts, Agent Deck treats **global visibility** and **project visibility** as mutually exclusive, but project assignment itself is **not** exclusive.
+
+For skills, these controls are assignments, not filesystem activation:
 
 - **Enable globally**
-  - creates a global symlink into the library
-  - removes managed project-level visibility for that same resource from currently enabled projects
+  - stores the skill name as a Default skill
+  - parent sessions receive `--skill <path>` after resolving that name
 
 - **Assign to project**
-  - creates a project symlink into the library
-  - removes managed global visibility for that same resource
+  - stores the skill name in that project's Agent Deck preferences
+  - parent sessions for that project receive `--skill <path>` after resolving that name
   - can be repeated for multiple projects at once
 
-So the real rule is:
-- one reusable resource is either globally active or project-assigned
-- but it may be assigned to multiple projects simultaneously
+Native agent skill assignment writes the skill name into the agent frontmatter. That child run receives its own explicit `--skill <path>` arguments.
 
 ---
 
@@ -242,9 +235,9 @@ So the real rule is:
 - target -> `~/.pi/agent/agent-library/chains/<name>.chain.md`
 
 ### Skills
-- global link -> `~/.pi/agent/skills/<name>`
-- project link -> `PROJECT/.pi/skills/<name>`
-- target -> `~/.pi/agent/skill-library/<name>`
+- no managed global/project symlink is created
+- default/project/agent assignments store skill names
+- launch resolves names to catalog paths and emits `--skill <path>`
 
 ### Prompts
 - global link -> `~/.pi/agent/prompts/<name>.md`
@@ -291,9 +284,10 @@ The visible list is the union of:
 - active global skills
 - active project skills
 - package skills discovered from packages in settings
-- library skills
+- imported external skill paths
+- legacy library skills
 
-Library skills are shown separately because they are stored-but-not-active until linked.
+Unassigned skills are visible in the catalog but are not injected.
 
 ---
 
@@ -362,16 +356,11 @@ Good candidates:
 
 Store it in:
 - `~/.pi/agent/agent-library/...`
-- `~/.pi/agent/skill-library/...`
 - `~/.pi/agent/prompt-library/...`
 
 Then activate it globally or by project.
 
-For external skill sources such as Axiom, Agent Deck can import selected top-level skill folders into `skill-library` either by:
-- **symlink** — recommended when you want the upstream repo to stay the source of truth
-- **copy** — useful when you want a frozen local snapshot you can edit independently
-
-The library remains the Agent Deck abstraction either way; global and project visibility are still managed from the library layer.
+For external skill sources such as Axiom, Agent Deck imports selected top-level skill folders by remembering their existing paths. The upstream repo remains the source of truth, and assignment controls only decide whether Agent Deck passes those paths to Pi.
 
 ### Use global active files for simple always-on behavior
 
@@ -395,9 +384,9 @@ Right now this machine already reflects the split above:
 
 - `~/.agents/` exists and is the preferred global agent location
 - `~/.pi/agent/agent-library/` exists for reusable agents/chains
-- `~/.pi/agent/skill-library/` exists for reusable skills
+- external skill paths are remembered in Agent Deck app settings
 - `~/.pi/agent/prompt-library/` exists for reusable prompts
-- `~/.pi/agent/skills/` contains active skills, including some symlinks back to `skill-library`
+- `~/.pi/agent/skills/` may contain Pi-native active skills from older/manual workflows
 - `~/.pi/agent/chains/` exists as the active global chain location
 
 So the real model in use is:

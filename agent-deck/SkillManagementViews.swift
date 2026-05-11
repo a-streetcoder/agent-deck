@@ -37,96 +37,8 @@ struct SkillsInfoPopover: View {
     }
 }
 
-struct SkillsProjectRecapPanel: View {
-    let project: DiscoveredProject
-    let globalSkills: [SkillRecord]
-    let projectSkills: [SkillRecord]
-    let packageSkills: [SkillRecord]
-    let onClose: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Pi Skill Recap")
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                    Text(project.name)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.plain)
-                .help("Close recap")
-                .accessibilityLabel("Close recap")
-            }
-            .padding(16)
-
-            Divider()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the skills Agent Deck will explicitly pass to parent Pi sessions for this project: Default skills plus project assignments.")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    recapSection("Default", skills: globalSkills, color: .blue, emptyText: "No default skills")
-                    recapSection("Project", skills: projectSkills, color: .green, emptyText: "No project-assigned skills")
-                }
-                .padding(16)
-            }
-        }
-        .background(AppTheme.contentSubtleFill)
-    }
-
-    private func recapSection(_ title: String, skills: [SkillRecord], color: Color, emptyText: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title)
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                Spacer()
-            }
-
-            if skills.isEmpty {
-                Text(emptyText)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(skills, id: \.name) { skill in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: title == "Package" ? "shippingbox" : "wand.and.stars")
-                                .foregroundStyle(color)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(skill.name)
-                                    .font(.subheadline.weight(.semibold))
-                                if let description = skill.description, !description.isEmpty {
-                                    Text(description)
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.mutedText)
-                                        .lineLimit(2)
-                                }
-                            }
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-            }
-        }
-    }
-}
-
 struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
-    @Binding var isRecapPresented: Bool
     @Binding var searchText: String
     @State private var selectedSkillID: SkillRecord.ID?
     @State private var isImportSheetPresented = false
@@ -134,33 +46,18 @@ struct SkillsScreen: View {
     @State private var importSourceURL: URL?
     @State private var importCandidates: [ExternalSkillCandidate] = []
     @State private var selectedImportCandidateIDs: Set<String> = []
-    @State private var importMode: SkillLibraryImportMode = .symlink
-    @State private var replaceExistingImports = false
     @State private var importErrorMessage: String?
     @State private var importSummaryMessage: String?
     @State private var skillActionErrorMessage: String?
+    @State private var skillPendingDeletion: SkillRecord?
 
     var body: some View {
-        HStack(spacing: 0) {
-            HSplitView {
-                skillLibraryContent
-                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+        HSplitView {
+            skillLibraryContent
+                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
-                AppPage(selectedSkill?.name ?? "Skill Details", subtitle: selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }) {
-                    skillDetailContent
-                }
-            }
-
-            if isRecapPresented, let selectedProject {
-                Divider()
-                SkillsProjectRecapPanel(
-                    project: selectedProject,
-                    globalSkills: globalSkills,
-                    projectSkills: projectAssignedSkills,
-                    packageSkills: packageSkills,
-                    onClose: { isRecapPresented = false }
-                )
-                .frame(width: 380)
+            AppPage(selectedSkill?.name ?? "Skill Details", subtitle: selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }) {
+                skillDetailContent
             }
         }
         .onAppear { synchronizeSelectionFromViewModel() }
@@ -197,6 +94,19 @@ struct SkillsScreen: View {
         } message: {
             Text(skillActionErrorMessage ?? "")
         }
+        .alert("Delete Skill?", isPresented: Binding(
+            get: { skillPendingDeletion != nil },
+            set: { if !$0 { skillPendingDeletion = nil } }
+        ), presenting: skillPendingDeletion) { skill in
+            Button("Move to Trash", role: .destructive) {
+                deleteSkill(skill)
+            }
+            Button("Cancel", role: .cancel) {
+                skillPendingDeletion = nil
+            }
+        } message: { skill in
+            Text("Move \"\(skill.name)\" to the Trash and remove its Default, project, and agent assignments?")
+        }
     }
 
     @ViewBuilder
@@ -224,16 +134,11 @@ struct SkillsScreen: View {
                     }
                 }
 
-                if !inactiveLibrarySkills.isEmpty {
-                    appListSection("Unassigned Catalog", info: "Catalog skills are not injected until marked Default, assigned to a project, or assigned to an agent.") {
-                        ForEach(inactiveLibrarySkills, id: \.name) { skill in
-                            skillListRow(skill, inactive: true)
-                                .tag(skill.id)
-                        }
-                    }
+                if !catalogSkills.isEmpty {
+                    catalogSection(skills: catalogSkills)
                 }
             } else {
-                appListSection("Default Skills", info: "Select a project to manage project-specific skill assignments.") {
+                appListSection("Default Skills", info: "Default skills are passed to every parent Pi Agent session, including project and projectless sessions.") {
                     if globalSkills.isEmpty {
                         nativeEmptyRow("No default skills.")
                     }
@@ -243,26 +148,21 @@ struct SkillsScreen: View {
                     }
                 }
 
-                if !librarySkills.isEmpty {
-                    appListSection("Unassigned Catalog") {
-                        ForEach(librarySkills, id: \.name) { skill in
-                            skillListRow(skill, inactive: false)
-                                .tag(skill.id)
-                        }
-                    }
-                }
-            }
-
-            if !packageSkills.isEmpty {
-                appListSection("Package Skills", info: "Package skills are catalog entries. They are not injected unless assigned.") {
-                    ForEach(packageSkills, id: \.name) { skill in
-                        skillListRow(skill, inactive: false)
-                            .tag(skill.id)
-                    }
+                if !catalogSkills.isEmpty {
+                    catalogSection(skills: catalogSkills)
                 }
             }
         }
         .appResourceListStyle()
+    }
+
+    private func catalogSection(skills: [SkillRecord]) -> some View {
+        appListSection("Catalog", info: "Catalog skills are not injected until marked Default, assigned to a project, or assigned to an agent.") {
+            ForEach(skills, id: \.name) { skill in
+                skillListRow(skill, inactive: true)
+                    .tag(skill.id)
+            }
+        }
     }
 
     private func skillWarningRow(_ warning: SkillReferenceWarning) -> some View {
@@ -394,24 +294,15 @@ struct SkillsScreen: View {
         managedSkills.filter { viewModel.skillIsEnabledGlobally($0) }
     }
 
-    private var librarySkills: [SkillRecord] {
-        managedSkills.filter { !viewModel.skillIsEnabledGlobally($0) && $0.source.kind != .package }
-    }
-
-    private var inactiveLibrarySkills: [SkillRecord] {
-        managedSkills.filter { !skillIsActiveForCurrentProject($0) && $0.source.kind != .package }
-    }
-
-    private var packageSkills: [SkillRecord] {
-        managedSkills.filter { $0.source.kind == .package }
+    private var catalogSkills: [SkillRecord] {
+        managedSkills.filter { !skillIsActiveForCurrentProject($0) }
     }
 
     private var projectAssignedSkills: [SkillRecord] {
         guard let selectedProject else { return [] }
         return managedSkills.filter {
             viewModel.skill($0, isEnabledFor: selectedProject) &&
-            !viewModel.skillIsEnabledGlobally($0) &&
-            $0.source.kind != .package
+            !viewModel.skillIsEnabledGlobally($0)
         }
     }
 
@@ -420,7 +311,6 @@ struct SkillsScreen: View {
         ?? records.first { $0.source.kind == .global }
         ?? records.first { $0.source.kind == .project }
         ?? records.first { $0.source.kind == .legacyProject }
-        ?? records.first { $0.source.kind == .package }
         ?? records.first
     }
 
@@ -462,12 +352,14 @@ struct SkillsScreen: View {
         selectedSkillID = managedSkills.first?.id
     }
 
-    private func skillListRow(_ skill: SkillRecord, inactive: Bool) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+    private func skillListRow(_ skill: SkillRecord, inactive: Bool? = nil) -> some View {
+        let isActive = skillHasAnyAssignment(skill)
+        let isInactive = inactive ?? !isActive
+        return HStack(alignment: .top, spacing: 10) {
             Image(systemName: skillIcon(skill))
                 .foregroundStyle(skillColor(skill))
                 .frame(width: 18)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(skill.name)
                     .font(.headline)
                     .fontWidth(.expanded)
@@ -476,13 +368,29 @@ struct SkillsScreen: View {
                 Text(skill.description ?? "No description")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
-        .padding(.vertical, 6)
-        .opacity((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.62 : 1)
-        .saturation((inactive || skillIsUnusedLibrarySkill(skill)) ? 0.25 : 1)
-        .badge(statusLabel(skill))
+        .padding(.vertical, 5)
+        .opacity(isInactive ? 0.62 : 1)
+        .saturation(isInactive ? 0.25 : 1)
+        .contextMenu {
+            Button {
+                revealSkillInFinder(skill)
+            } label: {
+                Label("Reveal in Finder", systemImage: "finder")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                skillPendingDeletion = skill
+            } label: {
+                Label("Delete Skill", systemImage: "trash")
+            }
+            .disabled(!viewModel.canDeleteSkill(skill))
+        }
     }
 
     private func nativeEmptyRow(_ text: String) -> some View {
@@ -527,20 +435,16 @@ struct SkillsScreen: View {
 
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(viewModel.snapshot.effectiveAgents) { agent in
-                    Toggle(isOn: Binding(
-                        get: { viewModel.skill(skill, isAssignedTo: agent) },
-                        set: { enabled in
-                            do { try viewModel.setSkill(skill, enabled: enabled, for: agent) }
-                            catch { presentSkillActionError(error, skill: skill, action: enabled ? "assign this skill to agent" : "remove this skill from agent") }
-                        }
-                    )) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(agent.name).font(.subheadline.weight(.semibold))
-                            Text(agent.resolutionKind.rawValue).font(.caption).foregroundStyle(AppTheme.mutedText)
-                        }
-                    }
-                    .toggleStyle(.checkbox)
-                    .padding(.vertical, 8)
+                    AgentAssignmentToggleRow(
+                        agent: agent,
+                        isOn: Binding(
+                            get: { viewModel.skill(skill, isAssignedTo: agent) },
+                            set: { enabled in
+                                do { try viewModel.setSkill(skill, enabled: enabled, for: agent) }
+                                catch { presentSkillActionError(error, skill: skill, action: enabled ? "assign this skill to agent" : "remove this skill from agent") }
+                            }
+                        )
+                    )
 
                     if agent.id != viewModel.snapshot.effectiveAgents.last?.id {
                         Divider()
@@ -550,42 +454,20 @@ struct SkillsScreen: View {
         }
     }
 
-    private func statusLabel(_ skill: SkillRecord) -> String {
-        if skillIsUnusedLibrarySkill(skill) { return "Unused" }
-        if skill.source.kind == .package { return "Package" }
-        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "Assigned" }
-        if viewModel.skillIsEnabledGlobally(skill) { return "Default" }
-        if !viewModel.assignedProjects(for: skill).isEmpty || !viewModel.assignedAgents(for: skill).isEmpty { return "Assigned" }
-        if !skillIsActiveForCurrentProject(skill) { return "Unassigned" }
-        return skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)
-    }
-
     private func skillIcon(_ skill: SkillRecord) -> String {
-        if skill.source.kind == .package { return "shippingbox" }
-        if viewModel.skillIsEnabledGlobally(skill) { return "globe" }
-        if skill.source.kind == .library { return "building.columns" }
-        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return "checkmark.circle" }
+        if skill.source.kind == .builtin { return "shippingbox" }
         return "wand.and.stars"
     }
 
     private func skillColor(_ skill: SkillRecord) -> Color {
-        if skill.source.kind == .package { return .orange }
-        if viewModel.skillIsEnabledGlobally(skill) { return .blue }
-        if skill.source.kind == .library { return .purple }
-        if selectedProject != nil, skillIsActiveForCurrentProject(skill) { return .green }
-        switch skill.source.kind {
-        case .library: return .purple
-        case .package: return .orange
-        case .project, .legacyProject: return .green
-        default: return .blue
-        }
+        if skillHasAnyAssignment(skill) { return .green }
+        return AppTheme.mutedText
     }
 
-    private func skillIsUnusedLibrarySkill(_ skill: SkillRecord) -> Bool {
-        !viewModel.skillIsEnabledGlobally(skill) &&
-        viewModel.assignedProjects(for: skill).isEmpty &&
-        viewModel.assignedAgents(for: skill).isEmpty &&
-        skill.source.kind != .package
+    private func skillHasAnyAssignment(_ skill: SkillRecord) -> Bool {
+        viewModel.skillIsEnabledGlobally(skill) ||
+        !viewModel.assignedProjects(for: skill).isEmpty ||
+        !viewModel.assignedAgents(for: skill).isEmpty
     }
 
     private func assignedProjectSummary(_ skill: SkillRecord) -> String {
@@ -598,16 +480,30 @@ struct SkillsScreen: View {
         return agents.isEmpty ? "—" : agents.joined(separator: ", ")
     }
 
-    private var existingLibrarySkillNames: Set<String> {
-        Set(viewModel.snapshot.librarySkills.map(\.name))
+    private func revealSkillInFinder(_ skill: SkillRecord) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: skill.filePath)])
+    }
+
+    private func deleteSkill(_ skill: SkillRecord) {
+        do {
+            try viewModel.deleteSkill(skill)
+            skillPendingDeletion = nil
+        } catch {
+            skillPendingDeletion = nil
+            presentSkillActionError(error, skill: skill, action: "delete this skill")
+        }
+    }
+
+    private var existingExternalSkillPaths: Set<String> {
+        viewModel.appSettings.externalSkillPaths
     }
 
     private func candidateAlreadyImported(_ candidate: ExternalSkillCandidate) -> Bool {
-        existingLibrarySkillNames.contains(candidate.name)
+        existingExternalSkillPaths.contains(URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path)
     }
 
     private var importableCandidateIDs: Set<String> {
-        Set(importCandidates.filter { !candidateAlreadyImported($0) || replaceExistingImports }.map(\.id))
+        Set(importCandidates.filter { !candidateAlreadyImported($0) }.map(\.id))
     }
 
     private var allImportableCandidatesSelected: Bool {
@@ -632,28 +528,10 @@ struct SkillsScreen: View {
                     }
                 }
 
-                AppCard(title: "Import Mode") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Picker("Import Mode", selection: $importMode) {
-                            ForEach(SkillLibraryImportMode.allCases) { mode in
-                                Text(mode.displayName).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Text(importMode.description)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Toggle("Replace existing catalog skills with the same name", isOn: $replaceExistingImports)
-                    }
-                }
-
                 AppCard(title: "Skills") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .center, spacing: 12) {
-                            Text("Select one or more skill roots to import into the \(AppBrand.displayName) skill catalog.")
+                            Text("Select one or more skill roots to add to the \(AppBrand.displayName) skill catalog. Files stay in place and are passed to Pi by path.")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                             Spacer()
@@ -680,7 +558,7 @@ struct SkillsScreen: View {
                                     Toggle(isOn: Binding(
                                         get: { selectedImportCandidateIDs.contains(candidate.id) },
                                         set: { isSelected in
-                                            guard !alreadyImported || replaceExistingImports else { return }
+                                            guard !alreadyImported else { return }
                                             if isSelected { selectedImportCandidateIDs.insert(candidate.id) }
                                             else { selectedImportCandidateIDs.remove(candidate.id) }
                                         }
@@ -690,7 +568,7 @@ struct SkillsScreen: View {
                                                 Text(candidate.name)
                                                     .font(.body.weight(.semibold))
                                                 if alreadyImported {
-                                                    AppLabelTag(text: replaceExistingImports ? "Will Replace" : "Already Imported", color: .gray)
+                                                    AppLabelTag(text: "Already Imported", color: .gray)
                                                 }
                                             }
 
@@ -720,7 +598,7 @@ struct SkillsScreen: View {
                                         .padding(.vertical, 10)
                                     }
                                     .toggleStyle(.checkbox)
-                                    .disabled(alreadyImported && !replaceExistingImports)
+                                    .disabled(alreadyImported)
                                     if candidate.id != importCandidates.last?.id {
                                         Divider()
                                     }
@@ -796,9 +674,7 @@ struct SkillsScreen: View {
         }
 
         importCandidates = candidates
-        selectedImportCandidateIDs = Set(candidates.filter { !existingLibrarySkillNames.contains($0.name) }.map(\.id))
-        importMode = .symlink
-        replaceExistingImports = false
+        selectedImportCandidateIDs = Set(candidates.filter { !candidateAlreadyImported($0) }.map(\.id))
 
         if !isImportSheetPresented {
             DispatchQueue.main.async {
@@ -811,7 +687,7 @@ struct SkillsScreen: View {
         let selectedCandidates = importCandidates.filter { selectedImportCandidateIDs.contains($0.id) }
         guard !selectedCandidates.isEmpty else { return }
         do {
-            let result = try viewModel.importExternalSkills(selectedCandidates, mode: importMode, replaceExisting: replaceExistingImports)
+            let result = try viewModel.importExternalSkills(selectedCandidates)
             isImportSheetPresented = false
             var summaryParts: [String] = []
             if !result.importedNames.isEmpty {
@@ -837,5 +713,71 @@ struct SkillsScreen: View {
 
         \(error.localizedDescription)
         """
+    }
+}
+
+private struct AgentAssignmentToggleRow: View {
+    let agent: EffectiveAgentRecord
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .controlSize(.regular)
+                .frame(width: 18)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(agentIconFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(isOn ? AppTheme.accentSelectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                    }
+                Image(systemName: SidebarItem.agents.systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isOn ? AppTheme.accentForeground : AppTheme.mutedText)
+            }
+            .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(agent.name)
+                    .font(.body.weight(.semibold))
+                Text(agentSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 46, alignment: .center)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isOn.toggle()
+        }
+    }
+
+    private var agentIconFill: LinearGradient {
+        LinearGradient(
+            colors: isOn
+                ? [AppTheme.brandAccentBright, AppTheme.brandAccent]
+                : [AppTheme.contentFill, AppTheme.contentSubtleFill],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var agentSubtitle: String {
+        let whenToUse = agent.resolved.whenToUse?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let whenToUse, !whenToUse.isEmpty {
+            return whenToUse
+        }
+
+        let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return description.isEmpty ? "No routing guidance set." : description
     }
 }

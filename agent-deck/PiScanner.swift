@@ -2,6 +2,11 @@ import Foundation
 
 nonisolated struct PiScanner {
     private let fileManager = FileManager.default
+    private let externalSkillPaths: Set<String>
+
+    init(externalSkillPaths: Set<String> = []) {
+        self.externalSkillPaths = externalSkillPaths
+    }
 
     func scan(projectRoot: URL?) -> ScanSnapshot {
         let globalAgentDirectory = homeDirectory().appendingPathComponent(".pi/agent/agents", isDirectory: true)
@@ -48,7 +53,9 @@ nonisolated struct PiScanner {
             scanSkills(at: extraGlobalSkills, scope: .global, allowRootMarkdown: false) +
             scanSkills(at: projectSkills, scope: .project) +
             packageSkillScan.skills
-        let librarySkills = scanSkills(at: librarySkillsDirectory, scope: .library)
+        let librarySkills =
+            scanSkills(at: librarySkillsDirectory, scope: .library) +
+            scanExternalSkills(paths: externalSkillPaths)
 
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +
@@ -201,6 +208,48 @@ nonisolated struct PiScanner {
             return scanStandaloneSkillFile(at: url, scope: scope)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func scanExternalSkills(paths: Set<String>) -> [SkillRecord] {
+        var records: [SkillRecord] = []
+        var seenSkillPaths = Set<String>()
+
+        for path in paths.sorted() {
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
+
+            let scannedRecords: [SkillRecord]
+            if isDirectory.boolValue {
+                let skillFile = url.appendingPathComponent("SKILL.md")
+                if fileManager.fileExists(atPath: skillFile.path),
+                   let skill = scanStandaloneSkillFile(at: skillFile, scope: .library) {
+                    scannedRecords = [skill]
+                } else {
+                    scannedRecords = scanSkills(at: url, scope: .library)
+                }
+            } else if url.lastPathComponent == "SKILL.md",
+                      let skill = scanStandaloneSkillFile(at: url, scope: .library) {
+                scannedRecords = [skill]
+            } else if url.pathExtension == "md",
+                      let skill = scanStandaloneSkillFile(at: url, scope: .library) {
+                scannedRecords = [skill]
+            } else {
+                scannedRecords = []
+            }
+
+            for record in scannedRecords {
+                let standardizedPath = URL(fileURLWithPath: record.filePath).standardizedFileURL.path
+                guard seenSkillPaths.insert(standardizedPath).inserted else { continue }
+                records.append(record)
+            }
+        }
+
+        return records.sorted { lhs, rhs in
+            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return lhs.filePath < rhs.filePath
+        }
     }
 
     private func scanPackageSkills(

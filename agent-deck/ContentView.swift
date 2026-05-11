@@ -42,7 +42,6 @@ struct ContentView: View {
     @State private var agentDetailEditCommand = 0
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
-    @State private var isSkillsRecapPresented = false
     @State private var isSubagentsInfoPresented = false
     @State private var isSubagentsRecapPresented = false
     @State private var showingEnableAllProjectsAlert = false
@@ -400,13 +399,6 @@ struct ContentView: View {
                             SkillsInfoPopover()
                         }
 
-                        Button {
-                            isSkillsRecapPresented.toggle()
-                        } label: {
-                            Label("Project Recap", systemImage: "sidebar.right")
-                        }
-                        .help("Show skills Pi will load for the selected project")
-                        .disabled(viewModel.selectedProjectPath == nil)
                     }
                     .toolbarNeutralChrome()
                 }
@@ -764,7 +756,6 @@ struct ContentView: View {
         case .skills:
             SkillsScreen(
                 viewModel: viewModel,
-                isRecapPresented: $isSkillsRecapPresented,
                 searchText: $skillSearchText
             )
         case .prompts:
