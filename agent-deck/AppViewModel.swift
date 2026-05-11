@@ -3593,7 +3593,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func assignedAgents(for skill: SkillRecord) -> [EffectiveAgentRecord] {
-        snapshot.effectiveAgents.filter { skill(skill, isAssignedTo: $0) }
+        snapshot.effectiveAgents.filter { self.skill(skill, isAssignedTo: $0) }
     }
 
     private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
