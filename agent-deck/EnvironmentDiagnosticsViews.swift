@@ -506,6 +506,7 @@ struct PiDocsScreen: View {
 struct DiagnosticsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @State private var setupItems: [SetupCheckItem] = []
+    @State private var piRuntimeStatus: PiAgentRuntimeStatus?
     @State private var isRefreshingSetup = true
 
     private var snapshot: ScanSnapshot {
@@ -514,6 +515,7 @@ struct DiagnosticsScreen: View {
 
     var body: some View {
         AppPage("Doctor", subtitle: "Check what \(AppBrand.displayName) is missing and fix the essentials faster") {
+            piAgentSection
             setupChecksSection
             webAccessSection
             settingsSection
@@ -524,6 +526,95 @@ struct DiagnosticsScreen: View {
                 await refreshSetupChecks()
             }
         }
+    }
+
+    // MARK: - Pi Agent
+
+    private var piAgentSection: some View {
+        AppCard(title: "Pi Agent") {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: piAgentIconName)
+                    .font(.title3)
+                    .foregroundStyle(piAgentStatusColor)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Pi CLI Runtime")
+                        .font(.body.weight(.semibold))
+                        .fontWidth(.expanded)
+
+                    if let status = piRuntimeStatus {
+                        Text(status.detail)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        AppKeyValueList(rows: piAgentRows(for: status))
+
+                        switch status.updateState {
+                        case .some(.updateAvailable):
+                            Button("Update in Terminal") { viewModel.openPiSelfUpdateInTerminal() }
+                                .buttonStyle(.borderedProminent)
+                        case let .some(.unableToCheck(reason)):
+                            Text(reason)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(AppTheme.mutedText)
+                                .textSelection(.enabled)
+                        case .some(.upToDate), .none:
+                            EmptyView()
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking Pi agent runtime...")
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
+            }
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var piAgentIconName: String {
+        guard let status = piRuntimeStatus else { return "clock" }
+        guard status.isInstalled else { return "xmark.circle.fill" }
+        if case .some(.updateAvailable) = status.updateState { return "arrow.up.circle.fill" }
+        if case .some(.unableToCheck) = status.updateState { return "exclamationmark.triangle.fill" }
+        return "checkmark.circle.fill"
+    }
+
+    private var piAgentStatusColor: Color {
+        guard let status = piRuntimeStatus else { return .secondary }
+        guard status.isInstalled else { return .red }
+        if case .some(.updateAvailable) = status.updateState { return .orange }
+        if case .some(.unableToCheck) = status.updateState { return .orange }
+        return .green
+    }
+
+    private var piAgentStatusLabel: String {
+        guard let status = piRuntimeStatus else { return "Checking" }
+        guard status.isInstalled else { return "Missing" }
+        if case .some(.updateAvailable) = status.updateState { return "Update" }
+        if case .some(.unableToCheck) = status.updateState { return "Check Failed" }
+        return "Ready"
+    }
+
+    private func piAgentRows(for status: PiAgentRuntimeStatus) -> [(String, String)] {
+        if !status.isInstalled {
+            return [("Install", "npm install -g @earendil-works/pi-coding-agent")]
+        }
+        var rows = [("Current", status.currentVersion ?? "Unknown")]
+        if case let .some(.updateAvailable(latestVersion)) = status.updateState {
+            rows.append(("Latest", latestVersion))
+            rows.append(("Command", "pi update pi"))
+        }
+        return rows
     }
 
     // MARK: - Setup Checks
@@ -606,11 +697,14 @@ struct DiagnosticsScreen: View {
     private func refreshSetupChecks() async {
         isRefreshingSetup = true
         defer { isRefreshingSetup = false }
-        setupItems = await SetupDependencyService().loadItems(
+        async let setup = SetupDependencyService().loadItems(
             projectRootPath: viewModel.appSettings.projectsRootPath,
             githubAccount: viewModel.currentGitHubAccount,
             selectedProjectPath: viewModel.selectedProjectPath
         )
+        async let piRuntime = PiAgentUpdateService().loadStatus()
+        setupItems = await setup
+        piRuntimeStatus = await piRuntime
     }
 
     // MARK: - Web Access

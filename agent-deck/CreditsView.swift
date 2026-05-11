@@ -23,6 +23,12 @@ struct CreditsScreen: View {
             AppCard(title: "Open Source") {
                 VStack(alignment: .leading, spacing: 10) {
                     creditRow(
+                        title: "pi coding agent",
+                        detail: "Agent Deck is powered by pi, the terminal coding agent by Earendil Works.",
+                        url: "https://pi.dev"
+                    )
+                    Divider()
+                    creditRow(
                         title: "TourKit",
                         detail: "SwiftUI onboarding slideshow package by Ram Patra. MIT License.",
                         url: "https://github.com/rampatra/TourKit"

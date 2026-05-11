@@ -1499,6 +1499,44 @@ final class AppViewModel: NSObject, ObservableObject {
         return session.piSessionId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
+    func openPiSelfUpdateInTerminal() {
+        let operationID = UUID()
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-deck-pi-update-\(operationID.uuidString)")
+            .appendingPathExtension("command")
+        let updateCommand = terminalPiSelfUpdateCommand()
+        let script = """
+        #!/bin/zsh
+        \(updateCommand)
+        """
+
+        do {
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            openTerminalScript(scriptURL, command: updateCommand, for: operationID)
+        } catch {
+            NSLog("Failed to create Pi update terminal script: \(error.localizedDescription)")
+        }
+    }
+
+    private func terminalPiSelfUpdateCommand() -> String {
+        """
+        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+        if command -v pi >/dev/null 2>&1; then
+          pi update pi
+        elif [ -x /opt/homebrew/bin/pi ]; then
+          /opt/homebrew/bin/pi update pi
+        elif [ -x /usr/local/bin/pi ]; then
+          /usr/local/bin/pi update pi
+        else
+          echo "Pi CLI not found. Install pi or add it to PATH."
+        fi
+        echo ""
+        echo "Press any key to close."
+        read -k 1
+        """
+    }
+
     func openSelectedPiAgentSessionInTerminal() {
         guard let session = piAgentSessionStore.selectedSession,
               let sessionRef = resumablePiSessionReference(for: session) else { return }
