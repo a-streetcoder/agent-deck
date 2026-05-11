@@ -2149,7 +2149,12 @@ final class AppViewModel: NSObject, ObservableObject {
             .joined(separator: "\n")
         let chainSection = chains.isEmpty ? "" : "\n\nAvailable native chains via `managed_chain`:\n\(chains)"
         return """
-        Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`. Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent. For multi-step work, keep a short session plan updated on meaningful transitions. Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
+        Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_chain`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`.
+        - Use `ask_user` for one focused user decision when requirements are ambiguous or preference-dependent.
+        - For multi-step work, keep a short parent-owned visible plan with `set_session_plan` and `update_session_plan`.
+        - If you delegate planning to `planner`, convert its returned implementation plan into `set_session_plan` before implementation unless the user only asked for a report. Planner text alone does not update the visible \(AppBrand.displayName) plan.
+        - Update the visible plan when steps start, complete, block, skip, or materially change.
+        - Use native subagents for bounded work; include expected output and `reads` when known. Use worktrees for writer tasks.
         \(lines.joined(separator: "\n"))\(chainSection)
         """
     }
