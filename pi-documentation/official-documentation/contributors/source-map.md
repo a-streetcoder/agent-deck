@@ -10,7 +10,8 @@ Use this file to quickly find the source of a behavior.
 
 ## Scanning and refresh
 
-- `agent-deck/PiScanner.swift` — resource discovery, parsing, resolution, warnings, runtime command scan
+- `agent-deck/PiScanner.swift` — resource discovery, parsing, baseline resolution, warnings, runtime command scan
+- `agent-deck/PiAgentLaunchResolver.swift` — app assignment-based native agent resolution
 - `agent-deck/AppRefreshService.swift` — project/global snapshot orchestration and watch fingerprinting
 - `agent-deck/ProjectDiscovery.swift` — local project discovery and GitHub remote extraction
 

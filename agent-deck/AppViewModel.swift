@@ -168,7 +168,7 @@ final class AppViewModel: NSObject, ObservableObject {
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()
-        refresh(includeModels: true)
+        refresh(includeModels: true, scanAllProjects: true)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -293,11 +293,24 @@ final class AppViewModel: NSObject, ObservableObject {
     ) {
         projectPreferencesByPath = result.projectPreferencesByPath
         discoveredProjects = result.discoveredProjects
-        globalSnapshot = result.globalSnapshot
+
+        if !appSettings.didMigrateAgentAssignmentsFromDiscoveredFiles {
+            guard result.includesAllProjectSnapshots else {
+                refresh(includeModels: includeModels, scanAllProjects: true)
+                return
+            }
+            migrateAgentAssignmentsFromDiscoveredFiles(globalSnapshot: result.globalSnapshot, projectSnapshots: result.projectSnapshots)
+        }
+
+        let catalogProjectSnapshots = Array(result.projectSnapshots.values)
+        globalSnapshot = scopedAgentSnapshot(result.globalSnapshot, projectPath: nil, globalCatalogSnapshot: result.globalSnapshot, catalogProjectSnapshots: catalogProjectSnapshots)
+        let freshProjectSnapshots = result.projectSnapshots.mapValues { projectSnapshot in
+            scopedAgentSnapshot(projectSnapshot, projectPath: projectSnapshot.projectRoot, globalCatalogSnapshot: result.globalSnapshot, catalogProjectSnapshots: catalogProjectSnapshots)
+        }
         if result.includesAllProjectSnapshots {
-            allProjectSnapshots = result.projectSnapshots
+            allProjectSnapshots = freshProjectSnapshots
         } else {
-            allProjectSnapshots.merge(result.projectSnapshots) { _, fresh in fresh }
+            allProjectSnapshots.merge(freshProjectSnapshots) { _, fresh in fresh }
             let discoveredProjectPaths = Set(result.discoveredProjects.map(\.path))
             allProjectSnapshots = allProjectSnapshots.filter { discoveredProjectPaths.contains($0.key) }
         }
@@ -308,7 +321,9 @@ final class AppViewModel: NSObject, ObservableObject {
 
         if let matchingProject = result.selectedProject {
             projectRootURL = matchingProject.url
-            snapshot = result.selectedProjectSnapshot ?? result.projectSnapshots[matchingProject.path] ?? result.globalSnapshot
+            snapshot = allProjectSnapshots[matchingProject.path]
+                ?? result.selectedProjectSnapshot.map { scopedAgentSnapshot($0, projectPath: matchingProject.path, globalCatalogSnapshot: result.globalSnapshot, catalogProjectSnapshots: catalogProjectSnapshots) }
+                ?? globalSnapshot
         } else {
             projectRootURL = nil
             self.selectedProjectPath = nil
@@ -1361,7 +1376,13 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var piAgentRunningSessionCount: Int {
-        piAgentSessionStore.sessions.filter { $0.status.isActive && !$0.needsAttention }.count
+        piAgentSessionStore.sessions.filter { session in
+            !session.needsAttention && (session.status.isActive || piAgentSessionHasActiveSubagent(session.id))
+        }.count
+    }
+
+    private func piAgentSessionHasActiveSubagent(_ sessionID: UUID) -> Bool {
+        piAgentSessionStore.subagentRuns(for: sessionID).contains { $0.status.isActive }
     }
 
     func isModelEnabled(_ model: AvailableModel) -> Bool {
@@ -3164,6 +3185,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var allDisplayAgents: [EffectiveAgentRecord] {
         var byID: [EffectiveAgentRecord.ID: EffectiveAgentRecord] = [:]
         for agent in snapshot.effectiveAgents { byID[agent.id] = agent }
+        for agent in catalogOnlyEffectiveAgents { byID[agent.id] = agent }
         for agent in libraryOnlyEffectiveAgents { byID[agent.id] = agent }
         for agent in projectAssignedLibraryAgentsForAggregateView { byID[agent.id] = agent }
         return Array(byID.values)
@@ -3196,7 +3218,16 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var selectedAgent: EffectiveAgentRecord? {
-        filteredAgents.first(where: { $0.id == selectedAgentID }) ?? (snapshot.effectiveAgents + libraryOnlyEffectiveAgents).first(where: { $0.id == selectedAgentID })
+        filteredAgents.first(where: { $0.id == selectedAgentID }) ?? (snapshot.effectiveAgents + catalogOnlyEffectiveAgents + libraryOnlyEffectiveAgents).first(where: { $0.id == selectedAgentID })
+    }
+
+    private var catalogOnlyEffectiveAgents: [EffectiveAgentRecord] {
+        let effectivePaths = Set(snapshot.effectiveAgents.compactMap(\.sourcePath).map(standardizedPath))
+        return agentCatalog(forProjectPath: selectedProjectPath)
+            .filter { $0.source.kind != .builtin }
+            .filter { !effectivePaths.contains(standardizedPath($0.filePath)) }
+            .filter { $0.source.kind != .library }
+            .map { catalogDisplayAgent(from: $0, projectRoot: snapshot.projectRoot) }
     }
 
     private var libraryOnlyEffectiveAgents: [EffectiveAgentRecord] {
@@ -3215,12 +3246,27 @@ final class AppViewModel: NSObject, ObservableObject {
         guard snapshot.projectRoot == nil else { return [] }
         let effectiveNames = Set(snapshot.effectiveAgents.map(\.name))
         let libraryByName = Dictionary(uniqueKeysWithValues: snapshot.libraryAgents.map { ($0.name, $0) })
-        let assignedNames = Set(allProjectSnapshots.values.flatMap(\.projectAgents).map(\.name))
+        let assignedNames = Set(projectPreferencesByPath.values.flatMap(\.assignedAgentNames))
         let libraryNames = Set(snapshot.libraryAgents.map(\.name))
         return assignedNames
             .filter { !effectiveNames.contains($0) && libraryNames.contains($0) }
             .compactMap { libraryByName[$0] }
             .map { libraryDisplayAgent(from: $0, projectRoot: nil) }
+    }
+
+    private func catalogDisplayAgent(from record: AgentRecord, projectRoot: String?) -> EffectiveAgentRecord {
+        EffectiveAgentRecord(
+            id: "catalog::\(record.source.kind.rawValue)::\(record.filePath)",
+            name: record.name,
+            projectRoot: projectRoot,
+            builtin: nil,
+            globalCustom: record.source.kind == .global ? record : nil,
+            projectCustom: record.source.kind == .project || record.source.kind == .legacyProject ? record : nil,
+            userOverride: nil,
+            projectOverride: nil,
+            resolved: record.parsed,
+            resolutionKind: record.source.kind == .global ? .globalCustom : .projectCustom
+        )
     }
 
     private func libraryDisplayAgent(from record: AgentRecord, projectRoot: String?) -> EffectiveAgentRecord {
@@ -3239,9 +3285,67 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var allVisibleAgentRecords: [AgentRecord] {
-        let activeCustom = snapshot.effectiveAgents.compactMap { $0.projectCustom ?? $0.globalCustom }
-        return deduplicateByID(activeCustom + snapshot.libraryAgents)
+        agentCatalog(forProjectPath: selectedProjectPath)
+            .filter { $0.source.kind != .builtin }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func agentCatalog(forProjectPath projectPath: String?) -> [AgentRecord] {
+        var records = globalSnapshot.globalAgents + globalSnapshot.libraryAgents
+        for projectSnapshot in allProjectSnapshots.values {
+            records += projectSnapshot.projectAgents + projectSnapshot.legacyProjectAgents + projectSnapshot.libraryAgents
+        }
+        if selectedProjectPath == projectPath {
+            records += snapshot.projectAgents + snapshot.legacyProjectAgents + snapshot.libraryAgents
+        }
+        return deduplicateByID(records)
+    }
+
+    private func agentCatalog(globalSnapshot: ScanSnapshot, catalogProjectSnapshots: [ScanSnapshot]) -> [AgentRecord] {
+        deduplicateByID(
+            globalSnapshot.globalAgents +
+            globalSnapshot.libraryAgents +
+            catalogProjectSnapshots.flatMap { $0.projectAgents + $0.legacyProjectAgents + $0.libraryAgents }
+        )
+    }
+
+    private func scopedAgentSnapshot(_ base: ScanSnapshot, projectPath: String?, globalCatalogSnapshot: ScanSnapshot, catalogProjectSnapshots: [ScanSnapshot]) -> ScanSnapshot {
+        let projectAgentNames = projectPath.map { projectPreference(for: $0).assignedAgentNames } ?? []
+        return ScanSnapshot(
+            projectRoot: base.projectRoot,
+            builtinAgents: base.builtinAgents,
+            globalAgents: base.globalAgents,
+            projectAgents: base.projectAgents,
+            legacyProjectAgents: base.legacyProjectAgents,
+            effectiveAgents: PiAgentLaunchResolver.effectiveAgents(
+                defaultAgentNames: appSettings.defaultAgentNames,
+                projectAgentNames: projectAgentNames,
+                snapshot: base,
+                catalog: agentCatalog(globalSnapshot: globalCatalogSnapshot, catalogProjectSnapshots: catalogProjectSnapshots)
+            ),
+            libraryAgents: base.libraryAgents,
+            skills: base.skills,
+            librarySkills: base.librarySkills,
+            promptTemplates: base.promptTemplates,
+            libraryPromptTemplates: base.libraryPromptTemplates,
+            settings: base.settings,
+            envKeys: base.envKeys,
+            warnings: base.warnings
+        )
+    }
+
+    private func migrateAgentAssignmentsFromDiscoveredFiles(globalSnapshot: ScanSnapshot, projectSnapshots: [String: ScanSnapshot]) {
+        for name in Set(globalSnapshot.globalAgents.map(\.name)) {
+            _ = appSettingsController.setDefaultAgent(name, enabled: true)
+        }
+        for (projectPath, projectSnapshot) in projectSnapshots {
+            for name in Set((projectSnapshot.projectAgents + projectSnapshot.legacyProjectAgents).map(\.name)) {
+                projectPreferencesStore.setAssignedAgent(name, assigned: true, for: projectPath)
+            }
+        }
+        _ = appSettingsController.markAgentAssignmentsMigratedFromDiscoveredFiles()
+        appSettings = appSettingsController.settings
+        projectPreferencesByPath = projectPreferencesStore.preferencesByPath
     }
 
     var selectedSkill: SkillRecord? {
@@ -3499,6 +3603,433 @@ final class AppViewModel: NSObject, ObservableObject {
         refreshAfterAgentDraftChange(draft)
     }
 
+    func canRenameAgent(_ agent: EffectiveAgentRecord) -> Bool {
+        renameableAgentRecord(for: agent) != nil
+    }
+
+    func renamePreview(for agent: EffectiveAgentRecord, to requestedName: String) -> ResourceRenamePreview {
+        renamePreview(oldName: agent.name, requestedName: requestedName) { newName in
+            guard let record = renameableAgentRecord(for: agent) else {
+                throw ResourceRenameError.unsupportedResource("Bundled agents cannot be renamed. Create a custom replacement or duplicate instead.")
+            }
+            try validateAgentRename(record, to: newName)
+            var changes = ["Update agent frontmatter `name` from `\(agent.name)` to `\(newName)`.", "Rename the agent markdown file to `\(newName).md`."]
+            if appSettings.defaultAgentNames.contains(agent.name) { changes.append("Update Default agent assignment.") }
+            if projectPreferencesByPath.values.contains(where: { $0.assignedAgentNames.contains(agent.name) }) { changes.append("Update project agent assignments.") }
+            var warnings: [String] = []
+            if snapshot.builtinAgents.contains(where: { $0.name == agent.name }) {
+                warnings.append("This custom agent currently replaces a builtin. After renaming it, it will become a separate custom agent.")
+            }
+            return (changes, warnings)
+        }
+    }
+
+    func renameAgent(_ agent: EffectiveAgentRecord, to requestedName: String) throws {
+        refreshAllProjectSnapshotsForRename()
+        let newName = try ResourceRenameSupport.normalizedName(requestedName)
+        guard newName != agent.name else { return }
+        guard let record = renameableAgentRecord(for: agent) else {
+            throw ResourceRenameError.unsupportedResource("Bundled agents cannot be renamed. Create a custom replacement or duplicate instead.")
+        }
+        try validateAgentRename(record, to: newName)
+
+        let oldName = record.name
+        let sourceURL = URL(fileURLWithPath: record.filePath).standardizedFileURL
+        let destinationURL = sourceURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        try ensureRenameDestinationAvailable(destinationURL, sourceURL: sourceURL)
+
+        var config = record.parsed
+        config.name = newName
+        let serialized = agentPersistence.serializedText(for: config)
+        try moveItemIfNeeded(from: sourceURL, to: destinationURL)
+        try serialized.write(to: destinationURL, atomically: true, encoding: .utf8)
+
+        _ = appSettingsController.renameDefaultAgent(from: oldName, to: newName)
+        projectPreferencesStore.renameAssignedAgent(from: oldName, to: newName)
+        applyProjectPreferenceChanges()
+        appSettings = appSettingsController.settings
+
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedAgentID = filteredAgents.first { $0.name == newName }?.id ?? selectedAgentID
+    }
+
+    func canRenameSkill(_ skill: SkillRecord) -> Bool {
+        switch skill.source.kind {
+        case .builtin, .package:
+            return false
+        case .global, .project, .legacyProject, .override, .library:
+            return true
+        }
+    }
+
+    func renamePreview(for skill: SkillRecord, to requestedName: String) -> ResourceRenamePreview {
+        renamePreview(oldName: skill.name, requestedName: requestedName) { newName in
+            guard canRenameSkill(skill) else {
+                throw ResourceRenameError.unsupportedResource("Bundled and package skills are read-only and cannot be renamed.")
+            }
+            try validateSkillRename(skill, to: newName)
+            var changes = ["Update `SKILL.md` frontmatter `name` from `\(skill.name)` to `\(newName)`." ]
+            if skill.filePath.hasSuffix("/SKILL.md") {
+                changes.append("Rename the skill folder to `\(newName)`.")
+            } else {
+                changes.append("Rename the skill file to `\(newName).md`.")
+            }
+            if appSettings.defaultSkillNames.contains(skill.name) { changes.append("Update Default skill assignment.") }
+            if projectPreferencesByPath.values.contains(where: { $0.assignedSkillNames.contains(skill.name) }) { changes.append("Update project skill assignments.") }
+            if allAgentRecordsForReferenceUpdates().contains(where: { $0.parsed.skills.contains(skill.name) }) { changes.append("Update agent skill references.") }
+            return (changes, [])
+        }
+    }
+
+    func renameSkill(_ skill: SkillRecord, to requestedName: String) throws {
+        refreshAllProjectSnapshotsForRename()
+        let newName = try ResourceRenameSupport.normalizedName(requestedName)
+        guard newName != skill.name else { return }
+        guard canRenameSkill(skill) else {
+            throw ResourceRenameError.unsupportedResource("Bundled and package skills are read-only and cannot be renamed.")
+        }
+        try validateSkillRename(skill, to: newName)
+
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        let isSkillFolder = fileURL.lastPathComponent == "SKILL.md"
+        let oldTargetURL = isSkillFolder ? fileURL.deletingLastPathComponent() : fileURL
+        let newTargetURL = isSkillFolder
+            ? oldTargetURL.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
+            : oldTargetURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        try ensureRenameDestinationAvailable(newTargetURL, sourceURL: oldTargetURL)
+
+        let text = try String(contentsOf: fileURL, encoding: .utf8)
+        let updatedText = ResourceRenameSupport.replacingFrontmatterValue(in: text, key: "name", value: newName)
+        try updatedText.write(to: fileURL, atomically: true, encoding: .utf8)
+        try moveItemIfNeeded(from: oldTargetURL, to: newTargetURL)
+
+        _ = appSettingsController.renameDefaultSkill(from: skill.name, to: newName)
+        projectPreferencesStore.renameAssignedSkill(from: skill.name, to: newName)
+        applyProjectPreferenceChanges()
+        try replaceSkillReferencesInCustomAgents(from: skill.name, to: newName)
+        try replaceSkillReferencesInBuiltinOverrides(from: skill.name, to: newName)
+        _ = appSettingsController.replaceExternalSkillPath(from: oldTargetURL.path, to: newTargetURL.path)
+        _ = appSettingsController.replaceExternalSkillPath(from: fileURL.path, to: (isSkillFolder ? newTargetURL.appendingPathComponent("SKILL.md") : newTargetURL).path)
+        appSettings = appSettingsController.settings
+
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedSkillID = allVisibleSkillRecords.first { $0.name == newName }?.id ?? selectedSkillID
+    }
+
+    func canRenamePrompt(_ prompt: PromptTemplateRecord) -> Bool {
+        prompt.source.kind != .package
+    }
+
+    func renamePreview(for prompt: PromptTemplateRecord, to requestedName: String) -> ResourceRenamePreview {
+        renamePreview(oldName: prompt.name, requestedName: requestedName) { newName in
+            guard canRenamePrompt(prompt) else {
+                throw ResourceRenameError.unsupportedResource("Package prompts are read-only and cannot be renamed.")
+            }
+            try validatePromptRename(prompt, to: newName)
+            var changes = ["Rename prompt file to `\(newName).md`."]
+            if appSettings.defaultPromptTemplateNames.contains(prompt.name) { changes.append("Update Default prompt assignment.") }
+            if projectPreferencesByPath.values.contains(where: { $0.assignedPromptTemplateNames.contains(prompt.name) }) { changes.append("Update project prompt assignments.") }
+            if settingsContainPromptFile(prompt.filePath) { changes.append("Update direct prompt paths in settings.json.") }
+            return (changes, [])
+        }
+    }
+
+    func renamePrompt(_ prompt: PromptTemplateRecord, to requestedName: String) throws {
+        refreshAllProjectSnapshotsForRename()
+        let newName = try ResourceRenameSupport.normalizedName(requestedName)
+        guard newName != prompt.name else { return }
+        guard canRenamePrompt(prompt) else {
+            throw ResourceRenameError.unsupportedResource("Package prompts are read-only and cannot be renamed.")
+        }
+        try validatePromptRename(prompt, to: newName)
+
+        let fileURL = URL(fileURLWithPath: prompt.filePath).standardizedFileURL
+        let destinationURL = fileURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        try ensureRenameDestinationAvailable(destinationURL, sourceURL: fileURL)
+        try moveItemIfNeeded(from: fileURL, to: destinationURL)
+
+        _ = appSettingsController.renameDefaultPromptTemplate(from: prompt.name, to: newName)
+        projectPreferencesStore.renameAssignedPromptTemplate(from: prompt.name, to: newName)
+        applyProjectPreferenceChanges()
+        try replacePromptSettingsPaths(oldURLs: [fileURL], newURL: destinationURL)
+        appSettings = appSettingsController.settings
+
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == newName }?.id ?? selectedCommandItemID
+    }
+
+    private func renamePreview(oldName: String, requestedName: String, build: (String) throws -> (changes: [String], warnings: [String])) -> ResourceRenamePreview {
+        do {
+            let newName = try ResourceRenameSupport.normalizedName(requestedName)
+            guard newName != oldName else {
+                return ResourceRenameSupport.preview(oldName: oldName, requestedName: requestedName, changes: [])
+            }
+            let result = try build(newName)
+            return ResourceRenameSupport.preview(oldName: oldName, requestedName: requestedName, changes: result.changes, warnings: result.warnings)
+        } catch {
+            return ResourceRenameSupport.preview(oldName: oldName, requestedName: requestedName, changes: [], blockers: [error.localizedDescription])
+        }
+    }
+
+    private func renameableAgentRecord(for agent: EffectiveAgentRecord) -> AgentRecord? {
+        let record = agent.projectCustom ?? agent.globalCustom ?? snapshot.libraryAgents.first { $0.name == agent.name }
+        guard let record, record.source.kind != .builtin, record.source.kind != .package else { return nil }
+        return record
+    }
+
+    private func refreshAllProjectSnapshotsForRename() {
+        refreshTask?.cancel()
+        let result = AppRefreshService().loadSnapshot(
+            rootURL: configuredProjectsRootURL,
+            selectedProjectPath: selectedProjectPath,
+            preferencesByPath: projectPreferencesStore.preferencesByPath,
+            externalSkillPaths: appSettings.externalSkillPaths,
+            scanAllProjects: true
+        )
+        applyRefreshSnapshot(result, includeModels: false)
+    }
+
+    private func validateAgentRename(_ record: AgentRecord, to newName: String) throws {
+        guard !agentNameExists(newName, excludingPaths: [standardizedPath(record.filePath)]) else {
+            throw ResourceRenameError.duplicateName(newName)
+        }
+        let sourceURL = URL(fileURLWithPath: record.filePath).standardizedFileURL
+        if (try? sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw ResourceRenameError.unsupportedResource("Symlinked agents cannot be renamed safely in app. Rename the real agent file instead.")
+        }
+        let destinationURL = sourceURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        try ensureRenameDestinationAvailable(destinationURL, sourceURL: sourceURL)
+    }
+
+    private func validateSkillRename(_ skill: SkillRecord, to newName: String) throws {
+        guard !allSkillRecordsForRenameValidation().contains(where: { $0.name == newName && standardizedPath($0.filePath) != standardizedPath(skill.filePath) }) else {
+            throw ResourceRenameError.duplicateName(newName)
+        }
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        if (try? fileURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw ResourceRenameError.unsupportedResource("Symlinked skills cannot be renamed safely in app. Rename the real skill file or folder instead.")
+        }
+        let oldTargetURL = fileURL.lastPathComponent == "SKILL.md" ? fileURL.deletingLastPathComponent() : fileURL
+        if (try? oldTargetURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw ResourceRenameError.unsupportedResource("Symlinked skill folders cannot be renamed safely in app. Rename the real skill folder instead.")
+        }
+        let newTargetURL = fileURL.lastPathComponent == "SKILL.md"
+            ? oldTargetURL.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
+            : oldTargetURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        try ensureRenameDestinationAvailable(newTargetURL, sourceURL: oldTargetURL)
+        try validateCustomAgentSkillReferenceWriteTargets(for: skill.name)
+    }
+
+    private func validatePromptRename(_ prompt: PromptTemplateRecord, to newName: String) throws {
+        guard !allPromptRecordsForRenameValidation().contains(where: { $0.name == newName && standardizedPath($0.filePath) != standardizedPath(prompt.filePath) }) else {
+            throw ResourceRenameError.duplicateName(newName)
+        }
+        let fileURL = URL(fileURLWithPath: prompt.filePath).standardizedFileURL
+        if (try? fileURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw ResourceRenameError.unsupportedResource("Symlinked prompts cannot be renamed safely in app. Rename the real prompt file instead.")
+        }
+        let destinationURL = fileURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
+        try ensureRenameDestinationAvailable(destinationURL, sourceURL: fileURL)
+    }
+
+    private func ensureRenameDestinationAvailable(_ destinationURL: URL, sourceURL: URL) throws {
+        let destinationPath = destinationURL.standardizedFileURL.path
+        let sourcePath = sourceURL.standardizedFileURL.path
+        guard destinationPath.hasPrefix(sourceURL.deletingLastPathComponent().standardizedFileURL.path + "/") else {
+            throw ResourceRenameError.unsafePath(destinationPath)
+        }
+        if pathExistsOrIsSymlink(destinationURL), destinationPath != sourcePath {
+            throw ResourceRenameError.destinationExists(destinationPath)
+        }
+    }
+
+    private func pathExistsOrIsSymlink(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path) || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    private func moveItemIfNeeded(from sourceURL: URL, to destinationURL: URL) throws {
+        let source = sourceURL.standardizedFileURL
+        let destination = destinationURL.standardizedFileURL
+        guard source.path != destination.path else { return }
+        try FileManager.default.moveItem(at: source, to: destination)
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func agentNameExists(_ name: String, excludingPaths: Set<String>) -> Bool {
+        allAgentRecordsForReferenceUpdates().contains { record in
+            record.name == name && !excludingPaths.contains(standardizedPath(record.filePath))
+        }
+    }
+
+    private func allAgentRecordsForReferenceUpdates() -> [AgentRecord] {
+        var seen = Set<String>()
+        let snapshots = [snapshot, globalSnapshot] + Array(allProjectSnapshots.values)
+        var records: [AgentRecord] = []
+        for snapshot in snapshots {
+            records.append(contentsOf: snapshot.libraryAgents)
+            records.append(contentsOf: snapshot.globalAgents)
+            records.append(contentsOf: snapshot.projectAgents)
+            records.append(contentsOf: snapshot.legacyProjectAgents)
+            records.append(contentsOf: snapshot.effectiveAgents.compactMap(\.winningRecord))
+        }
+        return records.filter { record in
+            seen.insert(standardizedPath(record.filePath)).inserted
+        }
+    }
+
+    private func allSkillRecordsForRenameValidation() -> [SkillRecord] {
+        var seen = Set<String>()
+        return ([snapshot, globalSnapshot] + Array(allProjectSnapshots.values))
+            .flatMap { $0.skills + $0.librarySkills }
+            .filter { seen.insert(standardizedPath($0.filePath)).inserted }
+    }
+
+    private func allPromptRecordsForRenameValidation() -> [PromptTemplateRecord] {
+        var seen = Set<String>()
+        return ([snapshot, globalSnapshot] + Array(allProjectSnapshots.values))
+            .flatMap { $0.promptTemplates + $0.libraryPromptTemplates }
+            .filter { seen.insert(standardizedPath($0.filePath)).inserted }
+    }
+
+    private func replaceSkillReferencesInCustomAgents(from oldName: String, to newName: String) throws {
+        var seenWriteTargets = Set<String>()
+        for record in allAgentRecordsForReferenceUpdates() where record.parsed.skills.contains(oldName) && record.source.kind != .builtin && record.source.kind != .package {
+            guard let writeURL = customAgentWriteURL(for: record) else {
+                throw ResourceRenameError.unsupportedResource("Agent `\(record.name)` is symlinked. Rename or edit that agent manually before renaming this skill.")
+            }
+            guard seenWriteTargets.insert(writeURL.path).inserted else { continue }
+            var config = record.parsed
+            config.skills = config.skills.map { $0 == oldName ? newName : $0 }
+            let text = agentPersistence.serializedText(for: config)
+            try text.write(to: writeURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func validateCustomAgentSkillReferenceWriteTargets(for skillName: String) throws {
+        for record in allAgentRecordsForReferenceUpdates() where record.parsed.skills.contains(skillName) && record.source.kind != .builtin && record.source.kind != .package {
+            guard customAgentWriteURL(for: record) != nil else {
+                throw ResourceRenameError.unsupportedResource("Agent `\(record.name)` is symlinked. Rename or edit that agent manually before renaming this skill.")
+            }
+        }
+    }
+
+    private func customAgentWriteURL(for record: AgentRecord) -> URL? {
+        let sourceURL = URL(fileURLWithPath: record.filePath).standardizedFileURL
+        guard (try? sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return nil }
+        return sourceURL
+    }
+
+    private func replaceSkillReferencesInBuiltinOverrides(from oldName: String, to newName: String) throws {
+        for settingsPath in allSettingsPaths() {
+            var root = try loadJSONDictionary(at: settingsPath)
+            guard var subagents = root["subagents"] as? [String: Any], var overrides = subagents["agentOverrides"] as? [String: Any] else { continue }
+            var changed = false
+            for key in overrides.keys {
+                guard var override = overrides[key] as? [String: Any] else { continue }
+                if let skills = override["skills"] as? [Any] {
+                    let updated = skills.map { value -> Any in
+                        guard let skill = value as? String, skill == oldName else { return value }
+                        changed = true
+                        return newName
+                    }
+                    override["skills"] = updated
+                    overrides[key] = override
+                } else if let skill = override["skills"] as? String, skill == oldName {
+                    override["skills"] = newName
+                    overrides[key] = override
+                    changed = true
+                }
+            }
+            guard changed else { continue }
+            subagents["agentOverrides"] = overrides
+            root["subagents"] = subagents
+            try writeJSONDictionary(root, to: settingsPath)
+        }
+    }
+
+    private func settingsContainPromptFile(_ filePath: String) -> Bool {
+        let target = standardizedPath(filePath)
+        return allSettingsPaths().contains { settingsPath in
+            guard let root = try? loadJSONDictionary(at: settingsPath), let prompts = root["prompts"] else { return false }
+            let baseURL = URL(fileURLWithPath: settingsPath).deletingLastPathComponent()
+            return promptEntries(from: prompts).contains { standardizedPath(resolveSettingsPath($0, baseURL: baseURL).path) == target }
+        }
+    }
+
+    private func replacePromptSettingsPaths(oldURLs: [URL], newURL: URL) throws {
+        let oldPaths = Set(oldURLs.map { $0.standardizedFileURL.path })
+        for settingsPath in allSettingsPaths() {
+            var root = try loadJSONDictionary(at: settingsPath)
+            guard let prompts = root["prompts"] else { continue }
+            let baseURL = URL(fileURLWithPath: settingsPath).deletingLastPathComponent()
+            var changed = false
+            func replacement(for entry: String) -> String {
+                let resolved = resolveSettingsPath(entry, baseURL: baseURL).standardizedFileURL.path
+                guard oldPaths.contains(resolved) else { return entry }
+                changed = true
+                return rewrittenSettingsPath(for: newURL, originalEntry: entry, baseURL: baseURL)
+            }
+            if let value = prompts as? String {
+                root["prompts"] = replacement(for: value)
+            } else if let values = prompts as? [Any] {
+                root["prompts"] = values.map { value -> Any in
+                    guard let entry = value as? String else { return value }
+                    return replacement(for: entry)
+                }
+            }
+            guard changed else { continue }
+            try writeJSONDictionary(root, to: settingsPath)
+        }
+    }
+
+    private func promptEntries(from rawValue: Any) -> [String] {
+        if let value = rawValue as? String { return [value] }
+        if let values = rawValue as? [Any] { return values.compactMap { $0 as? String } }
+        return []
+    }
+
+    private func resolveSettingsPath(_ entry: String, baseURL: URL) -> URL {
+        let expanded = NSString(string: entry).expandingTildeInPath
+        if expanded.hasPrefix("/") { return URL(fileURLWithPath: expanded) }
+        return baseURL.appendingPathComponent(expanded)
+    }
+
+    private func rewrittenSettingsPath(for newURL: URL, originalEntry: String, baseURL: URL) -> String {
+        let expanded = NSString(string: originalEntry).expandingTildeInPath
+        if expanded.hasPrefix("/") || originalEntry.hasPrefix("~") { return newURL.standardizedFileURL.path }
+        let basePath = baseURL.standardizedFileURL.path
+        let newPath = newURL.standardizedFileURL.path
+        if newPath.hasPrefix(basePath + "/") {
+            return String(newPath.dropFirst(basePath.count + 1))
+        }
+        return newPath
+    }
+
+    private func allSettingsPaths() -> [String] {
+        var seen = Set<String>()
+        return ([snapshot, globalSnapshot] + Array(allProjectSnapshots.values))
+            .flatMap(\.settings)
+            .map(\.path)
+            .filter { seen.insert(standardizedPath($0)).inserted }
+    }
+
+    private func loadJSONDictionary(at path: String) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: path) else { return [:] }
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        guard !data.isEmpty else { return [:] }
+        return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+
+    private func writeJSONDictionary(_ dictionary: [String: Any], to path: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: dictionary, options: [.prettyPrinted, .sortedKeys])
+        var text = String(decoding: data, as: UTF8.self)
+        if !text.hasSuffix("\n") { text.append("\n") }
+        try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+    }
+
     func createLibraryPromptTemplate() throws {
         let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
@@ -3558,14 +4089,8 @@ final class AppViewModel: NSObject, ObservableObject {
         refresh(includeModels: false)
     }
 
-    private func addPrompt(_ prompt: PromptTemplateRecord, toProjectPath projectPath: String) throws {
-        let libraryURL = try ensureLibraryPrompt(for: prompt)
-        try removeGlobalVisibility(forPromptNamed: prompt.name)
-        try createPromptSymlink(from: projectPromptLinkURL(name: prompt.name, projectPath: projectPath), to: libraryURL)
-    }
-
     func agent(_ agent: AgentRecord, isEnabledFor project: DiscoveredProject) -> Bool {
-        FileManager.default.fileExists(atPath: projectAgentLinkURL(name: agent.name, projectPath: project.path).path)
+        projectPreference(for: project.path).assignedAgentNames.contains(agent.name)
     }
 
     func assignedProjects(for agent: AgentRecord) -> [DiscoveredProject] {
@@ -3598,41 +4123,30 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func agentIsEnabledGlobally(_ agent: AgentRecord) -> Bool {
-        globalSnapshot.globalAgents.contains { $0.name == agent.name }
+        appSettings.defaultAgentNames.contains(agent.name)
     }
 
     func setAgent(_ agent: AgentRecord, enabled: Bool, for project: DiscoveredProject) throws {
-        if enabled { try addAgent(agent, toProjectPath: project.path) }
-        else { try removeManagedFileLink(projectAgentLinkURL(name: agent.name, projectPath: project.path)) }
+        projectPreferencesStore.setAssignedAgent(agent.name, assigned: enabled, for: project.path)
+        applyProjectPreferenceChanges()
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
     }
 
     func enableAgentGlobally(_ agent: AgentRecord) throws {
-        let libraryURL = try ensureLibraryAgent(for: agent)
-        try createManagedSymlink(from: globalAgentLinkURL(name: agent.name), to: libraryURL)
-        try removeProjectVisibility(forAgentNamed: agent.name)
+        guard appSettingsController.setDefaultAgent(agent.name, enabled: true) else { return }
+        appSettings = appSettingsController.settings
         refresh(includeModels: false)
     }
 
     func disableAgentGlobally(_ agent: AgentRecord) throws {
-        if agent.source.kind == .global {
-            _ = try ensureLibraryAgent(for: agent)
-        } else if let globalRecord = globalSnapshot.globalAgents.first(where: { $0.name == agent.name }) {
-            _ = try ensureLibraryAgent(for: globalRecord)
-        }
-        try removeGlobalVisibility(forAgentNamed: agent.name)
+        guard appSettingsController.setDefaultAgent(agent.name, enabled: false) else { return }
+        appSettings = appSettingsController.settings
         refresh(includeModels: false)
     }
 
     func moveAgentToLibrary(_ agent: AgentRecord) throws {
         _ = try ensureLibraryAgent(for: agent)
         refresh(includeModels: false)
-    }
-
-    private func addAgent(_ agent: AgentRecord, toProjectPath projectPath: String) throws {
-        let libraryURL = try ensureLibraryAgent(for: agent)
-        try removeGlobalVisibility(forAgentNamed: agent.name)
-        try createManagedSymlink(from: projectAgentLinkURL(name: agent.name, projectPath: projectPath), to: libraryURL)
     }
 
     func addSkillToSelectedProject(_ skill: SkillRecord) throws {
@@ -3850,61 +4364,6 @@ final class AppViewModel: NSObject, ObservableObject {
         return libraryURL
     }
 
-    private func createManagedSymlink(from linkURL: URL, to targetURL: URL) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: linkURL.path) {
-            guard isManagedAgentLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteFileExists) }
-            try fileManager.removeItem(at: linkURL)
-        }
-        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
-    }
-
-    private func removeManagedFileLink(_ linkURL: URL) throws {
-        guard FileManager.default.fileExists(atPath: linkURL.path) else { return }
-        guard isManagedAgentLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteNoPermission) }
-        try FileManager.default.removeItem(at: linkURL)
-    }
-
-    private func isManagedAgentLibrarySymlink(_ url: URL) -> Bool {
-        let fileManager = FileManager.default
-        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true,
-              let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else { return false }
-        let destinationURL = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent()).standardizedFileURL
-        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agent-library", isDirectory: true).standardizedFileURL.path
-        return destinationURL.path.hasPrefix(libraryRoot + "/")
-    }
-
-    private func removeGlobalVisibility(forAgentNamed name: String) throws {
-        for url in globalAgentLinkURLs(name: name) {
-            try removeManagedFileLinkIfExists(url)
-        }
-    }
-    private func removeProjectVisibility(forAgentNamed name: String) throws { for project in enabledProjects { try removeManagedFileLinkIfExists(projectAgentLinkURL(name: name, projectPath: project.path)) } }
-
-    private func removeManagedFileLinkIfExists(_ url: URL) throws {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try removeManagedFileLink(url)
-    }
-
-    private func globalAgentLinkURL(name: String) -> URL {
-        let legacyGlobal = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agents", isDirectory: true)
-        if FileManager.default.fileExists(atPath: legacyGlobal.path) {
-            return legacyGlobal.appendingPathComponent("\(name).md")
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/agents/\(name).md")
-    }
-
-    private func globalAgentLinkURLs(name: String) -> [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return [
-            home.appendingPathComponent(".agents/\(name).md"),
-            home.appendingPathComponent(".pi/agent/agents/\(name).md")
-        ]
-    }
-
-    private func projectAgentLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/agents/\(name).md") }
-
     private func ensureLibraryPrompt(for prompt: PromptTemplateRecord) throws -> URL {
         let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         let libraryURL = libraryRoot.appendingPathComponent("\(prompt.name).md")
@@ -3922,41 +4381,6 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         return libraryURL
     }
-
-    private func createPromptSymlink(from linkURL: URL, to targetURL: URL) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: linkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fileManager.fileExists(atPath: linkURL.path) {
-            guard isManagedPromptLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteFileExists) }
-            try fileManager.removeItem(at: linkURL)
-        }
-        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
-    }
-
-    private func removeManagedPromptLink(_ linkURL: URL) throws {
-        guard FileManager.default.fileExists(atPath: linkURL.path) else { return }
-        guard isManagedPromptLibrarySymlink(linkURL) else { throw CocoaError(.fileWriteNoPermission) }
-        try FileManager.default.removeItem(at: linkURL)
-    }
-
-    private func removeManagedPromptLinkIfExists(_ url: URL) throws {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try removeManagedPromptLink(url)
-    }
-
-    private func isManagedPromptLibrarySymlink(_ url: URL) -> Bool {
-        let fileManager = FileManager.default
-        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true,
-              let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else { return false }
-        let destinationURL = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent()).standardizedFileURL
-        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true).standardizedFileURL.path
-        return destinationURL.path.hasPrefix(libraryRoot + "/")
-    }
-
-    private func removeGlobalVisibility(forPromptNamed name: String) throws { try removeManagedPromptLinkIfExists(globalPromptLinkURL(name: name)) }
-    private func removeProjectVisibility(forPromptNamed name: String) throws { for project in enabledProjects { try removeManagedPromptLinkIfExists(projectPromptLinkURL(name: name, projectPath: project.path)) } }
-    private func globalPromptLinkURL(name: String) -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompts/\(name).md") }
-    private func projectPromptLinkURL(name: String, projectPath: String) -> URL { URL(fileURLWithPath: projectPath).appendingPathComponent(".pi/prompts/\(name).md") }
 
     private func parseSimpleFrontmatter(_ text: String) -> [String: String] {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")

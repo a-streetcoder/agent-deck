@@ -21,12 +21,12 @@ This page lists the important paths Agent Deck scans or writes.
 | Scope | Path |
 |---|---|
 | App-bundled native builtins | app bundle `bundled-agents/` |
-| Global active | `~/.pi/agent/agents/*.md` |
-| Legacy global | `~/.agents/*.md` |
-| Global write/link target | `~/.agents/<name>.md` if `~/.agents` exists, otherwise `~/.pi/agent/agents/<name>.md` |
-| Library | `~/.pi/agent/agent-library/agents/*.md` |
-| Project active | `PROJECT/.pi/agents/*.md` |
-| Legacy project | `PROJECT/.agents/*.md` |
+| Global catalog | `~/.pi/agent/agents/*.md` |
+| Legacy global catalog | `~/.agents/*.md` |
+| Library/catalog | `~/.pi/agent/agent-library/agents/*.md` |
+| Project catalog | `PROJECT/.pi/agents/*.md` |
+| Legacy project catalog | `PROJECT/.agents/*.md` |
+| Assignment state | Agent Deck app settings/project preferences |
 | Builtin overrides | `settings.json -> subagents.agentOverrides` |
 
 ## Chains
@@ -51,10 +51,11 @@ This page lists the important paths Agent Deck scans or writes.
 
 | Scope | Path |
 |---|---|
-| Global active | `~/.pi/agent/prompts/*.md` |
-| Library | `~/.pi/agent/prompt-library/*.md` |
-| Project active | `PROJECT/.pi/prompts/*.md` |
-| Package/settings | package prompt folders and `settings.json -> prompts` |
+| Global catalog | `~/.pi/agent/prompts/*.md` |
+| Library/catalog | `~/.pi/agent/prompt-library/*.md` |
+| Project catalog | `PROJECT/.pi/prompts/*.md` |
+| Package/settings catalog | package prompt folders and `settings.json -> prompts` |
+| Assignment state | Agent Deck app settings/project preferences; parent launch uses explicit `--prompt-template` arguments |
 
 ## Extensions and packages
 

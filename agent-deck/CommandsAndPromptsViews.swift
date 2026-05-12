@@ -4,6 +4,7 @@ import SwiftUI
 struct PromptsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String
+    @State private var promptPendingRename: PromptTemplateRecord?
 
     var body: some View {
         HSplitView {
@@ -16,6 +17,15 @@ struct PromptsScreen: View {
                 ContentUnavailableView("No Prompt Selected", systemImage: "doc.text")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .sheet(item: $promptPendingRename) { prompt in
+            RenameResourceSheet(
+                title: "Rename Prompt",
+                currentName: prompt.name,
+                resourceLabel: "prompt",
+                makePreview: { viewModel.renamePreview(for: prompt, to: $0) },
+                onRename: { try viewModel.renamePrompt(prompt, to: $0) }
+            )
         }
         .onAppear {
             if viewModel.selectedPromptTemplate == nil {
@@ -229,6 +239,8 @@ struct PromptsScreen: View {
                             ("Path", prompt.filePath)
                         ])
                         HStack(spacing: 10) {
+                            Button("Rename…") { promptPendingRename = prompt }
+                                .disabled(!viewModel.canRenamePrompt(prompt))
                             if prompt.source.kind != .library {
                                 Button("Move to Library") { do { try viewModel.movePromptToLibrary(prompt) } catch { NSSound.beep() } }
                             }

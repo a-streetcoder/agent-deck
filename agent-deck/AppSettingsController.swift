@@ -318,6 +318,39 @@ final class AppSettingsController {
     }
 
     @discardableResult
+    func setDefaultAgent(_ agentName: String, enabled: Bool) -> Bool {
+        var names = settings.defaultAgentNames
+        if enabled {
+            names.insert(agentName)
+        } else {
+            names.remove(agentName)
+        }
+        guard names != settings.defaultAgentNames else { return false }
+        settings.defaultAgentNames = names
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func renameDefaultAgent(from oldName: String, to newName: String) -> Bool {
+        guard oldName != newName, settings.defaultAgentNames.contains(oldName) else { return false }
+        var names = settings.defaultAgentNames
+        names.remove(oldName)
+        names.insert(newName)
+        settings.defaultAgentNames = names
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func markAgentAssignmentsMigratedFromDiscoveredFiles() -> Bool {
+        guard settings.didMigrateAgentAssignmentsFromDiscoveredFiles == false else { return false }
+        settings.didMigrateAgentAssignmentsFromDiscoveredFiles = true
+        persist()
+        return true
+    }
+
+    @discardableResult
     func setDefaultSkill(_ skillName: String, enabled: Bool) -> Bool {
         var names = settings.defaultSkillNames
         if enabled {
@@ -326,6 +359,17 @@ final class AppSettingsController {
             names.remove(skillName)
         }
         guard names != settings.defaultSkillNames else { return false }
+        settings.defaultSkillNames = names
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func renameDefaultSkill(from oldName: String, to newName: String) -> Bool {
+        guard oldName != newName, settings.defaultSkillNames.contains(oldName) else { return false }
+        var names = settings.defaultSkillNames
+        names.remove(oldName)
+        names.insert(newName)
         settings.defaultSkillNames = names
         persist()
         return true
@@ -359,6 +403,19 @@ final class AppSettingsController {
     }
 
     @discardableResult
+    func replaceExternalSkillPath(from oldPath: String, to newPath: String) -> Bool {
+        let normalizedOldPath = URL(fileURLWithPath: oldPath).standardizedFileURL.path
+        let normalizedNewPath = URL(fileURLWithPath: newPath).standardizedFileURL.path
+        guard normalizedOldPath != normalizedNewPath, settings.externalSkillPaths.contains(normalizedOldPath) else { return false }
+        var paths = settings.externalSkillPaths
+        paths.remove(normalizedOldPath)
+        paths.insert(normalizedNewPath)
+        settings.externalSkillPaths = paths
+        persist()
+        return true
+    }
+
+    @discardableResult
     func setDefaultPromptTemplate(_ promptName: String, enabled: Bool) -> Bool {
         var names = settings.defaultPromptTemplateNames
         if enabled {
@@ -367,6 +424,17 @@ final class AppSettingsController {
             names.remove(promptName)
         }
         guard names != settings.defaultPromptTemplateNames else { return false }
+        settings.defaultPromptTemplateNames = names
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func renameDefaultPromptTemplate(from oldName: String, to newName: String) -> Bool {
+        guard oldName != newName, settings.defaultPromptTemplateNames.contains(oldName) else { return false }
+        var names = settings.defaultPromptTemplateNames
+        names.remove(oldName)
+        names.insert(newName)
         settings.defaultPromptTemplateNames = names
         persist()
         return true

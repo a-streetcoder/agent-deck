@@ -36,6 +36,39 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertFalse((store.transcriptsBySessionID[session.id] ?? []).contains { $0.title == "Process Ended" })
     }
 
+    func testPromptSendIncludesSteerFallbackWhenLocalStatusIsIdleButClientIsRunning() throws {
+        let harness = try PiTestSupport.makeBridgeHarness(event: [
+            "type": "response",
+            "command": "get_state",
+            "success": true,
+            "data": ["isStreaming": false]
+        ])
+        defer { harness.restoreEnvironment() }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Busy Race", project: try PiTestSupport.makeProject(), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { runner.isRunning(sessionID: session.id) })
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            store.sessions.first(where: { $0.id == session.id })?.status == .idle
+        })
+
+        runner.send("is it finished?", mode: .prompt, to: session.id)
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            (try? String(contentsOf: harness.stdinLog, encoding: .utf8))?.contains("is it finished?") == true
+        })
+        let stdin = try String(contentsOf: harness.stdinLog, encoding: .utf8)
+        let promptLines = stdin.split(separator: "\n").filter { $0.contains("is it finished?") }
+        let promptLine = try XCTUnwrap(promptLines.last)
+        XCTAssertTrue(promptLine.contains(#""type":"prompt""#))
+        XCTAssertTrue(promptLine.contains(#""streamingBehavior":"steer""#))
+    }
+
     func testSessionThinkingUsesLaunchArgumentAndDoesNotSendDefaultMutatingRPC() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-thinking-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

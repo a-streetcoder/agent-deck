@@ -616,11 +616,13 @@ struct PiAgentScreen: View {
 
     @ViewBuilder
     private func sessionListRow(_ session: PiAgentSessionRecord) -> some View {
+        let isWorking = sessionIsWorking(session)
+
         PiAgentSessionRow(
             session: session,
             project: viewModel.discoveredProjects.first(where: { $0.path == session.projectPath }),
             isSelected: selectedSessionIDs.contains(session.id),
-            isRunning: session.status.isActive,
+            isRunning: isWorking,
             isRenaming: renamingSessionID == session.id,
             isGeneratingTitle: viewModel.piAgentTitleGeneratingSessionIDs.contains(session.id),
             onSelect: {
@@ -638,7 +640,7 @@ struct PiAgentScreen: View {
         .tag(session.id)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         .listRowSeparator(.automatic)
-        .listRowBackground(sessionListRowBackground(isSelected: selectedSessionIDs.contains(session.id), isActive: session.status.isActive))
+        .listRowBackground(sessionListRowBackground(isSelected: selectedSessionIDs.contains(session.id), isActive: isWorking))
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 viewModel.togglePiAgentSessionPinned(session.id)
@@ -666,6 +668,10 @@ struct PiAgentScreen: View {
                 Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
             }
         }
+    }
+
+    private func sessionIsWorking(_ session: PiAgentSessionRecord) -> Bool {
+        session.status.isActive || store.subagentRuns(for: session.id).contains { $0.status.isActive }
     }
 
     @ViewBuilder

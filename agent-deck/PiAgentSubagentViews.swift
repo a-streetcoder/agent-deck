@@ -517,14 +517,41 @@ struct PiSubagentStatusText: View {
 }
 
 struct PiSubagentActivityGlyph: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let color: Color
     let isActive: Bool
+    @State private var isPulsing = false
 
     var body: some View {
-        Image(systemName: "rectangle.connected.to.line.below")
-            .foregroundStyle(color)
-            .frame(width: 24, height: 24)
-            .symbolEffect(.pulse, options: .repeating.speed(0.45), isActive: isActive)
+        ZStack {
+            Circle()
+                .stroke(color.opacity(isActive ? 0.18 : 0.10), lineWidth: 1)
+
+            if isActive && !reduceMotion {
+                Circle()
+                    .stroke(color.opacity(isPulsing ? 0 : 0.32), lineWidth: 1.5)
+                    .scaleEffect(isPulsing ? 1.45 : 1.05)
+            }
+
+            Image(systemName: "rectangle.connected.to.line.below")
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(color)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+        }
+        .frame(width: 34, height: 34)
+        .accessibilityHidden(true)
+        .task(id: isActive) {
+            guard isActive, !reduceMotion else {
+                isPulsing = false
+                return
+            }
+            isPulsing = false
+            withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) {
+                isPulsing = true
+            }
+        }
     }
 }
 

@@ -8,9 +8,9 @@ Agent Deck also has a **native subagent runtime**: the app launches and tracks c
 This file explains the narrower model Agent Deck uses to keep things understandable:
 
 1. **Builtin** resources shipped by packages
-2. **Active global** resources Pi sees everywhere
+2. **Global catalog** resources discovered from user-wide paths
 3. **Imported/catalog** resources Agent Deck remembers by path
-4. **Ad-hoc project** resources that only exist for one repo
+4. **Project catalog** resources discovered inside one repo
 
 If you want to understand the current app UX, start here.
 
@@ -25,14 +25,25 @@ Agent Deck treats discovered resources and assigned resources as different thing
 - **Project assignment** = passed to parent sessions for one project
 - **Builtin** = package-owned, read-only
 
-For skills, the app does not need to copy or symlink files into Pi discovery locations. It stores skill names/paths in its catalog and launches Pi with explicit skill arguments:
+For agents, skills, and prompts, the app does not need to copy or symlink files into Pi discovery locations just to enable them. It keeps discovered files as catalog entries, stores assignment names in app settings/project preferences, and launches parent Pi sessions with ambient discovery disabled plus explicit resource arguments where Pi supports them.
+
+Skills are passed explicitly:
 
 ```text
 --no-skills
 --skill /path/to/skill/SKILL.md
 ```
 
-Agents, chains, and prompts may still use library storage and symlink-based activation where noted below.
+Prompts are passed explicitly:
+
+```text
+--no-prompt-templates
+--prompt-template /path/to/prompt.md
+```
+
+Agent assignments drive Agent Deck's native subagent catalog and app-owned child launch lookup.
+
+Chains may still use active/library storage where noted below.
 
 ---
 
@@ -48,20 +59,13 @@ These come from the app bundle or installed packages and are read-only.
 Agent Deck never edits builtin package files directly.
 For builtin agents it writes overrides to settings, or creates custom replacements.
 
-### 2. Global active resources
+### 2. Global catalog resources
 
-These are the things Pi sees without selecting a project.
+These are resources discovered from global paths. They are visible in Agent Deck's catalog, but agents/skills/prompts are not treated as assigned until their names are stored as Default assignments.
 
-They may be:
-- regular files/directories created directly in a global path
-- or symlinks that point back into a Agent Deck library folder
+### 3. Project catalog resources
 
-### 3. Project-only resources
-
-These are repo-scoped files or symlinks under that project's `.pi/` folder.
-
-They are intentionally ad-hoc.
-They are the right place for one-off experiments, repo-specific specialists, and local workflow helpers.
+These are repo-scoped files under that project's `.pi/` or legacy locations. They are visible in Agent Deck's catalog for that project, but agents/skills/prompts are not assigned until their names are stored in that project's Agent Deck preferences.
 
 ---
 
@@ -72,9 +76,9 @@ They are the right place for one-off experiments, repo-specific specialists, and
 ### Builtin
 - app bundle resources under `bundled-agents/*.md`
 
-### Active global
-- preferred write target: `~/.agents/*.md` **if `~/.agents` exists**
-- fallback write target: `~/.pi/agent/agents/*.md`
+### Global catalog
+- `~/.agents/*.md`
+- `~/.pi/agent/agents/*.md`
 
 ### Library
 - `~/.pi/agent/agent-library/agents/*.md`
@@ -84,7 +88,7 @@ They are the right place for one-off experiments, repo-specific specialists, and
 - app also scans legacy project agents in `PROJECT/.agents/*.md`
 
 ### Important nuance
-On this machine, `~/.agents` exists, so Agent Deck currently prefers it for new global agents and global agent symlinks.
+Agent assignment is app-state based. Enabling an agent globally or assigning it to a project does not create, move, remove, or symlink the agent markdown file.
 
 ### Agent Deck bundled native agents
 Agent Deck also ships a small app-bundled native starter pack:
@@ -191,7 +195,7 @@ When importing a resource into the library:
 - if it started as a **project** resource, Agent Deck usually **copies** it into the library
 - if it is already a **library** resource, Agent Deck keeps it there
 
-Then global/project visibility is controlled with symlinks.
+For agents and prompts, global/project assignment is controlled separately in Agent Deck settings/preferences. Moving a file to the library is only a file-organization action; it does not by itself decide where the resource is assigned.
 
 Why:
 - global resources are usually being promoted into a reusable canonical copy
@@ -205,34 +209,33 @@ Skills are different from agents/chains/prompts. Importing an external skill rec
 
 ## What “enable globally” or “assign to project” means
 
-For agents, chains, and prompts, Agent Deck treats **global visibility** and **project visibility** as mutually exclusive, but project assignment itself is **not** exclusive.
-
-For skills, these controls are assignments, not filesystem activation:
+For agents, skills, and prompts, these controls are assignments, not filesystem activation:
 
 - **Enable globally**
-  - stores the skill name as a Default skill
-  - parent sessions receive `--skill <path>` after resolving that name
+  - stores the resource name as a Default assignment
+  - skills/prompts are injected into parent sessions with explicit launch arguments
+  - agents become available in Agent Deck's native subagent catalog for sessions
 
 - **Assign to project**
-  - stores the skill name in that project's Agent Deck preferences
-  - parent sessions for that project receive `--skill <path>` after resolving that name
+  - stores the resource name in that project's Agent Deck preferences
+  - skills/prompts are injected into parent sessions for that project with explicit launch arguments
+  - agents become available to native subagent routing for that project
   - can be repeated for multiple projects at once
 
 Native agent skill assignment writes the skill name into the agent frontmatter. That child run receives its own explicit `--skill <path>` arguments.
 
 ---
 
-## Symlink targets by resource type
+## Assignment storage by resource type
 
 ### Agents
-- global link -> `~/.agents/<name>.md` or `~/.pi/agent/agents/<name>.md`
-- project link -> `PROJECT/.pi/agents/<name>.md`
-- target -> `~/.pi/agent/agent-library/agents/<name>.md`
+- no managed global/project symlink is created
+- default/project assignments store agent names
+- native subagent catalog/launch resolves assigned names to catalog records
 
 ### Chains
-- global link -> `~/.pi/agent/chains/<name>.chain.md`
-- project link -> `PROJECT/.pi/chains/<name>.chain.md`
-- target -> `~/.pi/agent/agent-library/chains/<name>.chain.md`
+- global/project chain files remain filesystem-scoped in the active chain directories listed above
+- library chains remain under `~/.pi/agent/agent-library/chains/`
 
 ### Skills
 - no managed global/project symlink is created
@@ -240,9 +243,9 @@ Native agent skill assignment writes the skill name into the agent frontmatter. 
 - launch resolves names to catalog paths and emits `--skill <path>`
 
 ### Prompts
-- global link -> `~/.pi/agent/prompts/<name>.md`
-- project link -> `PROJECT/.pi/prompts/<name>.md`
-- target -> `~/.pi/agent/prompt-library/<name>.md`
+- no managed global/project symlink is created
+- default/project assignments store prompt names
+- launch resolves names to catalog paths and emits `--prompt-template <path>`
 
 ---
 
@@ -250,16 +253,14 @@ Native agent skill assignment writes the skill name into the agent frontmatter. 
 
 ## Agents
 
-Effective precedence is:
+Effective native-subagent precedence is assignment-based:
 
-1. project custom agent
-2. global custom agent
+1. a project-assigned custom agent, when present
+2. a default-assigned custom agent, when present
 3. builtin agent
 4. then builtin overrides patch the builtin when the builtin is still the winner
 
-Within the same scope:
-- global agent precedence is `~/.agents` before `~/.pi/agent/agents`
-- project precedence is `.pi/agents` before legacy `.agents`
+For same-name assigned catalog records, project assignment prefers project files before library/global files; default assignment prefers library/global files.
 
 Builtin overrides come from:
 - `~/.pi/agent/settings.json`
@@ -358,7 +359,7 @@ Store it in:
 - `~/.pi/agent/agent-library/...`
 - `~/.pi/agent/prompt-library/...`
 
-Then activate it globally or by project.
+Then assign it globally or by project.
 
 For external skill sources such as Axiom, Agent Deck imports selected top-level skill folders by remembering their existing paths. The upstream repo remains the source of truth, and assignment controls only decide whether Agent Deck passes those paths to Pi.
 
@@ -382,7 +383,7 @@ Good candidates:
 
 Right now this machine already reflects the split above:
 
-- `~/.agents/` exists and is the preferred global agent location
+- `~/.agents/` exists and is scanned as a global agent catalog location
 - `~/.pi/agent/agent-library/` exists for reusable agents/chains
 - external skill paths are remembered in Agent Deck app settings
 - `~/.pi/agent/prompt-library/` exists for reusable prompts
@@ -393,8 +394,8 @@ So the real model in use is:
 
 - **builtin** for package defaults
 - **library** for reusable canonical resources
-- **global active** for always-on visibility
-- **project `.pi`** for local/ad-hoc visibility
+- **default assignments** for always-on availability
+- **project assignments** for local/ad-hoc availability
 
 ---
 

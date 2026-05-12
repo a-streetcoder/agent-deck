@@ -75,9 +75,11 @@ struct AppSettings: Codable, Hashable {
     var openAIFastModeModelIdentifiers: Set<String> = []
     var disabledInjectedCommandIDs: Set<String> = []
     var enabledLibraryCommandIDs: Set<String> = []
+    var defaultAgentNames: Set<String> = []
     var defaultSkillNames: Set<String> = []
     var externalSkillPaths: Set<String> = []
     var defaultPromptTemplateNames: Set<String> = []
+    var didMigrateAgentAssignmentsFromDiscoveredFiles: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case appearanceMode
@@ -103,9 +105,11 @@ struct AppSettings: Codable, Hashable {
         case openAIFastModeModelIdentifiers
         case disabledInjectedCommandIDs
         case enabledLibraryCommandIDs
+        case defaultAgentNames
         case defaultSkillNames
         case externalSkillPaths
         case defaultPromptTemplateNames
+        case didMigrateAgentAssignmentsFromDiscoveredFiles
     }
 
     init() {}
@@ -136,9 +140,11 @@ struct AppSettings: Codable, Hashable {
         openAIFastModeModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .openAIFastModeModelIdentifiers) ?? []
         disabledInjectedCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledInjectedCommandIDs) ?? []
         enabledLibraryCommandIDs = try container.decodeIfPresent(Set<String>.self, forKey: .enabledLibraryCommandIDs) ?? []
+        defaultAgentNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultAgentNames) ?? []
         defaultSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultSkillNames) ?? []
         externalSkillPaths = try container.decodeIfPresent(Set<String>.self, forKey: .externalSkillPaths) ?? []
         defaultPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultPromptTemplateNames) ?? []
+        didMigrateAgentAssignmentsFromDiscoveredFiles = try container.decodeIfPresent(Bool.self, forKey: .didMigrateAgentAssignmentsFromDiscoveredFiles) ?? false
     }
 }
 

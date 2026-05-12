@@ -7,25 +7,27 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
     var isFavorite: Bool
     var isHidden: Bool
     var customIconPath: String?
+    var assignedAgentNames: Set<String>
     var assignedSkillNames: Set<String>
     var assignedPromptTemplateNames: Set<String>
 
     var id: String { path }
 
     static func `default`(for path: String) -> ProjectPreference {
-        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil, assignedSkillNames: [], assignedPromptTemplateNames: [])
+        ProjectPreference(path: path, isEnabled: false, isFavorite: false, isHidden: false, customIconPath: nil, assignedAgentNames: [], assignedSkillNames: [], assignedPromptTemplateNames: [])
     }
 
     enum CodingKeys: String, CodingKey {
-        case path, isEnabled, isFavorite, isHidden, customIconPath, assignedSkillNames, assignedPromptTemplateNames
+        case path, isEnabled, isFavorite, isHidden, customIconPath, assignedAgentNames, assignedSkillNames, assignedPromptTemplateNames
     }
 
-    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?, assignedSkillNames: Set<String> = [], assignedPromptTemplateNames: Set<String> = []) {
+    init(path: String, isEnabled: Bool, isFavorite: Bool, isHidden: Bool, customIconPath: String?, assignedAgentNames: Set<String> = [], assignedSkillNames: Set<String> = [], assignedPromptTemplateNames: Set<String> = []) {
         self.path = path
         self.isEnabled = isEnabled
         self.isFavorite = isFavorite
         self.isHidden = isHidden
         self.customIconPath = customIconPath
+        self.assignedAgentNames = assignedAgentNames
         self.assignedSkillNames = assignedSkillNames
         self.assignedPromptTemplateNames = assignedPromptTemplateNames
     }
@@ -37,6 +39,7 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         isHidden = try container.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
         customIconPath = try container.decodeIfPresent(String.self, forKey: .customIconPath)
+        assignedAgentNames = try container.decodeIfPresent(Set<String>.self, forKey: .assignedAgentNames) ?? []
         assignedSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .assignedSkillNames) ?? []
         assignedPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .assignedPromptTemplateNames) ?? []
     }
@@ -85,6 +88,16 @@ final class ProjectPreferencesStore {
         update(path) { $0.isHidden = isHidden }
     }
 
+    func setAssignedAgent(_ agentName: String, assigned: Bool, for path: String) {
+        update(path) { preference in
+            if assigned {
+                preference.assignedAgentNames.insert(agentName)
+            } else {
+                preference.assignedAgentNames.remove(agentName)
+            }
+        }
+    }
+
     func setAssignedSkill(_ skillName: String, assigned: Bool, for path: String) {
         update(path) { preference in
             if assigned {
@@ -103,6 +116,42 @@ final class ProjectPreferencesStore {
                 preference.assignedPromptTemplateNames.remove(promptName)
             }
         }
+    }
+
+    func renameAssignedAgent(from oldName: String, to newName: String) {
+        guard oldName != newName else { return }
+        var changed = false
+        for path in preferencesByPath.keys {
+            guard preferencesByPath[path]?.assignedAgentNames.contains(oldName) == true else { continue }
+            preferencesByPath[path]?.assignedAgentNames.remove(oldName)
+            preferencesByPath[path]?.assignedAgentNames.insert(newName)
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    func renameAssignedSkill(from oldName: String, to newName: String) {
+        guard oldName != newName else { return }
+        var changed = false
+        for path in preferencesByPath.keys {
+            guard preferencesByPath[path]?.assignedSkillNames.contains(oldName) == true else { continue }
+            preferencesByPath[path]?.assignedSkillNames.remove(oldName)
+            preferencesByPath[path]?.assignedSkillNames.insert(newName)
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    func renameAssignedPromptTemplate(from oldName: String, to newName: String) {
+        guard oldName != newName else { return }
+        var changed = false
+        for path in preferencesByPath.keys {
+            guard preferencesByPath[path]?.assignedPromptTemplateNames.contains(oldName) == true else { continue }
+            preferencesByPath[path]?.assignedPromptTemplateNames.remove(oldName)
+            preferencesByPath[path]?.assignedPromptTemplateNames.insert(newName)
+            changed = true
+        }
+        if changed { persist() }
     }
 
     func setAllEnabled(_ isEnabled: Bool, for paths: [String]) {
@@ -193,6 +242,7 @@ final class ProjectPreferencesStore {
                 isFavorite: preference.isFavorite,
                 isHidden: preference.isHidden,
                 customIconPath: preference.customIconPath,
+                assignedAgentNames: preference.assignedAgentNames,
                 assignedSkillNames: preference.assignedSkillNames,
                 assignedPromptTemplateNames: preference.assignedPromptTemplateNames
             ))

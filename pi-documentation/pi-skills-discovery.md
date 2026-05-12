@@ -211,12 +211,7 @@ For Agent Deck specifically, reusable library skills live in:
 ~/.pi/agent/skill-library/<skill>
 ```
 
-That folder is storage only. A library skill becomes runtime-visible only when Agent Deck symlinks it into:
-
-```text
-~/.pi/agent/skills/<skill>
-PROJECT/.pi/skills/<skill>
-```
+That folder is storage only. In current Agent Deck, a library/imported skill becomes runtime-visible when it is assigned by name globally, assigned to a project, or referenced by an assigned native agent; launch then passes an explicit `--skill <path>` argument.
 
 ---
 

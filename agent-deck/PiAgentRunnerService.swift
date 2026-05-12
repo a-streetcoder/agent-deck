@@ -174,7 +174,9 @@ final class PiAgentRunnerService {
         store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(message, images: images), rawJSON: transcriptAttachmentJSON(images: images)))
         switch effectiveMode {
         case .prompt:
-            client.prompt(message, images: images)
+            // Harmless when Pi is idle, but prevents dropped messages if our local
+            // status lags behind Pi's authoritative streaming state.
+            client.prompt(message, images: images, streamingBehavior: "steer")
         case .steer:
             client.prompt(message, images: images, streamingBehavior: "steer")
         case .followUp:

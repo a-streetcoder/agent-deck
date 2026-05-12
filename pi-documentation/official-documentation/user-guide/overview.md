@@ -38,9 +38,9 @@ The app sidebar is organized around these concepts:
 Agent Deck distinguishes between:
 
 - **Builtin resources** shipped with the app, plus package-provided non-agent resources such as skills/prompts/extensions
-- **Active global resources** visible to Pi everywhere
-- **Active project resources** visible only inside a repository
-- **Library resources** stored centrally by Agent Deck and activated when needed
+- **Global catalog resources** discovered from user-wide paths
+- **Project catalog resources** discovered inside a repository
+- **Library resources** stored centrally by Agent Deck and assigned when needed
 - **Overrides** that patch builtin behavior without editing package files
 
 See [Resource scopes and resolution](../concepts/resource-scopes-and-resolution.md) for details.

@@ -51,6 +51,7 @@ struct SkillsScreen: View {
     @State private var importSummaryMessage: String?
     @State private var skillActionErrorMessage: String?
     @State private var skillPendingDeletion: SkillRecord?
+    @State private var skillPendingRename: SkillRecord?
 
     var body: some View {
         HSplitView {
@@ -73,6 +74,15 @@ struct SkillsScreen: View {
         }
         .sheet(isPresented: $isImportSheetPresented) {
             importSkillsSheet
+        }
+        .sheet(item: $skillPendingRename) { skill in
+            RenameResourceSheet(
+                title: "Rename Skill",
+                currentName: skill.name,
+                resourceLabel: "skill",
+                makePreview: { viewModel.renamePreview(for: skill, to: $0) },
+                onRename: { try viewModel.renameSkill(skill, to: $0) }
+            )
         }
         .alert("Skill Import", isPresented: Binding(
             get: { importErrorMessage != nil || importSummaryMessage != nil },
@@ -249,13 +259,20 @@ struct SkillsScreen: View {
             }
 
             AppCard(title: "Manage \(skill.name)") {
-                AppKeyValueList(rows: [
-                    ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
-                    ("Default", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
-                    ("Assigned Projects", assignedProjectSummary(skill)),
-                    ("Assigned Agents", assignedAgentSummary(skill)),
-                    ("Path", skill.filePath)
-                ])
+                VStack(alignment: .leading, spacing: 12) {
+                    AppKeyValueList(rows: [
+                        ("Source", skillScopeLabel(skill, selectedProjectRoot: viewModel.snapshot.projectRoot)),
+                        ("Default", viewModel.skillIsEnabledGlobally(skill) ? "Yes" : "No"),
+                        ("Assigned Projects", assignedProjectSummary(skill)),
+                        ("Assigned Agents", assignedAgentSummary(skill)),
+                        ("Path", skill.filePath)
+                    ])
+                    HStack {
+                        Button("Rename…") { skillPendingRename = skill }
+                            .disabled(!viewModel.canRenameSkill(skill))
+                        Button("Reveal in Finder") { revealSkillInFinder(skill) }
+                    }
+                }
             }
         } else {
             AppCard {
@@ -384,6 +401,13 @@ struct SkillsScreen: View {
             } label: {
                 Label("Reveal in Finder", systemImage: "finder")
             }
+
+            Button {
+                skillPendingRename = skill
+            } label: {
+                Label("Rename Skill", systemImage: "pencil")
+            }
+            .disabled(!viewModel.canRenameSkill(skill))
 
             Divider()
 

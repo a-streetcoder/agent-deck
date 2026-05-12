@@ -7,8 +7,8 @@ thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 defaultContext: fresh
+skills: native-app-performance, xcodebuildmcp-cli
 defaultProgress: true
-skills: native-app-performance
 ---
 
 You are `native-app-performance-tester`, an Agent Deck specialist for native app performance profiling.

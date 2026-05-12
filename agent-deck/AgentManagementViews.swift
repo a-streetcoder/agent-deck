@@ -42,6 +42,9 @@ struct AgentsScreen: View {
                     moveAgentToLibrary: { record in
                         try viewModel.moveAgentToLibrary(record)
                     },
+                    canRenameAgent: { viewModel.canRenameAgent($0) },
+                    renamePreview: { agent, name in viewModel.renamePreview(for: agent, to: name) },
+                    renameAgent: { agent, name in try viewModel.renameAgent(agent, to: name) },
                     projects: viewModel.enabledProjects
                 )
             } else {
@@ -135,6 +138,15 @@ private struct AgentLibraryPane: View {
                     }
                 }
 
+                if !catalogAgents.isEmpty {
+                    appListSection("Catalog Agents", info: "Catalog agents are discovered files that are not assigned to this project yet.") {
+                        ForEach(catalogAgents) { agent in
+                            agentListRow(agent, inactive: true)
+                                .tag(agent.id)
+                        }
+                    }
+                }
+
                 if !libraryAgents.isEmpty {
                     appListSection("Library Agents", info: "Library agents are centrally stored and only become active when assigned to this project or enabled globally.") {
                         ForEach(libraryAgents) { agent in
@@ -149,8 +161,17 @@ private struct AgentLibraryPane: View {
                         nativeEmptyRow("No global custom agents.")
                     }
                     ForEach(globalCustomAgents) { agent in
-                        agentListRow(agent, inactive: false)
+                        agentListRow(agent, inactive: isCatalogOnly(agent))
                             .tag(agent.id)
+                    }
+                }
+
+                if !catalogAgents.isEmpty {
+                    appListSection("Catalog Agents") {
+                        ForEach(catalogAgents) { agent in
+                            agentListRow(agent, inactive: true)
+                                .tag(agent.id)
+                        }
                     }
                 }
 
@@ -179,17 +200,26 @@ private struct AgentLibraryPane: View {
 
     private var activeCustomAgents: [EffectiveAgentRecord] {
         filteredAgents.filter { agent in
-            agent.resolutionKind != .library && !(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil)
+            !isCatalogOnly(agent) && agent.resolutionKind != .library && !(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil)
         }
     }
 
     private var globalCustomAgents: [EffectiveAgentRecord] {
-        filteredAgents.filter { $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+        filteredAgents.filter { !isCatalogOnly($0) && $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+    }
+
+    private var catalogAgents: [EffectiveAgentRecord] {
+        filteredAgents.filter(isCatalogOnly)
+    }
+
+    private func isCatalogOnly(_ agent: EffectiveAgentRecord) -> Bool {
+        agent.id.hasPrefix("catalog::")
     }
 
     private var libraryAgents: [EffectiveAgentRecord] {
         let candidates = filteredAgents.filter { agent in
-            agent.resolutionKind == .library
+            if viewModel.selectedDiscoveredProject == nil, agent.winningRecord?.source.kind == .library { return true }
+            return agent.resolutionKind == .library
         }
         return preferredAgentsByName(candidates) { records in
             records.first { $0.resolutionKind == .library }
@@ -314,6 +344,7 @@ private struct AgentLibraryPane: View {
     }
 
     private func statusLabel(_ agent: EffectiveAgentRecord) -> String {
+        if agent.id.hasPrefix("catalog::") { return "Catalog" }
         if agent.resolved.disabled == true { return "Disabled" }
         if libraryBackedActiveAgentNames.contains(agent.name) {
             if viewModel.selectedProjectPath != nil, agent.resolutionKind != .library { return "Active" }
@@ -328,6 +359,7 @@ private struct AgentLibraryPane: View {
     }
 
     private func color(for agent: EffectiveAgentRecord) -> Color {
+        if agent.id.hasPrefix("catalog::") { return .secondary }
         if agent.resolved.disabled == true { return .red }
         if agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil { return .orange }
         if agent.resolutionKind == .library || libraryBackedActiveAgentNames.contains(agent.name) { return .purple }
@@ -388,12 +420,16 @@ private struct AgentDetailView: View {
     let setAgentGlobal: (AgentRecord, Bool) throws -> Void
     let setAgentForProject: (AgentRecord, DiscoveredProject, Bool) throws -> Void
     let moveAgentToLibrary: (AgentRecord) throws -> Void
+    let canRenameAgent: (EffectiveAgentRecord) -> Bool
+    let renamePreview: (EffectiveAgentRecord, String) -> ResourceRenamePreview
+    let renameAgent: (EffectiveAgentRecord, String) throws -> Void
     let projects: [DiscoveredProject]
     @State private var selectedTab: DetailTab = .summary
     @State private var inlineDraft: AgentEditorDraft?
     @State private var baselineInlineDraft: AgentEditorDraft?
     @State private var inlineSaveMessage: String?
     @State private var pendingSaveConfirmation: SaveConfirmation?
+    @State private var agentPendingRename: EffectiveAgentRecord?
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
@@ -442,6 +478,15 @@ private struct AgentDetailView: View {
                 await Task.yield()
                 toggleEditMode()
             }
+        }
+        .sheet(item: $agentPendingRename) { renameAgentRecord in
+            RenameResourceSheet(
+                title: "Rename Agent",
+                currentName: renameAgentRecord.name,
+                resourceLabel: "agent",
+                makePreview: { renamePreview(renameAgentRecord, $0) },
+                onRename: { try renameAgent(renameAgentRecord, $0) }
+            )
         }
         .alert(item: $pendingSaveConfirmation) { confirmation in
             Alert(
@@ -939,7 +984,7 @@ private struct AgentDetailView: View {
             if let managedAgent {
                 AppCard(title: "Library & Visibility") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Move reusable custom agents into the library, then choose whether they are active globally or only in specific projects.")
+                        Text("Agents are catalog entries. Choose whether this agent is assigned globally, per project, or both.")
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -950,6 +995,10 @@ private struct AgentDetailView: View {
                         ])
 
                         HStack(spacing: 10) {
+                            if canRenameAgent(agent) {
+                                Button("Rename…") { agentPendingRename = agent }
+                            }
+
                             if managedAgent.source.kind != .library {
                                 Button("Move to Library") { do { try moveAgentToLibrary(managedAgent) } catch { NSSound.beep() } }
                             }
@@ -970,7 +1019,7 @@ private struct AgentDetailView: View {
                         let visibilityIssuesByProjectID = Dictionary(uniqueKeysWithValues: visibilityIssues.map { ($0.project.id, $0) })
                         let assignedProjectIDs = Set(assignedAgentProjects(managedAgent).map(\.id))
 
-                        Text("Check each project that should load this agent. Assigning to a project removes managed global visibility, like Skills.")
+                        Text("Check each project that should load this agent. Project assignment is stored in Agent Deck and does not create or remove agent files.")
                             .foregroundStyle(AppTheme.mutedText)
                         if !visibilityIssues.isEmpty {
                             skillVisibilityWarningBlock(visibilityIssues)
@@ -1002,6 +1051,15 @@ private struct AgentDetailView: View {
                                 if project.id != projects.last?.id { Divider() }
                             }
                         }
+                    }
+                }
+            } else if canRenameAgent(agent) {
+                AppCard(title: "Custom Agent") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("This custom agent currently replaces a builtin. Rename it to turn it into a separate custom agent.")
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Rename…") { agentPendingRename = agent }
                     }
                 }
             }

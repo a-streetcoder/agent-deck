@@ -4,11 +4,11 @@ Skills are reusable instruction bundles. The normal convention is a directory wi
 
 ## Active and assigned skills
 
-- **Active global skills** are visible to Pi everywhere.
-- **Active project skills** are visible only inside a selected project.
+- **Global catalog skills** are discovered from user-wide paths.
+- **Project catalog skills** are discovered inside a selected project.
 - **Bundled and external skills** can appear in Agent Deck's catalog, but they are not injected unless assigned.
 
-Active targets:
+Catalog targets:
 
 ```text
 ~/.pi/agent/skills/<skill>/SKILL.md

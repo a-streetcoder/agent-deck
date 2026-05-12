@@ -7,28 +7,26 @@ Agent Deck's UI is built around scope and resolution: where a resource lives, wh
 | Scope | Meaning |
 |---|---|
 | Builtin | App-bundled native agents and other read-only builtins. Agent Deck currently loads agent builtins from the app bundle; packages may still contribute non-agent resources such as skills, prompts, and extensions. |
-| Global | Active for all projects |
-| Project | Active only inside one project |
+| Global | Discovered from global locations; assignment state decides whether agents/skills/prompts are used everywhere |
+| Project | Discovered from one project; assignment state decides whether agents/skills/prompts are used there |
 | Legacy Project | Compatibility resource from `.agents` paths |
 | Override | Settings-based patch to a builtin |
 | Package | Resource contributed by an installed Pi package |
 | Library | Agent Deck storage, not automatically active |
 
-## Active vs library
+## Catalog vs assignment
 
-Library resources are reusable storage. Active resources are visible to Pi at runtime.
-
-Agent Deck commonly stores a canonical resource in a library folder under `~/.pi/agent/` and then creates symlinks into global or project active locations.
+Library resources are reusable storage. Global/project files are catalog sources. For agents, skills, and prompts, Agent Deck stores default/project assignments separately from the files themselves; assigning them does not create symlinks or move files.
 
 ## Agent precedence
 
-For agent names that appear in multiple places, the winning definition is:
+For agent names that appear in multiple places, the native-subagent winning definition is:
 
-1. project custom agent
-2. global custom agent
+1. project-assigned custom agent
+2. default-assigned custom agent
 3. builtin agent
 
-Within a scope, Agent Deck treats `.pi` project agents before legacy project `.agents`, and `~/.agents` before `~/.pi/agent/agents` for global agents.
+For same-name assigned catalog records, project assignment prefers project files before library/global files; default assignment prefers library/global files.
 
 Builtin overrides are different from custom replacements: they patch supported fields only when the builtin remains the winner. Project overrides beat global overrides. Builtin-disable flags can hide builtins entirely.
 

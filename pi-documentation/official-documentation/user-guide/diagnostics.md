@@ -20,7 +20,7 @@ Verify `pi` is installed and discoverable. If launching the app from Finder hide
 
 ### A skill is listed in an agent but not injected
 
-The agent stores only the skill name. Make sure the skill is active globally, active in the project, or supplied by a scanned package/settings source. A skill in the library folder alone is not active.
+The agent stores only the skill name. Make sure the skill exists once in the Agent Deck skill catalog and is assigned globally, assigned to the project, or supplied by a scanned package/settings source.
 
 ### Builtin agent changes disappear
 
