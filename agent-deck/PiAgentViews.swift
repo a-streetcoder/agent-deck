@@ -307,6 +307,7 @@ struct PiAgentScreen: View {
     @State private var isDeleteSessionsAlertPresented = false
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
+    @State private var composerFolders: [PiAgentFolderAttachment] = []
     @State private var composerAttachmentError: String?
     @State private var selectedSubagentTranscriptRunID: UUID?
     @State private var selectedSubagentGraphRunID: UUID?
@@ -637,7 +638,7 @@ struct PiAgentScreen: View {
         .tag(session.id)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         .listRowSeparator(.automatic)
-        .listRowBackground(activeSessionListRowBackground(isActive: session.status.isActive))
+        .listRowBackground(sessionListRowBackground(isSelected: selectedSessionIDs.contains(session.id), isActive: session.status.isActive))
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 viewModel.togglePiAgentSessionPinned(session.id)
@@ -668,8 +669,18 @@ struct PiAgentScreen: View {
     }
 
     @ViewBuilder
-    private func activeSessionListRowBackground(isActive: Bool) -> some View {
-        if isActive {
+    private func sessionListRowBackground(isSelected: Bool, isActive: Bool) -> some View {
+        if isSelected {
+            LinearGradient(
+                colors: [
+                    AppTheme.brandAccentBright.opacity(0.28),
+                    AppTheme.brandAccent.opacity(0.18),
+                    AppTheme.brandAccentDeep.opacity(0.24)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else if isActive {
             LinearGradient(
                 colors: [
                     AppTheme.brandAccentBright.opacity(0.10),
@@ -1127,15 +1138,16 @@ struct PiAgentScreen: View {
                 text: $composerText,
                 images: $composerImages,
                 files: $composerFiles,
+                folders: $composerFolders,
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 isDisabled: isCompacting || !hasSelectedSession,
                 placeholder: !hasSelectedSession ? "Select or start a Pi Agent session to send a message…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
-                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
+                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
-                onFolders: insertFolderReferences,
+                onFolders: addFolderAttachments,
                 viewModel: viewModel,
                 footerSession: store.selectedSession,
                 transcript: store.selectedTranscript,
@@ -1341,15 +1353,12 @@ struct PiAgentScreen: View {
         }
     }
 
-    private func insertFolderReferences(_ urls: [URL]) {
-        let unique = urls.reduce(into: [String: URL]()) { result, url in result[url.path] = url }.values.sorted { $0.path < $1.path }
-        guard !unique.isEmpty else { return }
+    private func addFolderAttachments(_ urls: [URL]) {
+        let attachments = urls.compactMap { PiAgentFolderAttachment(url: $0) }
+        guard !attachments.isEmpty else { return }
         composerAttachmentError = nil
-        let insertion = unique.map { "folder: `\($0.path)`" }.joined(separator: " ")
-        if composerText.isEmpty || composerText.last?.isWhitespace == true {
-            composerText += insertion
-        } else {
-            composerText += " \(insertion)"
+        for attachment in attachments where !composerFolders.contains(where: { $0.url == attachment.url }) {
+            composerFolders.append(attachment)
         }
     }
 
@@ -1358,6 +1367,7 @@ struct PiAgentScreen: View {
             composerText = pending
             composerImages = []
             composerFiles = []
+            composerFolders = []
             composerAttachmentError = nil
             saveComposerDraft(for: sessionID)
             return
@@ -1371,24 +1381,26 @@ struct PiAgentScreen: View {
         composerText = draft.text
         composerImages = draft.images
         composerFiles = draft.files
+        composerFolders = draft.folders
         composerAttachmentError = nil
     }
 
     private func saveComposerDraft(for sessionID: UUID?) {
         guard let sessionID else { return }
-        store.saveComposerDraft(text: composerText, images: composerImages, files: composerFiles, for: sessionID)
+        store.saveComposerDraft(text: composerText, images: composerImages, files: composerFiles, folders: composerFolders, for: sessionID)
     }
 
     private func clearComposerInput() {
         composerText = ""
         composerImages = []
         composerFiles = []
+        composerFolders = []
         composerAttachmentError = nil
     }
 
     private func sendComposerMessage() {
         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
@@ -1423,7 +1435,14 @@ struct PiAgentScreen: View {
         for file in composerFiles {
             tags.append(fileTag(for: file.url))
         }
+        for folder in composerFolders {
+            tags.append(folderReference(for: folder.url))
+        }
         return tags.joined(separator: "\n")
+    }
+
+    private func folderReference(for url: URL) -> String {
+        "folder: `\(url.path)`"
     }
 
     private func fileTag(for url: URL) -> String {

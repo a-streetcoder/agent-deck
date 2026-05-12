@@ -45,6 +45,7 @@ struct SkillsScreen: View {
     @State private var shouldPromptForImportSource = false
     @State private var importSourceURL: URL?
     @State private var importCandidates: [ExternalSkillCandidate] = []
+    @State private var importSearchText = ""
     @State private var selectedImportCandidateIDs: Set<String> = []
     @State private var importErrorMessage: String?
     @State private var importSummaryMessage: String?
@@ -504,12 +505,98 @@ struct SkillsScreen: View {
         existingExternalSkillPaths.contains(URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path)
     }
 
-    private var importableCandidateIDs: Set<String> {
-        Set(importCandidates.filter { !candidateAlreadyImported($0) }.map(\.id))
+    private var importableCandidates: [ExternalSkillCandidate] {
+        importCandidates.filter { !candidateAlreadyImported($0) }
     }
 
-    private var allImportableCandidatesSelected: Bool {
-        !importableCandidateIDs.isEmpty && importableCandidateIDs.isSubset(of: selectedImportCandidateIDs)
+    private var hiddenAlreadyImportedCandidateCount: Int {
+        importCandidates.count - importableCandidates.count
+    }
+
+    private var filteredImportCandidates: [ExternalSkillCandidate] {
+        let query = importSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return importableCandidates }
+        return importableCandidates
+            .compactMap { candidate -> (ExternalSkillCandidate, Int)? in
+                guard let score = importSearchScore(candidate, query: query) else { return nil }
+                return (candidate, score)
+            }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                let nameOrder = lhs.0.name.localizedCaseInsensitiveCompare(rhs.0.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.0.sourceRootPath < rhs.0.sourceRootPath
+            }
+            .map(\.0)
+    }
+
+    private var visibleImportableCandidateIDs: Set<String> {
+        Set(filteredImportCandidates.map(\.id))
+    }
+
+    private var allVisibleImportableCandidatesSelected: Bool {
+        !visibleImportableCandidateIDs.isEmpty && visibleImportableCandidateIDs.isSubset(of: selectedImportCandidateIDs)
+    }
+
+    private var importSearchIsActive: Bool {
+        !importSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var importSelectionButtonTitle: String {
+        if importSearchIsActive {
+            return allVisibleImportableCandidatesSelected ? "Deselect Visible" : "Select Visible"
+        }
+        return allVisibleImportableCandidatesSelected ? "Deselect All" : "Select All"
+    }
+
+    private func importSearchScore(_ candidate: ExternalSkillCandidate, query: String) -> Int? {
+        let queryTokens = skillSearchTokens(query)
+        guard !queryTokens.isEmpty else { return 0 }
+
+        let name = normalizedSkillSearchText(candidate.name)
+        let description = normalizedSkillSearchText(candidate.description ?? "")
+        let path = normalizedSkillSearchText(candidate.sourceRootPath)
+        let compactName = compactSkillSearchText(candidate.name)
+        let compactQuery = compactSkillSearchText(query)
+        let searchable = [name, description, path].joined(separator: " ")
+
+        guard queryTokens.allSatisfy({ token in
+            searchable.contains(token) || compactName.contains(token) || compactName.contains(compactSkillSearchText(token))
+        }) else {
+            return nil
+        }
+
+        var score = 0
+        if name == normalizedSkillSearchText(query) { score += 120 }
+        if compactName == compactQuery { score += 110 }
+        if name.hasPrefix(normalizedSkillSearchText(query)) || compactName.hasPrefix(compactQuery) { score += 80 }
+
+        for token in queryTokens {
+            if name.split(separator: " ").contains(Substring(token)) { score += 30 }
+            else if name.contains(token) || compactName.contains(token) { score += 20 }
+            else if description.contains(token) { score += 10 }
+            else if path.contains(token) { score += 4 }
+        }
+
+        return score
+    }
+
+    private func skillSearchTokens(_ text: String) -> [String] {
+        normalizedSkillSearchText(text)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { !["skill", "skills", "native", "claude", "code"].contains($0) }
+    }
+
+    private func normalizedSkillSearchText(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func compactSkillSearchText(_ text: String) -> String {
+        normalizedSkillSearchText(text).replacingOccurrences(of: " ", with: "")
     }
 
     @ViewBuilder
@@ -533,18 +620,19 @@ struct SkillsScreen: View {
                 AppCard(title: "Skills") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .center, spacing: 12) {
-                            Text("Select one or more skill roots to add to the \(AppBrand.displayName) skill catalog. Files stay in place and are passed to Pi by path.")
+                            Text("Select one or more discovered skill roots to add to the \(AppBrand.displayName) skill catalog. Files stay in place and selected roots are passed to Pi by path.")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.mutedText)
                             Spacer()
-                            Button(allImportableCandidatesSelected ? "Deselect All" : "Select All") {
-                                if allImportableCandidatesSelected {
-                                    selectedImportCandidateIDs.removeAll()
+                            Button(importSelectionButtonTitle) {
+                                if allVisibleImportableCandidatesSelected {
+                                    selectedImportCandidateIDs.subtract(visibleImportableCandidateIDs)
                                 } else {
-                                    selectedImportCandidateIDs = importableCandidateIDs
+                                    selectedImportCandidateIDs.formUnion(visibleImportableCandidateIDs)
                                 }
                             }
                             .buttonStyle(.bordered)
+                            .disabled(visibleImportableCandidateIDs.isEmpty)
 
                             Button("Clear") {
                                 selectedImportCandidateIDs.removeAll()
@@ -553,14 +641,46 @@ struct SkillsScreen: View {
                             .disabled(selectedImportCandidateIDs.isEmpty)
                         }
 
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(AppTheme.mutedText)
+                            TextField("Search skills by name, description, or path", text: $importSearchText)
+                                .textFieldStyle(.plain)
+                            if importSearchIsActive {
+                                Button {
+                                    importSearchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(AppTheme.mutedText)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear skill search")
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
+                        )
+
+                        Text("Showing \(filteredImportCandidates.count) of \(importableCandidates.count) importable skill\(importableCandidates.count == 1 ? "" : "s")\(hiddenAlreadyImportedCandidateCount == 0 ? "" : " • \(hiddenAlreadyImportedCandidateCount) already imported hidden")\(selectedImportCandidateIDs.isEmpty ? "" : " • \(selectedImportCandidateIDs.count) selected")")
+                            .font(.caption2)
+                            .foregroundStyle(AppTheme.mutedText)
+
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(importCandidates) { candidate in
-                                    let alreadyImported = candidateAlreadyImported(candidate)
+                                if filteredImportCandidates.isEmpty {
+                                    Text(importSearchIsActive ? "No importable skills match your search." : "No new importable skills were found. Already-imported skills are hidden.")
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .frame(maxWidth: .infinity, minHeight: 120)
+                                }
+                                ForEach(filteredImportCandidates) { candidate in
                                     Toggle(isOn: Binding(
                                         get: { selectedImportCandidateIDs.contains(candidate.id) },
                                         set: { isSelected in
-                                            guard !alreadyImported else { return }
                                             if isSelected { selectedImportCandidateIDs.insert(candidate.id) }
                                             else { selectedImportCandidateIDs.remove(candidate.id) }
                                         }
@@ -569,9 +689,6 @@ struct SkillsScreen: View {
                                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                                 Text(candidate.name)
                                                     .font(.body.weight(.semibold))
-                                                if alreadyImported {
-                                                    AppLabelTag(text: "Already Imported", color: .gray)
-                                                }
                                             }
 
                                             if let description = candidate.description {
@@ -600,8 +717,7 @@ struct SkillsScreen: View {
                                         .padding(.vertical, 10)
                                     }
                                     .toggleStyle(.checkbox)
-                                    .disabled(alreadyImported)
-                                    if candidate.id != importCandidates.last?.id {
+                                    if candidate.id != filteredImportCandidates.last?.id {
                                         Divider()
                                     }
                                 }
@@ -643,6 +759,7 @@ struct SkillsScreen: View {
         importErrorMessage = nil
         importSummaryMessage = nil
         importCandidates = []
+        importSearchText = ""
         selectedImportCandidateIDs.removeAll()
         importSourceURL = nil
         shouldPromptForImportSource = true
@@ -661,6 +778,7 @@ struct SkillsScreen: View {
     private func loadImportCandidates(from url: URL) {
         importErrorMessage = nil
         importSummaryMessage = nil
+        importSearchText = ""
         importSourceURL = url
 
         var candidates = viewModel.discoverImportableSkills(in: url)
@@ -671,7 +789,7 @@ struct SkillsScreen: View {
         guard !candidates.isEmpty else {
             importCandidates = []
             selectedImportCandidateIDs.removeAll()
-            importErrorMessage = "No importable skill folders were found. Choose either a skill root containing SKILL.md or a folder whose direct child folders contain SKILL.md files."
+            importErrorMessage = "No importable skill folders were found. Choose either a skill root containing SKILL.md or a folder that contains skill roots somewhere below it."
             return
         }
 

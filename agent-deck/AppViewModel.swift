@@ -381,7 +381,7 @@ final class AppViewModel: NSObject, ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Skills Folder"
-        panel.message = "Choose a folder whose direct child folders contain SKILL.md files you want to add to the \(AppBrand.displayName) skill catalog."
+        panel.message = "Choose a skill root or a folder to search recursively for SKILL.md files you want to add to the \(AppBrand.displayName) skill catalog."
         panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
         let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -421,26 +421,43 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func discoverImportableSkills(in root: URL) -> [ExternalSkillCandidate] {
         let fileManager = FileManager.default
+        var results: [ExternalSkillCandidate] = []
+        var seenRootPaths = Set<String>()
 
-        if let directMatch = externalSkillCandidate(at: root) {
-            return [directMatch]
+        func walk(_ directory: URL) {
+            let standardizedDirectory = directory.standardizedFileURL
+
+            if let candidate = externalSkillCandidate(at: standardizedDirectory) {
+                if seenRootPaths.insert(candidate.sourceRootPath).inserted {
+                    results.append(candidate)
+                }
+                // A folder containing SKILL.md is a skill root; do not recurse into
+                // examples or nested reference folders that may also contain skills.
+                return
+            }
+
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: standardizedDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return
+            }
+
+            for entry in entries {
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: entry.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
+                walk(entry)
+            }
         }
 
-        guard let entries = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else {
-            return []
-        }
+        walk(root)
 
-        let results: [ExternalSkillCandidate] = entries.compactMap { entry in
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: entry.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
-            return externalSkillCandidate(at: entry)
-        }
-        .sorted { lhs, rhs in
+        return results.sorted { lhs, rhs in
             let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
             if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
             return lhs.sourceRootPath < rhs.sourceRootPath
         }
-        return results
     }
 
     func importExternalSkills(_ candidates: [ExternalSkillCandidate]) throws -> SkillImportResult {

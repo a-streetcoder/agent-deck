@@ -8,6 +8,7 @@ struct PiAgentInspectorPanel: View {
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
+    @State private var composerFolders: [PiAgentFolderAttachment] = []
     @State private var composerAttachmentError: String?
 
     var body: some View {
@@ -69,12 +70,13 @@ struct PiAgentInspectorPanel: View {
                     text: $composerText,
                     images: $composerImages,
                     files: $composerFiles,
+                    folders: $composerFolders,
                     attachmentError: $composerAttachmentError,
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     isDisabled: isCompacting,
                     placeholder: isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Message Pi…"),
-                    canSend: !isCompacting && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty),
+                    canSend: !isCompacting && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
                     path: session.worktreePath ?? session.projectPath,
                     onFiles: { urls in
                         let attachments = urls.compactMap { PiAgentFileAttachment(url: $0) }
@@ -83,13 +85,9 @@ struct PiAgentInspectorPanel: View {
                         }
                     },
                     onFolders: { urls in
-                        let unique = urls.reduce(into: [String: URL]()) { result, url in result[url.path] = url }.values.sorted { $0.path < $1.path }
-                        let insertion = unique.map { "folder: `\($0.path)`" }.joined(separator: " ")
-                        guard !insertion.isEmpty else { return }
-                        if composerText.isEmpty || composerText.last?.isWhitespace == true {
-                            composerText += insertion
-                        } else {
-                            composerText += " \(insertion)"
+                        let attachments = urls.compactMap { PiAgentFolderAttachment(url: $0) }
+                        for attachment in attachments where !composerFolders.contains(where: { $0.url == attachment.url }) {
+                            composerFolders.append(attachment)
                         }
                     },
                     viewModel: viewModel,
@@ -99,16 +97,20 @@ struct PiAgentInspectorPanel: View {
                     metricsSession: session,
                     onSend: {
                         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty else { return }
+                        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
                         guard !isCompacting else { return }
                         let filePayload = composerFiles.map { file -> String in
                             "<file name=\"\(file.url.path)\"></file>"
-                        }.joined(separator: "\n")
-                        let combined = [message, filePayload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        }
+                        let folderPayload = composerFolders.map { folder -> String in
+                            "folder: `\(folder.url.path)`"
+                        }
+                        let combined = [message, (filePayload + folderPayload).joined(separator: "\n")].filter { !$0.isEmpty }.joined(separator: "\n\n")
                         viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
                         composerText = ""
                         composerImages = []
                         composerFiles = []
+                        composerFolders = []
                         composerAttachmentError = nil
                     },
                     onStop: { viewModel.stopSelectedPiAgentSession() },
@@ -116,6 +118,7 @@ struct PiAgentInspectorPanel: View {
                         composerText = ""
                         composerImages = []
                         composerFiles = []
+                        composerFolders = []
                         composerAttachmentError = nil
                     }
                 )

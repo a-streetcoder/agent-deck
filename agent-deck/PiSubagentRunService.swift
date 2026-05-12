@@ -862,19 +862,19 @@ final class PiSubagentRunService {
 
     private func buildSystemPrompt(agent: EffectiveAgentRecord) -> String {
         var sections: [String] = []
-        sections.append(nativeBoundaryPrompt(agent: agent))
         if !agent.resolved.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sections.append(agent.resolved.systemPrompt)
         }
+        sections.append(nativeBoundaryPrompt(agent: agent))
         return sections.joined(separator: "\n\n")
     }
 
     private func nativeBoundaryPrompt(agent: EffectiveAgentRecord) -> String {
         var lines = [
-            "You are \(AppBrand.displayName) native subagent `\(agent.name)` in a separate child Pi session. Complete only the assigned task; the parent/user remain decision authority.",
+            "This is a delegated child session. Complete only the assigned task; the parent/user remain decision authority.",
             "",
             "Boundaries:",
-            "- Do not launch subagents.",
+            "- Do not launch other agents.",
             "- Treat forked context as reference only; do not continue old parent messages."
         ]
 
@@ -893,12 +893,13 @@ final class PiSubagentRunService {
         }
 
         lines.append("- Prefer narrow, correct changes over broad rewrites.")
+        lines.append("")
         return lines.joined(separator: "\n")
     }
 
     private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String], resolvedContext: PiSubagentContextMode) -> String {
         var lines: [String] = []
-        lines.append("Native subagent assignment: you are already running as \(AppBrand.displayName) native subagent `\(agent.name)`. The task below is the only active assignment. Do not call `managed_subagent` or continue a previous parent tool request.")
+        lines.append("Delegated assignment: the task below is the only active assignment for this child session. Do not call `managed_subagent` or continue a previous parent tool request.")
         if resolvedContext == .fork {
             lines.append("Forked context rule: previous messages are read-only background. Ignore earlier requests to launch, retry, inspect, or summarize a subagent unless repeated in the Task section below.")
         }

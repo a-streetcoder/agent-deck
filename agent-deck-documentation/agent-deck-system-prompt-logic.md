@@ -137,7 +137,7 @@ Agent Deck writes at least:
 
 The child prompt is split deliberately:
 
-- **System prompt content:** native boundary instructions plus the agent Markdown body.
+- **System prompt content:** agent Markdown body followed by common child-session boundary instructions. The common boundary avoids defining the agent role; role identity belongs in the agent body.
 - **User task prompt:** concrete task, expected outcome, artifact directory, read-first hints, and fork-context rule when relevant.
 
 Default child launch shape:
@@ -146,9 +146,9 @@ Default child launch shape:
 pi --mode rpc
   --session-dir <artifact-dir>/sessions
   [--fork <artifact-dir>/fork-context.jsonl]
-  --system-prompt <native boundary + agent prompt>
+  --system-prompt <agent prompt + common child-session boundary>
   --append-system-prompt ""
-  # or only --append-system-prompt <native boundary + agent prompt> when systemPromptMode: append
+  # or only --append-system-prompt <agent prompt + common child-session boundary> when systemPromptMode: append
   [--no-context-files]
   [--tools <agent tool allowlist> | --no-tools]
   --no-extensions

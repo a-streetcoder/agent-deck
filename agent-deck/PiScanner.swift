@@ -85,7 +85,7 @@ nonisolated struct PiScanner {
         let warnings = buildWarnings(
             effectiveAgents: effectiveAgents,
             rawAgents: builtinAgents + legacyGlobalAgents + globalAgents + legacyProjectAgents + projectAgents,
-            skills: skills,
+            skills: skills + librarySkills,
             promptTemplates: promptScan.templates,
             envKeys: envKeys,
             malformedWarnings: malformedResourceWarnings(

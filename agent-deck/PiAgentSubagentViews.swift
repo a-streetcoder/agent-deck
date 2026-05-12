@@ -13,6 +13,17 @@ struct PiAgentFileAttachment: Identifiable, Hashable {
     }
 }
 
+struct PiAgentFolderAttachment: Identifiable, Hashable {
+    let id = UUID()
+    let url: URL
+
+    init?(url: URL) {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        self.url = url
+    }
+}
+
 struct PiSubagentSupervisorRequestCard: View {
     let request: PiSubagentSupervisorRequest
     let onRespond: (String) -> Void
@@ -133,6 +144,8 @@ struct PiNativeSubagentRunCard: View {
     let onOpenGraph: () -> Void
     @State private var isDetailsPresented = false
     @State private var promptPopover: PromptPopover?
+    @State private var displayedStatus: PiSubagentRunStatus?
+    @State private var statusLingerTask: Task<Void, Never>?
 
     private struct PromptPopover: Identifiable {
         let id = UUID()
@@ -165,18 +178,23 @@ struct PiNativeSubagentRunCard: View {
         .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
             PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
         }
+        .onAppear { displayedStatus = run.status }
+        .onChange(of: run.status) { oldStatus, newStatus in
+            updateDisplayedStatus(from: oldStatus, to: newStatus)
+        }
+        .onDisappear {
+            statusLingerTask?.cancel()
+            statusLingerTask = nil
+        }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "rectangle.connected.to.line.below")
-                .foregroundStyle(statusColor)
+            PiSubagentActivityGlyph(color: statusColor, isActive: effectiveStatus.isActive)
             VStack(alignment: .leading, spacing: 2) {
                 Text(run.agentName)
                     .font(.headline)
-                Text(run.status.rawValue.capitalized)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusColor)
+                PiSubagentStatusText(status: effectiveStatus, color: statusColor)
             }
             Spacer(minLength: 0)
             actionButtons
@@ -438,8 +456,28 @@ struct PiNativeSubagentRunCard: View {
         }
     }
 
+    private var effectiveStatus: PiSubagentRunStatus {
+        displayedStatus ?? run.status
+    }
+
+    private func updateDisplayedStatus(from oldStatus: PiSubagentRunStatus, to newStatus: PiSubagentRunStatus) {
+        statusLingerTask?.cancel()
+        if oldStatus.isActive, !newStatus.isActive {
+            displayedStatus = oldStatus
+            statusLingerTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(550))
+                guard !Task.isCancelled else { return }
+                displayedStatus = newStatus
+                statusLingerTask = nil
+            }
+        } else {
+            displayedStatus = newStatus
+            statusLingerTask = nil
+        }
+    }
+
     private var statusColor: Color {
-        switch run.status {
+        switch effectiveStatus {
         case .queued, .starting, .running:
             return .blue
         case .blocked:
@@ -451,6 +489,42 @@ struct PiNativeSubagentRunCard: View {
         case .stopped, .disconnected:
             return .secondary
         }
+    }
+}
+
+struct PiSubagentStatusText: View {
+    let status: PiSubagentRunStatus
+    let color: Color
+    var font: Font = .caption.weight(.semibold)
+    @State private var dotCount = 1
+
+    var body: some View {
+        Text(label)
+            .font(font)
+            .foregroundStyle(color)
+            .contentTransition(.opacity)
+            .onReceive(Timer.publish(every: 0.42, on: .main, in: .common).autoconnect()) { _ in
+                guard status.isActive else { return }
+                dotCount = dotCount % 3 + 1
+            }
+    }
+
+    private var label: String {
+        let base = status.rawValue.capitalized
+        guard status.isActive else { return base }
+        return base + String(repeating: ".", count: dotCount)
+    }
+}
+
+struct PiSubagentActivityGlyph: View {
+    let color: Color
+    let isActive: Bool
+
+    var body: some View {
+        Image(systemName: "rectangle.connected.to.line.below")
+            .foregroundStyle(color)
+            .frame(width: 24, height: 24)
+            .symbolEffect(.pulse, options: .repeating.speed(0.45), isActive: isActive)
     }
 }
 

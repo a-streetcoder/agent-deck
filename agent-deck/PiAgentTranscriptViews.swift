@@ -1546,7 +1546,7 @@ private struct PiAgentUserMessageContent: View {
                 MarkdownTextView(source: messageText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty {
+            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty || !folderAttachments.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     ForEach(imageAttachments.prefix(6)) { image in
                         attachmentChip(name: image.name, systemImage: "photo", attachment: .image(image))
@@ -1556,6 +1556,9 @@ private struct PiAgentUserMessageContent: View {
                     }
                     ForEach(fileAttachments.prefix(6)) { file in
                         attachmentChip(name: file.name, systemImage: "doc.text", attachment: .file(file))
+                    }
+                    ForEach(folderAttachments.prefix(6)) { folder in
+                        attachmentChip(name: folder.name, systemImage: "folder", attachment: .folder(folder))
                     }
                     if hiddenCount > 0 {
                         Text("+\(hiddenCount)")
@@ -1573,10 +1576,16 @@ private struct PiAgentUserMessageContent: View {
         let markers = ["Attached files:", "Attached images:"]
         let firstRange = markers.compactMap { entry.text.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
         let base = firstRange.map { String(entry.text[..<$0.lowerBound]) } ?? entry.text
-        return Self.removingFileTags(from: base).trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.removingFolderReferences(from: Self.removingFileTags(from: base)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var imageAttachments: [PiAgentImageAttachment] { images }
+
+    private var folderAttachments: [FolderAttachmentPreview] {
+        uniqueFolders(Self.folderReferences(in: entry.text).map { path in
+            FolderAttachmentPreview(name: URL(fileURLWithPath: path, isDirectory: true).lastPathComponent, path: path)
+        })
+    }
 
     private var fileAttachments: [FileAttachmentPreview] {
         let listed = attachmentLines(after: "Attached files:").compactMap { line -> FileAttachmentPreview? in
@@ -1630,6 +1639,59 @@ private struct PiAgentUserMessageContent: View {
         text.replacingOccurrences(of: #"<file name=\"[^\"]+\">[\s\S]*?</file>"#, with: "", options: .regularExpression)
     }
 
+    private static func removingFolderReferences(from text: String) -> String {
+        guard !folderReferences(in: text).isEmpty else { return text }
+        var output = text
+        for pattern in folderReferencePatterns {
+            output = output.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return output
+            .replacingOccurrences(of: #"^\s*-\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+    }
+
+    private static func folderReferences(in text: String) -> [String] {
+        let explicit = matches(pattern: #"\bfolder:\s*`([^`]+)`"#, in: text)
+            + matches(pattern: #"\bfolder:\s*(/[^\n`]+?)(?=\s+-\s+|\n|$)"#, in: text)
+        let bare = matches(pattern: #"^\s*`(/[^`]+)`(?=\s+-\s+|\s*$)"#, in: text)
+            + matches(pattern: #"^\s*(/[^\n`]+?)(?=\s+-\s+|\n|$)"#, in: text)
+        return uniquePaths(explicit) + uniqueExistingDirectories(bare)
+    }
+
+    private static var folderReferencePatterns: [String] {
+        [
+            #"\bfolder:\s*`[^`]+`\s*(?:-\s*)?"#,
+            #"\bfolder:\s*/[^\n`]+?(?=\s+-\s+|\n|$)\s*(?:-\s*)?"#,
+            #"^\s*`/[^`]+`(?=\s+-\s+|\s*$)\s*(?:-\s*)?"#,
+            #"^\s*/[^\n`]+?(?=\s+-\s+|\n|$)\s*(?:-\s*)?"#
+        ]
+    }
+
+    private static func matches(pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: text) else { return nil }
+            return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private static func uniquePaths(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        return paths.compactMap { path in
+            let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+            guard seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
+    }
+
+    private static func uniqueExistingDirectories(_ paths: [String]) -> [String] {
+        uniquePaths(paths).filter { path in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+    }
+
     private static func isImageName(_ name: String) -> Bool {
         ["png", "jpg", "jpeg", "gif", "webp", "tiff", "heic"].contains(URL(fileURLWithPath: name).pathExtension.lowercased())
     }
@@ -1644,12 +1706,17 @@ private struct PiAgentUserMessageContent: View {
         return files.filter { seen.insert($0.name).inserted }
     }
 
+    private func uniqueFolders(_ folders: [FolderAttachmentPreview]) -> [FolderAttachmentPreview] {
+        var seen = Set<String>()
+        return folders.filter { seen.insert($0.path).inserted }
+    }
+
     private var images: [PiAgentImageAttachment] {
         guard let rawJSON = entry.rawJSON, let data = rawJSON.data(using: .utf8), let object = try? JSONDecoder().decode([String: [PiAgentImageAttachment]].self, from: data) else { return [] }
         return object["images"] ?? []
     }
 
-    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count - 12) }
+    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count + folderAttachments.count - 12) }
 
     private func attachmentChip(name: String, systemImage: String, attachment: AttachmentPreview) -> some View {
         Button { preview = attachment } label: {
@@ -1687,15 +1754,23 @@ private struct FileAttachmentPreview: Identifiable, Hashable {
     let path: String?
 }
 
+private struct FolderAttachmentPreview: Identifiable, Hashable {
+    var id: String { path }
+    let name: String
+    let path: String
+}
+
 private enum AttachmentPreview: Identifiable, Hashable {
     case image(PiAgentImageAttachment)
     case file(FileAttachmentPreview)
+    case folder(FolderAttachmentPreview)
     case missing(String)
 
     var id: String {
         switch self {
         case .image(let image): return "image-\(image.id.uuidString)"
         case .file(let file): return "file-\(file.id)"
+        case .folder(let folder): return "folder-\(folder.id)"
         case .missing(let name): return "missing-\(name)"
         }
     }
@@ -1713,7 +1788,8 @@ private struct AttachmentPreviewPopover: View {
             previewBody
         }
         .padding(12)
-        .frame(width: 420, height: 300)
+        .frame(width: 420, alignment: .topLeading)
+        .frame(maxHeight: 300)
     }
 
     @ViewBuilder private var header: some View {
@@ -1735,7 +1811,7 @@ private struct AttachmentPreviewPopover: View {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: 240)
                     .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
             } else {
                 empty("Preview is not available for this image.")
@@ -1749,6 +1825,8 @@ private struct AttachmentPreviewPopover: View {
             } else {
                 empty("Preview is not available for this attachment.")
             }
+        case .folder(let folder):
+            folderPreviewBody(folder: folder)
         case .missing:
             empty("Preview is not available for older attachment metadata.")
         }
@@ -1757,7 +1835,7 @@ private struct AttachmentPreviewPopover: View {
     @ViewBuilder private func filePreviewBody(path: String) -> some View {
         if isLoadingFilePreview || filePreviewPath != path {
             ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 80)
         } else if let text = filePreviewText {
             ScrollView {
                 Text(String(text.prefix(12_000)))
@@ -1766,6 +1844,7 @@ private struct AttachmentPreviewPopover: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
             }
+            .frame(maxHeight: 240)
             .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
         } else {
             VStack(spacing: 8) {
@@ -1780,8 +1859,24 @@ private struct AttachmentPreviewPopover: View {
                     .truncationMode(.middle)
                     .textSelection(.enabled)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 120)
         }
+    }
+
+    @ViewBuilder private func folderPreviewBody(folder: FolderAttachmentPreview) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(folder.path)
+                .font(.caption.monospaced())
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder.path, isDirectory: true)])
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func loadTextPreview(atPath path: String) async {
@@ -1800,6 +1895,7 @@ private struct AttachmentPreviewPopover: View {
         switch attachment {
         case .image(let image): return image.name
         case .file(let file): return file.name
+        case .folder(let folder): return folder.name
         case .missing(let name): return name
         }
     }
@@ -1808,6 +1904,7 @@ private struct AttachmentPreviewPopover: View {
         switch attachment {
         case .image, .missing: return "photo"
         case .file: return "doc.text"
+        case .folder: return "folder"
         }
     }
 
@@ -1825,7 +1922,7 @@ private struct AttachmentPreviewPopover: View {
         Text(text)
             .font(.callout)
             .foregroundStyle(AppTheme.mutedText)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 80)
     }
 }
 

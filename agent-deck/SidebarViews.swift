@@ -37,6 +37,8 @@ struct PiAgentSidebarButton: View {
     let needsAttentionCount: Int
     let action: () -> Void
 
+    private var hasRunningSessions: Bool { runningSessionCount > 0 }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
@@ -45,17 +47,17 @@ struct PiAgentSidebarButton: View {
                     .renderingMode(.template)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 18, height: 18)
-                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .foregroundStyle(isSelected ? AppTheme.accentForeground.gradient : AppTheme.brandAccent.gradient)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pi Agent")
                         .font(.callout.weight(.semibold))
                         .fontWidth(.expanded)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isSelected ? AppTheme.accentForeground : .primary)
                     Text(statusText)
                         .font(.callout)
                         .fontWeight(.regular)
-                        .foregroundStyle(AppTheme.mutedText)
+                        .foregroundStyle(isSelected ? AppTheme.accentForeground.opacity(0.82) : AppTheme.mutedText)
                         .fontWidth(.compressed)
                         .lineLimit(1)
                 }
@@ -63,7 +65,7 @@ struct PiAgentSidebarButton: View {
                 .mask {
                     HStack(spacing: 0) {
                         Rectangle()
-                        if needsAttentionCount > 0 {
+                        if needsAttentionCount > 0 || hasRunningSessions {
                             LinearGradient(
                                 stops: [
                                     .init(color: .black, location: 0),
@@ -76,13 +78,17 @@ struct PiAgentSidebarButton: View {
                         }
                     }
                 }
+
+                if hasRunningSessions {
+                    PiAgentRunningPulse(isOnAccent: isSelected)
+                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .appControlSurface(cornerRadius: 16)
+            .background(sidebarBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isSelected ? AppTheme.selectionStroke : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.brandAccentBright.opacity(0.55) : AppTheme.contentStroke, lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
                 if needsAttentionCount > 0 {
@@ -102,6 +108,15 @@ struct PiAgentSidebarButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Pi Agent")
         .accessibilityHint(accessibilityHint)
+    }
+
+    private var sidebarBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(
+                isSelected
+                    ? AnyShapeStyle(LinearGradient(colors: [AppTheme.brandAccentBright, AppTheme.brandAccent], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    : AnyShapeStyle(AppTheme.contentSubtleFill)
+            )
     }
 
     private var statusText: String {
@@ -134,6 +149,28 @@ struct PiAgentSidebarButton: View {
 
     private var badgeText: String {
         needsAttentionCount > 99 ? "99+" : "\(needsAttentionCount)"
+    }
+}
+
+private struct PiAgentRunningPulse: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let isOnAccent: Bool
+    @State private var isPulsing = false
+
+    var body: some View {
+        Image(systemName: "circle.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(isOnAccent ? AppTheme.accentForeground.opacity(0.92) : AppTheme.brandAccent)
+            .scaleEffect(reduceMotion ? 1 : (isPulsing ? 1.2 : 0.74))
+            .opacity(reduceMotion ? 1 : (isPulsing ? 1 : 0.42))
+            .shadow(color: (isOnAccent ? AppTheme.accentForeground : AppTheme.brandAccent).opacity(0.35), radius: isPulsing ? 5 : 1)
+            .accessibilityHidden(true)
+            .task {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.78).repeatForever(autoreverses: true)) {
+                    isPulsing = true
+                }
+            }
     }
 }
 

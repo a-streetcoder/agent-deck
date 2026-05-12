@@ -9,6 +9,7 @@ struct PiAgentComposerBox: View {
     @Binding var text: String
     @Binding var images: [PiAgentImageAttachment]
     @Binding var files: [PiAgentFileAttachment]
+    @Binding var folders: [PiAgentFolderAttachment]
     @Binding var attachmentError: String?
     @Binding var inputMode: PiAgentInputMode
     let isRunning: Bool
@@ -30,7 +31,7 @@ struct PiAgentComposerBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !images.isEmpty || !files.isEmpty {
+            if !images.isEmpty || !files.isEmpty || !folders.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(images) { image in
@@ -41,6 +42,11 @@ struct PiAgentComposerBox: View {
                         ForEach(files) { file in
                             PiAgentFileAttachmentChip(file: file) {
                                 files.removeAll { $0.id == file.id }
+                            }
+                        }
+                        ForEach(folders) { folder in
+                            PiAgentFolderAttachmentChip(folder: folder) {
+                                folders.removeAll { $0.id == folder.id }
                             }
                         }
                     }
@@ -153,8 +159,8 @@ struct PiAgentComposerBox: View {
         }
         .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image, .plainText, .utf8PlainText], isTargeted: $isDropTargeted) { providers in
             PiAgentComposerImageLoader.loadDropItems(from: providers) { attachments, files in
-                let folderURLs = files.filter(\.hasDirectoryPath)
-                let fileURLs = files.filter { !$0.hasDirectoryPath }
+                let folderURLs = files.filter { PiAgentFolderAttachment(url: $0) != nil }
+                let fileURLs = files.filter { PiAgentFolderAttachment(url: $0) == nil }
                 if attachments.isEmpty && fileURLs.isEmpty && folderURLs.isEmpty {
                     attachmentError = "Drop images, files, or folders."
                 } else {
@@ -188,13 +194,16 @@ struct PiAgentComposerBox: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.item]
         panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.canChooseFiles = true
         guard panel.runModal() == .OK else { return }
-        let imageAttachments = panel.urls.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) }
-        let files = panel.urls.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
+        let folderURLs = panel.urls.filter { PiAgentFolderAttachment(url: $0) != nil }
+        let fileURLs = panel.urls.filter { PiAgentFolderAttachment(url: $0) == nil }
+        let imageAttachments = fileURLs.compactMap { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) }
+        let files = fileURLs.filter { PiAgentComposerImageLoader.imageAttachment(fromFileURL: $0) == nil }
         addImages(imageAttachments)
         onFiles(files)
+        onFolders(folderURLs)
     }
 
     private func openAIFastStatus(for session: PiAgentSessionRecord) -> Bool? {
@@ -322,10 +331,10 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
         func handleDrop(_ pasteboard: NSPasteboard) -> Bool {
             let images = PiAgentComposerImageLoader.imagesFromPasteboard(pasteboard)
             let droppedURLs = PiAgentComposerImageLoader.fileURLs(from: pasteboard).filter { url in
-                url.hasDirectoryPath || PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) == nil
+                PiAgentFolderAttachment(url: url) != nil || PiAgentComposerImageLoader.imageAttachment(fromFileURL: url) == nil
             }
-            let folders = droppedURLs.filter(\.hasDirectoryPath)
-            let files = droppedURLs.filter { !$0.hasDirectoryPath }
+            let folders = droppedURLs.filter { PiAgentFolderAttachment(url: $0) != nil }
+            let files = droppedURLs.filter { PiAgentFolderAttachment(url: $0) == nil }
             if images.isEmpty && files.isEmpty && folders.isEmpty {
                 parent.onUnsupportedDrop()
                 return false
@@ -465,10 +474,40 @@ struct PiAgentFileAttachmentChip: View {
     let onRemove: () -> Void
 
     var body: some View {
+        PiAgentPathAttachmentChip(
+            title: file.url.lastPathComponent.isEmpty ? file.url.path : file.url.lastPathComponent,
+            path: file.url.path,
+            systemImage: "doc.text",
+            onRemove: onRemove
+        )
+    }
+}
+
+struct PiAgentFolderAttachmentChip: View {
+    let folder: PiAgentFolderAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        PiAgentPathAttachmentChip(
+            title: folder.url.lastPathComponent.isEmpty ? folder.url.path : folder.url.lastPathComponent,
+            path: folder.url.path,
+            systemImage: "folder",
+            onRemove: onRemove
+        )
+    }
+}
+
+private struct PiAgentPathAttachmentChip: View {
+    let title: String
+    let path: String
+    let systemImage: String
+    let onRemove: () -> Void
+
+    var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.text")
+            Image(systemName: systemImage)
                 .foregroundStyle(AppTheme.brandAccent)
-            Text(file.url.lastPathComponent.isEmpty ? file.url.path : file.url.lastPathComponent)
+            Text(title)
                 .lineLimit(1)
                 .truncationMode(.head)
             Button(action: onRemove) {
@@ -481,7 +520,7 @@ struct PiAgentFileAttachmentChip: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-        .help(file.url.path)
+        .help(path)
     }
 }
 

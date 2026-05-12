@@ -107,7 +107,8 @@ enum PiTestSupport {
         defaultReads: [String]? = nil,
         inheritProjectContext: Bool? = nil,
         inheritSkills: Bool? = nil,
-        systemPromptMode: String? = nil
+        systemPromptMode: String? = nil,
+        systemPrompt: String = ""
     ) -> EffectiveAgentRecord {
         var config = AgentConfig.empty
         config.name = name
@@ -115,6 +116,7 @@ enum PiTestSupport {
         config.model = model
         config.thinking = thinking
         config.systemPromptMode = systemPromptMode
+        config.systemPrompt = systemPrompt
         config.inheritProjectContext = inheritProjectContext
         config.inheritSkills = inheritSkills
         config.defaultContext = defaultContext

@@ -144,6 +144,54 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertEqual(persisted?.model, "zai/glm-5.1:low")
     }
 
+    func testSystemPromptPlacesAgentPromptBeforeCommonBoundary() throws {
+        let fakePi = try PiTestSupport.makeFakePiExecutable()
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
+        defer { restorePiPath(oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(systemPrompt: "You are `example`, a focused test agent."),
+            snapshot: .empty,
+            task: "Check prompt order.",
+            requestedContext: .fresh
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        let prompt = try String(contentsOf: run.artifactDirectory.asFileURL.appendingPathComponent("system-prompt.md"), encoding: .utf8)
+        let agentRange = try XCTUnwrap(prompt.range(of: "You are `example`, a focused test agent."))
+        let commonRange = try XCTUnwrap(prompt.range(of: "This is a delegated child session."))
+        XCTAssertLessThan(agentRange.lowerBound, commonRange.lowerBound)
+    }
+
+    func testInheritProjectContextTrueAllowsPiContextDiscovery() throws {
+        let fakePi = try PiTestSupport.makeFakePiExecutable()
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
+        defer { restorePiPath(oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        let run = try runner.runSingle(
+            parentSession: parent,
+            agent: PiTestSupport.makeAgent(inheritProjectContext: true),
+            snapshot: .empty,
+            task: "Check context flags.",
+            requestedContext: .fresh
+        )
+        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
+
+        let command = try XCTUnwrap(run.launchCommand)
+        XCTAssertFalse(command.contains("--no-context-files"))
+    }
+
     func testReadFirstPathsRejectAbsoluteAndParentTraversalInputs() throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }

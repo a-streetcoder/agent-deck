@@ -175,9 +175,9 @@ Current launch shape:
 --session-dir <artifact-dir>/sessions
 # or, when resolved context is fork:
 --fork <artifact-dir>/fork-context.jsonl --session-dir <artifact-dir>/sessions
---system-prompt <native boundary + agent prompt>
+--system-prompt <agent prompt + common child-session boundary>
 # plus --append-system-prompt "" to suppress APPEND_SYSTEM.md discovery
-# or only --append-system-prompt <...> when systemPromptMode == append
+# or only --append-system-prompt <agent prompt + common child-session boundary> when systemPromptMode == append
 [--no-context-files]                 # when inheritProjectContext != true
 [--extension <contact-supervisor-bridge.ts>]
 [--tools <agent tool allowlist>]

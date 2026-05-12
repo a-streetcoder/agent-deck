@@ -20,6 +20,7 @@ final class PiAgentSessionStore: ObservableObject {
     private var composerTextDraftsBySessionID: [UUID: String] = [:]
     private var composerImageDraftsBySessionID: [UUID: [PiAgentImageAttachment]] = [:]
     private var composerFileDraftsBySessionID: [UUID: [PiAgentFileAttachment]] = [:]
+    private var composerFolderDraftsBySessionID: [UUID: [PiAgentFolderAttachment]] = [:]
 
     private let maxTranscriptEntriesPerSession = 500
     private let transcriptRevisionCoalesceNanoseconds: UInt64 = 33_000_000
@@ -95,21 +96,23 @@ final class PiAgentSessionStore: ObservableObject {
         return uiRequestsBySessionID[session.id]
     }
 
-    func composerDraft(for sessionID: UUID) -> (text: String, images: [PiAgentImageAttachment], files: [PiAgentFileAttachment]) {
+    func composerDraft(for sessionID: UUID) -> (text: String, images: [PiAgentImageAttachment], files: [PiAgentFileAttachment], folders: [PiAgentFolderAttachment]) {
         (
             composerTextDraftsBySessionID[sessionID] ?? "",
             composerImageDraftsBySessionID[sessionID] ?? [],
-            composerFileDraftsBySessionID[sessionID] ?? []
+            composerFileDraftsBySessionID[sessionID] ?? [],
+            composerFolderDraftsBySessionID[sessionID] ?? []
         )
     }
 
-    func saveComposerDraft(text: String, images: [PiAgentImageAttachment], files: [PiAgentFileAttachment], for sessionID: UUID) {
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty && files.isEmpty {
+    func saveComposerDraft(text: String, images: [PiAgentImageAttachment], files: [PiAgentFileAttachment], folders: [PiAgentFolderAttachment], for sessionID: UUID) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty && files.isEmpty && folders.isEmpty {
             clearComposerDraft(for: sessionID)
         } else {
             composerTextDraftsBySessionID[sessionID] = text
             composerImageDraftsBySessionID[sessionID] = images
             composerFileDraftsBySessionID[sessionID] = files
+            composerFolderDraftsBySessionID[sessionID] = folders
         }
     }
 
@@ -117,6 +120,7 @@ final class PiAgentSessionStore: ObservableObject {
         composerTextDraftsBySessionID.removeValue(forKey: sessionID)
         composerImageDraftsBySessionID.removeValue(forKey: sessionID)
         composerFileDraftsBySessionID.removeValue(forKey: sessionID)
+        composerFolderDraftsBySessionID.removeValue(forKey: sessionID)
     }
 
     @discardableResult

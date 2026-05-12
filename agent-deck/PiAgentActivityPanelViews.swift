@@ -346,9 +346,7 @@ private struct PiAgentActivitySubagentRow: View {
                 Text(run.agentName)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
-                Text(run.status.rawValue)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(color(for: run.status))
+                PiSubagentStatusText(status: run.status, color: color(for: run.status), font: .caption2.weight(.semibold))
                 Spacer(minLength: 0)
                 if run.isWorktreeIsolated == true {
                     Image(systemName: "point.3.connected.trianglepath.dotted")
@@ -369,9 +367,7 @@ private struct PiAgentActivitySubagentRow: View {
                             Text("\(child.index + 1). \(child.agentName)")
                                 .font(.caption2.weight(.semibold))
                                 .lineLimit(1)
-                            Text(child.status.rawValue)
-                                .font(.caption2)
-                                .foregroundStyle(AppTheme.mutedText)
+                            PiSubagentStatusText(status: child.status, color: color(for: child.status), font: .caption2)
                             Spacer(minLength: 0)
                         }
                     }

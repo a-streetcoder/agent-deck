@@ -25,6 +25,12 @@ Agent Deck can discover skills from multiple sources, including:
 
 A catalog skill keeps its original path. Agent Deck does not need to move, copy, or link a skill before using it. Runtime injection is controlled by assignment, not by the folder where the skill lives.
 
+## Importing external skills
+
+The Skills view import sheet lets a user choose either a skill root or a broader source folder. Agent Deck searches the chosen folder recursively for directories containing `SKILL.md`, stopping recursion when it reaches a skill root. This lets a user point at a repository or collection folder, review the discovered skill roots, and select only the skills they want.
+
+Importing selected skills stores the selected skill root paths in Agent Deck settings. It does not store the broad search folder, copy files, or automatically assign the skills. The selected roots become catalog entries and are injected only when assigned as Default, Project, or Agent skills.
+
 ## Bundled authoring skills
 
 Agent Deck ships focused authoring skills for common resource creation workflows:
