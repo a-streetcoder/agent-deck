@@ -233,8 +233,10 @@ struct SkillsScreen: View {
                     }
                 }
 
-            AppCard(title: "Project Assignment") {
-                projectAssignmentList(for: skill)
+            if !viewModel.skillIsEnabledGlobally(skill) {
+                AppCard(title: "Project Assignment") {
+                    projectAssignmentList(for: skill)
+                }
             }
 
             AppCard(title: "Agent Assignment") {
