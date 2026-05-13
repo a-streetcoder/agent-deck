@@ -63,7 +63,6 @@ enum PiTestSupport {
             modelProvider: provider,
             modelOverrideID: nil,
             modelOverrideProvider: nil,
-            availableModels: nil,
             thinkingLevel: thinking,
             launchCommand: nil,
             branchName: nil,

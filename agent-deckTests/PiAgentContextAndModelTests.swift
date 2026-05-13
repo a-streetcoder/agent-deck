@@ -33,18 +33,6 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
         let session = makeSession(
             model: "gpt-test",
             modelProvider: "openai",
-            availableModels: [
-                PiAgentModelOption(
-                    provider: "openai",
-                    id: "gpt-test",
-                    name: nil,
-                    contextWindow: 2_000,
-                    maxOutput: 200,
-                    supportsThinking: true,
-                    supportedThinkingLevels: ["off", "low"],
-                    supportsImages: false
-                )
-            ],
             contextTokens: 1_000,
             contextWindow: 2_000,
             contextPercent: 50
@@ -94,7 +82,6 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
     private func makeSession(
         model: String? = nil,
         modelProvider: String? = nil,
-        availableModels: [PiAgentModelOption]? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
         cacheReadTokens: Int? = nil,
@@ -118,7 +105,6 @@ final class PiAgentContextEstimateBuilderTests: XCTestCase {
             modelProvider: modelProvider,
             modelOverrideID: nil,
             modelOverrideProvider: nil,
-            availableModels: availableModels,
             thinkingLevel: nil,
             launchCommand: nil,
             branchName: nil,

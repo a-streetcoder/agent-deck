@@ -27,7 +27,6 @@ Each `PiAgentSessionRecord` can contain:
 | `modelOverrideProvider` | Agent Deck's explicit provider selection for this session. |
 | `modelOverrideID` | Agent Deck's explicit model selection for this session. |
 | `thinkingLevel` | Agent Deck's selected thinking level for this session. |
-| `availableModels` | Legacy persisted field. The model picker no longer uses this as a source. |
 
 Override fields win over reported fields when launching.
 
@@ -79,8 +78,6 @@ pi --list-models
 ```
 
 Agent Deck stores this in `AppViewModel.availableModels`. The Models screen, Pi Agent footer picker, agent editor picker, title-generation model selection, and thinking validation all use this same app-level catalog.
-
-Agent Deck does not use old `PiAgentSessionRecord.availableModels` values as a fallback cache for model pickers.
 
 Disabled models from app settings are filtered out.
 

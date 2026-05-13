@@ -125,20 +125,6 @@ final class PiAgentSessionStore: ObservableObject {
 
     @discardableResult
     func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil) -> PiAgentSessionRecord {
-        createSession(
-            kind: kind,
-            title: title,
-            project: project,
-            repository: repository,
-            issueNumber: issueNumber,
-            issueURL: issueURL,
-            model: model,
-            availableModels: nil
-        )
-    }
-
-    @discardableResult
-    func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, availableModels: [PiAgentModelOption]?) -> PiAgentSessionRecord {
         let now = Date()
         let record = PiAgentSessionRecord(
             id: UUID(),
@@ -155,7 +141,6 @@ final class PiAgentSessionStore: ObservableObject {
             modelProvider: nil,
             modelOverrideID: nil,
             modelOverrideProvider: nil,
-            availableModels: availableModels,
             thinkingLevel: nil,
             launchCommand: nil,
             branchName: nil,
@@ -234,20 +219,6 @@ final class PiAgentSessionStore: ObservableObject {
         if bumpUpdatedAt {
             sessions[index].updatedAt = Date()
         }
-        sortSessions()
-        save()
-    }
-
-    func updateAvailableModelsForSessions(_ sessionIDs: Set<UUID>? = nil, options: [PiAgentModelOption], overwriteExisting: Bool = false) {
-        var changed = false
-        for index in sessions.indices {
-            let session = sessions[index]
-            if let sessionIDs, !sessionIDs.contains(session.id) { continue }
-            guard overwriteExisting || (session.availableModels?.isEmpty ?? true) else { continue }
-            sessions[index].availableModels = options
-            changed = true
-        }
-        guard changed else { return }
         sortSessions()
         save()
     }
