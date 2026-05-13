@@ -346,6 +346,7 @@ struct PiAgentScreen: View {
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
     @State private var stabilizedProcessingMessage: String?
     @State private var processingMessageUpdateTask: Task<Void, Never>?
+    @State private var transcriptBottomSettleTask: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -378,6 +379,8 @@ struct PiAgentScreen: View {
         .onDisappear {
             processingMessageUpdateTask?.cancel()
             processingMessageUpdateTask = nil
+            transcriptBottomSettleTask?.cancel()
+            transcriptBottomSettleTask = nil
         }
         .sheet(isPresented: uiRequestSheetBinding) {
             if let request = store.selectedUIRequest {
@@ -817,6 +820,7 @@ struct PiAgentScreen: View {
                                 Spacer()
                             }
                         }
+                        .id("pi-agent-transcript-state-card")
                     } else if timelineItems.isEmpty {
                         AppRowCard {
                             HStack(spacing: 12) {
@@ -832,6 +836,7 @@ struct PiAgentScreen: View {
                                 Spacer()
                             }
                         }
+                        .id("pi-agent-transcript-state-card")
                     } else {
                         ForEach(timelineItems) { item in
                             switch item.kind {
@@ -875,7 +880,6 @@ struct PiAgentScreen: View {
                     )
                 }
         }
-        .defaultScrollAnchor(.bottom)
         .scrollPosition($transcriptScrollPosition, anchor: .bottom)
         .task(id: transcriptCache.renderRevision) {
             handleTranscriptRenderRevision()
@@ -1159,13 +1163,34 @@ struct PiAgentScreen: View {
 
     private func scrollToConversationBottom(animated: Bool, respectSuppression: Bool) {
         lastStreamingScrollAt = Date()
-        Task { @MainActor in
-            await Task.yield()
-            guard !respectSuppression || !isTranscriptAutoScrollSuppressed else { return }
-            withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
-                transcriptScrollPosition.scrollTo(edge: .bottom)
-            }
+        transcriptBottomSettleTask?.cancel()
+        transcriptBottomSettleTask = Task { @MainActor in
+            await settleTranscriptBottomPass(animated: animated, respectSuppression: respectSuppression)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            await settleTranscriptBottomPass(animated: false, respectSuppression: respectSuppression)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            await settleTranscriptBottomPass(animated: false, respectSuppression: respectSuppression)
         }
+    }
+
+    private func settleTranscriptBottomPass(animated: Bool, respectSuppression: Bool) async {
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+        guard !respectSuppression || (!isTranscriptAutoScrollSuppressed && transcriptIsPinnedToBottom) else { return }
+        let targetID = transcriptBottomScrollTargetID
+        withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
+            transcriptScrollPosition.scrollTo(id: targetID, anchor: .bottom)
+        }
+    }
+
+    private var transcriptBottomScrollTargetID: String {
+        if stabilizedProcessingMessage != nil {
+            return "pi-agent-processing"
+        }
+        if let lastItemID = visibleTranscriptTimelineItems.last?.id {
+            return lastItemID
+        }
+        return "pi-agent-transcript-state-card"
     }
 
     private func throttleStreamingScroll() {
@@ -1186,9 +1211,11 @@ struct PiAgentScreen: View {
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
-                isDisabled: isCompacting || !hasSelectedSession,
-                placeholder: !hasSelectedSession ? "Select or start a Pi Agent session to send a message…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
+                isDisabled: isCompacting,
+                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+                canCreateSession: !isCompacting && store.selectedSession == nil,
+                createSessionProjects: viewModel.selectedDiscoveredProject == nil ? piAgentNewSessionProjects : [],
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
                 onFiles: addFileAttachments,
                 onFolders: addFolderAttachments,
@@ -1197,8 +1224,10 @@ struct PiAgentScreen: View {
                 transcript: store.selectedTranscript,
                 supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
                 metricsSession: runtimeFooterSession(isRunning: isRunning),
-            onSend: sendComposerMessage,
+            onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
             onStop: { viewModel.stopSelectedPiAgentSession() },
+            onCreateSession: createSessionFromComposer,
+            onCreateSessionForProject: createSessionFromComposer,
             onClear: clearComposerInput
         )
         .popover(
@@ -1442,6 +1471,23 @@ struct PiAgentScreen: View {
         composerAttachmentError = nil
     }
 
+    private func createSessionFromComposer() {
+        createSessionFromComposer(for: nil)
+    }
+
+    private func createSessionFromComposer(for project: DiscoveredProject?) {
+        guard store.selectedSession == nil else { return }
+        let shouldSend = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
+        if let project {
+            viewModel.createPiAgentDraft(for: project)
+        } else {
+            viewModel.createPiAgentDraftForSelectedProject()
+        }
+        if shouldSend {
+            sendComposerMessage()
+        }
+    }
+
     private func sendComposerMessage() {
         let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
@@ -1667,6 +1713,12 @@ private struct PiAgentComposerPanel: View {
     @State private var composerAttachmentError: String?
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
+    private var piAgentNewSessionProjects: [DiscoveredProject] {
+        viewModel.enabledProjects.sorted { lhs, rhs in
+            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
     var body: some View {
         let isRunning = store.selectedSession?.status.isActive == true
         let isCompacting = store.selectedSession?.isCompacting == true
@@ -1680,9 +1732,11 @@ private struct PiAgentComposerPanel: View {
             attachmentError: $composerAttachmentError,
             inputMode: $inputMode,
             isRunning: isRunning,
-            isDisabled: isCompacting || !hasSelectedSession,
-            placeholder: !hasSelectedSession ? "Select or start a Pi Agent session to send a message…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
+            isDisabled: isCompacting,
+            placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
             canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+            canCreateSession: !isCompacting && store.selectedSession == nil,
+            createSessionProjects: viewModel.selectedDiscoveredProject == nil ? piAgentNewSessionProjects : [],
             path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
             onFiles: addFileAttachments,
             onFolders: addFolderAttachments,
@@ -1691,8 +1745,10 @@ private struct PiAgentComposerPanel: View {
             transcript: store.selectedTranscript,
             supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
             metricsSession: runtimeFooterSession(isRunning: isRunning),
-            onSend: sendComposerMessage,
+            onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
             onStop: { viewModel.stopSelectedPiAgentSession() },
+            onCreateSession: createSessionFromComposer,
+            onCreateSessionForProject: createSessionFromComposer,
             onClear: clearComposerInput
         )
         .popover(
@@ -1886,6 +1942,23 @@ private struct PiAgentComposerPanel: View {
         composerFiles = []
         composerFolders = []
         composerAttachmentError = nil
+    }
+
+    private func createSessionFromComposer() {
+        createSessionFromComposer(for: nil)
+    }
+
+    private func createSessionFromComposer(for project: DiscoveredProject?) {
+        guard store.selectedSession == nil else { return }
+        let shouldSend = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
+        if let project {
+            viewModel.createPiAgentDraft(for: project)
+        } else {
+            viewModel.createPiAgentDraftForSelectedProject()
+        }
+        if shouldSend {
+            sendComposerMessage()
+        }
     }
 
     private func sendComposerMessage() {

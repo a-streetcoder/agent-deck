@@ -47,6 +47,12 @@ struct CreditsScreen: View {
                     )
                     Divider()
                     creditRow(
+                        title: "pi-web-access",
+                        detail: "Agent Deck's bundled Exa web tools follow the Pi web_search, fetch_content, and get_search_content conventions used by Nico Bailon's MIT-licensed pi-web-access package. Agent Deck does not bundle or depend on that package.",
+                        url: "https://github.com/nicobailon/pi-web-access"
+                    )
+                    Divider()
+                    creditRow(
                         title: "pi-subagents and pi-intercom",
                         detail: "Agent Deck's native subagent design was logically inspired by Nico Bailon's MIT-licensed Pi ecosystem packages. Agent Deck does not bundle or depend on those packages for native subagent execution.",
                         url: "https://github.com/nicobailon/pi-subagents"

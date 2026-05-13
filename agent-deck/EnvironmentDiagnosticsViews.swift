@@ -713,7 +713,7 @@ struct DiagnosticsScreen: View {
                         .fontWidth(.expanded)
 
                     Text(hasExaAPIKey
-                         ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Exa web tools are loaded by the app."
+                         ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Exa web tools are loaded by the app. Enhanced web_fetch fallback setup is still shown here for standby use."
                          : webFetchStatus.isInstalled
                             ? "Exa web_search, fetch_content, and get_search_content require EXA_API_KEY. Enhanced web_fetch dependencies are installed, so Agent Deck loads the URL fetch fallback."
                             : "Exa web_search, fetch_content, and get_search_content require EXA_API_KEY. Install enhanced web_fetch dependencies to enable URL fetch fallback.")
@@ -723,35 +723,33 @@ struct DiagnosticsScreen: View {
 
                     AppKeyValueList(rows: webAccessRows)
 
-                    if !hasExaAPIKey {
-                        HStack(spacing: 8) {
-                            Button {
-                                Task { await installWebFetchDependencies() }
-                            } label: {
-                                if isInstallingWebFetchDependencies {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Text(webFetchStatus.isInstalled ? "Reinstall Web Fetch Dependencies" : "Install Web Fetch Dependencies")
-                                }
+                    HStack(spacing: 8) {
+                        Button {
+                            Task { await installWebFetchDependencies() }
+                        } label: {
+                            if isInstallingWebFetchDependencies {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Text(webFetchStatus.isInstalled ? "Reinstall Web Fetch Dependencies" : "Install Web Fetch Dependencies")
                             }
-                            .disabled(isInstallingWebFetchDependencies)
-
-                            Button {
-                                refreshWebFetchStatus()
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                            .disabled(isInstallingWebFetchDependencies)
-                            .help("Refresh web fetch dependency status")
                         }
+                        .disabled(isInstallingWebFetchDependencies)
 
-                        if let webFetchInstallMessage {
-                            Text(webFetchInstallMessage)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(AppTheme.mutedText)
-                                .textSelection(.enabled)
+                        Button {
+                            refreshWebFetchStatus()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
                         }
+                        .disabled(isInstallingWebFetchDependencies)
+                        .help("Refresh web fetch dependency status")
+                    }
+
+                    if let webFetchInstallMessage {
+                        Text(webFetchInstallMessage)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .textSelection(.enabled)
                     }
                 }
 
@@ -767,19 +765,16 @@ struct DiagnosticsScreen: View {
     }
 
     private var webAccessRows: [(String, String)] {
-        if hasExaAPIKey {
-            return [("Exa", "Configured"), ("Fallback", "Hidden while Exa is active")]
-        }
         return [
-            ("Exa", "Missing"),
-            ("Fallback", webFetchStatus.isInstalled ? "web_fetch ready" : "Dependencies missing"),
+            ("Exa", hasExaAPIKey ? "Configured" : "Missing"),
+            ("Fallback", webFetchStatus.isInstalled ? (hasExaAPIKey ? "web_fetch ready, standby" : "web_fetch ready") : "Dependencies missing"),
             ("Install path", webFetchStatus.installDirectory.path),
             ("Packages", WebFetchDependencyService.packages.joined(separator: ", "))
         ]
     }
 
     private var webAccessStatusLabel: String {
-        if hasExaAPIKey { return "Exa" }
+        if hasExaAPIKey { return webFetchStatus.isInstalled ? "Exa + Fallback" : "Exa" }
         return webFetchStatus.isInstalled ? "Fallback Ready" : "Needs Install"
     }
 

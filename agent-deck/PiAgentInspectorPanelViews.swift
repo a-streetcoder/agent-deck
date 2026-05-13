@@ -77,6 +77,8 @@ struct PiAgentInspectorPanel: View {
                     isDisabled: isCompacting,
                     placeholder: isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Message Pi…"),
                     canSend: !isCompacting && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+                    canCreateSession: false,
+                    createSessionProjects: [],
                     path: session.worktreePath ?? session.projectPath,
                     onFiles: { urls in
                         let attachments = urls.compactMap { PiAgentFileAttachment(url: $0) }
@@ -114,6 +116,8 @@ struct PiAgentInspectorPanel: View {
                         composerAttachmentError = nil
                     },
                     onStop: { viewModel.stopSelectedPiAgentSession() },
+                    onCreateSession: {},
+                    onCreateSessionForProject: { _ in },
                     onClear: {
                         composerText = ""
                         composerImages = []

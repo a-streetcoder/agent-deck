@@ -129,11 +129,14 @@ private struct PiAgentTranscriptFirstPaintSmokeView: View {
             .padding(16)
         }
         .background(Color.white)
-        .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition, anchor: .bottom)
         .task {
             await Task.yield()
-            scrollPosition.scrollTo(edge: .bottom)
+            scrollPosition.scrollTo(id: "bottom", anchor: .bottom)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            scrollPosition.scrollTo(id: "bottom", anchor: .bottom)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            scrollPosition.scrollTo(id: "bottom", anchor: .bottom)
         }
     }
 }
@@ -151,13 +154,16 @@ private struct PiAgentTranscriptAppendSmokeView: View {
             .padding(16)
         }
         .background(Color.white)
-        .defaultScrollAnchor(.bottom)
         .scrollPosition($scrollPosition, anchor: .bottom)
         .task {
             await Task.yield()
             rows.append("Sent message row")
             await Task.yield()
-            scrollPosition.scrollTo(edge: .bottom)
+            scrollPosition.scrollTo(id: "bottom", anchor: .bottom)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            scrollPosition.scrollTo(id: "bottom", anchor: .bottom)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            scrollPosition.scrollTo(id: "bottom", anchor: .bottom)
         }
     }
 }

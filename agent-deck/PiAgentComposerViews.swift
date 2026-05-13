@@ -16,6 +16,8 @@ struct PiAgentComposerBox: View {
     let isDisabled: Bool
     let placeholder: String
     let canSend: Bool
+    let canCreateSession: Bool
+    let createSessionProjects: [DiscoveredProject]
     let path: String?
     let onFiles: ([URL]) -> Void
     let onFolders: ([URL]) -> Void
@@ -26,6 +28,8 @@ struct PiAgentComposerBox: View {
     let metricsSession: PiAgentSessionRecord?
     let onSend: () -> Void
     let onStop: () -> Void
+    let onCreateSession: () -> Void
+    let onCreateSessionForProject: (DiscoveredProject) -> Void
     let onClear: () -> Void
     @State private var isDropTargeted = false
 
@@ -103,6 +107,16 @@ struct PiAgentComposerBox: View {
                         Spacer(minLength: 18)
                         PiAgentSendButton(isRunning: isRunning, canSend: canSend && !isDisabled, sendAction: onSend, stopAction: onStop)
                             .keyboardShortcut(.return, modifiers: [])
+                    }
+                } else if canCreateSession {
+                    HStack(spacing: 10) {
+                        Spacer(minLength: 18)
+                        PiAgentCreateSessionFromComposerButton(
+                            projects: createSessionProjects,
+                            action: onCreateSession,
+                            onSelectProject: onCreateSessionForProject
+                        )
+                        .keyboardShortcut(.return, modifiers: [])
                     }
                 }
 
@@ -794,6 +808,97 @@ private extension NSImage {
             return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
         }
         return size
+    }
+}
+
+struct PiAgentCreateSessionFromComposerButton: View {
+    let projects: [DiscoveredProject]
+    let action: () -> Void
+    let onSelectProject: (DiscoveredProject) -> Void
+    @State private var isProjectPickerPresented = false
+
+    var body: some View {
+        Button(action: buttonAction) {
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(AppTheme.accentForeground.gradient)
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(AppTheme.brandAccent.gradient)
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(projects.isEmpty ? "Start new Pi Agent session" : "Choose a project for the new Pi Agent session")
+        .accessibilityLabel(projects.isEmpty ? "Start new Pi Agent session" : "Choose project for new Pi Agent session")
+        .popover(isPresented: $isProjectPickerPresented, arrowEdge: .bottom) {
+            PiAgentComposerProjectPickerPopover(
+                projects: projects,
+                onSelectProject: { project in
+                    isProjectPickerPresented = false
+                    onSelectProject(project)
+                }
+            )
+        }
+    }
+
+    private func buttonAction() {
+        if projects.isEmpty {
+            action()
+        } else {
+            isProjectPickerPresented.toggle()
+        }
+    }
+}
+
+private struct PiAgentComposerProjectPickerPopover: View {
+    let projects: [DiscoveredProject]
+    let onSelectProject: (DiscoveredProject) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Choose Project")
+                .font(.headline)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(projects) { project in
+                        Button {
+                            onSelectProject(project)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: project.fallbackSymbolName)
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .frame(width: 18)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(project.name)
+                                        .font(.body.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text(project.path)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 6)
+            }
+            .frame(maxHeight: 300)
+        }
+        .frame(width: 340)
+        .background(.regularMaterial)
     }
 }
 
@@ -1691,7 +1796,7 @@ struct PiAgentRuntimeFooter: View {
     private func metricButton(_ text: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             metric(text, icon: icon)
-                .foregroundStyle(AppTheme.brandAccent.gradient)
+                .foregroundStyle(AppTheme.brandAccent)
         }
         .buttonStyle(.plain)
         .help("Toggle \(text.split(separator: ":").first.map(String.init) ?? text)")
