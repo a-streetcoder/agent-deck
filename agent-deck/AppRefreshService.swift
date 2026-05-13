@@ -174,7 +174,7 @@ nonisolated struct FileWatchFingerprint: Sendable {
     }
 }
 
-final class FileWatchEventMonitor {
+nonisolated final class FileWatchEventMonitor {
     private let queue = DispatchQueue(label: "app.agent-deck.file-watch-events", qos: .utility)
     private let latency: CFTimeInterval
     private let onChange: () -> Void

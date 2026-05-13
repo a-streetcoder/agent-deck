@@ -1,8 +1,8 @@
 import Foundation
 
 struct PiNativeSubagentBridgeExtensions {
-    static let exaToolNames: Set<String> = ["web_search", "fetch_content", "get_search_content"]
-    static let fallbackWebFetchToolName = "web_fetch"
+    nonisolated static let exaToolNames: Set<String> = ["web_search", "fetch_content", "get_search_content"]
+    nonisolated static let fallbackWebFetchToolName = "web_fetch"
 
     static func isExaConfigured(environment: [String: String]) -> Bool {
         environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

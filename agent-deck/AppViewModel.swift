@@ -1288,7 +1288,7 @@ final class AppViewModel: NSObject, ObservableObject {
                 selectPiAgentSession(existing.id)
                 ensurePiAgentModelCatalogLoaded()
             } else {
-                let session = piAgentSessionStore.createSession(
+                _ = piAgentSessionStore.createSession(
                     kind: .project,
                     title: "Project agent · \(project.name)",
                     project: project,
@@ -1308,7 +1308,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func createPiAgentDraft(for project: DiscoveredProject) {
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        let session = piAgentSessionStore.createSession(
+        _ = piAgentSessionStore.createSession(
             kind: .project,
             title: "Draft · \(project.name)",
             project: project,
@@ -1335,7 +1335,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        let session = piAgentSessionStore.createSession(
+        _ = piAgentSessionStore.createSession(
             kind: .issue,
             title: detail.item.title,
             project: project,
@@ -1355,7 +1355,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func openPiAgentScreen() {
         selectedSidebarItem = .agent
-        if let sessionID = piAgentSessionStore.selectedSession?.id {
+        if piAgentSessionStore.selectedSession?.id != nil {
             ensurePiAgentModelCatalogLoaded()
         }
         prepareRepoChangesForSelectedPiAgentSession()

@@ -63,9 +63,10 @@ struct PiAgentCommandSuggestions: View {
     let onSelectFile: (PiAgentFileSuggestion) -> Void
     let onSelectCommand: (String) -> Void
 
-    private let maxPopoverHeight: CGFloat = 260
-    private let maxListHeight: CGFloat = 220
-    private let columnWidth: CGFloat = 260
+    private let maxPopoverHeight: CGFloat = 340
+    private let maxListHeight: CGFloat = 300
+    private let compactListHeight: CGFloat = 132
+    private let popoverWidth: CGFloat = 360
 
     var body: some View {
         Group {
@@ -86,7 +87,7 @@ struct PiAgentCommandSuggestions: View {
                         }
                     }
                 }
-                .frame(width: 520, alignment: .leading)
+                .frame(width: popoverWidth, alignment: .leading)
             } else if !commands.isEmpty || !skills.isEmpty {
                 slashSuggestionColumns
             }
@@ -97,31 +98,29 @@ struct PiAgentCommandSuggestions: View {
     @ViewBuilder
     private var slashSuggestionColumns: some View {
         if !commands.isEmpty && !skills.isEmpty {
-            HStack(alignment: .top, spacing: 10) {
-                suggestionPanel(title: "Commands", icon: "terminal", maxHeight: maxListHeight, showsOverflowHint: commands.count >= 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                suggestionPanel(title: "Commands", icon: "terminal", maxHeight: compactListHeight, showsOverflowHint: commands.count >= 4) {
                     commandRows(commands)
                 }
-                .frame(width: columnWidth, alignment: .topLeading)
 
                 Divider()
-                    .frame(maxHeight: maxPopoverHeight)
+                    .padding(.horizontal, 8)
 
-                suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: maxListHeight, showsOverflowHint: skills.count >= 8) {
+                suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: compactListHeight, showsOverflowHint: skills.count >= 4) {
                     skillRows(skills)
                 }
-                .frame(width: columnWidth, alignment: .topLeading)
             }
-            .frame(width: columnWidth * 2 + 11, alignment: .topLeading)
+            .frame(width: popoverWidth, alignment: .topLeading)
         } else if !commands.isEmpty {
             suggestionPanel(title: "Commands", icon: "terminal", maxHeight: maxListHeight, showsOverflowHint: commands.count >= 8) {
                 commandRows(commands)
             }
-            .frame(width: columnWidth, alignment: .topLeading)
+            .frame(width: popoverWidth, alignment: .topLeading)
         } else if !skills.isEmpty {
             suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: maxListHeight, showsOverflowHint: skills.count >= 8) {
                 skillRows(skills)
             }
-            .frame(width: columnWidth, alignment: .topLeading)
+            .frame(width: popoverWidth, alignment: .topLeading)
         }
     }
 
