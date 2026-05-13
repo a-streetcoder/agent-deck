@@ -364,11 +364,16 @@ struct AgentModelQuickEditorSheet: View {
                 }
             }
 
-            HStack {
-                if let saveMessage {
-                    Text(saveMessage)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Default model and thinking can be changed in Sidebar > Models.")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppTheme.mutedText)
+                    if let saveMessage {
+                        Text(saveMessage)
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
                 }
                 Spacer()
                 Button("Cancel") {
@@ -449,16 +454,20 @@ struct AgentModelQuickEditSectionView: View {
             .padding(.top, sectionContentInset)
             .padding(.bottom, AppTheme.contentSpacing)
 
-            Grid(alignment: .leading, horizontalSpacing: AppTheme.contentSpacing, verticalSpacing: 0) {
-                GridRow {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: AppTheme.contentSpacing) {
                     AgentModelColumnHeader("Agent")
+                        .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
                     AgentModelColumnHeader("Model")
+                        .frame(minWidth: 320, maxWidth: .infinity, alignment: .leading)
                     AgentModelColumnHeader("Thinking")
+                        .frame(width: 130, alignment: .leading)
                     AgentModelColumnHeader("")
+                        .frame(width: 120, alignment: .trailing)
                 }
                 .padding(.bottom, AppTheme.contentSpacing / 2)
 
-                Divider().gridCellColumns(4)
+                Divider()
 
                 ForEach(editableAgents) { agent in
                     if let draftBinding = binding(agent.id) {
@@ -473,12 +482,7 @@ struct AgentModelQuickEditSectionView: View {
             }
             .padding(.horizontal, sectionContentInset)
 
-            Text("Default model and thinking can be changed in Sidebar > Models.")
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
-                .padding(.horizontal, sectionContentInset)
-                .padding(.top, AppTheme.contentSpacing / 2)
-                .padding(.bottom, sectionContentInset)
+            Spacer(minLength: sectionContentInset)
         }
         .opacity(section.isDimmed ? 0.58 : 1)
         .background(AppTheme.contentSubtleFill.opacity(section.isDimmed ? 0.10 : 0.18), in: RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
@@ -516,7 +520,7 @@ struct AgentModelQuickEditRow: View {
     let isDirty: Bool
 
     var body: some View {
-        GridRow {
+        HStack(spacing: AppTheme.contentSpacing) {
             HStack(spacing: 8) {
                 Text(agent.name)
                     .font(.body.weight(.semibold))
@@ -557,10 +561,21 @@ struct AgentModelQuickEditRow: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(AppTheme.mutedText)
                 .lineLimit(1)
-                .frame(width: 96, alignment: .trailing)
+                .frame(width: 120, alignment: .trailing)
         }
-        .padding(.vertical, AppTheme.contentSpacing / 2)
-        .background(isDirty ? Color.orange.opacity(0.08) : Color.clear)
+        .frame(minHeight: rowHeight)
+        .background(rowHighlight)
+    }
+
+    private var rowHeight: CGFloat { 42 }
+
+    @ViewBuilder
+    private var rowHighlight: some View {
+        if isDirty {
+            Color.orange.opacity(0.08)
+        } else {
+            Color.clear
+        }
     }
 
     private var usesDefaultModel: Bool {
