@@ -20,7 +20,7 @@ Status: implemented in this change set. This file remains as the saved end-to-en
    - It does not continue any previous child run.
 
 2. **Continuation is explicit and ID-based.**
-   - Any native subagent can be continued, not only `scout` or `reviewer`.
+   - Any native subagent can be continued, not only `explorer` or `reviewer`.
    - The orchestrator decides whether a direct follow-up is better as a continuation or a fresh run.
    - Continuation requires a valid prior subagent ID from the same parent session.
 

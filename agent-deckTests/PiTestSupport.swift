@@ -95,7 +95,7 @@ enum PiTestSupport {
 
     @MainActor
     static func makeAgent(
-        name: String = "scout",
+        name: String = "explorer",
         model: String? = nil,
         thinking: String? = nil,
         tools: [String]? = nil,

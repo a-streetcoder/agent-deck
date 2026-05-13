@@ -20,9 +20,9 @@ Native subagents are tied to a parent Pi Agent session.
 
 Agent Deck includes four starter agents:
 
-- `scout` — reconnaissance and compact context
+- `explorer` — reconnaissance and compact context
 - `planner` — implementation planning
-- `worker` — scoped implementation
+- `coder` — scoped implementation
 - `reviewer` — evidence-backed review
 
 ## Run model
@@ -73,7 +73,7 @@ Humans can answer in the UI. Parent Pi Agent sessions can also list and answer r
 
 Worktrees are for risky, experimental, or parallel writer work. Agent Deck can create a worktree, collect a patch, apply it after validation, or discard it.
 
-Normal approved worker runs may edit the main checkout only when that outcome is explicit.
+Normal approved coder runs may edit the main checkout only when that outcome is explicit.
 
 ## Activity, cleanup, and session enablement
 

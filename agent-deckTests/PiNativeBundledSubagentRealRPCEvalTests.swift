@@ -89,9 +89,9 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
     private let exactEvalRuns: [EvalRunConfig]? = nil
 
     private let enabledAgents: Set<String> = [
-        "scout",
+        "explorer",
         "planner",
-        "worker",
+        "coder",
         "reviewer"
     ]
 
@@ -102,8 +102,8 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
     private var evalTasks: [EvalTask] {
         [
             EvalTask(
-                id: "scout-native-subagent-model-flow",
-                agent: "scout",
+                id: "explorer-native-subagent-model-flow",
+                agent: "explorer",
                 prompt: """
                 Recon the native subagent model/thinking resolution path in this repo.
                 Find the relevant files and symbols for how a child subagent chooses provider, model,
@@ -122,8 +122,8 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 ]
             ),
             EvalTask(
-                id: "scout-append-system-prompt-flow",
-                agent: "scout",
+                id: "explorer-append-system-prompt-flow",
+                agent: "explorer",
                 prompt: """
                 Recon how parent Pi RPC sessions handle system prompt and append-system-prompt arguments.
                 Identify where native subagent catalog prompt injection happens and how APPEND_SYSTEM.md
@@ -178,8 +178,8 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 ]
             ),
             EvalTask(
-                id: "worker-report-only-subagent-eval-patch",
-                agent: "worker",
+                id: "coder-report-only-subagent-eval-patch",
+                agent: "coder",
                 prompt: """
                 Report-only implementation task. Do not edit files. Do not run formatting, tests, or git commands.
                 Work out the exact patch you would make to add an opt-in real RPC eval test for bundled
@@ -202,8 +202,8 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 ]
             ),
             EvalTask(
-                id: "worker-report-only-model-fallback",
-                agent: "worker",
+                id: "coder-report-only-model-fallback",
+                agent: "coder",
                 prompt: """
                 Report-only implementation task. Do not edit files. Do not run formatting, tests, or git commands.
                 Inspect native subagent fallback model support and describe the minimal code change
@@ -456,7 +456,7 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         // Keep provider/model/thinking inherited from the parent session so this
         // exercises the same default native subagent path the app uses.
         config.model = nil
-        if base.name == "worker", let tools = config.tools {
+        if base.name == "coder", let tools = config.tools {
             config.tools = tools.filter { tool in
                 tool != "edit" && tool != "write"
             }

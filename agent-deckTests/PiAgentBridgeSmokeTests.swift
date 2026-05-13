@@ -314,7 +314,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
     }
 
     func testManagedSubagentBridgeRoutesRequestAndResponds() throws {
-        let payload = #"{"agent":"scout","task":"Map the repo.","continueSubagentID":"11111111-1111-1111-1111-111111111111","reads":["README.md"]}"#
+        let payload = #"{"agent":"explorer","task":"Map the repo.","continueSubagentID":"11111111-1111-1111-1111-111111111111","reads":["README.md"]}"#
         let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "bridge-subagent-1", name: "managed_subagent", payload: payload))
         defer { harness.restoreEnvironment() }
 
@@ -333,7 +333,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         XCTAssertTrue(PiTestSupport.waitUntil {
             PiTestSupport.extensionUIResponses(in: harness.stdinLog).contains { $0["id"] as? String == "bridge-subagent-1" }
         })
-        XCTAssertEqual(captured?.agent, "scout")
+        XCTAssertEqual(captured?.agent, "explorer")
         XCTAssertEqual(captured?.task, "Map the repo.")
         XCTAssertEqual(captured?.continueSubagentID, "11111111-1111-1111-1111-111111111111")
         XCTAssertEqual(captured?.reads, ["README.md"])
@@ -342,7 +342,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
     }
 
     func testManagedParallelBridgeRoutesRequestAndResponds() throws {
-        let payload = #"{"tasks":[{"agent":"scout","task":"Map"},{"agent":"reviewer","task":"Review"}],"concurrency":2,"worktree":true}"#
+        let payload = #"{"tasks":[{"agent":"explorer","task":"Map"},{"agent":"reviewer","task":"Review"}],"concurrency":2,"worktree":true}"#
         let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "bridge-parallel-1", name: "managed_parallel", payload: payload))
         defer { harness.restoreEnvironment() }
 
@@ -359,7 +359,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         defer { runner.stop(sessionID: session.id) }
 
         XCTAssertTrue(PiTestSupport.waitUntil { responseValue(id: "bridge-parallel-1", in: harness.stdinLog) == "parallel accepted" })
-        XCTAssertEqual(captured?.tasks.map(\.agent), ["scout", "reviewer"])
+        XCTAssertEqual(captured?.tasks.map(\.agent), ["explorer", "reviewer"])
         XCTAssertEqual(captured?.concurrency, 2)
         XCTAssertEqual(captured?.worktree, true)
     }

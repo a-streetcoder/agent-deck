@@ -93,9 +93,9 @@ Agent assignment is app-state based. Enabling an agent globally or assigning it 
 ### Agent Deck bundled native agents
 Agent Deck also ships a small app-bundled native starter pack:
 
-- `scout`
+- `explorer`
 - `planner`
-- `worker`
+- `coder`
 - `reviewer`
 
 These are treated as builtins in the app's effective agent list. Same-name global/project custom agents can replace them, and builtin override controls can disable or patch supported fields. They are written for Agent Deck's native RPC runner and use the `contact_supervisor` communication tool vocabulary when available.
@@ -302,7 +302,7 @@ It intentionally narrows the surface area.
 ## Agent Deck actively models well today
 
 ### Agents
-- app-bundled native starter agents (`scout`, `planner`, `worker`, `reviewer`)
+- app-bundled native starter agents (`explorer`, `planner`, `coder`, `reviewer`)
 - global agents in `~/.agents` and `~/.pi/agent/agents`
 - project agents in `.pi/agents` and legacy `.agents`
 - builtin overrides from settings
@@ -373,7 +373,7 @@ Good candidates:
 ### Use project `.pi/...` for ad-hoc local behavior
 
 Good candidates:
-- a repo-specific worker/reviewer/scout variant
+- a repo-specific coder/reviewer/explorer variant
 - a one-off chain for that repo only
 - a temporary project skill or prompt
 

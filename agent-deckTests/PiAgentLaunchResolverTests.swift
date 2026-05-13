@@ -3,7 +3,7 @@ import XCTest
 
 final class PiAgentLaunchResolverTests: XCTestCase {
     func testUnassignedCustomAgentsStayCatalogOnly() {
-        let custom = agentRecord(name: "worker", kind: .global, path: "/tmp/worker.md")
+        let custom = agentRecord(name: "coder", kind: .global, path: "/tmp/coder.md")
         let snapshot = ScanSnapshot.empty
         let effective = PiAgentLaunchResolver.effectiveAgents(
             defaultAgentNames: [],
@@ -12,21 +12,21 @@ final class PiAgentLaunchResolverTests: XCTestCase {
             catalog: [custom]
         )
 
-        XCTAssertFalse(effective.contains { $0.name == "worker" })
+        XCTAssertFalse(effective.contains { $0.name == "coder" })
     }
 
     func testDefaultAgentAssignmentMakesCatalogAgentEffective() {
-        let custom = agentRecord(name: "worker", kind: .global, path: "/tmp/worker.md")
+        let custom = agentRecord(name: "coder", kind: .global, path: "/tmp/coder.md")
         let effective = PiAgentLaunchResolver.effectiveAgents(
-            defaultAgentNames: ["worker"],
+            defaultAgentNames: ["coder"],
             projectAgentNames: [],
             snapshot: .empty,
             catalog: [custom]
         )
 
-        let worker = effective.first { $0.name == "worker" }
-        XCTAssertEqual(worker?.globalCustom?.filePath, "/tmp/worker.md")
-        XCTAssertEqual(worker?.resolutionKind, .globalCustom)
+        let coder = effective.first { $0.name == "coder" }
+        XCTAssertEqual(coder?.globalCustom?.filePath, "/tmp/coder.md")
+        XCTAssertEqual(coder?.resolutionKind, .globalCustom)
     }
 
     func testProjectAssignmentOverridesDefaultAgentByName() {

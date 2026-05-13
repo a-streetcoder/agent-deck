@@ -278,7 +278,7 @@ struct PiNativeSubagentRunCard: View {
     @ViewBuilder
     private var taskPreview: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Task", systemImage: "arrowshape.turn.up.forward.circle")
+            Label("Task", systemImage: "list.clipboard")
                 .font(.caption.weight(.semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(AppTheme.mutedText)
@@ -557,7 +557,7 @@ struct PiNativeSubagentRunCard: View {
     private func parallelChildTaskPreview(_ child: PiSubagentChildRecord) -> some View {
         let task = nonEmpty(child.task) ?? nonEmpty(child.summary ?? child.error) ?? "No task captured."
         return VStack(alignment: .leading, spacing: 6) {
-            Label("Task", systemImage: "arrowshape.turn.up.forward.circle")
+            Label("Task", systemImage: "list.clipboard")
                 .font(.caption.weight(.semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(AppTheme.mutedText)

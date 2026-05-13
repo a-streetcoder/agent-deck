@@ -46,7 +46,7 @@ This applies equally to bundled, project, global, and library agents.
 When creating an agent, decide:
 
 1. Scope: project-local, user-global, library/catalog, builtin override, or builtin replacement. Ask the user before writing files when the intended scope is not explicit.
-2. Role: scout, planner, worker, reviewer, tester, docs writer, release helper, etc.
+2. Role: explorer, planner, coder, reviewer, tester, docs writer, release helper, etc.
 3. Routing: write `whenToUse` as one concise sentence that tells the parent exactly when to delegate to this agent; keep it distinct from the human-facing `description`.
 4. Tool boundary: prefer `read`, `grep`, `find`, `ls`; add `bash`, `edit`, `write` only when needed.
 5. Supervisor behavior: include `contact_supervisor` only when the child should ask for decisions or meaningful blockers.
@@ -81,10 +81,10 @@ If the agent references skills, also verify the skill is visible in the target s
 
 ## Supervisor guidance
 
-If the agent has `contact_supervisor`, Agent Deck injects the generic supervisor protocol automatically. Add supervisor instructions to the agent body only for role-specific cases, such as when a scout should send progress updates for discoveries that materially change the handoff.
+If the agent has `contact_supervisor`, Agent Deck injects the generic supervisor protocol automatically. Add supervisor instructions to the agent body only for role-specific cases, such as when an explorer agent should send progress updates for discoveries that materially change the handoff.
 
 ## Good defaults
 
 - `systemPromptMode: replace` for focused specialists.
 - Native delegated runs use normal project context-file discovery; do not add context-inheritance frontmatter.
-- Read-only tools for scout/planner/reviewer; add write tools only for implementation agents.
+- Read-only tools for explorer/planner/reviewer; add write tools only for implementation agents.

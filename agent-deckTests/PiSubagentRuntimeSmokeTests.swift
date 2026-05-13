@@ -84,7 +84,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
 
         let run = try runner.runSingle(
             parentSession: parent,
-            agent: PiTestSupport.makeAgent(name: "scout"),
+            agent: PiTestSupport.makeAgent(name: "explorer"),
             snapshot: .empty,
             task: "report env"
         )
@@ -94,7 +94,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         let captured = PiTestSupport.capturedEnvironment(in: harness.envLog)
         XCTAssertEqual(captured["AGENT_DECK_ENV_CHILD_SMOKE"], "child-project-value")
         XCTAssertEqual(captured["AGENT_DECK_NATIVE_SUBAGENT"], "1")
-        XCTAssertEqual(captured["AGENT_DECK_SUBAGENT_AGENT"], "scout")
+        XCTAssertEqual(captured["AGENT_DECK_SUBAGENT_AGENT"], "explorer")
         XCTAssertEqual(captured["AGENT_DECK_OPENAI_FAST_CONFIG"], PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path)
     }
 
@@ -301,7 +301,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
     }
 
     func testChildRuntimeSystemPromptAuditWritesFinalPromptArtifact() throws {
-        let payload = #"{"scope":"child","runID":"placeholder","agent":"scout","systemPrompt":"Final child prompt from Pi."}"#
+        let payload = #"{"scope":"child","runID":"placeholder","agent":"explorer","systemPrompt":"Final child prompt from Pi."}"#
         let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "audit-child-1", name: "system_prompt_audit", payload: payload))
         defer { harness.restoreEnvironment() }
 

@@ -21,9 +21,9 @@ Agent Deck ships four native starter agents:
 
 | Agent | Purpose |
 |---|---|
-| `scout` | Fast codebase reconnaissance and compact context handoff |
+| `explorer` | Fast codebase reconnaissance and compact context handoff |
 | `planner` | Creates implementation plans without editing files |
-| `worker` | Makes approved scoped changes |
+| `coder` | Makes approved scoped changes |
 | `reviewer` | Reviews diffs, plans, or implementations with evidence-backed findings |
 
 These are treated as builtin agents in the effective list. Same-name global/project agents can replace them, and builtin override controls can patch supported fields.

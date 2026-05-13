@@ -420,7 +420,7 @@ struct PiDocsScreen: View {
             AppCard(title: "Settings Overrides") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("You can patch any agent's fields without creating a file, using `settings.json`:")
-                    Text("```json\n{ \"subagents\": { \"agentOverrides\": { \"worker\": { \"model\": \"anthropic/claude-sonnet-4\", \"thinking\": \"high\" } } } }\n```"   )
+                    Text("```json\n{ \"subagents\": { \"agentOverrides\": { \"coder\": { \"model\": \"anthropic/claude-sonnet-4\", \"thinking\": \"high\" } } } }\n```"   )
                     Text("Project settings beat user settings. `disableBuiltins: true` removes all builtins.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

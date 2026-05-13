@@ -117,7 +117,7 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
             parentSessionID: UUID(),
             mode: .single,
             status: .completed,
-            agentName: "worker",
+            agentName: "coder",
             task: "Patch files",
             model: "zai/glm-5.1",
             thinking: nil,

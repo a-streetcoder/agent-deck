@@ -22,9 +22,9 @@ Agent Deck includes a small native starter pack in the app bundle. These are glo
 
 | Agent | Purpose |
 |---|---|
-| `scout` | Fast codebase reconnaissance and compact handoff context. |
+| `explorer` | Fast codebase reconnaissance and compact handoff context. |
 | `planner` | Turns requirements and context into an implementation plan without editing files. |
-| `worker` | Makes approved, scoped implementation changes with native worktree/direct-write policy. |
+| `coder` | Makes approved, scoped implementation changes with native worktree/direct-write policy. |
 | `reviewer` | Reviews diffs/plans/implementations and reports evidence-backed findings. |
 
 The bundled agents use Agent Deck-native jargon and `contact_supervisor(kind, message, title?)` instead of package-specific coordination wording.
@@ -124,7 +124,7 @@ Parent-agent answers route through Agent Deck to the waiting child.
 
 ## Worktrees
 
-Worktree isolation is an advanced safety path, not the default editing model. Normal approved worker subagents should edit the current project like Pi normally does. Use isolated worktrees only for risky, experimental, or parallel writer work where Agent Deck should review/apply/discard a patch afterward.
+Worktree isolation is an advanced safety path, not the default editing model. Normal approved coder subagents should edit the current project like Pi normally does. Use isolated worktrees only for risky, experimental, or parallel writer work where Agent Deck should review/apply/discard a patch afterward.
 
 For isolated worktrees, Agent Deck can:
 
