@@ -3516,15 +3516,25 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func availableToolNames(for target: AgentEditingTarget) -> [String] {
         let scopeSnapshot = scopeSnapshot(for: target)
-        let tools = [
+        var tools = [
             "read", "grep", "find", "ls", "bash",
-            "edit", "write", "ask_user",
-            "web_search", "fetch_content", "get_search_content"
+            "edit", "write", "ask_user"
         ]
+        let exaConfigured = isExaConfigured(for: target)
+        if exaConfigured {
+            tools.append(contentsOf: PiNativeSubagentBridgeExtensions.exaToolNames)
+        }
 
         let explicitTools = scopeSnapshot.effectiveAgents.flatMap { $0.resolved.tools ?? [] }
+            .filter { exaConfigured || !PiNativeSubagentBridgeExtensions.exaToolNames.contains($0.lowercased()) }
         return Array(Set(tools + explicitTools))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func isExaConfigured(for target: AgentEditingTarget) -> Bool {
+        let projectRoot = scopeSnapshot(for: target).projectRoot.map { URL(fileURLWithPath: $0) }
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectRoot)
+        return PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
     }
 
     func availableModelIdentifiers() -> [String] {

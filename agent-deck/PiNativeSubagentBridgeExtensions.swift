@@ -1,6 +1,12 @@
 import Foundation
 
 struct PiNativeSubagentBridgeExtensions {
+    static let exaToolNames: Set<String> = ["web_search", "fetch_content", "get_search_content"]
+
+    static func isExaConfigured(environment: [String: String]) -> Bool {
+        environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
     static func openAIFastExtensionURL(fileManager: FileManager = .default) throws -> URL {
         try writeExtension(named: "agent-deck-openai-fast.ts", content: openAIFastExtensionSource, fileManager: fileManager)
     }

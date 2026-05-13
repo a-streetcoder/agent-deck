@@ -749,7 +749,9 @@ nonisolated struct PiScanner {
     ) -> [DiagnosticWarning] {
         var warnings: [DiagnosticWarning] = malformedWarnings
         let skillNames = Set(skills.map(\.name))
-        let envNames = Set(envKeys.map(\.key))
+        let exaConfigured = envKeys.contains {
+            $0.key == "EXA_API_KEY" && ($0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        }
         let duplicatePromptNames = Dictionary(grouping: promptTemplates, by: \.name).compactMapValues { records in
             let uniqueRecords = dedupePromptWarningRecords(records)
             return uniqueRecords.count > 1 ? uniqueRecords : nil
@@ -767,7 +769,9 @@ nonisolated struct PiScanner {
             for skill in agent.resolved.skills where !skillNames.contains(skill) {
                 warnings.append(.init(id: "skill:\(agent.name):\(skill)", message: "Agent \(agent.name) references missing skill \(skill)."))
             }
-            if let tools = agent.resolved.tools, tools.contains("web_search") && !envNames.contains("EXA_API_KEY") {
+            if let tools = agent.resolved.tools,
+               tools.contains(where: { PiNativeSubagentBridgeExtensions.exaToolNames.contains($0.lowercased()) }),
+               !exaConfigured {
                 warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses bundled web tools but EXA_API_KEY was not found."))
             }
             if let extensions = agent.resolved.extensions, !extensions.isEmpty,

@@ -166,7 +166,9 @@ struct AgentEditorSheet: View {
                                     Menu("Apply Preset") {
                                         Button("Core") { applyToolPreset(["read", "grep", "find", "ls", "bash"]) }
                                         Button("Coding") { applyToolPreset(["read", "grep", "find", "ls", "bash", "edit", "write"]) }
-                                        Button("Research") { applyToolPreset(["read", "web_search", "fetch_content", "get_search_content"]) }
+                                        if availableTools.contains("web_search") {
+                                            Button("Research") { applyToolPreset(["read", "web_search", "fetch_content", "get_search_content"]) }
+                                        }
                                         Button("Clear Tools") { draft.config.tools = [] }
                                     }
                                 }

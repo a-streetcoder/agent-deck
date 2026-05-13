@@ -37,6 +37,17 @@ final class PiSubagentRunService {
         let skillArguments = try PiSkillLaunchResolver.childSkillArguments(agent: agent, snapshot: snapshot)
         let missingSkillNames: [String] = []
         let worktreeURL = isContinuation ? nil : (useWorktreeIsolation ? try createWorktree(for: parentSession, artifactDirectory: artifactDirectory) : nil)
+        let childProjectURL = worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
+        let environment = EnvRuntimeEnvironment().environment(
+            projectRoot: childProjectURL,
+            extra: [
+                "AGENT_DECK_NATIVE_SUBAGENT": "1",
+                "AGENT_DECK_SUBAGENT_RUN_ID": runID.uuidString,
+                "AGENT_DECK_SUBAGENT_AGENT": agent.name,
+                "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path,
+                "MCP_DIRECT_TOOLS": mcpDirectTools(for: agent).isEmpty ? "__none__" : mcpDirectTools(for: agent).joined(separator: ",")
+            ]
+        )
         let prompt = buildSystemPrompt(agent: agent)
         let promptURL = artifactDirectory.appendingPathComponent("system-prompt.md")
         try prompt.write(to: promptURL, atomically: true, encoding: .utf8)
@@ -57,12 +68,15 @@ final class PiSubagentRunService {
                 bridgeWarnings.append("contact_supervisor was requested, but \(AppBrand.displayName) could not write the child bridge extension.")
             }
         }
-        extraArguments.append(contentsOf: toolArguments(for: agent, includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty))
+        extraArguments.append(contentsOf: toolArguments(
+            for: agent,
+            includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty,
+            includeExaTools: PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
+        ))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
-        if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+        if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
+           let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", webURL.path])
-        } else {
-            bridgeWarnings.append("\(AppBrand.displayName) could not write the web access extension.")
         }
         if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", fastURL.path])
@@ -217,17 +231,6 @@ final class PiSubagentRunService {
 
         let childSessionID = UUID()
         let parentSessionID = parentSession.id
-        let childProjectURL = worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
-        let environment = EnvRuntimeEnvironment().environment(
-            projectRoot: childProjectURL,
-            extra: [
-                "AGENT_DECK_NATIVE_SUBAGENT": "1",
-                "AGENT_DECK_SUBAGENT_RUN_ID": runID.uuidString,
-                "AGENT_DECK_SUBAGENT_AGENT": agent.name,
-                "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path,
-                "MCP_DIRECT_TOOLS": mcpDirectTools(for: agent).isEmpty ? "__none__" : mcpDirectTools(for: agent).joined(separator: ",")
-            ]
-        )
         finalTextByRunID[runID] = nil
         let client = try PiRPCClient(
             cwd: childProjectURL,
@@ -846,9 +849,13 @@ final class PiSubagentRunService {
         return ["--system-prompt", prompt, "--append-system-prompt", ""]
     }
 
-    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool) -> [String] {
+    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool, includeExaTools: Bool) -> [String] {
         guard let tools = agent.resolved.tools else { return [] }
-        let supportedTools = tools.filter { $0 != "contact_supervisor" || includeSupervisorTool }
+        let supportedTools = tools.filter { tool in
+            if tool == "contact_supervisor" { return includeSupervisorTool }
+            if PiNativeSubagentBridgeExtensions.exaToolNames.contains(tool.lowercased()) { return includeExaTools }
+            return true
+        }
         guard !supportedTools.isEmpty else { return ["--no-tools"] }
         return ["--tools", supportedTools.joined(separator: ",")]
     }
