@@ -1163,31 +1163,32 @@ struct PiAgentScreen: View {
 
     private func scrollToConversationBottom(animated: Bool, respectSuppression: Bool) {
         lastStreamingScrollAt = Date()
+        let targetID = transcriptBottomScrollTargetID
         transcriptBottomSettleTask?.cancel()
         transcriptBottomSettleTask = Task { @MainActor in
-            await settleTranscriptBottomPass(animated: animated, respectSuppression: respectSuppression)
+            await settleTranscriptBottomPass(targetID: targetID, animated: animated, respectSuppression: respectSuppression)
             try? await Task.sleep(nanoseconds: 40_000_000)
-            await settleTranscriptBottomPass(animated: false, respectSuppression: respectSuppression)
+            await settleTranscriptBottomPass(targetID: targetID, animated: false, respectSuppression: respectSuppression)
             try? await Task.sleep(nanoseconds: 120_000_000)
-            await settleTranscriptBottomPass(animated: false, respectSuppression: respectSuppression)
+            await settleTranscriptBottomPass(targetID: targetID, animated: false, respectSuppression: respectSuppression)
         }
     }
 
-    private func settleTranscriptBottomPass(animated: Bool, respectSuppression: Bool) async {
+    private func settleTranscriptBottomPass(targetID: String, animated: Bool, respectSuppression: Bool) async {
         await Task.yield()
         guard !Task.isCancelled else { return }
         guard !respectSuppression || (!isTranscriptAutoScrollSuppressed && transcriptIsPinnedToBottom) else { return }
-        let targetID = transcriptBottomScrollTargetID
         withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
             transcriptScrollPosition.scrollTo(id: targetID, anchor: .bottom)
         }
     }
 
     private var transcriptBottomScrollTargetID: String {
-        if stabilizedProcessingMessage != nil {
+        let visibleItems = visibleTranscriptTimelineItems
+        if stabilizedProcessingMessage != nil, !visibleItems.isEmpty {
             return "pi-agent-processing"
         }
-        if let lastItemID = visibleTranscriptTimelineItems.last?.id {
+        if let lastItemID = visibleItems.last?.id {
             return lastItemID
         }
         return "pi-agent-transcript-state-card"
