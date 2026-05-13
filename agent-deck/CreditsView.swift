@@ -39,6 +39,18 @@ struct CreditsScreen: View {
                         detail: "Markdown parser used by the embedded Markdown renderer. MIT License.",
                         url: "https://github.com/markedjs/marked"
                     )
+                    Divider()
+                    creditRow(
+                        title: "opencode webfetch",
+                        detail: "Agent Deck's enhanced web_fetch fallback adapts HTML extraction and conversion behavior from opencode's MIT-licensed webfetch tool.",
+                        url: "https://github.com/anomalyco/opencode"
+                    )
+                    Divider()
+                    creditRow(
+                        title: "htmlparser2 and Turndown",
+                        detail: "Optional enhanced web_fetch dependencies installed from npm. htmlparser2 and Turndown are MIT licensed; their current transitive parser dependencies are BSD-2-Clause.",
+                        url: "https://www.npmjs.com/package/htmlparser2"
+                    )
                 }
             }
 

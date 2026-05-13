@@ -825,6 +825,9 @@ struct PiNativeSubagentBridgeExtensions {
         import { Parser } from "htmlparser2";
         import TurndownService from "turndown";
 
+        // HTML extraction/conversion helpers are adapted from opencode's MIT-licensed webfetch tool.
+        // Copyright (c) 2025 opencode. https://github.com/anomalyco/opencode
+
         const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
         const MAX_RETURN_CHARS = 50000;
         const DEFAULT_TIMEOUT_SECONDS = 30;
