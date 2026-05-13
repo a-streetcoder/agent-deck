@@ -128,6 +128,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
+    private var piAgentSessionStoreCancellable: AnyCancellable?
     private var watchFingerprintTask: Task<Void, Never>?
     private var watchEventDebounceTask: Task<Void, Never>?
     private var fileWatchEventMonitor: FileWatchEventMonitor?
@@ -172,6 +173,9 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
+        piAgentSessionStoreCancellable = piAgentSessionStore.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()

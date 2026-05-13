@@ -258,9 +258,7 @@ nonisolated struct ProjectDiscovery {
 
         let gitDirectory = url.appendingPathComponent(".git")
         let packageFile = url.appendingPathComponent("package.json")
-        let xcodeProject = (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil))?.contains {
-            $0.pathExtension == "xcodeproj"
-        } ?? false
+        let xcodeProject = containsDescendant(withExtensions: ["xcodeproj", "xcworkspace"], in: url, maxDepth: 2)
 
         return fileManager.fileExists(atPath: gitDirectory.path) || fileManager.fileExists(atPath: packageFile.path) || xcodeProject
     }
@@ -271,7 +269,7 @@ nonisolated struct ProjectDiscovery {
     }
 
     private func fallbackSymbolName(for url: URL) -> String {
-        if containsChild(withExtension: "xcodeproj", in: url) {
+        if containsDescendant(withExtensions: ["xcodeproj", "xcworkspace"], in: url, maxDepth: 2) {
             return "apple.logo"
         }
 
@@ -302,10 +300,29 @@ nonisolated struct ProjectDiscovery {
         return "folder"
     }
 
-    private func containsChild(withExtension pathExtension: String, in url: URL) -> Bool {
-        (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.contains {
-            $0.pathExtension == pathExtension
-        } ?? false
+    private func containsDescendant(withExtensions pathExtensions: Set<String>, in url: URL, maxDepth: Int) -> Bool {
+        guard maxDepth >= 0,
+              let children = try? fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+              ) else { return false }
+
+        for child in children {
+            if pathExtensions.contains(child.pathExtension) {
+                return true
+            }
+
+            guard maxDepth > 0,
+                  let resourceValues = try? child.resourceValues(forKeys: [.isDirectoryKey]),
+                  resourceValues.isDirectory == true else { continue }
+
+            if containsDescendant(withExtensions: pathExtensions, in: child, maxDepth: maxDepth - 1) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private static func directoryExists(_ url: URL, fileManager: FileManager) -> Bool {

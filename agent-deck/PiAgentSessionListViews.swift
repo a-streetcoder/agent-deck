@@ -57,7 +57,7 @@ struct PiAgentAddSessionMenuButton: View {
         Button {
             isPresented.toggle()
         } label: {
-            PiAgentAddSessionButtonLabel(showsChevron: true, isEnabled: isEnabled)
+            PiAgentAddSessionButtonLabel(showsChevron: false, isEnabled: isEnabled)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("New Pi Agent session")

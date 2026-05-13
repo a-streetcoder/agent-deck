@@ -858,27 +858,33 @@ private struct PiAgentComposerProjectPickerPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Choose Project")
-                .font(.headline)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("New Session")
+                    .font(.headline)
+                Text("Choose a project for Pi Agent.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+
+            Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(spacing: 2) {
                     ForEach(projects) { project in
                         Button {
                             onSelectProject(project)
                         } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: project.fallbackSymbolName)
-                                    .foregroundStyle(AppTheme.mutedText)
-                                    .frame(width: 18)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(project.name)
-                                        .font(.body.weight(.semibold))
+                                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 24)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(project.repositoryDisplayName)
+                                        .font(.callout.weight(.semibold))
+                                        .foregroundStyle(.primary)
                                         .lineLimit(1)
                                     Text(project.path)
-                                        .font(.caption)
+                                        .font(.caption2)
                                         .foregroundStyle(AppTheme.mutedText)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
@@ -887,7 +893,7 @@ private struct PiAgentComposerProjectPickerPopover: View {
                             }
                             .contentShape(Rectangle())
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 7)
                         }
                         .buttonStyle(.plain)
                     }

@@ -241,7 +241,18 @@ final class PiAgentRunnerService {
         cancelIdleParking(for: sessionID)
         clearStreamingState(sessionID: sessionID)
         pendingConfigurationRestartSessionIDs.remove(sessionID)
-        guard let client = clientsBySessionID.removeValue(forKey: sessionID) else { return }
+        guard let client = clientsBySessionID.removeValue(forKey: sessionID) else {
+            clientRunIDsBySessionID[sessionID] = nil
+            stoppingClientRunIDsBySessionID[sessionID] = nil
+            parkingClientRunIDsBySessionID[sessionID] = nil
+            if store.sessions.first(where: { $0.id == sessionID })?.status.isActive == true {
+                mark(sessionID, status: .stopped, error: nil)
+                if recordTranscript {
+                    store.append(.init(sessionID: sessionID, role: .status, title: "Stopped", text: "Stop requested. No active Pi Agent process was attached."))
+                }
+            }
+            return
+        }
         if let clientRunID = clientRunIDsBySessionID.removeValue(forKey: sessionID) {
             stoppingClientRunIDsBySessionID[sessionID] = clientRunID
         }
@@ -378,7 +389,7 @@ final class PiAgentRunnerService {
                     Task { @MainActor [weak self] in
                         guard let self else { return }
                         for event in events {
-                            self.handle(rawLine: event.rawLine, event: event.event, sessionID: sessionID)
+                            self.handle(rawLine: event.rawLine, event: event.event, sessionID: sessionID, clientRunID: clientRunID)
                         }
                     }
                 },
@@ -386,7 +397,7 @@ final class PiAgentRunnerService {
                     Task { @MainActor [weak self] in
                         guard let self else { return }
                         for line in lines {
-                            self.handle(stderr: line, sessionID: sessionID)
+                            self.handle(stderr: line, sessionID: sessionID, clientRunID: clientRunID)
                         }
                     }
                 },
@@ -614,7 +625,8 @@ final class PiAgentRunnerService {
         return [base, "Attached files:\n\(fileList)"].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
-    private func handle(stderr: String, sessionID: UUID) {
+    private func handle(stderr: String, sessionID: UUID, clientRunID: UUID) {
+        guard isCurrentClientRun(clientRunID, for: sessionID) else { return }
         let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isIgnorableStderr(trimmed) else { return }
         if isConnectionError(trimmed) {
@@ -627,6 +639,10 @@ final class PiAgentRunnerService {
 
     private func isIgnorableStderr(_ text: String) -> Bool {
         text.contains(";notify;Pi;") || text.localizedCaseInsensitiveContains("ready for input")
+    }
+
+    private func isCurrentClientRun(_ clientRunID: UUID, for sessionID: UUID) -> Bool {
+        clientRunIDsBySessionID[sessionID] == clientRunID
     }
 
     private func isConnectionError(_ text: String) -> Bool {
@@ -645,7 +661,8 @@ final class PiAgentRunnerService {
             .replacingOccurrences(of: "\n", with: " ")
     }
 
-    private func handle(rawLine: String, event: PiAgentRPCEvent?, sessionID: UUID) {
+    private func handle(rawLine: String, event: PiAgentRPCEvent?, sessionID: UUID, clientRunID: UUID) {
+        guard isCurrentClientRun(clientRunID, for: sessionID) else { return }
         guard let event else {
             store.append(.init(sessionID: sessionID, role: .raw, title: "Raw Output", text: rawLine))
             return
