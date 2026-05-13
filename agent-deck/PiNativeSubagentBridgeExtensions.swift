@@ -2,6 +2,7 @@ import Foundation
 
 struct PiNativeSubagentBridgeExtensions {
     static let exaToolNames: Set<String> = ["web_search", "fetch_content", "get_search_content"]
+    static let fallbackWebFetchToolName = "web_fetch"
 
     static func isExaConfigured(environment: [String: String]) -> Bool {
         environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -29,6 +30,10 @@ struct PiNativeSubagentBridgeExtensions {
 
     static func webAccessExtensionURL(fileManager: FileManager = .default) throws -> URL {
         try writeExtension(named: "agent-deck-web-access.ts", content: webAccessExtensionSource, fileManager: fileManager)
+    }
+
+    static func fallbackWebFetchExtensionURL(fileManager: FileManager = .default) throws -> URL {
+        try writeExtension(named: "agent-deck-web-fetch.ts", content: fallbackWebFetchExtensionSource, fileManager: fileManager)
     }
 
     static func writeExtension(named fileName: String, content: String, fileManager: FileManager) throws -> URL {
@@ -805,6 +810,152 @@ struct PiNativeSubagentBridgeExtensions {
                             totalChars: entry.text.length
                         }
                     };
+                }
+            });
+        }
+        """#
+
+    private static let fallbackWebFetchExtensionSource = #"""
+        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+        import { Type } from "typebox";
+
+        const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
+        const MAX_RETURN_CHARS = 50000;
+        const DEFAULT_TIMEOUT_SECONDS = 30;
+        const MAX_TIMEOUT_SECONDS = 120;
+
+        function truncate(text: string, maxChars = MAX_RETURN_CHARS): string {
+            if (text.length <= maxChars) return text;
+            return `${text.slice(0, maxChars).trimEnd()}\n\n[Truncated by Agent Deck web_fetch to ${maxChars} characters.]`;
+        }
+
+        function metadataBlock(url: string, contentType: string, length: number): string {
+            return [
+                "---",
+                `source: ${url}`,
+                contentType ? `contentType: ${contentType}` : undefined,
+                `bytes: ${length}`,
+                "---",
+                ""
+            ].filter((line): line is string => line !== undefined).join("\n");
+        }
+
+        function stripHTML(html: string): string {
+            return html
+                .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+                .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+                .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
+                .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, " ")
+                .replace(/<br\s*\/?>/gi, "\n")
+                .replace(/<\/(p|div|section|article|header|footer|main|li|h[1-6]|tr)>/gi, "\n")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/&nbsp;/gi, " ")
+                .replace(/&amp;/gi, "&")
+                .replace(/&lt;/gi, "<")
+                .replace(/&gt;/gi, ">")
+                .replace(/&quot;/gi, '"')
+                .replace(/&#39;/gi, "'")
+                .replace(/[ \t]+/g, " ")
+                .replace(/\n\s+/g, "\n")
+                .replace(/\n{3,}/g, "\n\n")
+                .trim();
+        }
+
+        function htmlToMarkdown(html: string): string {
+            return stripHTML(
+                html
+                    .replace(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
+                    .replace(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
+                    .replace(/<h3\b[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
+                    .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
+                    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)")
+            );
+        }
+
+        function validateURL(raw: unknown): string {
+            const value = String(raw ?? "").trim();
+            let parsed: URL;
+            try {
+                parsed = new URL(value);
+            } catch {
+                throw new Error("URL must be a fully formed http:// or https:// URL.");
+            }
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                throw new Error("URL must start with http:// or https://.");
+            }
+            return parsed.toString();
+        }
+
+        function timeoutSignal(seconds: number, parent?: AbortSignal): AbortSignal {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(new Error("Request timed out")), seconds * 1000);
+            const abort = () => controller.abort(parent?.reason);
+            if (parent) {
+                if (parent.aborted) abort();
+                else parent.addEventListener("abort", abort, { once: true });
+            }
+            controller.signal.addEventListener("abort", () => clearTimeout(timeout), { once: true });
+            return controller.signal;
+        }
+
+        export default function (pi: ExtensionAPI) {
+            pi.registerTool({
+                name: "web_fetch",
+                label: "Web Fetch",
+                description: "Fetch readable content from a specific URL without Exa. Use only for URLs the user provided or URLs already known from context.",
+                promptSnippet: "Use web_fetch to read a specific known URL when Exa web_search/fetch_content tools are unavailable. It cannot search the web.",
+                parameters: Type.Object({
+                    url: Type.String({ description: "Fully formed http:// or https:// URL to fetch." }),
+                    format: Type.Optional(Type.Union([
+                        Type.Literal("markdown"),
+                        Type.Literal("text"),
+                        Type.Literal("html")
+                    ], { description: "Return format. Defaults to markdown." })),
+                    timeout: Type.Optional(Type.Number({ description: "Timeout in seconds. Default 30, max 120." }))
+                }, { additionalProperties: false }),
+                async execute(_toolCallId, params, signal) {
+                    try {
+                        const url = validateURL((params as any).url);
+                        const format = String((params as any).format ?? "markdown");
+                        const timeout = Math.max(1, Math.min(MAX_TIMEOUT_SECONDS, Number((params as any).timeout ?? DEFAULT_TIMEOUT_SECONDS)));
+                        const response = await fetch(url, {
+                            headers: {
+                                "User-Agent": "Agent Deck web_fetch",
+                                "Accept": format === "html"
+                                    ? "text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.1"
+                                    : "text/markdown,text/plain,text/html;q=0.8,*/*;q=0.1",
+                                "Accept-Language": "en-US,en;q=0.9"
+                            },
+                            signal: timeoutSignal(timeout, signal)
+                        });
+                        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+                        const contentLength = response.headers.get("content-length");
+                        if (contentLength && Number(contentLength) > MAX_RESPONSE_SIZE) {
+                            throw new Error("Response too large (exceeds 5MB limit).");
+                        }
+                        const arrayBuffer = await response.arrayBuffer();
+                        if (arrayBuffer.byteLength > MAX_RESPONSE_SIZE) {
+                            throw new Error("Response too large (exceeds 5MB limit).");
+                        }
+                        const contentType = response.headers.get("content-type") ?? "";
+                        const body = new TextDecoder().decode(arrayBuffer);
+                        const isHTML = contentType.toLowerCase().includes("text/html") || /<html[\s>]/i.test(body);
+                        let output = body;
+                        if (format === "text" && isHTML) output = stripHTML(body);
+                        if (format === "markdown" && isHTML) output = htmlToMarkdown(body);
+                        return {
+                            content: [{ type: "text", text: truncate(`${metadataBlock(url, contentType, arrayBuffer.byteLength)}${output}`) }],
+                            details: {
+                                url,
+                                contentType,
+                                format,
+                                bytes: arrayBuffer.byteLength
+                            }
+                        };
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        return { content: [{ type: "text", text: `Error: ${message}` }], details: { error: message } };
+                    }
                 }
             });
         }

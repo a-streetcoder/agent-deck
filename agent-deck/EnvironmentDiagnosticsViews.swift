@@ -709,8 +709,8 @@ struct DiagnosticsScreen: View {
                         .fontWidth(.expanded)
 
                     Text(hasExaAPIKey
-                         ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Bundled web tools are loaded by the app."
-                         : "Bundled web_search, fetch_content, and get_search_content use Exa and require EXA_API_KEY.")
+                         ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Exa web tools are loaded by the app."
+                         : "Exa web_search, fetch_content, and get_search_content require EXA_API_KEY. Without it, Agent Deck loads the basic web_fetch URL tool.")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)

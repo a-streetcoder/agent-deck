@@ -774,6 +774,11 @@ nonisolated struct PiScanner {
                !exaConfigured {
                 warnings.append(.init(id: "env:\(agent.name)", message: "Agent \(agent.name) uses bundled web tools but EXA_API_KEY was not found."))
             }
+            if let tools = agent.resolved.tools,
+               tools.contains(where: { $0.lowercased() == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName }),
+               exaConfigured {
+                warnings.append(.init(id: "env:\(agent.name):web-fetch", message: "Agent \(agent.name) uses web_fetch, but Exa is configured. Agent Deck exposes Exa web tools instead."))
+            }
             if let extensions = agent.resolved.extensions, !extensions.isEmpty,
                ((agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty) {
                 warnings.append(.init(id: "extensions:\(agent.name)", message: "Agent \(agent.name) declares extensions but no explicit tools, so capabilities may not match expectations."))

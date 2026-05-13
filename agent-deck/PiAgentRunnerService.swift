@@ -358,8 +358,11 @@ final class PiAgentRunnerService {
                     "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path
                 ]
             )
-            if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
-               let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+            if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
+                if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+                    extraArguments.append(contentsOf: ["--extension", webURL.path])
+                }
+            } else if let webURL = try? PiNativeSubagentBridgeExtensions.fallbackWebFetchExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", webURL.path])
             }
             let client = try PiRPCClient(

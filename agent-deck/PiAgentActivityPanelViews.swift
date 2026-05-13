@@ -629,7 +629,7 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
             kind = .read
         } else if lower == "bash" {
             kind = .bash
-        } else if ["web_search", "fetch_content", "get_search_content"].contains(lower) {
+        } else if ["web_search", "fetch_content", "get_search_content", "web_fetch"].contains(lower) {
             kind = .web
         } else if lower.contains("subagent") || lower.hasPrefix("managed_") {
             kind = .subagent

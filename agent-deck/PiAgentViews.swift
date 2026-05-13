@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 
-let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "get_search_content"]
+let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "get_search_content", "web_fetch"]
 
 @MainActor
 enum PiAgentRPCEventRenderCache {

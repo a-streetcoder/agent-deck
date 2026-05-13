@@ -167,7 +167,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
     nonisolated var count: Int { entries.count }
     nonisolated var isWebActivity: Bool {
         switch name.lowercased() {
-        case "web_search", "fetch_content", "get_search_content": return true
+        case "web_search", "fetch_content", "get_search_content", "web_fetch": return true
         default: return false
         }
     }
@@ -215,7 +215,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 extractedLinks(from: toolDetails(from: entry)) + parseSourceLinks(from: entry.text)
             }
             return Array(uniqueLinks(links).prefix(20))
-        case "fetch_content":
+        case "fetch_content", "web_fetch":
             let links = entries.flatMap(fetchContentLinks)
             return Array(uniqueLinks(links).prefix(20))
         case "get_search_content":
@@ -237,7 +237,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
         switch name.lowercased() {
         case "web_search":
             return webSearchDetail(from: entries)
-        case "fetch_content":
+        case "fetch_content", "web_fetch":
             return fetchContentDetail(from: entries)
         case "get_search_content":
             return retrievedContentDetail(from: entries)
@@ -1023,6 +1023,7 @@ struct PiAgentWebActivitySummaryView: View {
             case "web_search": return "Web search"
             case "fetch_content": return "Fetch content"
             case "get_search_content": return "Read web content"
+            case "web_fetch": return "Web fetch"
             default: break
             }
         }
@@ -1060,6 +1061,7 @@ struct PiAgentWebActivitySummaryView: View {
             case "web_search": return "Search"
             case "fetch_content": return "Fetched"
             case "get_search_content": return "Read content"
+            case "web_fetch": return "Fetched URL"
             default: return name.replacingOccurrences(of: "_", with: " ").capitalized
             }
         }
@@ -1067,7 +1069,7 @@ struct PiAgentWebActivitySummaryView: View {
         nonisolated private static func icon(for name: String) -> String {
             switch name.lowercased() {
             case "web_search": return "magnifyingglass"
-            case "fetch_content", "get_search_content": return "doc.text.magnifyingglass"
+            case "fetch_content", "get_search_content", "web_fetch": return "doc.text.magnifyingglass"
             default: return "globe"
             }
         }
@@ -1140,7 +1142,7 @@ struct PiAgentActivitySummaryView: View {
         case "update_session_plan": return "Plan update"
         case "subagent": return count == 1 ? "Subagent" : "Subagents"
         case "web_search": return "Web search"
-        case "fetch_content", "get_search_content": return "Web content"
+        case "fetch_content", "get_search_content", "web_fetch": return "Web content"
         default:
             return name
                 .replacingOccurrences(of: "_", with: " ")
@@ -1158,7 +1160,7 @@ struct PiAgentActivitySummaryView: View {
         case "edit", "write": return "pencil.and.outline"
         case "set_session_plan", "update_session_plan": return "checklist"
         case "subagent": return "person.2.wave.2"
-        case "web_search", "fetch_content", "get_search_content": return "globe"
+        case "web_search", "fetch_content", "get_search_content", "web_fetch": return "globe"
         default: return "wrench.and.screwdriver"
         }
     }

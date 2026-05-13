@@ -3523,10 +3523,17 @@ final class AppViewModel: NSObject, ObservableObject {
         let exaConfigured = isExaConfigured(for: target)
         if exaConfigured {
             tools.append(contentsOf: PiNativeSubagentBridgeExtensions.exaToolNames)
+        } else {
+            tools.append(PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName)
         }
 
         let explicitTools = scopeSnapshot.effectiveAgents.flatMap { $0.resolved.tools ?? [] }
-            .filter { exaConfigured || !PiNativeSubagentBridgeExtensions.exaToolNames.contains($0.lowercased()) }
+            .filter { tool in
+                let normalized = tool.lowercased()
+                if PiNativeSubagentBridgeExtensions.exaToolNames.contains(normalized) { return exaConfigured }
+                if normalized == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName { return !exaConfigured }
+                return true
+            }
         return Array(Set(tools + explicitTools))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }

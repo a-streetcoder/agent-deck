@@ -168,6 +168,8 @@ struct AgentEditorSheet: View {
                                         Button("Coding") { applyToolPreset(["read", "grep", "find", "ls", "bash", "edit", "write"]) }
                                         if availableTools.contains("web_search") {
                                             Button("Research") { applyToolPreset(["read", "web_search", "fetch_content", "get_search_content"]) }
+                                        } else if availableTools.contains("web_fetch") {
+                                            Button("URL Fetch") { applyToolPreset(["read", "web_fetch"]) }
                                         }
                                         Button("Clear Tools") { draft.config.tools = [] }
                                     }

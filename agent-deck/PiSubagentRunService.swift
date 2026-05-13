@@ -71,11 +71,15 @@ final class PiSubagentRunService {
         extraArguments.append(contentsOf: toolArguments(
             for: agent,
             includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty,
-            includeExaTools: PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
+            includeExaTools: PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
+            includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
         ))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
-        if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
-           let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+        if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
+            if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", webURL.path])
+            }
+        } else if let webURL = try? PiNativeSubagentBridgeExtensions.fallbackWebFetchExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", webURL.path])
         }
         if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
@@ -849,11 +853,13 @@ final class PiSubagentRunService {
         return ["--system-prompt", prompt, "--append-system-prompt", ""]
     }
 
-    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool, includeExaTools: Bool) -> [String] {
+    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool, includeExaTools: Bool, includeFallbackWebFetchTool: Bool) -> [String] {
         guard let tools = agent.resolved.tools else { return [] }
         let supportedTools = tools.filter { tool in
-            if tool == "contact_supervisor" { return includeSupervisorTool }
-            if PiNativeSubagentBridgeExtensions.exaToolNames.contains(tool.lowercased()) { return includeExaTools }
+            let normalized = tool.lowercased()
+            if normalized == "contact_supervisor" { return includeSupervisorTool }
+            if PiNativeSubagentBridgeExtensions.exaToolNames.contains(normalized) { return includeExaTools }
+            if normalized == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName { return includeFallbackWebFetchTool }
             return true
         }
         guard !supportedTools.isEmpty else { return ["--no-tools"] }
