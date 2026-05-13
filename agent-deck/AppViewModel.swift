@@ -3523,7 +3523,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let exaConfigured = isExaConfigured(for: target)
         if exaConfigured {
             tools.append(contentsOf: PiNativeSubagentBridgeExtensions.exaToolNames)
-        } else {
+        } else if WebFetchDependencyService().status().isInstalled {
             tools.append(PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName)
         }
 
@@ -3531,7 +3531,9 @@ final class AppViewModel: NSObject, ObservableObject {
             .filter { tool in
                 let normalized = tool.lowercased()
                 if PiNativeSubagentBridgeExtensions.exaToolNames.contains(normalized) { return exaConfigured }
-                if normalized == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName { return !exaConfigured }
+                if normalized == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName {
+                    return !exaConfigured && WebFetchDependencyService().status().isInstalled
+                }
                 return true
             }
         return Array(Set(tools + explicitTools))

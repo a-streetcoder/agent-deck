@@ -72,14 +72,15 @@ final class PiSubagentRunService {
             for: agent,
             includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty,
             includeExaTools: PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
-            includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
+            includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) && WebFetchDependencyService().status().isInstalled
         ))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
         if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
             if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", webURL.path])
             }
-        } else if let webURL = try? PiNativeSubagentBridgeExtensions.fallbackWebFetchExtensionURL() {
+        } else if WebFetchDependencyService().status().isInstalled,
+                  let webURL = try? PiNativeSubagentBridgeExtensions.fallbackWebFetchExtensionURL() {
             extraArguments.append(contentsOf: ["--extension", webURL.path])
         }
         if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {

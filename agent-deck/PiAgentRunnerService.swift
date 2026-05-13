@@ -362,7 +362,8 @@ final class PiAgentRunnerService {
                 if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
                     extraArguments.append(contentsOf: ["--extension", webURL.path])
                 }
-            } else if let webURL = try? PiNativeSubagentBridgeExtensions.fallbackWebFetchExtensionURL() {
+            } else if WebFetchDependencyService().status().isInstalled,
+                      let webURL = try? PiNativeSubagentBridgeExtensions.fallbackWebFetchExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", webURL.path])
             }
             let client = try PiRPCClient(

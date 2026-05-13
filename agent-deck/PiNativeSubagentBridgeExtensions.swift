@@ -36,12 +36,16 @@ struct PiNativeSubagentBridgeExtensions {
         try writeExtension(named: "agent-deck-web-fetch.ts", content: fallbackWebFetchExtensionSource, fileManager: fileManager)
     }
 
-    static func writeExtension(named fileName: String, content: String, fileManager: FileManager) throws -> URL {
+    static func extensionDirectoryURL(fileManager: FileManager = .default) -> URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        let directory = appSupport
+        return appSupport
             .appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
             .appendingPathComponent("Native Subagent Extensions", isDirectory: true)
+    }
+
+    static func writeExtension(named fileName: String, content: String, fileManager: FileManager) throws -> URL {
+        let directory = extensionDirectoryURL(fileManager: fileManager)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(fileName)
         if (try? String(contentsOf: url, encoding: .utf8)) != content {
@@ -818,6 +822,8 @@ struct PiNativeSubagentBridgeExtensions {
     private static let fallbackWebFetchExtensionSource = #"""
         import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
         import { Type } from "typebox";
+        import { Parser } from "htmlparser2";
+        import TurndownService from "turndown";
 
         const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
         const MAX_RETURN_CHARS = 50000;
@@ -840,36 +846,40 @@ struct PiNativeSubagentBridgeExtensions {
             ].filter((line): line is string => line !== undefined).join("\n");
         }
 
-        function stripHTML(html: string): string {
-            return html
-                .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-                .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-                .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
-                .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, " ")
-                .replace(/<br\s*\/?>/gi, "\n")
-                .replace(/<\/(p|div|section|article|header|footer|main|li|h[1-6]|tr)>/gi, "\n")
-                .replace(/<[^>]+>/g, " ")
-                .replace(/&nbsp;/gi, " ")
-                .replace(/&amp;/gi, "&")
-                .replace(/&lt;/gi, "<")
-                .replace(/&gt;/gi, ">")
-                .replace(/&quot;/gi, '"')
-                .replace(/&#39;/gi, "'")
-                .replace(/[ \t]+/g, " ")
-                .replace(/\n\s+/g, "\n")
-                .replace(/\n{3,}/g, "\n\n")
-                .trim();
+        function extractTextFromHTML(html: string): string {
+            let text = "";
+            let skipDepth = 0;
+
+            const parser = new Parser({
+                onopentag(name) {
+                    if (skipDepth > 0 || ["script", "style", "noscript", "iframe", "object", "embed"].includes(name)) {
+                        skipDepth++;
+                    }
+                },
+                ontext(input) {
+                    if (skipDepth === 0) text += input;
+                },
+                onclosetag() {
+                    if (skipDepth > 0) skipDepth--;
+                }
+            });
+
+            parser.write(html);
+            parser.end();
+
+            return text.trim();
         }
 
-        function htmlToMarkdown(html: string): string {
-            return stripHTML(
-                html
-                    .replace(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
-                    .replace(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
-                    .replace(/<h3\b[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
-                    .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
-                    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)")
-            );
+        function convertHTMLToMarkdown(html: string): string {
+            const turndownService = new TurndownService({
+                headingStyle: "atx",
+                hr: "---",
+                bulletListMarker: "-",
+                codeBlockStyle: "fenced",
+                emDelimiter: "*"
+            });
+            turndownService.remove(["script", "style", "meta", "link"]);
+            return turndownService.turndown(html);
         }
 
         function validateURL(raw: unknown): string {
@@ -941,8 +951,8 @@ struct PiNativeSubagentBridgeExtensions {
                         const body = new TextDecoder().decode(arrayBuffer);
                         const isHTML = contentType.toLowerCase().includes("text/html") || /<html[\s>]/i.test(body);
                         let output = body;
-                        if (format === "text" && isHTML) output = stripHTML(body);
-                        if (format === "markdown" && isHTML) output = htmlToMarkdown(body);
+                        if (format === "text" && isHTML) output = extractTextFromHTML(body);
+                        if (format === "markdown" && isHTML) output = convertHTMLToMarkdown(body);
                         return {
                             content: [{ type: "text", text: truncate(`${metadataBlock(url, contentType, arrayBuffer.byteLength)}${output}`) }],
                             details: {
@@ -1003,4 +1013,59 @@ struct PiNativeSubagentBridgeExtensions {
             });
         }
         """
+}
+
+struct WebFetchDependencyService {
+    struct Status: Hashable {
+        let installDirectory: URL
+        let installedPackages: [String]
+        let missingPackages: [String]
+
+        var isInstalled: Bool { missingPackages.isEmpty }
+    }
+
+    static let packages = ["htmlparser2", "turndown"]
+
+    private let fileManager: FileManager
+    private let commandRunner: CommandRunning
+
+    init(fileManager: FileManager = .default, commandRunner: CommandRunning = CommandRunner()) {
+        self.fileManager = fileManager
+        self.commandRunner = commandRunner
+    }
+
+    func status() -> Status {
+        let directory = PiNativeSubagentBridgeExtensions.extensionDirectoryURL(fileManager: fileManager)
+        let installed = Self.packages.filter { package in
+            fileManager.fileExists(atPath: directory.appendingPathComponent("node_modules/\(package)/package.json").path)
+        }
+        return Status(
+            installDirectory: directory,
+            installedPackages: installed,
+            missingPackages: Self.packages.filter { !installed.contains($0) }
+        )
+    }
+
+    func install() async throws -> CommandResult {
+        let directory = PiNativeSubagentBridgeExtensions.extensionDirectoryURL(fileManager: fileManager)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let packageJSON = directory.appendingPathComponent("package.json")
+        if !fileManager.fileExists(atPath: packageJSON.path) {
+            let manifest = """
+            {
+              "private": true,
+              "type": "module",
+              "dependencies": {}
+            }
+            """
+            try manifest.write(to: packageJSON, atomically: true, encoding: .utf8)
+        }
+        return try await commandRunner.run(
+            "npm",
+            arguments: ["install", "htmlparser2", "turndown"],
+            currentDirectoryURL: directory,
+            timeout: 120,
+            environment: nil
+        )
+    }
 }
