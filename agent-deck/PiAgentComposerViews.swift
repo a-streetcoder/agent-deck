@@ -3,10 +3,52 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct PiAgentPasteAttachment: Identifiable, Equatable {
+    let id: Int
+    let marker: String
+    let text: String
+}
+
+enum PiAgentPasteMarkerCodec {
+    static let largePasteLineThreshold = 10
+    static let largePasteCharacterThreshold = 1000
+
+    static func normalizedText(from rawText: String) -> String {
+        rawText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\t", with: "    ")
+    }
+
+    static func shouldCollapse(_ text: String) -> Bool {
+        let lineCount = text.split(separator: "\n", omittingEmptySubsequences: false).count
+        return lineCount > largePasteLineThreshold || text.count > largePasteCharacterThreshold
+    }
+
+    static func marker(id: Int, text: String) -> String {
+        let lineCount = text.split(separator: "\n", omittingEmptySubsequences: false).count
+        if lineCount > largePasteLineThreshold {
+            return "[paste #\(id) +\(lineCount) lines]"
+        }
+        return "[paste #\(id) \(text.count) chars]"
+    }
+
+    static func expandMarkers(in text: String, attachments: [PiAgentPasteAttachment]) -> String {
+        guard !attachments.isEmpty, text.contains("[paste #") else { return text }
+        var expanded = text
+        for attachment in attachments {
+            expanded = expanded.replacingOccurrences(of: attachment.marker, with: attachment.text)
+        }
+        return expanded
+    }
+}
+
 struct PiAgentComposerBox: View {
     private let maxImages = 8
 
     @Binding var text: String
+    @Binding var pasteAttachments: [PiAgentPasteAttachment]
+    @Binding var nextPasteID: Int
     @Binding var images: [PiAgentImageAttachment]
     @Binding var files: [PiAgentFileAttachment]
     @Binding var folders: [PiAgentFolderAttachment]
@@ -71,6 +113,8 @@ struct PiAgentComposerBox: View {
                 }
                 PiAgentDropSafeTextEditor(
                     text: $text,
+                    pasteAttachments: $pasteAttachments,
+                    nextPasteID: $nextPasteID,
                     onDropTargeted: { isDropTargeted = $0 },
                     onImages: addImages,
                     onFiles: onFiles,
@@ -268,6 +312,8 @@ struct PiAgentComposerBox: View {
 
 struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     @Binding var text: String
+    @Binding var pasteAttachments: [PiAgentPasteAttachment]
+    @Binding var nextPasteID: Int
     var onDropTargeted: (Bool) -> Void
     var onImages: ([PiAgentImageAttachment]) -> Void
     var onFiles: ([URL]) -> Void
@@ -359,6 +405,21 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
             return true
         }
 
+        func handleTextPaste(_ pasteboard: NSPasteboard, in textView: NSTextView) -> Bool {
+            guard let rawText = pasteboard.string(forType: .string), !rawText.isEmpty else { return false }
+            let normalizedText = PiAgentPasteMarkerCodec.normalizedText(from: rawText)
+            guard PiAgentPasteMarkerCodec.shouldCollapse(normalizedText) else { return false }
+
+            let pasteID = parent.nextPasteID
+            parent.nextPasteID += 1
+            let marker = PiAgentPasteMarkerCodec.marker(id: pasteID, text: normalizedText)
+            parent.pasteAttachments.append(.init(id: pasteID, marker: marker, text: normalizedText))
+
+            textView.insertText(marker, replacementRange: textView.selectedRange())
+            parent.text = textView.string
+            return true
+        }
+
         func send() {
             guard !parent.isDisabled else { return }
             parent.onSend()
@@ -375,6 +436,7 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
 protocol DropSafeNSTextViewDropHandler: AnyObject {
     func setDropTargeted(_ targeted: Bool)
     func handleDrop(_ pasteboard: NSPasteboard) -> Bool
+    func handleTextPaste(_ pasteboard: NSPasteboard, in textView: NSTextView) -> Bool
 }
 
 @MainActor
@@ -450,6 +512,9 @@ final class DropSafeNSTextView: NSTextView {
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
         if acceptsDrop(pasteboard), dropHandler?.handleDrop(pasteboard) == true {
+            return
+        }
+        if dropHandler?.handleTextPaste(pasteboard, in: self) == true {
             return
         }
         super.paste(sender)

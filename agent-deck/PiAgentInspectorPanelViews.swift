@@ -6,6 +6,8 @@ struct PiAgentInspectorPanel: View {
     @ObservedObject var store: PiAgentSessionStore
     @State private var composerText = ""
     @State private var inputMode: PiAgentInputMode = .steer
+    @State private var composerPasteAttachments: [PiAgentPasteAttachment] = []
+    @State private var nextComposerPasteID = 1
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
@@ -68,6 +70,8 @@ struct PiAgentInspectorPanel: View {
                 let isCompacting = session.isCompacting
                 PiAgentComposerBox(
                     text: $composerText,
+                    pasteAttachments: $composerPasteAttachments,
+                    nextPasteID: $nextComposerPasteID,
                     images: $composerImages,
                     files: $composerFiles,
                     folders: $composerFolders,
@@ -98,7 +102,8 @@ struct PiAgentInspectorPanel: View {
                     supportedThinkingLevels: supportedThinkingLevels(for: session),
                     metricsSession: session,
                     onSend: {
-                        let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+                        let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
                         guard !isCompacting else { return }
                         let filePayload = composerFiles.map { file -> String in
@@ -110,6 +115,8 @@ struct PiAgentInspectorPanel: View {
                         let combined = [message, (filePayload + folderPayload).joined(separator: "\n")].filter { !$0.isEmpty }.joined(separator: "\n\n")
                         viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
                         composerText = ""
+                        composerPasteAttachments = []
+                        nextComposerPasteID = 1
                         composerImages = []
                         composerFiles = []
                         composerFolders = []
@@ -120,6 +127,8 @@ struct PiAgentInspectorPanel: View {
                     onCreateSessionForProject: { _ in },
                     onClear: {
                         composerText = ""
+                        composerPasteAttachments = []
+                        nextComposerPasteID = 1
                         composerImages = []
                         composerFiles = []
                         composerFolders = []
@@ -136,6 +145,19 @@ struct PiAgentInspectorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: store.selectedSession?.id) { _, _ in
+            clearComposerInput()
+        }
+    }
+
+    private func clearComposerInput() {
+        composerText = ""
+        composerPasteAttachments = []
+        nextComposerPasteID = 1
+        composerImages = []
+        composerFiles = []
+        composerFolders = []
+        composerAttachmentError = nil
     }
 
     private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {

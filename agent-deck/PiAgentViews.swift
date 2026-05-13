@@ -325,6 +325,8 @@ struct PiAgentScreen: View {
     @State private var pendingDeleteClearAllProjects = false
     @State private var pendingDeleteProjectName: String?
     @State private var isDeleteSessionsAlertPresented = false
+    @State private var composerPasteAttachments: [PiAgentPasteAttachment] = []
+    @State private var nextComposerPasteID = 1
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
@@ -334,7 +336,6 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
-    @State private var transcriptScrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var transcriptIsPinnedToBottom = true
     @State private var transcriptAutoScrollTurn = 0
     @State private var transcriptAutoScrollSuppressedTurn: Int?
@@ -780,7 +781,8 @@ struct PiAgentScreen: View {
     }
 
     private var transcript: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
             let timelineSnapshot = transcriptTimelineSnapshot
             let timelineItems = timelineSnapshot.visibleItems
             PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
@@ -866,6 +868,7 @@ struct PiAgentScreen: View {
                         .frame(height: 1)
                         .id("pi-agent-bottom-anchor")
                 }
+                .id(transcriptLazyStackIdentity)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .background {
                     PiAgentScrollPositionObserver(
@@ -878,29 +881,30 @@ struct PiAgentScreen: View {
                         }
                     )
                 }
-        }
-        .scrollPosition($transcriptScrollPosition, anchor: .bottom)
-        .task(id: transcriptCache.renderRevision) {
-            handleTranscriptRenderRevision()
-        }
-        .task(id: transcriptCache.autoScrollTurnRevision) {
-            await Task.yield()
-            beginTranscriptAutoScrollTurn()
-            scrollToConversationBottom(animated: true, respectSuppression: false)
-        }
-        .task(id: transcriptCache.streamingRevision) {
-            guard !isTranscriptAutoScrollSuppressed else { return }
-            await Task.yield()
-            throttleStreamingScroll()
-        }
-        .onChange(of: selectedSessionProcessingMessage) { _, message in
-            updateStabilizedProcessingMessage(message)
-            guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
-            scrollToProcessingIndicator()
-        }
-        .task(id: transcriptBottomScrollRequest) {
-            await Task.yield()
-            scrollToRequestedBottom()
+            }
+            .id(store.selectedSession?.id)
+            .task(id: transcriptCache.renderRevision) {
+                handleTranscriptRenderRevision(scrollProxy)
+            }
+            .task(id: transcriptCache.autoScrollTurnRevision) {
+                await Task.yield()
+                beginTranscriptAutoScrollTurn()
+                scrollToConversationBottom(scrollProxy, animated: true, respectSuppression: false)
+            }
+            .task(id: transcriptCache.streamingRevision) {
+                guard !isTranscriptAutoScrollSuppressed else { return }
+                await Task.yield()
+                throttleStreamingScroll(scrollProxy)
+            }
+            .onChange(of: selectedSessionProcessingMessage) { _, message in
+                updateStabilizedProcessingMessage(message)
+                guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
+                scrollToProcessingIndicator(scrollProxy)
+            }
+            .task(id: transcriptBottomScrollRequest) {
+                await Task.yield()
+                scrollToRequestedBottom(scrollProxy)
+            }
         }
     }
 
@@ -1098,7 +1102,7 @@ struct PiAgentScreen: View {
     }
 
     private func scheduleTranscriptCacheUpdate() {
-        guard let sessionID = store.selectedSession?.id else {
+        guard let session = store.selectedSession else {
             transcriptCache.scheduleUpdate(sessionID: nil, revision: 0, rawEntries: [])
             return
         }
@@ -1106,9 +1110,9 @@ struct PiAgentScreen: View {
         // Hydrate the selected transcript before updating the render cache. With lazy
         // loading, selectedTranscript can briefly be empty during a session switch;
         // publishing that empty snapshot is what produces the intermittent blank pane.
-        let entries = store.transcript(for: sessionID)
+        let entries = store.transcript(for: session.id)
         transcriptCache.scheduleUpdate(
-            sessionID: sessionID,
+            sessionID: session.id,
             revision: store.selectedTranscriptRevision,
             rawEntries: entries
         )
@@ -1136,7 +1140,6 @@ struct PiAgentScreen: View {
         transcriptAutoScrollTurn &+= 1
         transcriptAutoScrollSuppressedTurn = nil
         transcriptIsPinnedToBottom = true
-        transcriptScrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     }
 
     private func beginTranscriptAutoScrollTurn() {
@@ -1147,48 +1150,53 @@ struct PiAgentScreen: View {
         transcriptAutoScrollSuppressedTurn = transcriptAutoScrollTurn
     }
 
-    private func handleTranscriptRenderRevision() {
+    private func handleTranscriptRenderRevision(_ proxy: ScrollViewProxy) {
         guard !isTranscriptAutoScrollSuppressed else { return }
-        scrollToConversationBottom(animated: false, respectSuppression: true)
+        scrollToConversationBottom(proxy, animated: false, respectSuppression: true)
     }
 
-    private func scrollToLatestThread() {
-        scrollToConversationBottom(animated: false, respectSuppression: true)
+    private func scrollToLatestThread(_ proxy: ScrollViewProxy) {
+        scrollToConversationBottom(proxy, animated: false, respectSuppression: true)
     }
 
-    private func scrollToProcessingIndicator() {
-        scrollToConversationBottom(animated: false, respectSuppression: true)
+    private func scrollToProcessingIndicator(_ proxy: ScrollViewProxy) {
+        scrollToConversationBottom(proxy, animated: false, respectSuppression: true)
     }
 
     private func requestTranscriptBottomScroll() {
         transcriptBottomScrollRequest &+= 1
     }
 
-    private func scrollToRequestedBottom() {
+    private func scrollToRequestedBottom(_ proxy: ScrollViewProxy) {
         resetTranscriptAutoScroll()
-        scrollToConversationBottom(animated: true, respectSuppression: false)
+        scrollToConversationBottom(proxy, animated: true, respectSuppression: false)
     }
 
-    private func scrollToConversationBottom(animated: Bool, respectSuppression: Bool) {
+    private func scrollToConversationBottom(_ proxy: ScrollViewProxy, animated: Bool, respectSuppression: Bool) {
         lastStreamingScrollAt = Date()
         let targetID = transcriptBottomScrollTargetID
         transcriptBottomSettleTask?.cancel()
         transcriptBottomSettleTask = Task { @MainActor in
-            await settleTranscriptBottomPass(targetID: targetID, animated: animated, respectSuppression: respectSuppression)
+            await settleTranscriptBottomPass(proxy, targetID: targetID, animated: animated, respectSuppression: respectSuppression)
             try? await Task.sleep(nanoseconds: 40_000_000)
-            await settleTranscriptBottomPass(targetID: targetID, animated: false, respectSuppression: respectSuppression)
+            await settleTranscriptBottomPass(proxy, targetID: targetID, animated: false, respectSuppression: respectSuppression)
             try? await Task.sleep(nanoseconds: 120_000_000)
-            await settleTranscriptBottomPass(targetID: targetID, animated: false, respectSuppression: respectSuppression)
+            await settleTranscriptBottomPass(proxy, targetID: targetID, animated: false, respectSuppression: respectSuppression)
         }
     }
 
-    private func settleTranscriptBottomPass(targetID: String, animated: Bool, respectSuppression: Bool) async {
+    private func settleTranscriptBottomPass(_ proxy: ScrollViewProxy, targetID: String, animated: Bool, respectSuppression: Bool) async {
         await Task.yield()
         guard !Task.isCancelled else { return }
         guard !respectSuppression || (!isTranscriptAutoScrollSuppressed && transcriptIsPinnedToBottom) else { return }
         withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
-            transcriptScrollPosition.scrollTo(id: targetID, anchor: .bottom)
+            proxy.scrollTo(targetID, anchor: .bottom)
         }
+    }
+
+    private var transcriptLazyStackIdentity: String {
+        let sessionID = store.selectedSession?.id.uuidString ?? "none"
+        return "\(sessionID)-\(transcriptCache.renderRevision)"
     }
 
     private var transcriptBottomScrollTargetID: String {
@@ -1196,15 +1204,15 @@ struct PiAgentScreen: View {
         if stabilizedProcessingMessage != nil, !visibleItems.isEmpty {
             return "pi-agent-processing"
         }
-        if let lastItemID = visibleItems.last?.id {
-            return lastItemID
+        if !visibleItems.isEmpty {
+            return "pi-agent-bottom-anchor"
         }
         return "pi-agent-transcript-state-card"
     }
 
-    private func throttleStreamingScroll() {
+    private func throttleStreamingScroll(_ proxy: ScrollViewProxy) {
         guard Date().timeIntervalSince(lastStreamingScrollAt) > 0.14 else { return }
-        scrollToLatestThread()
+        scrollToLatestThread(proxy)
     }
 
     @ViewBuilder
@@ -1214,6 +1222,8 @@ struct PiAgentScreen: View {
         let hasSelectedSession = store.selectedSession != nil
         PiAgentComposerBox(
                 text: $composerText,
+                pasteAttachments: $composerPasteAttachments,
+                nextPasteID: $nextComposerPasteID,
                 images: $composerImages,
                 files: $composerFiles,
                 folders: $composerFolders,
@@ -1389,7 +1399,8 @@ struct PiAgentScreen: View {
             onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
             onReveal: { revealSubagentRun(run) },
             onOpenGraph: { selectedSubagentGraphRunID = run.id },
-            onOpenChildTranscript: { selectedSubagentTranscriptRunID = $0 }
+            onOpenChildTranscript: { selectedSubagentTranscriptRunID = $0 },
+            onStopChild: { viewModel.stopNativeSubagent(runID: $0, parentSessionID: run.parentSessionID) }
         )
     }
 
@@ -1448,6 +1459,8 @@ struct PiAgentScreen: View {
     private func loadComposerDraft(for sessionID: UUID?) {
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
+            composerPasteAttachments = []
+            nextComposerPasteID = 1
             composerImages = []
             composerFiles = []
             composerFolders = []
@@ -1462,6 +1475,8 @@ struct PiAgentScreen: View {
         }
         let draft = store.composerDraft(for: sessionID)
         composerText = draft.text
+        composerPasteAttachments = []
+        nextComposerPasteID = 1
         composerImages = draft.images
         composerFiles = draft.files
         composerFolders = draft.folders
@@ -1470,11 +1485,14 @@ struct PiAgentScreen: View {
 
     private func saveComposerDraft(for sessionID: UUID?) {
         guard let sessionID else { return }
-        store.saveComposerDraft(text: composerText, images: composerImages, files: composerFiles, folders: composerFolders, for: sessionID)
+        let draftText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        store.saveComposerDraft(text: draftText, images: composerImages, files: composerFiles, folders: composerFolders, for: sessionID)
     }
 
     private func clearComposerInput() {
         composerText = ""
+        composerPasteAttachments = []
+        nextComposerPasteID = 1
         composerImages = []
         composerFiles = []
         composerFolders = []
@@ -1487,7 +1505,8 @@ struct PiAgentScreen: View {
 
     private func createSessionFromComposer(for project: DiscoveredProject?) {
         guard store.selectedSession == nil else { return }
-        let shouldSend = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
+        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
         if let project {
             viewModel.createPiAgentDraft(for: project)
         } else {
@@ -1499,7 +1518,8 @@ struct PiAgentScreen: View {
     }
 
     private func sendComposerMessage() {
-        let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
@@ -1717,6 +1737,8 @@ private struct PiAgentComposerPanel: View {
 
     @State private var composerText = ""
     @State private var inputMode: PiAgentInputMode = .steer
+    @State private var composerPasteAttachments: [PiAgentPasteAttachment] = []
+    @State private var nextComposerPasteID = 1
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
@@ -1736,6 +1758,8 @@ private struct PiAgentComposerPanel: View {
 
         PiAgentComposerBox(
             text: $composerText,
+            pasteAttachments: $composerPasteAttachments,
+            nextPasteID: $nextComposerPasteID,
             images: $composerImages,
             files: $composerFiles,
             folders: $composerFolders,
@@ -1921,6 +1945,8 @@ private struct PiAgentComposerPanel: View {
     private func loadComposerDraft(for sessionID: UUID?) {
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
+            composerPasteAttachments = []
+            nextComposerPasteID = 1
             composerImages = []
             composerFiles = []
             composerFolders = []
@@ -1935,6 +1961,8 @@ private struct PiAgentComposerPanel: View {
         }
         let draft = store.composerDraft(for: sessionID)
         composerText = draft.text
+        composerPasteAttachments = []
+        nextComposerPasteID = 1
         composerImages = draft.images
         composerFiles = draft.files
         composerFolders = draft.folders
@@ -1943,11 +1971,14 @@ private struct PiAgentComposerPanel: View {
 
     private func saveComposerDraft(for sessionID: UUID?) {
         guard let sessionID else { return }
-        store.saveComposerDraft(text: composerText, images: composerImages, files: composerFiles, folders: composerFolders, for: sessionID)
+        let draftText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        store.saveComposerDraft(text: draftText, images: composerImages, files: composerFiles, folders: composerFolders, for: sessionID)
     }
 
     private func clearComposerInput() {
         composerText = ""
+        composerPasteAttachments = []
+        nextComposerPasteID = 1
         composerImages = []
         composerFiles = []
         composerFolders = []
@@ -1960,7 +1991,8 @@ private struct PiAgentComposerPanel: View {
 
     private func createSessionFromComposer(for project: DiscoveredProject?) {
         guard store.selectedSession == nil else { return }
-        let shouldSend = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
+        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
         if let project {
             viewModel.createPiAgentDraft(for: project)
         } else {
@@ -1972,7 +2004,8 @@ private struct PiAgentComposerPanel: View {
     }
 
     private func sendComposerMessage() {
-        let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }

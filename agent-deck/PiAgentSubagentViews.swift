@@ -142,8 +142,10 @@ struct PiNativeSubagentRunCard: View {
     let onReveal: () -> Void
     let onOpenGraph: () -> Void
     let onOpenChildTranscript: (UUID) -> Void
+    let onStopChild: (UUID) -> Void
     @State private var isDetailsPresented = false
     @State private var promptPopover: PromptPopover?
+    @State private var childDetails: PiSubagentChildRecord?
     @State private var displayedStatus: PiSubagentRunStatus?
     @State private var statusLingerTask: Task<Void, Never>?
 
@@ -156,12 +158,12 @@ struct PiNativeSubagentRunCard: View {
     var body: some View {
         AppRowCard {
             VStack(alignment: .leading, spacing: 12) {
-                header
-
-                taskPreview
-
-                if let children = run.children, !children.isEmpty {
+                if run.mode == .parallel, let children = run.children, !children.isEmpty {
+                    parallelHeader(children: children)
                     childSummary(children)
+                } else {
+                    header
+                    taskPreview
                 }
 
                 if !compactMetadata.isEmpty {
@@ -177,6 +179,9 @@ struct PiNativeSubagentRunCard: View {
         }
         .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
             PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
+        }
+        .popover(item: $childDetails, arrowEdge: .trailing) { child in
+            childDetailsPopover(child)
         }
         .onAppear { displayedStatus = run.status }
         .onChange(of: run.status) { oldStatus, newStatus in
@@ -196,7 +201,7 @@ struct PiNativeSubagentRunCard: View {
                     Text(run.agentName)
                         .font(.headline)
                     Text(shortRunID)
-                        .font(.caption2.monospaced().weight(.medium))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -213,6 +218,21 @@ struct PiNativeSubagentRunCard: View {
 
     private var shortRunID: String {
         String(run.id.uuidString.prefix(8))
+    }
+
+    private func parallelHeader(children: [PiSubagentChildRecord]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Parallel agents")
+                .font(.headline)
+            Text("\(children.count)")
+                .font(.caption2.monospaced().weight(.bold))
+                .foregroundStyle(AppTheme.mutedText)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.72)))
+            PiSubagentStatusText(status: effectiveStatus, color: statusColor)
+            Spacer(minLength: 0)
+        }
     }
 
     @ViewBuilder
@@ -411,33 +431,21 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private func childSummary(_ children: [PiSubagentChildRecord]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.caption.weight(.semibold))
-                Text("Parallel children")
-                    .font(.caption.weight(.semibold))
-                    .fontWidth(.expanded)
-                Text("\(children.count)")
-                    .font(.caption2.monospaced().weight(.bold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.8)))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(AppTheme.mutedText)
-
-            LazyVGrid(columns: parallelChildColumns, alignment: .leading, spacing: 8) {
-                ForEach(children.sorted { $0.index < $1.index }) { child in
-                    parallelChildTile(child)
-                }
+        LazyVGrid(columns: parallelChildColumns, alignment: .leading, spacing: 12) {
+            ForEach(children.sorted { $0.index < $1.index }) { child in
+                parallelChildTile(child)
             }
         }
-        .padding(10)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.contentSubtleFill.opacity(0.72))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [AppTheme.contentSubtleFill.opacity(0.82), AppTheme.contentFill.opacity(0.58)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
                 .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
     }
@@ -450,60 +458,171 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private func parallelChildTile(_ child: PiSubagentChildRecord) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Circle()
-                    .fill(color(for: child.status))
-                    .frame(width: 7, height: 7)
-                Text("\(child.index + 1). \(child.agentName)")
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text(child.status.rawValue)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(color(for: child.status))
-                    .lineLimit(1)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            parallelChildHeader(child)
+            parallelChildTaskPreview(child)
 
-            if let summary = nonEmpty(child.summary ?? child.error) {
-                Text(summary)
-                    .font(.caption2)
-                    .lineLimit(2)
-                    .foregroundStyle(AppTheme.mutedText)
-            } else if let task = nonEmpty(child.task) {
-                Text(task)
-                    .font(.caption2)
-                    .lineLimit(2)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-
-            HStack(alignment: .center, spacing: 8) {
-                let metadata = childCompactMetadata(child)
-                if !metadata.isEmpty {
+            let metadata = childCompactMetadata(child)
+            if !metadata.isEmpty {
+                HStack(spacing: 10) {
                     ForEach(metadata) { item in
                         compactMetric(item)
                     }
                 }
-                Spacer(minLength: 0)
-                if let executionRunID = child.executionRunID {
-                    Button("Transcript") {
-                        onOpenChildTranscript(executionRunID)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .appContentSurface(cornerRadius: 14)
+    }
+
+    private func parallelChildHeader(_ child: PiSubagentChildRecord) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                PiSubagentActivityGlyph(color: color(for: child.status), isActive: child.status.isActive)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Text(child.agentName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if let executionRunID = child.executionRunID {
+                            Text(String(executionRunID.uuidString.prefix(8)))
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(AppTheme.mutedText)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.72)))
+                                .textSelection(.enabled)
+                                .help(executionRunID.uuidString)
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    PiSubagentStatusText(status: child.status, color: color(for: child.status))
+                }
+                Spacer(minLength: 0)
+                Button {
+                    childDetails = child
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(AppTheme.mutedText)
+                .help("Run details")
+            }
+            parallelChildActions(child)
+        }
+    }
+
+    @ViewBuilder
+    private func parallelChildActions(_ child: PiSubagentChildRecord) -> some View {
+        HStack(spacing: 8) {
+            Button("System Prompt") {
+                promptPopover = .init(
+                    title: "Final Runtime System Prompt",
+                    text: promptFileText(path: childArtifactURL(child, named: "final-system-prompt.md").path)
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(!canOpenChildArtifact(child, named: "final-system-prompt.md"))
+            .help("Show final runtime system prompt")
+
+            if let executionRunID = child.executionRunID {
+                Button("Transcript") {
+                    onOpenChildTranscript(executionRunID)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .fixedSize(horizontal: true, vertical: false)
+
+                if child.status.isActive {
+                    Button("Stop") {
+                        onStopChild(executionRunID)
+                    }
+                    .buttonStyle(PiSubagentStopButtonStyle())
+                    .controlSize(.small)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .font(.caption2)
-            .foregroundStyle(AppTheme.mutedText)
+            Spacer(minLength: 0)
         }
-        .padding(9)
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+    }
+
+    private func parallelChildTaskPreview(_ child: PiSubagentChildRecord) -> some View {
+        let task = nonEmpty(child.task) ?? nonEmpty(child.summary ?? child.error) ?? "No task captured."
+        return VStack(alignment: .leading, spacing: 6) {
+            Label("Task", systemImage: "arrowshape.turn.up.forward.circle")
+                .font(.caption.weight(.semibold))
+                .fontWidth(.expanded)
+                .foregroundStyle(AppTheme.mutedText)
+
+            MarkdownTextView(source: task)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(AppTheme.windowBackground.opacity(0.35))
-                .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(AppTheme.contentSubtleFill.opacity(0.65))
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
-        .help(child.task ?? child.summary ?? child.error ?? child.agentName)
+        .help(task)
+    }
+
+    private func childArtifactURL(_ child: PiSubagentChildRecord, named fileName: String) -> URL {
+        URL(fileURLWithPath: child.artifactDirectory ?? "").appendingPathComponent(fileName)
+    }
+
+    private func canOpenChildArtifact(_ child: PiSubagentChildRecord, named fileName: String) -> Bool {
+        guard child.artifactDirectory?.isEmpty == false else { return false }
+        return FileManager.default.fileExists(atPath: childArtifactURL(child, named: fileName).path)
+    }
+
+    private func childDetailsPopover(_ child: PiSubagentChildRecord) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Run details", systemImage: "info.circle")
+                .font(.headline)
+
+            AppKeyValueList(rows: childDetailRows(child))
+        }
+        .padding(16)
+        .frame(width: 430, alignment: .leading)
+    }
+
+    private func childDetailRows(_ child: PiSubagentChildRecord) -> [(String, String)] {
+        var rows: [(String, String)] = [
+            ("Agent", child.agentName),
+            ("Status", child.status.rawValue.capitalized)
+        ]
+        if let executionRunID = child.executionRunID {
+            rows.append(("Subagent ID", executionRunID.uuidString))
+        }
+        if let duration = child.durationMs {
+            rows.append(("Duration", formattedDuration(duration)))
+        }
+        if let totalTokens = child.totalTokens {
+            rows.append(("Tokens", compactNumber(totalTokens)))
+        }
+        if let toolCount = child.toolCount {
+            rows.append(("Tools", "\(toolCount)"))
+        }
+        if let model = nonEmpty(child.model) {
+            rows.append(("Model", model))
+        }
+        if let expectedOutcome = child.expectedOutcome {
+            rows.append(("Outcome", expectedOutcome.displayName + (child.requestedOutputPath.map { " · \($0)" } ?? "")))
+        }
+        if let reads = child.readFirstPaths, !reads.isEmpty {
+            rows.append(("Read first", reads.joined(separator: ", ")))
+        }
+        return rows
     }
 
     private func childCompactMetadata(_ child: PiSubagentChildRecord) -> [CompactMetadataItem] {
