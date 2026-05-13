@@ -14,6 +14,16 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         }
     }
 
+    private struct EvalRunConfig: Codable, Hashable {
+        let provider: String?
+        let model: String
+        let thinking: String
+
+        var modelConfig: EvalModelConfig {
+            EvalModelConfig(provider: provider, model: model)
+        }
+    }
+
     private struct EvalTask: Codable, Hashable {
         let id: String
         let agent: String
@@ -49,6 +59,7 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         let createdAt: Date
         let models: [EvalModelConfig]
         let thinkingLevels: [String]
+        let exactRuns: [EvalRunConfig]?
         let tasks: [EvalTask]
         let outputDirectory: String
         let timeoutSeconds: TimeInterval
@@ -66,6 +77,16 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         "medium",
         "high"
     ]
+
+    // Set this to run only exact model/thinking combinations instead of the
+    // evalModels x evalThinkingLevels cross-product.
+    //
+    // Examples:
+    // private let exactEvalRuns: [EvalRunConfig]? = [
+    //     .init(provider: "opencode", model: "deepseek", thinking: "high"),
+    //     .init(provider: "openai", model: "gpt-5.4", thinking: "low")
+    // ]
+    private let exactEvalRuns: [EvalRunConfig]? = nil
 
     private let enabledAgents: Set<String> = [
         "scout",
@@ -269,6 +290,7 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 createdAt: Date(),
                 models: evalModels,
                 thinkingLevels: evalThinkingLevels,
+                exactRuns: exactEvalRuns,
                 tasks: tasks,
                 outputDirectory: outputRoot.path,
                 timeoutSeconds: runTimeoutSeconds
@@ -277,37 +299,37 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         )
 
         var summaries: [EvalRunSummary] = []
+        let runConfigs = expandedRunConfigs()
         for task in tasks {
             let baseAgent = try XCTUnwrap(agentsByName[task.agent], "Missing bundled/effective agent named \(task.agent)")
-            for model in evalModels {
-                for thinking in evalThinkingLevels {
-                    let agent = evalAgent(from: baseAgent)
-                    let parent = try PiTestSupport.makeParentSession(
-                        projectURL: projectURL,
-                        model: model.model,
-                        provider: model.provider,
-                        thinking: thinking
-                    )
-                    let runDirectory = outputRoot
-                        .appendingPathComponent(task.agent, isDirectory: true)
-                        .appendingPathComponent(model.pathComponent, isDirectory: true)
-                        .appendingPathComponent(thinking, isDirectory: true)
-                        .appendingPathComponent(task.id, isDirectory: true)
-                    try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+            for runConfig in runConfigs {
+                let model = runConfig.modelConfig
+                let agent = evalAgent(from: baseAgent)
+                let parent = try PiTestSupport.makeParentSession(
+                    projectURL: projectURL,
+                    model: runConfig.model,
+                    provider: runConfig.provider,
+                    thinking: runConfig.thinking
+                )
+                let runDirectory = outputRoot
+                    .appendingPathComponent(task.agent, isDirectory: true)
+                    .appendingPathComponent(model.pathComponent, isDirectory: true)
+                    .appendingPathComponent(runConfig.thinking, isDirectory: true)
+                    .appendingPathComponent(task.id, isDirectory: true)
+                try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
 
-                    let summary = try runEval(
-                        task: task,
-                        agent: agent,
-                        snapshot: snapshot,
-                        parent: parent,
-                        model: model,
-                        thinking: thinking,
-                        runner: runner,
-                        store: store,
-                        runDirectory: runDirectory
-                    )
-                    summaries.append(summary)
-                }
+                let summary = try runEval(
+                    task: task,
+                    agent: agent,
+                    snapshot: snapshot,
+                    parent: parent,
+                    model: model,
+                    thinking: runConfig.thinking,
+                    runner: runner,
+                    store: store,
+                    runDirectory: runDirectory
+                )
+                summaries.append(summary)
             }
         }
 
@@ -398,6 +420,17 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
             durationMs: finalRun.durationMs,
             error: finalRun.error
         )
+    }
+
+    private func expandedRunConfigs() -> [EvalRunConfig] {
+        if let exactEvalRuns {
+            return exactEvalRuns
+        }
+        return evalModels.flatMap { model in
+            evalThinkingLevels.map { thinking in
+                EvalRunConfig(provider: model.provider, model: model.model, thinking: thinking)
+            }
+        }
     }
 
     private func effectiveBuiltinAgent(_ record: AgentRecord, projectRoot: String) -> EffectiveAgentRecord {
