@@ -85,7 +85,6 @@ final class PiRPCClient: @unchecked Sendable {
     func getState() { send(type: "get_state") }
     func getMessages() { send(type: "get_messages") }
     func getSessionStats() { send(type: "get_session_stats") }
-    func getAvailableModels() { send(type: "get_available_models") }
     func getCommands() { send(type: "get_commands") }
     func abort() { send(type: "abort") }
     func setSessionName(_ name: String) { send(type: "set_session_name", fields: ["name": name]) }

@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 
 struct AppRefreshSnapshot: Sendable {
@@ -170,5 +171,94 @@ nonisolated struct FileWatchFingerprint: Sendable {
             "logs"
         ]
         return skipped.contains(name)
+    }
+}
+
+final class FileWatchEventMonitor {
+    private let queue = DispatchQueue(label: "app.agent-deck.file-watch-events", qos: .utility)
+    private let latency: CFTimeInterval
+    private let onChange: () -> Void
+
+    private var stream: FSEventStreamRef?
+    private var watchedPaths: [String] = []
+
+    init(latency: CFTimeInterval = 0.75, onChange: @escaping () -> Void) {
+        self.latency = latency
+        self.onChange = onChange
+    }
+
+    deinit {
+        stop()
+    }
+
+    func updateWatchedURLs(_ urls: [URL]) {
+        let paths = Self.watchPaths(for: urls)
+        guard paths != watchedPaths else { return }
+        stop()
+        watchedPaths = paths
+        start(paths: paths)
+    }
+
+    func stop() {
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
+    }
+
+    private func start(paths: [String]) {
+        guard !paths.isEmpty else { return }
+
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+
+        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+            guard let info else { return }
+            let monitor = Unmanaged<FileWatchEventMonitor>.fromOpaque(info).takeUnretainedValue()
+            monitor.onChange()
+        }
+
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault,
+            callback,
+            &context,
+            paths as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            latency,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagWatchRoot)
+        ) else {
+            return
+        }
+
+        FSEventStreamSetDispatchQueue(stream, queue)
+        FSEventStreamStart(stream)
+        self.stream = stream
+    }
+
+    private static func watchPaths(for urls: [URL]) -> [String] {
+        let fileManager = FileManager.default
+        var seen: Set<String> = []
+        return urls.compactMap { url -> String? in
+            let standardized = url.standardizedFileURL
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return standardized.path
+            }
+            let parent = standardized.deletingLastPathComponent()
+            if fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return parent.path
+            }
+            return nil
+        }
+        .filter { !$0.isEmpty && seen.insert($0).inserted }
+        .sorted()
     }
 }

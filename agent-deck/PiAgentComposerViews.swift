@@ -1828,15 +1828,13 @@ struct PiAgentModelPicker: View {
     }
 
     private var modelOptions: [PiAgentModelOption] {
-        if let models = session.availableModels, !models.isEmpty {
-            return models.filter { !disabledModelIdentifiers.contains($0.selectionID) }
-        }
         return fallbackModels.map { model in
             PiAgentModelOption(
                 provider: model.provider,
                 id: model.model,
                 name: nil,
-                contextWindow: Int(model.contextWindow),
+                contextWindow: PiAgentContextEstimateBuilder.parseTokenCount(model.contextWindow),
+                maxOutput: PiAgentContextEstimateBuilder.parseTokenCount(model.maxOutput),
                 supportsThinking: model.supportsThinking,
                 supportedThinkingLevels: model.supportedThinkingLevels,
                 supportsImages: model.supportsImages

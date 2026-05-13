@@ -139,9 +139,6 @@ struct PiAgentInspectorPanel: View {
         let provider = session.modelOverrideProvider ?? session.modelProvider ?? defaultModel?.provider
         let modelID = session.modelOverrideID ?? session.model ?? defaultModel?.model
         if let provider, let modelID {
-            if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
-                return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : [])
-            }
             if let cached = viewModel.enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
                 return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? [] : ["off"]) : cached.supportedThinkingLevels
             }

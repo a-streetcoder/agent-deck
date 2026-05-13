@@ -27,7 +27,7 @@ Each `PiAgentSessionRecord` can contain:
 | `modelOverrideProvider` | Agent Deck's explicit provider selection for this session. |
 | `modelOverrideID` | Agent Deck's explicit model selection for this session. |
 | `thinkingLevel` | Agent Deck's selected thinking level for this session. |
-| `availableModels` | Model options reported by Pi RPC `get_available_models`. |
+| `availableModels` | Legacy persisted field. The model picker no longer uses this as a source. |
 
 Override fields win over reported fields when launching.
 
@@ -72,10 +72,15 @@ Default thinking level:
 
 ## Model option sources
 
-When cycling or validating models, Agent Deck uses:
+Model picker options come from the app-level model catalog loaded by:
 
-1. `session.availableModels` from Pi RPC when available,
-2. otherwise the app's enabled discovered model list.
+```text
+pi --list-models
+```
+
+Agent Deck stores this in `AppViewModel.availableModels`. The Models screen, Pi Agent footer picker, agent editor picker, title-generation model selection, and thinking validation all use this same app-level catalog.
+
+Agent Deck does not use old `PiAgentSessionRecord.availableModels` values as a fallback cache for model pickers.
 
 Disabled models from app settings are filtered out.
 
@@ -83,10 +88,9 @@ Disabled models from app settings are filtered out.
 
 Before applying a thinking level, Agent Deck checks whether the selected model supports it.
 
-Supported levels come from:
+Supported levels come from the app's enabled discovered model catalog.
 
-1. the selected session's `availableModels`, if present,
-2. otherwise the app's enabled discovered models.
+`pi --list-models` reports whether each model supports thinking. Agent Deck then probes Pi's installed model metadata to fill exact supported thinking levels when available.
 
 If a model explicitly does not support thinking, the supported level list is `off` only.
 
@@ -127,7 +131,7 @@ This keeps cycling session-local and avoids mutating Pi defaults unexpectedly.
 
 ## State refresh from Pi
 
-After launch, Agent Deck asks Pi for state and available models.
+After launch, Agent Deck asks Pi for runtime state.
 
 `applyState` updates:
 
@@ -138,6 +142,8 @@ After launch, Agent Deck asks Pi for state and available models.
 - run status (`running` vs `idle`)
 
 Agent Deck preserves explicit user choices when Pi's state response is stale or does not echo a recently selected thinking level.
+
+Agent Deck intentionally does not ask the running RPC session for a second model catalog. The global `pi --list-models` catalog is the model/thinking source of truth for UI choices.
 
 ## Title generation
 

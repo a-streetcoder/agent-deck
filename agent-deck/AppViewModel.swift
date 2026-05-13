@@ -129,6 +129,8 @@ final class AppViewModel: NSObject, ObservableObject {
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
     private var watchFingerprintTask: Task<Void, Never>?
+    private var watchEventDebounceTask: Task<Void, Never>?
+    private var fileWatchEventMonitor: FileWatchEventMonitor?
     private var lastWatchFingerprint: String = ""
     private var watchedURLsForAutoRefresh: [URL] = []
     private var refreshTask: Task<Void, Never>?
@@ -142,6 +144,8 @@ final class AppViewModel: NSObject, ObservableObject {
     private var githubDiffCacheOrder: [GitDiffCacheKey] = []
     private let githubDiffCacheLimit = 64
     private let repositoryChangesCacheLifetime: TimeInterval = 5
+    private let watchEventDebounceNanoseconds: UInt64 = 1_000_000_000
+    private let fallbackAutoRefreshInterval: TimeInterval = 300
     private var nativeParallelSchedulersByID: [UUID: NativeParallelGraphScheduler] = [:]
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
     private let lastExternalSkillsDirectoryDefaultsKey = "lastExternalSkillsDirectoryPath"
@@ -321,6 +325,7 @@ final class AppViewModel: NSObject, ObservableObject {
         if result.includesWatchFingerprint {
             lastWatchFingerprint = result.watchFingerprint
         }
+        updateAutoRefreshWatchList()
 
         if let matchingProject = result.selectedProject {
             projectRootURL = matchingProject.url
@@ -1281,16 +1286,15 @@ final class AppViewModel: NSObject, ObservableObject {
             let existing = piAgentSessionStore.sessions.first { $0.projectPath == project.path && $0.kind == .project }
             if let existing {
                 selectPiAgentSession(existing.id)
-                ensurePiAgentModels(for: existing.id)
+                ensurePiAgentModelCatalogLoaded()
             } else {
                 let session = piAgentSessionStore.createSession(
                     kind: .project,
                     title: "Project agent · \(project.name)",
                     project: project,
-                    repository: project.gitHubRemote?.nameWithOwner,
-                    availableModels: piAgentModelOptionsForNewSession()
+                    repository: project.gitHubRemote?.nameWithOwner
                 )
-                ensurePiAgentModels(for: session.id)
+                ensurePiAgentModelCatalogLoaded()
             }
         } else {
             acknowledgeVisibleSelectedPiAgentSession()
@@ -1308,10 +1312,9 @@ final class AppViewModel: NSObject, ObservableObject {
             kind: .project,
             title: "Draft · \(project.name)",
             project: project,
-            repository: project.gitHubRemote?.nameWithOwner,
-            availableModels: piAgentModelOptionsForNewSession()
+            repository: project.gitHubRemote?.nameWithOwner
         )
-        ensurePiAgentModels(for: session.id)
+        ensurePiAgentModelCatalogLoaded()
     }
 
     func startPiAgentForSelectedProject(initialInstruction: String) {
@@ -1338,10 +1341,9 @@ final class AppViewModel: NSObject, ObservableObject {
             project: project,
             repository: detail.item.repository,
             issueNumber: detail.item.number,
-            issueURL: detail.item.url,
-            availableModels: piAgentModelOptionsForNewSession()
+            issueURL: detail.item.url
         )
-        ensurePiAgentModels(for: session.id)
+        ensurePiAgentModelCatalogLoaded()
         piAgentPendingComposerText = PiIssuePromptBuilder.issuePrompt(detail: detail, project: project)
     }
 
@@ -1354,7 +1356,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func openPiAgentScreen() {
         selectedSidebarItem = .agent
         if let sessionID = piAgentSessionStore.selectedSession?.id {
-            ensurePiAgentModels(for: sessionID)
+            ensurePiAgentModelCatalogLoaded()
         }
         prepareRepoChangesForSelectedPiAgentSession()
         acknowledgeVisibleSelectedPiAgentSession()
@@ -1363,7 +1365,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func selectPiAgentSession(_ id: UUID) {
         piAgentSessionStore.select(id)
         selectedSidebarItem = .agent
-        ensurePiAgentModels(for: id)
+        ensurePiAgentModelCatalogLoaded()
         prepareRepoChangesForSelectedPiAgentSession()
         acknowledgePiAgentSession(id)
     }
@@ -1399,7 +1401,6 @@ final class AppViewModel: NSObject, ObservableObject {
     func setModelEnabled(_ model: AvailableModel, isEnabled: Bool) {
         guard appSettingsController.setModelEnabled(identifier: model.identifier, isEnabled: isEnabled) else { return }
         appSettings = appSettingsController.settings
-        seedPiAgentSessionsWithAvailableModels(availableModels, overwriteExisting: true)
     }
 
     func isOpenAIFastModeEnabled(_ model: AvailableModel) -> Bool {
@@ -1415,7 +1416,6 @@ final class AppViewModel: NSObject, ObservableObject {
     func enableAllModels() {
         guard appSettingsController.enableAllModels() else { return }
         appSettings = appSettingsController.settings
-        seedPiAgentSessionsWithAvailableModels(availableModels, overwriteExisting: true)
     }
 
     func setDefaultPiAgentModel(_ model: AvailableModel?) {
@@ -2511,7 +2511,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func cyclePiAgentModelForSelectedSession() {
         guard let session = piAgentSessionStore.selectedSession else { return }
-        let options = piAgentModelOptions(for: session)
+        let options = piAgentModelOptions()
         guard !options.isEmpty else { return }
         let fallback = defaultPiAgentModel()
         let currentProvider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
@@ -2540,7 +2540,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let defaults = readPiRuntimeDefaults()
         let provider = defaults.provider
         let model = defaults.model
-        let candidateModels = enabledAvailableModels + fallbackAvailableModelsFromSessions()
+        let candidateModels = enabledAvailableModels
         if let provider, let model {
             return candidateModels.first { $0.provider == provider && $0.model == model }
                 ?? candidateModels.first { $0.model == model }
@@ -2652,10 +2652,7 @@ final class AppViewModel: NSObject, ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func piAgentModelOptions(for session: PiAgentSessionRecord) -> [PiAgentModelOption] {
-        if let models = session.availableModels, !models.isEmpty {
-            return models.filter { !appSettings.disabledModelIdentifiers.contains($0.selectionID) }
-        }
+    private func piAgentModelOptions() -> [PiAgentModelOption] {
         return enabledAvailableModels
             .filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
             .map { model in
@@ -2674,11 +2671,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func supportedPiAgentThinkingLevels(session: PiAgentSessionRecord, provider: String?, modelID: String?) -> [String] {
         if let provider, let modelID {
-            if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
-                if let levels = runtimeModel.supportedThinkingLevels, !levels.isEmpty { return levels }
-                if runtimeModel.supportsThinking == false { return ["off"] }
-                return []
-            }
             if let cached = enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
                 if !cached.supportedThinkingLevels.isEmpty { return cached.supportedThinkingLevels }
                 return cached.supportsThinking ? [] : ["off"]
@@ -3171,10 +3163,10 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func piAgentTitleGenerationModel() -> AvailableModel? {
         if let identifier = appSettings.piAgentTitleGenerationModelIdentifier,
-           let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) ?? fallbackAvailableModelsFromSessions().first(where: { $0.identifier == identifier }) {
+           let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) {
             return selected
         }
-        return defaultPiAgentModel() ?? enabledAvailableModels.first ?? fallbackAvailableModelsFromSessions().first
+        return defaultPiAgentModel() ?? enabledAvailableModels.first
     }
 
     func piAgentCommitMessageModel() -> AvailableModel? {
@@ -4692,110 +4684,28 @@ final class AppViewModel: NSObject, ObservableObject {
         guard !isRefreshingModels else { return }
         isRefreshingModels = true
 
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
             let models = await PiModelDiscoveryService().loadAvailableModels()
-            await MainActor.run {
-                self.availableModels = models
-                self.seedPiAgentSessionsWithAvailableModels(models)
-                self.modelsLastUpdatedAt = Date()
-                self.isRefreshingModels = false
-            }
+            await self?.applyAvailableModelsRefresh(models, markRefreshComplete: true)
         }
     }
 
-    private func ensurePiAgentModels(for sessionID: UUID) {
-        guard let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
-              session.availableModels?.isEmpty ?? true else { return }
-        let enabledModels = enabledAvailableModels
-        if !enabledModels.isEmpty {
-            piAgentSessionStore.updateAvailableModelsForSessions([sessionID], options: piAgentModelOptions(from: enabledModels))
-            return
-        }
-        if let fallbackOptions = fallbackPiAgentModelOptionsFromSessions(), !fallbackOptions.isEmpty {
-            piAgentSessionStore.updateAvailableModelsForSessions([sessionID], options: fallbackOptions)
-            return
-        }
+    private func ensurePiAgentModelCatalogLoaded() {
+        guard availableModels.isEmpty else { return }
 
         Task.detached(priority: .utility) { [weak self] in
             let models = await PiModelDiscoveryService().loadAvailableModels()
-            await MainActor.run {
-                guard let self, !models.isEmpty else { return }
-                self.availableModels = models
-                self.seedPiAgentSessionsWithAvailableModels(models)
-                self.modelsLastUpdatedAt = Date()
-            }
+            guard !models.isEmpty else { return }
+            await self?.applyAvailableModelsRefresh(models, markRefreshComplete: false)
         }
     }
 
-    private func piAgentModelOptionsForNewSession() -> [PiAgentModelOption]? {
-        let models = enabledAvailableModels
-        if !models.isEmpty { return piAgentModelOptions(from: models) }
-        return fallbackPiAgentModelOptionsFromSessions()
-    }
-
-    private func fallbackPiAgentModelOptionsFromSessions() -> [PiAgentModelOption]? {
-        let disabled = appSettings.disabledModelIdentifiers
-        return piAgentSessionStore.sessions.lazy
-            .compactMap { session in
-                session.availableModels?.filter { !disabled.contains($0.selectionID) }
-            }
-            .first { !$0.isEmpty }
-    }
-
-    private func fallbackAvailableModelsFromSessions() -> [AvailableModel] {
-        guard let options = fallbackPiAgentModelOptionsFromSessions() else { return [] }
-        return options.map { option in
-            AvailableModel(
-                provider: option.provider,
-                model: option.id,
-                contextWindow: option.contextWindow.map(String.init) ?? "",
-                maxOutput: option.maxOutput.map(String.init) ?? "",
-                supportsThinking: option.supportsThinking ?? true,
-                supportsImages: option.supportsImages ?? false,
-                supportedThinkingLevels: option.supportedThinkingLevels ?? []
-            )
+    private func applyAvailableModelsRefresh(_ models: [AvailableModel], markRefreshComplete: Bool) {
+        availableModels = models
+        modelsLastUpdatedAt = Date()
+        if markRefreshComplete {
+            isRefreshingModels = false
         }
-    }
-
-    private func seedPiAgentSessionsWithAvailableModels(_ models: [AvailableModel], overwriteExisting: Bool = false) {
-        let enabledModels = models.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
-        guard !enabledModels.isEmpty || overwriteExisting else { return }
-        let options = piAgentModelOptions(from: enabledModels)
-        piAgentSessionStore.updateAvailableModelsForSessions(options: options, overwriteExisting: overwriteExisting)
-    }
-
-    private func piAgentModelOptions(from models: [AvailableModel]) -> [PiAgentModelOption] {
-        models.map { model in
-            PiAgentModelOption(
-                provider: model.provider,
-                id: model.model,
-                name: nil,
-                contextWindow: Self.compactModelNumber(model.contextWindow),
-                maxOutput: Self.compactModelNumber(model.maxOutput),
-                supportsThinking: model.supportsThinking,
-                supportedThinkingLevels: model.supportedThinkingLevels,
-                supportsImages: model.supportsImages
-            )
-        }
-    }
-
-    private static func compactModelNumber(_ value: String) -> Int? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let multiplier: Double
-        let numericText: String
-        if trimmed.lowercased().hasSuffix("k") {
-            multiplier = 1_000
-            numericText = String(trimmed.dropLast())
-        } else if trimmed.lowercased().hasSuffix("m") {
-            multiplier = 1_000_000
-            numericText = String(trimmed.dropLast())
-        } else {
-            multiplier = 1
-            numericText = trimmed
-        }
-        guard let number = Double(numericText) else { return nil }
-        return Int(number * multiplier)
     }
 
     private func skillVisible(to agent: EffectiveAgentRecord, skill: SkillRecord) -> Bool {
@@ -4846,8 +4756,18 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func startAutoRefresh() {
-        guard autoRefreshCancellable == nil, !didShutdown else { return }
-        autoRefreshCancellable = Timer.publish(every: 6, tolerance: 1.0, on: .main, in: .common)
+        guard !didShutdown else { return }
+        if fileWatchEventMonitor == nil {
+            fileWatchEventMonitor = FileWatchEventMonitor { [weak self] in
+                Task { @MainActor in
+                    self?.scheduleRefreshForWatchedFileEvent()
+                }
+            }
+        }
+        updateAutoRefreshWatchList()
+
+        guard autoRefreshCancellable == nil else { return }
+        autoRefreshCancellable = Timer.publish(every: fallbackAutoRefreshInterval, tolerance: 30, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refreshIfWatchedFilesChanged()
@@ -4855,6 +4775,10 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func stopAutoRefresh(cancelPendingScan: Bool) {
+        fileWatchEventMonitor?.stop()
+        fileWatchEventMonitor = nil
+        watchEventDebounceTask?.cancel()
+        watchEventDebounceTask = nil
         autoRefreshCancellable?.cancel()
         autoRefreshCancellable = nil
         if cancelPendingScan {
@@ -4863,23 +4787,46 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    private func updateAutoRefreshWatchList() {
+        guard let fileWatchEventMonitor else { return }
+        fileWatchEventMonitor.updateWatchedURLs(currentWatchedURLsForAutoRefresh())
+    }
+
+    private func currentWatchedURLsForAutoRefresh() -> [URL] {
+        watchedURLsForAutoRefresh.isEmpty
+            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths)
+            : watchedURLsForAutoRefresh
+    }
+
+    private func scheduleRefreshForWatchedFileEvent() {
+        guard !didShutdown else { return }
+        watchEventDebounceTask?.cancel()
+        let delay = watchEventDebounceNanoseconds
+        watchEventDebounceTask = Task { @MainActor [weak self, delay] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard let self, !Task.isCancelled, !self.didShutdown else { return }
+            self.watchEventDebounceTask = nil
+            self.refreshIfWatchedFilesChanged()
+        }
+    }
+
     private func refreshIfWatchedFilesChanged() {
         guard watchFingerprintTask == nil else { return }
         let previousFingerprint = lastWatchFingerprint
-        let urls = watchedURLsForAutoRefresh.isEmpty
-            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths)
-            : watchedURLsForAutoRefresh
+        let urls = currentWatchedURLsForAutoRefresh()
         watchFingerprintTask = Task.detached(priority: .utility) { [weak self, previousFingerprint, urls] in
             let fingerprint = FileWatchFingerprint.make(urls: urls)
             guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self, !Task.isCancelled else { return }
-                self.watchFingerprintTask = nil
-                guard fingerprint != previousFingerprint else { return }
-                self.lastWatchFingerprint = fingerprint
-                self.refresh(includeModels: false)
-            }
+            await self?.applyWatchFingerprint(fingerprint, previousFingerprint: previousFingerprint)
         }
+    }
+
+    private func applyWatchFingerprint(_ fingerprint: String, previousFingerprint: String) {
+        guard !Task.isCancelled else { return }
+        watchFingerprintTask = nil
+        guard fingerprint != previousFingerprint else { return }
+        lastWatchFingerprint = fingerprint
+        refresh(includeModels: false)
     }
 
 }

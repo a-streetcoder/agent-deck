@@ -256,7 +256,6 @@ final class PiAgentRunnerService {
         guard let client = clientsBySessionID[sessionID] else { return }
         resetIdleParkingDeadlineIfIdle(sessionID: sessionID)
         client.getState()
-        client.getAvailableModels()
         client.getSessionStats()
     }
 
@@ -397,7 +396,6 @@ final class PiAgentRunnerService {
                 record.status = .running
             }
             client.getState()
-            client.getAvailableModels()
             client.getCommands()
             let currentSession = store.sessions.first(where: { $0.id == session.id }) ?? session
             if currentSession.isTitleUserEdited || (session.title.hasPrefix("Draft ·") && !currentSession.title.hasPrefix("Draft ·")) {
@@ -704,13 +702,6 @@ final class PiAgentRunnerService {
             return
         }
 
-        if event.command == "get_available_models", let data = event.data {
-            store.updateSession(sessionID) { record in
-                record.availableModels = parseModelOptions(from: data["models"] ?? data)
-            }
-            return
-        }
-
         if event.command == "get_commands", let data = event.data {
             store.updateSession(sessionID) { record in
                 record.commandInvocations = parseCommandInvocations(from: data)
@@ -987,69 +978,10 @@ final class PiAgentRunnerService {
         })).sorted()
     }
 
-    private func parseModelOptions(from value: JSONValue) -> [PiAgentModelOption] {
-        guard case let .array(models) = value else { return [] }
-        return models.compactMap { model -> PiAgentModelOption? in
-            let provider = model["provider"]?.stringValue ?? model["providerId"]?.stringValue
-            let id = model["id"]?.stringValue ?? model["modelId"]?.stringValue ?? model["model"]?.stringValue
-            guard let provider, let id else { return nil }
-            let contextWindow: Int?
-            if case let .number(value)? = model["contextWindow"] {
-                contextWindow = Int(value)
-            } else {
-                contextWindow = nil
-            }
-            let maxOutput = Self.modelTokenCount(from: model["maxOutput"])
-                ?? Self.modelTokenCount(from: model["max_output"])
-                ?? Self.modelTokenCount(from: model["output"])
-                ?? Self.modelTokenCount(from: model["maxTokens"])
-            let supportsThinking = model["reasoning"]?.boolValue ?? model["supportsThinking"]?.boolValue
-            let supportedThinkingLevels: [String]? = {
-                if let levels = stringArray(from: model["supportedThinkingLevels"]) { return levels }
-                if let levels = parseSupportedThinkingLevels(from: model["thinkingLevelMap"]) { return levels }
-                guard supportsThinking == true else { return supportsThinking == false ? ["off"] : nil }
-                return nil
-            }()
-            let supportsImages = model["supportsImages"]?.boolValue ?? model["image"]?.boolValue ?? stringArray(from: model["input"])?.contains("image")
-            return PiAgentModelOption(
-                provider: provider,
-                id: id,
-                name: model["name"]?.stringValue,
-                contextWindow: contextWindow,
-                maxOutput: maxOutput,
-                supportsThinking: supportsThinking,
-                supportedThinkingLevels: supportedThinkingLevels,
-                supportsImages: supportsImages
-            )
-        }
-    }
-
-    private static func modelTokenCount(from value: JSONValue?) -> Int? {
-        switch value {
-        case let .number(number):
-            return max(Int(number), 0)
-        case let .string(text):
-            return PiAgentContextEstimateBuilder.parseTokenCount(text)
-        default:
-            return nil
-        }
-    }
-
     private func stringArray(from value: JSONValue?) -> [String]? {
         guard case let .array(items)? = value else { return nil }
         let strings = items.compactMap(\.stringValue)
         return strings.isEmpty ? nil : strings
-    }
-
-    private func parseSupportedThinkingLevels(from value: JSONValue?) -> [String]? {
-        let allLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
-        guard case let .object(map)? = value else { return nil }
-        let levels = allLevels.filter { level in
-            guard let mapped = map[level] else { return true }
-            if case .null = mapped { return false }
-            return true
-        }
-        return levels.isEmpty ? nil : levels
     }
 
     private func handleMessageUpdate(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {
