@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -142,6 +141,7 @@ struct PiNativeSubagentRunCard: View {
     let onOpenTranscript: () -> Void
     let onReveal: () -> Void
     let onOpenGraph: () -> Void
+    let onOpenChildTranscript: (UUID) -> Void
     @State private var isDetailsPresented = false
     @State private var promptPopover: PromptPopover?
     @State private var displayedStatus: PiSubagentRunStatus?
@@ -217,6 +217,19 @@ struct PiNativeSubagentRunCard: View {
 
     @ViewBuilder
     private var actionButtons: some View {
+        Button {
+            isDetailsPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(AppTheme.mutedText)
+        .help("Run details")
+        .popover(isPresented: $isDetailsPresented, arrowEdge: .trailing) {
+            detailsPopover
+        }
         if run.children?.isEmpty == false {
             Button("Graph", action: onOpenGraph)
                 .buttonStyle(.bordered)
@@ -235,22 +248,9 @@ struct PiNativeSubagentRunCard: View {
         Button("Transcript", action: onOpenTranscript)
             .buttonStyle(.bordered)
             .controlSize(.small)
-        Button {
-            isDetailsPresented.toggle()
-        } label: {
-            Image(systemName: "info.circle")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(AppTheme.mutedText)
-        .help("Run details")
-        .popover(isPresented: $isDetailsPresented, arrowEdge: .trailing) {
-            detailsPopover
-        }
         if run.status.isActive {
             Button("Stop", action: onStop)
-                .buttonStyle(.bordered)
+                .buttonStyle(PiSubagentStopButtonStyle())
                 .controlSize(.small)
         }
     }
@@ -411,28 +411,116 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private func childSummary(_ children: [PiSubagentChildRecord]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(children.sorted { $0.index < $1.index }) { child in
-                HStack(alignment: .top, spacing: 8) {
-                    Circle()
-                        .fill(color(for: child.status))
-                        .frame(width: 7, height: 7)
-                        .padding(.top, 5)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(child.index + 1). \(child.agentName) · \(child.status.rawValue)")
-                            .font(.caption.weight(.semibold))
-                        if let summary = child.summary ?? child.error, !summary.isEmpty {
-                            Text(summary)
-                                .font(.caption2)
-                                .lineLimit(2)
-                                .foregroundStyle(AppTheme.mutedText)
-                        }
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.caption.weight(.semibold))
+                Text("Parallel children")
+                    .font(.caption.weight(.semibold))
+                    .fontWidth(.expanded)
+                Text("\(children.count)")
+                    .font(.caption2.monospaced().weight(.bold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.8)))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(AppTheme.mutedText)
+
+            LazyVGrid(columns: parallelChildColumns, alignment: .leading, spacing: 8) {
+                ForEach(children.sorted { $0.index < $1.index }) { child in
+                    parallelChildTile(child)
                 }
             }
         }
-        .padding(8)
-        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.contentSubtleFill.opacity(0.72))
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        )
+    }
+
+    private var parallelChildColumns: [GridItem] {
+        [
+            GridItem(.flexible(minimum: 210), spacing: 8, alignment: .topLeading),
+            GridItem(.flexible(minimum: 210), spacing: 8, alignment: .topLeading)
+        ]
+    }
+
+    private func parallelChildTile(_ child: PiSubagentChildRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Circle()
+                    .fill(color(for: child.status))
+                    .frame(width: 7, height: 7)
+                Text("\(child.index + 1). \(child.agentName)")
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(child.status.rawValue)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(color(for: child.status))
+                    .lineLimit(1)
+            }
+
+            if let summary = nonEmpty(child.summary ?? child.error) {
+                Text(summary)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .foregroundStyle(AppTheme.mutedText)
+            } else if let task = nonEmpty(child.task) {
+                Text(task)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+
+            HStack(alignment: .center, spacing: 8) {
+                let metadata = childCompactMetadata(child)
+                if !metadata.isEmpty {
+                    ForEach(metadata) { item in
+                        compactMetric(item)
+                    }
+                }
+                Spacer(minLength: 0)
+                if let executionRunID = child.executionRunID {
+                    Button("Transcript") {
+                        onOpenChildTranscript(executionRunID)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(AppTheme.mutedText)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppTheme.windowBackground.opacity(0.35))
+                .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
+        )
+        .help(child.task ?? child.summary ?? child.error ?? child.agentName)
+    }
+
+    private func childCompactMetadata(_ child: PiSubagentChildRecord) -> [CompactMetadataItem] {
+        var items: [CompactMetadataItem] = []
+        if let duration = child.durationMs {
+            items.append(.init(text: formattedDuration(duration), icon: "timer"))
+        }
+        if let totalTokens = child.totalTokens {
+            items.append(.init(text: compactNumber(totalTokens), icon: "tugriksign.circle"))
+        }
+        if let toolCount = child.toolCount {
+            items.append(.init(text: "\(toolCount)", icon: "wrench.and.screwdriver"))
+        }
+        if let model = nonEmpty(child.model) {
+            items.append(.init(text: model, icon: "cpu"))
+        }
+        return items
     }
 
     private func artifactURL(named fileName: String) -> URL {
@@ -513,27 +601,35 @@ struct PiNativeSubagentRunCard: View {
     }
 }
 
+private struct PiSubagentStopButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.red)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.red.opacity(configuration.isPressed ? 0.18 : 0.12))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.red.opacity(configuration.isPressed ? 0.42 : 0.28), lineWidth: 1)
+            )
+            .opacity(configuration.isPressed ? 0.82 : 1)
+    }
+}
+
 struct PiSubagentStatusText: View {
     let status: PiSubagentRunStatus
     let color: Color
     var font: Font = .caption.weight(.semibold)
-    @State private var dotCount = 1
 
     var body: some View {
-        Text(label)
+        Text(status.rawValue.capitalized)
             .font(font)
             .foregroundStyle(color)
             .contentTransition(.opacity)
-            .onReceive(Timer.publish(every: 0.42, on: .main, in: .common).autoconnect()) { _ in
-                guard status.isActive else { return }
-                dotCount = dotCount % 3 + 1
-            }
-    }
-
-    private var label: String {
-        let base = status.rawValue.capitalized
-        guard status.isActive else { return base }
-        return base + String(repeating: ".", count: dotCount)
     }
 }
 
@@ -541,17 +637,23 @@ struct PiSubagentActivityGlyph: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let color: Color
     let isActive: Bool
-    @State private var isPulsing = false
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.opacity(isActive ? 0.18 : 0.10), lineWidth: 1)
+                .fill(color.opacity(isActive ? 0.10 : 0.06))
 
-            if isActive && !reduceMotion {
-                Circle()
-                    .stroke(color.opacity(isPulsing ? 0 : 0.32), lineWidth: 1.5)
-                    .scaleEffect(isPulsing ? 1.45 : 1.05)
+            Circle()
+                .stroke(color.opacity(isActive ? 0.22 : 0.12), lineWidth: 1)
+
+            if isActive {
+                if reduceMotion {
+                    activityRing(rotation: .degrees(-90))
+                } else {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                        activityRing(rotation: rotation(at: context.date))
+                    }
+                }
             }
 
             Image(systemName: "rectangle.connected.to.line.below")
@@ -563,16 +665,24 @@ struct PiSubagentActivityGlyph: View {
         }
         .frame(width: 34, height: 34)
         .accessibilityHidden(true)
-        .task(id: isActive) {
-            guard isActive, !reduceMotion else {
-                isPulsing = false
-                return
-            }
-            isPulsing = false
-            withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) {
-                isPulsing = true
-            }
-        }
+    }
+
+    private func rotation(at date: Date) -> Angle {
+        .degrees(date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 6) * 60 - 90)
+    }
+
+    private func activityRing(rotation: Angle) -> some View {
+        Circle()
+            .trim(from: 0.07, to: 0.34)
+            .stroke(
+                AngularGradient(
+                    colors: [color.opacity(0.2), color.opacity(0.95), color.opacity(0.2)],
+                    center: .center
+                ),
+                style: StrokeStyle(lineWidth: 1.7, lineCap: .round)
+            )
+            .rotationEffect(rotation)
+            .padding(1.5)
     }
 }
 

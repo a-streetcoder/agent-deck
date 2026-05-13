@@ -529,7 +529,7 @@ struct PiAgentTranscriptThreadCard: View {
                                     .id(event.id)
                             }
                         }
-                        ForEach(thread.statuses) { entry in
+                        ForEach(visibleStatusEntries) { entry in
                             if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
                                 nativeSubagentCard(run)
                                     .id(entry.id)
@@ -559,7 +559,11 @@ struct PiAgentTranscriptThreadCard: View {
     }
 
     private var hasChildren: Bool {
-        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || (visibility.showPlans && !latestPlanEvents.isEmpty) || !thread.statuses.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
+        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || (visibility.showPlans && !latestPlanEvents.isEmpty) || !visibleStatusEntries.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
+    }
+
+    private var visibleStatusEntries: [PiAgentTranscriptEntry] {
+        thread.statuses.filter { !shouldHideNativeSubagentStatus($0) }
     }
 
     private var effectiveThinkingDisplayMode: PiAgentThinkingDisplayMode {
@@ -576,6 +580,31 @@ struct PiAgentTranscriptThreadCard: View {
 
     private var editablePaths: [String] {
         PiAgentThreadDiffSummaryView.changedPaths(from: toolActivities)
+    }
+
+    private func shouldHideNativeSubagentStatus(_ entry: PiAgentTranscriptEntry) -> Bool {
+        guard let runID = entry.nativeSubagentRunID,
+              let run = nativeSubagentRunsByID[runID],
+              run.mode == .single,
+              let representedAt = parallelChildUpdatedAtByRunID[runID] else { return false }
+        // Continuations reuse the same run ID and update the same transcript card.
+        // Hide only the child entry while it is still represented by the parent
+        // parallel card; later direct continuations must remain visible.
+        return entry.timestamp <= representedAt.addingTimeInterval(5)
+    }
+
+    private var parallelChildUpdatedAtByRunID: [UUID: Date] {
+        var output: [UUID: Date] = [:]
+        for run in nativeSubagentRunsByID.values where run.mode == .parallel {
+            for child in run.children ?? [] {
+                guard let executionRunID = child.executionRunID else { continue }
+                let existing = output[executionRunID]
+                if existing == nil || child.updatedAt > existing! {
+                    output[executionRunID] = child.updatedAt
+                }
+            }
+        }
+        return output
     }
 
     private var latestPlanEvents: [PiSessionPlanEventRecord] {

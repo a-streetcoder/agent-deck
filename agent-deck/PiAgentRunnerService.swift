@@ -1259,7 +1259,6 @@ final class PiAgentRunnerService {
             clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the managed_subagent request.")
             return
         }
-        store.append(.init(sessionID: sessionID, role: .status, title: "Native Subagent Requested", text: "\(request.agent): \(request.task)", rawJSON: rawLine))
         guard let onManagedSubagentRequest else {
             clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) native subagent bridge is not available.")
             return
@@ -1277,7 +1276,6 @@ final class PiAgentRunnerService {
             clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the managed_parallel request.")
             return
         }
-        store.append(.init(sessionID: sessionID, role: .status, title: "Native Parallel Requested", text: "\(request.tasks.count) task(s)", rawJSON: rawLine))
         guard let onManagedParallelRequest else {
             clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) native parallel bridge is not available.")
             return

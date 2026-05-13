@@ -4335,9 +4335,17 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func enableSkillGlobally(_ skill: SkillRecord) throws {
-        guard appSettingsController.setDefaultSkill(skill.name, enabled: true) else { return }
+        if skill.source.kind == .project || skill.source.kind == .legacyProject {
+            try moveSkillToGlobalDirectory(skill)
+        }
+        guard appSettingsController.setDefaultSkill(skill.name, enabled: true) else {
+            refresh(includeModels: false, scanAllProjects: true)
+            selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
+            return
+        }
         appSettings = appSettingsController.settings
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
 
     func disableSkillGlobally(_ skill: SkillRecord) throws {
@@ -4368,6 +4376,52 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func skillIsEnabledGlobally(_ skill: SkillRecord) -> Bool {
         appSettings.defaultSkillNames.contains(skill.name)
+    }
+
+    private func moveSkillToGlobalDirectory(_ skill: SkillRecord) throws {
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        let sourceURL = skillMoveSourceURL(fileURL: fileURL)
+        let destinationRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/skills", isDirectory: true)
+            .standardizedFileURL
+        let destinationURL = destinationRoot.appendingPathComponent(skill.name, isDirectory: true)
+
+        guard !isSymbolicLink(sourceURL), !isSymbolicLink(fileURL) else {
+            throw ResourceRenameError.unsupportedResource("Symlinked skills cannot be made Default safely in app. Move the real skill folder to ~/.pi/agent/skills instead.")
+        }
+        guard sourceURL.standardizedFileURL.path != destinationURL.standardizedFileURL.path else { return }
+        try ensureGlobalSkillDestinationAvailable(destinationURL, sourceURL: sourceURL)
+        try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true, attributes: nil)
+
+        if fileURL.lastPathComponent == "SKILL.md" {
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+        } else {
+            try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: false, attributes: nil)
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL.appendingPathComponent("SKILL.md"))
+        }
+    }
+
+    private func skillMoveSourceURL(fileURL: URL) -> URL {
+        if fileURL.lastPathComponent == "SKILL.md" {
+            return fileURL.deletingLastPathComponent().standardizedFileURL
+        }
+        return fileURL.standardizedFileURL
+    }
+
+    private func isSymbolicLink(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true ||
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    private func ensureGlobalSkillDestinationAvailable(_ destinationURL: URL, sourceURL: URL) throws {
+        let destination = destinationURL.standardizedFileURL
+        let source = sourceURL.standardizedFileURL
+        guard destination.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true).standardizedFileURL.path + "/") else {
+            throw ResourceRenameError.unsafePath(destination.path)
+        }
+        if pathExistsOrIsSymlink(destination), destination.path != source.path {
+            throw ResourceRenameError.destinationExists(destination.path)
+        }
     }
 
     func skillIsEnabledForSelectedProject(_ skill: SkillRecord) -> Bool {

@@ -252,7 +252,6 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
                 || entry.title == "Compaction"
                 || entry.title == "Retry"
                 || entry.title == "Subagent Started"
-                || entry.title == "Native Subagent Requested"
         case .tool:
             return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
         case .stderr:
@@ -1099,10 +1098,19 @@ struct PiAgentScreen: View {
     }
 
     private func scheduleTranscriptCacheUpdate() {
+        guard let sessionID = store.selectedSession?.id else {
+            transcriptCache.scheduleUpdate(sessionID: nil, revision: 0, rawEntries: [])
+            return
+        }
+
+        // Hydrate the selected transcript before updating the render cache. With lazy
+        // loading, selectedTranscript can briefly be empty during a session switch;
+        // publishing that empty snapshot is what produces the intermittent blank pane.
+        let entries = store.transcript(for: sessionID)
         transcriptCache.scheduleUpdate(
-            sessionID: store.selectedSession?.id,
+            sessionID: sessionID,
             revision: store.selectedTranscriptRevision,
-            rawEntries: store.selectedTranscript
+            rawEntries: entries
         )
     }
 
@@ -1380,7 +1388,8 @@ struct PiAgentScreen: View {
             onStop: { viewModel.stopNativeSubagent(runID: run.id, parentSessionID: run.parentSessionID) },
             onOpenTranscript: { selectedSubagentTranscriptRunID = run.id },
             onReveal: { revealSubagentRun(run) },
-            onOpenGraph: { selectedSubagentGraphRunID = run.id }
+            onOpenGraph: { selectedSubagentGraphRunID = run.id },
+            onOpenChildTranscript: { selectedSubagentTranscriptRunID = $0 }
         )
     }
 

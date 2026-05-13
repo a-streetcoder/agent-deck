@@ -225,7 +225,7 @@ struct SkillsScreen: View {
 
             AppCard(title: "Default Skill") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(viewModel.skillIsEnabledGlobally(skill) ? "This skill is passed to every parent Pi Agent session." : "Make this skill available by default in every parent Pi Agent session.")
+                        Text(defaultSkillHelpText(for: skill))
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -495,6 +495,16 @@ struct SkillsScreen: View {
         viewModel.skillIsEnabledGlobally(skill) ||
         !viewModel.assignedProjects(for: skill).isEmpty ||
         !viewModel.assignedAgents(for: skill).isEmpty
+    }
+
+    private func defaultSkillHelpText(for skill: SkillRecord) -> String {
+        if viewModel.skillIsEnabledGlobally(skill) {
+            return "This skill is passed to every parent Pi Agent session. Removing Default keeps the skill in its current folder."
+        }
+        if skill.source.kind == .project || skill.source.kind == .legacyProject {
+            return "Make this skill shared by moving its entire skill folder to ~/.pi/agent/skills and passing it to every parent Pi Agent session."
+        }
+        return "Make this skill available by default in every parent Pi Agent session."
     }
 
     private func assignedProjectSummary(_ skill: SkillRecord) -> String {
