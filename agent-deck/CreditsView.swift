@@ -47,6 +47,12 @@ struct CreditsScreen: View {
                     )
                     Divider()
                     creditRow(
+                        title: "pi-subagents and pi-intercom",
+                        detail: "Agent Deck's native subagent design was logically inspired by Nico Bailon's MIT-licensed Pi ecosystem packages. Agent Deck does not bundle or depend on those packages for native subagent execution.",
+                        url: "https://github.com/nicobailon/pi-subagents"
+                    )
+                    Divider()
+                    creditRow(
                         title: "htmlparser2 and Turndown",
                         detail: "Optional enhanced web_fetch dependencies installed from npm. htmlparser2 and Turndown are MIT licensed; their current transitive parser dependencies are BSD-2-Clause.",
                         url: "https://www.npmjs.com/package/htmlparser2"

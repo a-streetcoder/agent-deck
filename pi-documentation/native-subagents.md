@@ -2,6 +2,8 @@
 
 Agent Deck now runs app-managed native subagents with app-owned child RPC sessions. The app owns child Pi RPC processes, run records, transcripts, artifacts, supervisor requests, worktrees, chains, and parallel graphs.
 
+Courtesy credit: Agent Deck's native subagent design was logically inspired by Nico Bailon's MIT-licensed Pi ecosystem packages, [`pi-subagents`](https://github.com/nicobailon/pi-subagents) and [`pi-intercom`](https://www.npmjs.com/package/pi-intercom). Agent Deck does not bundle or depend on those packages for native subagent execution.
+
 ## What is replaced
 
 | Capability | Native status |
