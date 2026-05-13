@@ -70,6 +70,9 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var availableModels: [AvailableModel] = []
     @Published var modelsLastUpdatedAt: Date?
     @Published private var piRuntimeSettingsRevision = 0
+    private var cachedPiRuntimeSettingsObject: [String: Any]?
+    private var cachedPiRuntimeSettingsModificationDate: Date?
+    private var lastPiRuntimeSettingsStatCheck: Date?
     @Published var githubConnectionState: GitHubConnectionState = .checking
     @Published var githubSelectedSection: GitHubSection = .projectBoard
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
@@ -107,7 +110,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
-    @Published private(set) var piAgentPendingComposerText: String?
+    private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
 
     private let agentPersistence = AgentPersistence()
@@ -1343,7 +1346,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func consumePendingPiAgentComposerText() -> String? {
-        let pending = piAgentPendingComposerText
+        guard let pending = piAgentPendingComposerText else { return nil }
         piAgentPendingComposerText = nil
         return pending
     }
@@ -2537,15 +2540,16 @@ final class AppViewModel: NSObject, ObservableObject {
         let defaults = readPiRuntimeDefaults()
         let provider = defaults.provider
         let model = defaults.model
+        let candidateModels = enabledAvailableModels + fallbackAvailableModelsFromSessions()
         if let provider, let model {
-            return enabledAvailableModels.first { $0.provider == provider && $0.model == model }
-                ?? enabledAvailableModels.first { $0.model == model }
-                ?? enabledAvailableModels.first
+            return candidateModels.first { $0.provider == provider && $0.model == model }
+                ?? candidateModels.first { $0.model == model }
+                ?? candidateModels.first
         }
         if let model {
-            return enabledAvailableModels.first { $0.identifier == model || $0.model == model } ?? enabledAvailableModels.first
+            return candidateModels.first { $0.identifier == model || $0.model == model } ?? candidateModels.first
         }
-        return enabledAvailableModels.first
+        return candidateModels.first
     }
 
     func defaultPiAgentThinkingLevel(for levels: [String]) -> String {
@@ -2595,6 +2599,9 @@ final class AppViewModel: NSObject, ObservableObject {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try data.write(to: url, options: .atomic)
+            cachedPiRuntimeSettingsObject = object
+            cachedPiRuntimeSettingsModificationDate = piRuntimeSettingsModificationDate(force: true)
+            lastPiRuntimeSettingsStatCheck = Date()
             return true
         } catch {
             githubLastError = "Could not update Pi settings: \(error.localizedDescription)"
@@ -2603,11 +2610,36 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func piRuntimeSettingsObject() -> [String: Any]? {
-        guard let data = try? Data(contentsOf: piRuntimeSettingsURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        let modificationDate = piRuntimeSettingsModificationDate()
+        guard let modificationDate else {
+            cachedPiRuntimeSettingsObject = nil
+            cachedPiRuntimeSettingsModificationDate = nil
             return nil
         }
+        if cachedPiRuntimeSettingsModificationDate == modificationDate {
+            return cachedPiRuntimeSettingsObject
+        }
+        guard let data = try? Data(contentsOf: piRuntimeSettingsURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            cachedPiRuntimeSettingsObject = nil
+            cachedPiRuntimeSettingsModificationDate = modificationDate
+            return nil
+        }
+        cachedPiRuntimeSettingsObject = object
+        cachedPiRuntimeSettingsModificationDate = modificationDate
         return object
+    }
+
+    private func piRuntimeSettingsModificationDate(force: Bool = false) -> Date? {
+        let now = Date()
+        if !force,
+           let lastPiRuntimeSettingsStatCheck,
+           now.timeIntervalSince(lastPiRuntimeSettingsStatCheck) < 1,
+           let cachedPiRuntimeSettingsModificationDate {
+            return cachedPiRuntimeSettingsModificationDate
+        }
+        lastPiRuntimeSettingsStatCheck = now
+        return (try? FileManager.default.attributesOfItem(atPath: piRuntimeSettingsURL.path)[.modificationDate]) as? Date
     }
 
     private var piRuntimeSettingsURL: URL {
@@ -3139,10 +3171,10 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func piAgentTitleGenerationModel() -> AvailableModel? {
         if let identifier = appSettings.piAgentTitleGenerationModelIdentifier,
-           let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) {
+           let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) ?? fallbackAvailableModelsFromSessions().first(where: { $0.identifier == identifier }) {
             return selected
         }
-        return defaultPiAgentModel() ?? enabledAvailableModels.first
+        return defaultPiAgentModel() ?? enabledAvailableModels.first ?? fallbackAvailableModelsFromSessions().first
     }
 
     func piAgentCommitMessageModel() -> AvailableModel? {
@@ -4679,6 +4711,10 @@ final class AppViewModel: NSObject, ObservableObject {
             piAgentSessionStore.updateAvailableModelsForSessions([sessionID], options: piAgentModelOptions(from: enabledModels))
             return
         }
+        if let fallbackOptions = fallbackPiAgentModelOptionsFromSessions(), !fallbackOptions.isEmpty {
+            piAgentSessionStore.updateAvailableModelsForSessions([sessionID], options: fallbackOptions)
+            return
+        }
 
         Task.detached(priority: .utility) { [weak self] in
             let models = await PiModelDiscoveryService().loadAvailableModels()
@@ -4693,7 +4729,32 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func piAgentModelOptionsForNewSession() -> [PiAgentModelOption]? {
         let models = enabledAvailableModels
-        return models.isEmpty ? nil : piAgentModelOptions(from: models)
+        if !models.isEmpty { return piAgentModelOptions(from: models) }
+        return fallbackPiAgentModelOptionsFromSessions()
+    }
+
+    private func fallbackPiAgentModelOptionsFromSessions() -> [PiAgentModelOption]? {
+        let disabled = appSettings.disabledModelIdentifiers
+        return piAgentSessionStore.sessions.lazy
+            .compactMap { session in
+                session.availableModels?.filter { !disabled.contains($0.selectionID) }
+            }
+            .first { !$0.isEmpty }
+    }
+
+    private func fallbackAvailableModelsFromSessions() -> [AvailableModel] {
+        guard let options = fallbackPiAgentModelOptionsFromSessions() else { return [] }
+        return options.map { option in
+            AvailableModel(
+                provider: option.provider,
+                model: option.id,
+                contextWindow: option.contextWindow.map(String.init) ?? "",
+                maxOutput: option.maxOutput.map(String.init) ?? "",
+                supportsThinking: option.supportsThinking ?? true,
+                supportsImages: option.supportsImages ?? false,
+                supportedThinkingLevels: option.supportedThinkingLevels ?? []
+            )
+        }
     }
 
     private func seedPiAgentSessionsWithAvailableModels(_ models: [AvailableModel], overwriteExisting: Bool = false) {
@@ -4786,7 +4847,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func startAutoRefresh() {
         guard autoRefreshCancellable == nil, !didShutdown else { return }
-        autoRefreshCancellable = Timer.publish(every: 2, tolerance: 0.5, on: .main, in: .common)
+        autoRefreshCancellable = Timer.publish(every: 6, tolerance: 1.0, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.refreshIfWatchedFilesChanged()

@@ -691,9 +691,27 @@ enum PiAgentComposerImageLoader {
         )
     }
 
-    nonisolated static func previewImage(for attachment: PiAgentImageAttachment) -> NSImage? {
-        guard let data = Data(base64Encoded: attachment.data) else { return nil }
-        return NSImage(data: data)
+    @MainActor
+    static func previewImage(for attachment: PiAgentImageAttachment) -> NSImage? {
+        let key = previewCacheKey(for: attachment)
+        if let cached = previewImageCache.object(forKey: key) {
+            return cached
+        }
+        guard let data = Data(base64Encoded: attachment.data), let image = NSImage(data: data) else { return nil }
+        previewImageCache.setObject(image, forKey: key)
+        return image
+    }
+
+    @MainActor private static let previewImageCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    @MainActor private static func previewCacheKey(for attachment: PiAgentImageAttachment) -> NSString {
+        var hasher = Hasher()
+        hasher.combine(attachment.data)
+        return "\(attachment.id.uuidString):\(attachment.data.count):\(hasher.finalize())" as NSString
     }
 
     nonisolated private static func mimeType(for url: URL) -> String? {

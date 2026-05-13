@@ -64,6 +64,31 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         )
     }
 
+    func testTranscriptStackDoesNotBlankAfterAppendingAndBottomScroll() throws {
+        let host = NSHostingView(rootView: PiAgentTranscriptAppendSmokeView())
+        host.frame = NSRect(x: 0, y: 0, width: 520, height: 420)
+
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        runMainLoop(iterations: 12, delay: 0.03)
+        host.layoutSubtreeIfNeeded()
+
+        let paintedSamples = try nonWhiteSampleCount(in: host)
+        XCTAssertGreaterThan(
+            paintedSamples,
+            100,
+            "Transcript rendered blank after appending a sent-message row and scrolling to bottom."
+        )
+    }
+
     private func runMainLoop(iterations: Int, delay: TimeInterval) {
         for _ in 0..<iterations {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(delay))
@@ -93,33 +118,63 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
 
 private struct PiAgentTranscriptFirstPaintSmokeView: View {
     let rows: [String]
+    @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                        Text(row)
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .background(Color(red: 0.14, green: 0.30, blue: 0.56))
-                            .id(index)
-                    }
-
-                    Color.clear
-                        .frame(height: 1)
-                        .id("bottom")
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(16)
+        ScrollView {
+            PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
+                transcriptRows(rows)
             }
-            .background(Color.white)
-            .task {
-                await Task.yield()
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(16)
+        }
+        .background(Color.white)
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition($scrollPosition, anchor: .bottom)
+        .task {
+            await Task.yield()
+            scrollPosition.scrollTo(edge: .bottom)
         }
     }
+}
+
+private struct PiAgentTranscriptAppendSmokeView: View {
+    @State private var rows = (0..<80).map { "Transcript row \($0)" }
+    @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
+
+    var body: some View {
+        ScrollView {
+            PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
+                transcriptRows(rows)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(16)
+        }
+        .background(Color.white)
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition($scrollPosition, anchor: .bottom)
+        .task {
+            await Task.yield()
+            rows.append("Sent message row")
+            await Task.yield()
+            scrollPosition.scrollTo(edge: .bottom)
+        }
+    }
+}
+
+@ViewBuilder
+private func transcriptRows(_ rows: [String]) -> some View {
+    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+        Text(row)
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .padding(.horizontal, 10)
+            .background(Color(red: 0.14, green: 0.30, blue: 0.56))
+            .id("row-\(index)")
+    }
+
+    Color.clear
+        .frame(height: 1)
+        .id("bottom")
 }

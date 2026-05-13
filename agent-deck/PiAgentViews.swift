@@ -51,9 +51,10 @@ struct PiAgentTranscriptStack<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: alignment, spacing: spacing) {
+        LazyVStack(alignment: alignment, spacing: spacing) {
             content()
         }
+        .scrollTargetLayout()
     }
 }
 
@@ -97,7 +98,7 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         }
 
         updateTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 33_000_000)
+            try? await Task.sleep(nanoseconds: 66_000_000)
             guard !Task.isCancelled else { return }
             self?.publish(rawEntries)
         }
@@ -289,6 +290,12 @@ private struct PiAgentTranscriptTimelineItem: Identifiable {
     let kind: Kind
 }
 
+private struct PiAgentTranscriptTimelineSnapshot {
+    let allItems: [PiAgentTranscriptTimelineItem]
+    let visibleItems: [PiAgentTranscriptTimelineItem]
+    let preCompactionArchive: (hiddenCount: Int, compactedAt: Date)?
+    let planEventsByThreadID: [UUID: [PiSessionPlanEventRecord]]
+}
 
 private extension PiAgentTranscriptThread {
     var timelineTimestamp: Date {
@@ -328,6 +335,7 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
+    @State private var transcriptScrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var transcriptIsPinnedToBottom = true
     @State private var transcriptAutoScrollTurn = 0
     @State private var transcriptAutoScrollSuppressedTurn: Int?
@@ -356,7 +364,6 @@ struct PiAgentScreen: View {
             syncRuntimeFooterSnapshot()
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
-            loadComposerDraft(for: store.selectedSession?.id)
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
             resetTranscriptAutoScroll()
@@ -369,7 +376,6 @@ struct PiAgentScreen: View {
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessions() }
         .onDisappear {
-            saveComposerDraft(for: store.selectedSession?.id)
             processingMessageUpdateTask?.cancel()
             processingMessageUpdateTask = nil
         }
@@ -388,7 +394,6 @@ struct PiAgentScreen: View {
             isUIRequestSheetPresented = newID != nil
         }
         .onChange(of: store.selectedSession?.id) { oldID, newID in
-            saveComposerDraft(for: oldID)
             renamingSessionID = nil
             syncSelectedSessionTitleDraft()
             if let newID, !selectedSessionIDs.contains(newID) {
@@ -397,7 +402,6 @@ struct PiAgentScreen: View {
                 selectedSessionIDs = []
                 lastSelectedSessionID = nil
             }
-            loadComposerDraft(for: newID)
             resetTranscriptAutoScroll()
             showArchivedPreCompactionTranscript = false
             syncRuntimeFooterSnapshot()
@@ -728,7 +732,12 @@ struct PiAgentScreen: View {
                     )
                 }
 
-                composer
+                PiAgentComposerPanel(
+                    viewModel: viewModel,
+                    store: store,
+                    onWillSend: beginTranscriptAutoScrollTurn,
+                    onDidSend: requestTranscriptBottomScroll
+                )
             }
             .padding(18)
         }
@@ -769,10 +778,10 @@ struct PiAgentScreen: View {
     }
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
-                let timelineItems = visibleTranscriptTimelineItems
-                PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
+        ScrollView(showsIndicators: false) {
+            let timelineSnapshot = transcriptTimelineSnapshot
+            let timelineItems = timelineSnapshot.visibleItems
+            PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
                         if let finalSystemPrompt = session.finalSystemPrompt {
@@ -791,7 +800,7 @@ struct PiAgentScreen: View {
                         }
                     }
 
-                    if let archive = preCompactionArchiveNotice {
+                    if let archive = timelineSnapshot.preCompactionArchive {
                         preCompactionArchiveCard(archive)
                     }
                     if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
@@ -833,14 +842,14 @@ struct PiAgentScreen: View {
                                     visibility: viewModel.appSettings.piAgentTranscriptVisibility,
                                     skills: visibleSkillsForSelectedSession,
                                     projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                                    planEvents: planEvents(for: thread, in: timelineItems),
+                                    planEvents: timelineSnapshot.planEventsByThreadID[thread.id] ?? [],
                                     nativeSubagentRunsByID: nativeSubagentRunsByID,
                                     nativeSubagentCard: nativeSubagentCard
                                 )
-                                .id(thread.id)
+                                .id(item.id)
                             case let .plan(event):
                                 PiAgentCurrentPlanCard(event: event)
-                                    .id(event.id)
+                                    .id(item.id)
                             }
                         }
                         if let processingMessage = stabilizedProcessingMessage {
@@ -865,30 +874,51 @@ struct PiAgentScreen: View {
                         }
                     )
                 }
-            }
-            .task(id: transcriptCache.renderRevision) {
-                handleTranscriptRenderRevision(proxy: proxy)
-            }
-            .task(id: transcriptCache.autoScrollTurnRevision) {
-                await Task.yield()
-                beginTranscriptAutoScrollTurn()
-                scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false, repeatCount: 2)
-            }
-            .task(id: transcriptCache.streamingRevision) {
-                guard !isTranscriptAutoScrollSuppressed else { return }
-                await Task.yield()
-                throttleStreamingScroll(proxy: proxy)
-            }
-            .onChange(of: selectedSessionProcessingMessage) { _, message in
-                updateStabilizedProcessingMessage(message)
-                guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
-                scrollToProcessingIndicator(proxy: proxy)
-            }
-            .task(id: transcriptBottomScrollRequest) {
-                await Task.yield()
-                scrollToRequestedBottom(proxy: proxy)
-            }
         }
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition($transcriptScrollPosition, anchor: .bottom)
+        .task(id: transcriptCache.renderRevision) {
+            handleTranscriptRenderRevision()
+        }
+        .task(id: transcriptCache.autoScrollTurnRevision) {
+            await Task.yield()
+            beginTranscriptAutoScrollTurn()
+            scrollToConversationBottom(animated: true, respectSuppression: false)
+        }
+        .task(id: transcriptCache.streamingRevision) {
+            guard !isTranscriptAutoScrollSuppressed else { return }
+            await Task.yield()
+            throttleStreamingScroll()
+        }
+        .onChange(of: selectedSessionProcessingMessage) { _, message in
+            updateStabilizedProcessingMessage(message)
+            guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
+            scrollToProcessingIndicator()
+        }
+        .task(id: transcriptBottomScrollRequest) {
+            await Task.yield()
+            scrollToRequestedBottom()
+        }
+    }
+
+    private var transcriptTimelineSnapshot: PiAgentTranscriptTimelineSnapshot {
+        let items = transcriptTimelineItems
+        let archiveRange = preCompactionArchiveRange(in: items)
+        let archiveNotice = archiveRange.flatMap { archive -> (hiddenCount: Int, compactedAt: Date)? in
+            archive.visibleStartIndex > 0 ? (archive.visibleStartIndex, archive.compactedAt) : nil
+        }
+        let visibleItems: [PiAgentTranscriptTimelineItem]
+        if !showArchivedPreCompactionTranscript, let archiveRange {
+            visibleItems = Array(items[archiveRange.visibleStartIndex...])
+        } else {
+            visibleItems = items
+        }
+        return PiAgentTranscriptTimelineSnapshot(
+            allItems: items,
+            visibleItems: visibleItems,
+            preCompactionArchive: archiveNotice,
+            planEventsByThreadID: planEventsByThreadID(in: items)
+        )
     }
 
     private var transcriptTimelineItems: [PiAgentTranscriptTimelineItem] {
@@ -906,16 +936,11 @@ struct PiAgentScreen: View {
     }
 
     private var visibleTranscriptTimelineItems: [PiAgentTranscriptTimelineItem] {
-        let items = transcriptTimelineItems
-        guard !showArchivedPreCompactionTranscript,
-              let archive = preCompactionArchiveRange(in: items) else { return items }
-        return Array(items[archive.visibleStartIndex...])
+        transcriptTimelineSnapshot.visibleItems
     }
 
     private var preCompactionArchiveNotice: (hiddenCount: Int, compactedAt: Date)? {
-        let items = transcriptTimelineItems
-        guard let archive = preCompactionArchiveRange(in: items), archive.visibleStartIndex > 0 else { return nil }
-        return (archive.visibleStartIndex, archive.compactedAt)
+        transcriptTimelineSnapshot.preCompactionArchive
     }
 
     private func preCompactionArchiveRange(in items: [PiAgentTranscriptTimelineItem]) -> (visibleStartIndex: Int, compactedAt: Date)? {
@@ -959,19 +984,32 @@ struct PiAgentScreen: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.8)).stroke(AppTheme.contentStroke, lineWidth: 1))
     }
 
-    private func planEvents(for thread: PiAgentTranscriptThread, in timelineItems: [PiAgentTranscriptTimelineItem]) -> [PiSessionPlanEventRecord] {
+    private func planEventsByThreadID(in timelineItems: [PiAgentTranscriptTimelineItem]) -> [UUID: [PiSessionPlanEventRecord]] {
         guard viewModel.appSettings.piAgentTranscriptVisibility.showPlans,
-              let sessionID = store.selectedSession?.id else { return [] }
-        let threadStart = thread.timelineTimestamp
-        let nextThreadStart = timelineItems.compactMap { item -> Date? in
-            guard case let .thread(candidate) = item.kind,
-                  candidate.id != thread.id,
-                  candidate.timelineTimestamp > threadStart else { return nil }
-            return candidate.timelineTimestamp
-        }.min() ?? .distantFuture
-        return store.sessionPlanEvents(for: sessionID).filter { event in
-            event.timestamp >= threadStart && event.timestamp < nextThreadStart
+              let sessionID = store.selectedSession?.id else { return [:] }
+
+        let threadBoundaries: [(id: UUID, timestamp: Date)] = timelineItems.compactMap { item in
+            guard case let .thread(thread) = item.kind else { return nil }
+            return (thread.id, thread.timelineTimestamp)
         }
+        guard !threadBoundaries.isEmpty else { return [:] }
+
+        let events = store.sessionPlanEvents(for: sessionID)
+            .filter { $0.kind != .cleared }
+            .sorted { $0.timestamp < $1.timestamp }
+        guard !events.isEmpty else { return [:] }
+
+        var output: [UUID: [PiSessionPlanEventRecord]] = [:]
+        var threadIndex = 0
+        for event in events {
+            while threadIndex + 1 < threadBoundaries.count,
+                  threadBoundaries[threadIndex + 1].timestamp <= event.timestamp {
+                threadIndex += 1
+            }
+            guard event.timestamp >= threadBoundaries[threadIndex].timestamp else { continue }
+            output[threadBoundaries[threadIndex].id, default: []].append(event)
+        }
+        return output
     }
 
     private func updateStabilizedProcessingMessage(_ message: String?) {
@@ -1086,6 +1124,7 @@ struct PiAgentScreen: View {
         transcriptAutoScrollTurn &+= 1
         transcriptAutoScrollSuppressedTurn = nil
         transcriptIsPinnedToBottom = true
+        transcriptScrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     }
 
     private func beginTranscriptAutoScrollTurn() {
@@ -1096,53 +1135,42 @@ struct PiAgentScreen: View {
         transcriptAutoScrollSuppressedTurn = transcriptAutoScrollTurn
     }
 
-    private func handleTranscriptRenderRevision(proxy: ScrollViewProxy) {
+    private func handleTranscriptRenderRevision() {
         guard !isTranscriptAutoScrollSuppressed else { return }
-        scrollToConversationBottom(
-            proxy: proxy,
-            animated: false,
-            respectSuppression: true,
-            repeatCount: 2
-        )
+        scrollToConversationBottom(animated: false, respectSuppression: true)
     }
 
-    private func scrollToLatestThread(proxy: ScrollViewProxy) {
-        scrollToConversationBottom(proxy: proxy, animated: false, respectSuppression: true)
+    private func scrollToLatestThread() {
+        scrollToConversationBottom(animated: false, respectSuppression: true)
     }
 
-    private func scrollToProcessingIndicator(proxy: ScrollViewProxy) {
-        scrollToConversationBottom(proxy: proxy, animated: false, respectSuppression: true)
+    private func scrollToProcessingIndicator() {
+        scrollToConversationBottom(animated: false, respectSuppression: true)
     }
 
     private func requestTranscriptBottomScroll() {
         transcriptBottomScrollRequest &+= 1
     }
 
-    private func scrollToRequestedBottom(proxy: ScrollViewProxy) {
+    private func scrollToRequestedBottom() {
         resetTranscriptAutoScroll()
-        scrollToConversationBottom(proxy: proxy, animated: true, respectSuppression: false)
+        scrollToConversationBottom(animated: true, respectSuppression: false)
     }
 
-    private func scrollToConversationBottom(proxy: ScrollViewProxy, animated: Bool, respectSuppression: Bool, repeatCount: Int = 1) {
+    private func scrollToConversationBottom(animated: Bool, respectSuppression: Bool) {
         lastStreamingScrollAt = Date()
         Task { @MainActor in
-            let attempts = max(1, repeatCount)
-            for attempt in 0..<attempts {
-                await Task.yield()
-                guard !respectSuppression || !isTranscriptAutoScrollSuppressed else { return }
-                withTransaction(Transaction(animation: animated && attempt == 0 ? .easeOut(duration: 0.18) : nil)) {
-                    proxy.scrollTo("pi-agent-bottom-anchor", anchor: .bottom)
-                }
-                if attempt < attempts - 1 {
-                    try? await Task.sleep(nanoseconds: 16_000_000)
-                }
+            await Task.yield()
+            guard !respectSuppression || !isTranscriptAutoScrollSuppressed else { return }
+            withTransaction(Transaction(animation: animated ? .easeOut(duration: 0.18) : nil)) {
+                transcriptScrollPosition.scrollTo(edge: .bottom)
             }
         }
     }
 
-    private func throttleStreamingScroll(proxy: ScrollViewProxy) {
+    private func throttleStreamingScroll() {
         guard Date().timeIntervalSince(lastStreamingScrollAt) > 0.14 else { return }
-        scrollToLatestThread(proxy: proxy)
+        scrollToLatestThread()
     }
 
     @ViewBuilder
@@ -1625,6 +1653,312 @@ struct PiAgentScreen: View {
         case .stopped: return .orange
         case .draft: return .secondary
         }
+    }
+}
+
+private struct PiAgentComposerPanel: View {
+    @ObservedObject var viewModel: AppViewModel
+    @ObservedObject var store: PiAgentSessionStore
+    let onWillSend: () -> Void
+    let onDidSend: () -> Void
+
+    @State private var composerText = ""
+    @State private var inputMode: PiAgentInputMode = .steer
+    @State private var composerImages: [PiAgentImageAttachment] = []
+    @State private var composerFiles: [PiAgentFileAttachment] = []
+    @State private var composerFolders: [PiAgentFolderAttachment] = []
+    @State private var composerAttachmentError: String?
+    @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
+
+    var body: some View {
+        let isRunning = store.selectedSession?.status.isActive == true
+        let isCompacting = store.selectedSession?.isCompacting == true
+        let hasSelectedSession = store.selectedSession != nil
+
+        PiAgentComposerBox(
+            text: $composerText,
+            images: $composerImages,
+            files: $composerFiles,
+            folders: $composerFolders,
+            attachmentError: $composerAttachmentError,
+            inputMode: $inputMode,
+            isRunning: isRunning,
+            isDisabled: isCompacting || !hasSelectedSession,
+            placeholder: !hasSelectedSession ? "Select or start a Pi Agent session to send a message…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
+            canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+            path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
+            onFiles: addFileAttachments,
+            onFolders: addFolderAttachments,
+            viewModel: viewModel,
+            footerSession: store.selectedSession,
+            transcript: store.selectedTranscript,
+            supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
+            metricsSession: runtimeFooterSession(isRunning: isRunning),
+            onSend: sendComposerMessage,
+            onStop: { viewModel.stopSelectedPiAgentSession() },
+            onClear: clearComposerInput
+        )
+        .popover(
+            isPresented: Binding(get: { hasComposerSuggestions }, set: { _ in }),
+            attachmentAnchor: .point(UnitPoint(x: 0.04, y: 0.12)),
+            arrowEdge: .top
+        ) {
+            PiAgentCommandSuggestions(
+                commands: slashSuggestions,
+                skills: skillSlashSuggestions,
+                fileSuggestions: fileSuggestions,
+                onSelectFile: insertFileSuggestion,
+                onSelectCommand: insertSlashSuggestion
+            )
+            .padding(6)
+        }
+        .zIndex(hasComposerSuggestions ? 20 : 0)
+        .onAppear {
+            syncRuntimeFooterSnapshot()
+            loadComposerDraft(for: store.selectedSession?.id)
+        }
+        .onDisappear {
+            saveComposerDraft(for: store.selectedSession?.id)
+        }
+        .onChange(of: store.selectedSession?.id) { oldID, newID in
+            saveComposerDraft(for: oldID)
+            loadComposerDraft(for: newID)
+            syncRuntimeFooterSnapshot()
+        }
+        .onChange(of: store.selectedSession?.status.isActive) { _, _ in
+            syncRuntimeFooterSnapshot()
+        }
+    }
+
+    private var activeSuggestionToken: (token: String, range: Range<String.Index>)? {
+        guard !composerText.isEmpty else { return nil }
+        let nsText = composerText as NSString
+        let tokenRange = nsText.range(of: "[^\\s]+$", options: .regularExpression)
+        guard tokenRange.location != NSNotFound,
+              let range = Range(tokenRange, in: composerText) else { return nil }
+        let token = String(composerText[range])
+        guard !token.isEmpty else { return nil }
+        return (token, range)
+    }
+
+    private enum ComposerSuggestionTrigger {
+        case slash(query: String)
+        case file(query: String)
+    }
+
+    private var composerSuggestionTrigger: ComposerSuggestionTrigger? {
+        guard let active = activeSuggestionToken,
+              let first = active.token.first else { return nil }
+        switch first {
+        case "/":
+            let prefix = composerText[..<active.range.lowerBound]
+            guard prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return .slash(query: String(active.token.dropFirst()).lowercased())
+        case "@":
+            return .file(query: String(active.token.dropFirst()).lowercased())
+        default:
+            return nil
+        }
+    }
+
+    private var hasComposerSuggestions: Bool {
+        !slashSuggestions.isEmpty || !skillSlashSuggestions.isEmpty || !fileSuggestions.isEmpty
+    }
+
+    private var slashSuggestions: [String] {
+        guard case let .slash(query) = composerSuggestionTrigger else { return [] }
+        guard !query.hasPrefix("skill:") else { return [] }
+        let all = runtimeCommandInvocations(excludingSkills: true) ?? fallbackCommandInvocations
+        return all.filter { query.isEmpty || $0.dropFirst().lowercased().hasPrefix(query) }.prefix(8).map { $0 }
+    }
+
+    private var skillSlashSuggestions: [String] {
+        guard case let .slash(query) = composerSuggestionTrigger else { return [] }
+        let normalizedQuery = query.hasPrefix("skill:") ? String(query.dropFirst("skill:".count)) : query
+        let all = runtimeCommandInvocations(onlySkills: true) ?? fallbackSkillInvocations
+        return all
+            .filter { invocation in
+                let name = invocation.replacingOccurrences(of: "/skill:", with: "")
+                return normalizedQuery.isEmpty || name.lowercased().hasPrefix(normalizedQuery)
+            }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private func runtimeCommandInvocations(onlySkills: Bool = false, excludingSkills: Bool = false) -> [String]? {
+        guard let commands = store.selectedSession?.commandInvocations else { return nil }
+        let filtered = commands.filter { invocation in
+            let isSkill = invocation.hasPrefix("/skill:")
+            if onlySkills { return isSkill }
+            if excludingSkills { return !isSkill }
+            return true
+        }
+        return Array(Set(filtered)).sorted()
+    }
+
+    private var fallbackCommandInvocations: [String] {
+        let configuredCommands = PiInjectedCommandCatalog.all
+            .filter { PiInjectedCommandCatalog.isEnabled($0, settings: viewModel.appSettings) }
+            .map(\.slashName)
+        return Array(Set(snapshotForSelectedSession.promptTemplates.map(\.invocation) + configuredCommands + ["/compact"]))
+            .sorted()
+    }
+
+    private var fallbackSkillInvocations: [String] {
+        var seen = Set<String>()
+        return snapshotForSelectedSession.skills
+            .filter { seen.insert($0.name).inserted }
+            .map { "/skill:\($0.name)" }
+            .sorted()
+    }
+
+    private var snapshotForSelectedSession: ScanSnapshot {
+        let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+        return projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
+    }
+
+    private var fileSuggestions: [PiAgentFileSuggestion] {
+        guard let session = store.selectedSession else { return [] }
+        guard case let .file(query) = composerSuggestionTrigger else { return [] }
+        return PiAgentFileSuggestion.scan(rootPath: session.worktreePath ?? session.projectPath, query: query)
+    }
+
+    private func insertFileSuggestion(_ suggestion: PiAgentFileSuggestion) {
+        replaceCurrentSuggestionToken(with: "@\(suggestion.relativePath)")
+    }
+
+    private func insertSlashSuggestion(_ command: String) {
+        replaceCurrentSuggestionToken(with: command)
+    }
+
+    private func replaceCurrentSuggestionToken(with replacement: String) {
+        guard let active = activeSuggestionToken else { return }
+        composerText.replaceSubrange(active.range, with: replacement)
+        composerText += " "
+    }
+
+    private func addFileAttachments(_ urls: [URL]) {
+        let attachments = urls.filter { !$0.hasDirectoryPath }.compactMap { PiAgentFileAttachment(url: $0) }
+        guard !attachments.isEmpty else { return }
+        composerAttachmentError = nil
+        for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
+            composerFiles.append(attachment)
+        }
+    }
+
+    private func addFolderAttachments(_ urls: [URL]) {
+        let attachments = urls.compactMap { PiAgentFolderAttachment(url: $0) }
+        guard !attachments.isEmpty else { return }
+        composerAttachmentError = nil
+        for attachment in attachments where !composerFolders.contains(where: { $0.url == attachment.url }) {
+            composerFolders.append(attachment)
+        }
+    }
+
+    private func loadComposerDraft(for sessionID: UUID?) {
+        if let pending = viewModel.consumePendingPiAgentComposerText() {
+            composerText = pending
+            composerImages = []
+            composerFiles = []
+            composerFolders = []
+            composerAttachmentError = nil
+            saveComposerDraft(for: sessionID)
+            return
+        }
+
+        guard let sessionID else {
+            clearComposerInput()
+            return
+        }
+        let draft = store.composerDraft(for: sessionID)
+        composerText = draft.text
+        composerImages = draft.images
+        composerFiles = draft.files
+        composerFolders = draft.folders
+        composerAttachmentError = nil
+    }
+
+    private func saveComposerDraft(for sessionID: UUID?) {
+        guard let sessionID else { return }
+        store.saveComposerDraft(text: composerText, images: composerImages, files: composerFiles, folders: composerFolders, for: sessionID)
+    }
+
+    private func clearComposerInput() {
+        composerText = ""
+        composerImages = []
+        composerFiles = []
+        composerFolders = []
+        composerAttachmentError = nil
+    }
+
+    private func sendComposerMessage() {
+        let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
+        guard store.selectedSession?.isCompacting != true else { return }
+        guard let payload = attachedFilePayload() else { return }
+        let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let isRunning = store.selectedSession?.status.isActive == true
+        let sentSessionID = store.selectedSession?.id
+        onWillSend()
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
+        onDidSend()
+        clearComposerInput()
+        if let sentSessionID {
+            store.clearComposerDraft(for: sentSessionID)
+        }
+    }
+
+    private func expandFileReferences(in message: String) -> String {
+        guard let session = store.selectedSession else { return message }
+        let rootURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        return message
+            .split(separator: " ", omittingEmptySubsequences: false)
+            .map { part in
+                guard part.hasPrefix("@"), part.count > 1 else { return String(part) }
+                let relative = String(part.dropFirst())
+                let url = rootURL.appendingPathComponent(relative)
+                guard FileManager.default.fileExists(atPath: url.path) else { return String(part) }
+                return fileTag(for: url)
+            }
+            .joined(separator: " ")
+    }
+
+    private func attachedFilePayload() -> String? {
+        var tags: [String] = []
+        for file in composerFiles { tags.append(fileTag(for: file.url)) }
+        for folder in composerFolders { tags.append(folderReference(for: folder.url)) }
+        return tags.joined(separator: "\n")
+    }
+
+    private func folderReference(for url: URL) -> String {
+        "folder: `\(url.path)`"
+    }
+
+    private func fileTag(for url: URL) -> String {
+        "<file name=\"\(url.path)\"></file>"
+    }
+
+    private func supportedThinkingLevels(for session: PiAgentSessionRecord) -> [String] {
+        let defaultModel = viewModel.defaultPiAgentModel()
+        let provider = session.modelOverrideProvider ?? session.modelProvider ?? defaultModel?.provider
+        let modelID = session.modelOverrideID ?? session.model ?? defaultModel?.model
+        if let provider, let modelID {
+            if let runtimeModel = session.availableModels?.first(where: { $0.provider == provider && $0.id == modelID }) {
+                return runtimeModel.supportedThinkingLevels ?? (runtimeModel.supportsThinking == false ? ["off"] : [])
+            }
+            if let cached = viewModel.enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+                return cached.supportedThinkingLevels.isEmpty ? (cached.supportsThinking ? [] : ["off"]) : cached.supportedThinkingLevels
+            }
+        }
+        return []
+    }
+
+    private func runtimeFooterSession(isRunning: Bool) -> PiAgentSessionRecord? {
+        isRunning ? frozenRuntimeFooterSession ?? store.selectedSession : store.selectedSession
+    }
+
+    private func syncRuntimeFooterSnapshot() {
+        frozenRuntimeFooterSession = store.selectedSession
     }
 }
 

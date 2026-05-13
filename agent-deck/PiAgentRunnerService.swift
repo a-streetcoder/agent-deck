@@ -1082,7 +1082,7 @@ final class PiAgentRunnerService {
     private func scheduleStreamingFlush(sessionID: UUID) {
         guard streamFlushTasksBySessionID[sessionID] == nil else { return }
         streamFlushTasksBySessionID[sessionID] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 33_000_000)
+            try? await Task.sleep(nanoseconds: 80_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.streamFlushTasksBySessionID[sessionID] = nil

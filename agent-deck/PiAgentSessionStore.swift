@@ -23,7 +23,7 @@ final class PiAgentSessionStore: ObservableObject {
     private var composerFolderDraftsBySessionID: [UUID: [PiAgentFolderAttachment]] = [:]
 
     private let maxTranscriptEntriesPerSession = 500
-    private let transcriptRevisionCoalesceNanoseconds: UInt64 = 33_000_000
+    private let transcriptRevisionCoalesceNanoseconds: UInt64 = 66_000_000
     private let defaultSaveDebounceNanoseconds: UInt64 = 450_000_000
     private let structuralSaveDebounceNanoseconds: UInt64 = 50_000_000
     private let fileURL: URL

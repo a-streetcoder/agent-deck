@@ -1540,6 +1540,18 @@ private struct PiAgentUserMessageContent: View {
     let entry: PiAgentTranscriptEntry
     @State private var preview: AttachmentPreview?
 
+    private struct ParsedContent {
+        let messageText: String
+        let imageAttachments: [PiAgentImageAttachment]
+        let legacyImageNames: [String]
+        let fileAttachments: [FileAttachmentPreview]
+        let folderAttachments: [FolderAttachmentPreview]
+    }
+
+    @MainActor private static var parsedContentCache: [String: ParsedContent] = [:]
+    @MainActor private static var parsedContentCacheOrder: [String] = []
+    private static let parsedContentCacheLimit = 256
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !messageText.isEmpty {
@@ -1572,43 +1584,69 @@ private struct PiAgentUserMessageContent: View {
         }
     }
 
-    private var messageText: String {
+    private var parsedContent: ParsedContent {
+        Self.parsedContent(for: entry)
+    }
+
+    private var messageText: String { parsedContent.messageText }
+    private var imageAttachments: [PiAgentImageAttachment] { parsedContent.imageAttachments }
+    private var folderAttachments: [FolderAttachmentPreview] { parsedContent.folderAttachments }
+    private var fileAttachments: [FileAttachmentPreview] { parsedContent.fileAttachments }
+    private var legacyImageNames: [String] { parsedContent.legacyImageNames }
+
+    @MainActor
+    private static func parsedContent(for entry: PiAgentTranscriptEntry) -> ParsedContent {
+        let key = parsedContentCacheKey(for: entry)
+        if let cached = parsedContentCache[key] { return cached }
+
         let markers = ["Attached files:", "Attached images:"]
         let firstRange = markers.compactMap { entry.text.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
         let base = firstRange.map { String(entry.text[..<$0.lowerBound]) } ?? entry.text
-        return Self.removingFolderReferences(from: Self.removingFileTags(from: base)).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var imageAttachments: [PiAgentImageAttachment] { images }
-
-    private var folderAttachments: [FolderAttachmentPreview] {
-        uniqueFolders(Self.folderReferences(in: entry.text).map { path in
+        let messageText = removingFolderReferences(from: removingFileTags(from: base)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let imageAttachments = images(for: entry)
+        let inlineFileTags = inlineFileTags(in: entry.text)
+        let folderAttachments = uniqueFolders(folderReferences(in: entry.text).map { path in
             FolderAttachmentPreview(name: URL(fileURLWithPath: path, isDirectory: true).lastPathComponent, path: path)
         })
-    }
-
-    private var fileAttachments: [FileAttachmentPreview] {
-        let listed = attachmentLines(after: "Attached files:").compactMap { line -> FileAttachmentPreview? in
+        let listedFiles = attachmentLines(after: "Attached files:", in: entry.text).compactMap { line -> FileAttachmentPreview? in
             guard !line.contains("<image ") else { return nil }
             return .init(name: line, path: nil)
         }
-        let tagged = inlineFileTags.filter { !Self.isImageName($0.name) }
-        // Prefer inline <file name="/path"> tags because they preserve the local path
-        // needed by the popover preview. The human-readable "Attached files:"
-        // list only contains display names, so de-duping it first drops previews.
-        return uniqueFiles(tagged + listed)
-    }
-
-    private var legacyImageNames: [String] {
-        let imageLines = attachmentLines(after: "Attached images:") + attachmentLines(after: "Attached files:").filter { $0.contains("<image ") }
-        return uniqueNames(imageLines.compactMap(Self.imageName(from:)) + inlineFileTags.filter { Self.isImageName($0.name) }.map(\.name)).filter { name in
-            !images.contains { $0.name == name }
+        let taggedFiles = inlineFileTags.filter { !isImageName($0.name) }
+        let fileAttachments = uniqueFiles(taggedFiles + listedFiles)
+        let imageLines = attachmentLines(after: "Attached images:", in: entry.text) + attachmentLines(after: "Attached files:", in: entry.text).filter { $0.contains("<image ") }
+        let legacyImageNames = uniqueNames(imageLines.compactMap(imageName(from:)) + inlineFileTags.filter { isImageName($0.name) }.map(\.name)).filter { name in
+            !imageAttachments.contains { $0.name == name }
         }
+
+        let parsed = ParsedContent(
+            messageText: messageText,
+            imageAttachments: imageAttachments,
+            legacyImageNames: legacyImageNames,
+            fileAttachments: fileAttachments,
+            folderAttachments: folderAttachments
+        )
+        parsedContentCache[key] = parsed
+        parsedContentCacheOrder.append(key)
+        if parsedContentCacheOrder.count > parsedContentCacheLimit {
+            let overflow = parsedContentCacheOrder.count - parsedContentCacheLimit
+            for oldKey in parsedContentCacheOrder.prefix(overflow) {
+                parsedContentCache[oldKey] = nil
+            }
+            parsedContentCacheOrder.removeFirst(overflow)
+        }
+        return parsed
     }
 
-    private func attachmentLines(after marker: String) -> [String] {
-        guard let range = entry.text.range(of: marker) else { return [] }
-        let tail = entry.text[range.upperBound...]
+    private static func parsedContentCacheKey(for entry: PiAgentTranscriptEntry) -> String {
+        // User entries are immutable after insertion. Avoid hashing large attached
+        // file payloads on every SwiftUI body pass for long chats.
+        "\(entry.id.uuidString):\(entry.text.count):\(entry.rawJSON?.count ?? 0)"
+    }
+
+    private static func attachmentLines(after marker: String, in text: String) -> [String] {
+        guard let range = text.range(of: marker) else { return [] }
+        let tail = text[range.upperBound...]
         let stop = marker == "Attached files:" ? tail.range(of: "Attached images:")?.lowerBound : nil
         let slice = stop.map { tail[..<$0] } ?? tail[...]
         return slice.split(separator: "\n").compactMap { line in
@@ -1618,13 +1656,13 @@ private struct PiAgentUserMessageContent: View {
         }
     }
 
-    private var inlineFileTags: [FileAttachmentPreview] {
+    private static func inlineFileTags(in text: String) -> [FileAttachmentPreview] {
         let pattern = #"<file name=\"([^\"]+)\">[\s\S]*?</file>"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let range = NSRange(entry.text.startIndex..<entry.text.endIndex, in: entry.text)
-        return regex.matches(in: entry.text, range: range).compactMap { match in
-            guard let range = Range(match.range(at: 1), in: entry.text) else { return nil }
-            let path = String(entry.text[range])
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let range = Range(match.range(at: 1), in: text) else { return nil }
+            let path = String(text[range])
             return .init(name: URL(fileURLWithPath: path).lastPathComponent, path: path)
         }
     }
@@ -1696,22 +1734,22 @@ private struct PiAgentUserMessageContent: View {
         ["png", "jpg", "jpeg", "gif", "webp", "tiff", "heic"].contains(URL(fileURLWithPath: name).pathExtension.lowercased())
     }
 
-    private func uniqueNames(_ names: [String]) -> [String] {
+    private static func uniqueNames(_ names: [String]) -> [String] {
         var seen = Set<String>()
         return names.filter { seen.insert($0).inserted }
     }
 
-    private func uniqueFiles(_ files: [FileAttachmentPreview]) -> [FileAttachmentPreview] {
+    private static func uniqueFiles(_ files: [FileAttachmentPreview]) -> [FileAttachmentPreview] {
         var seen = Set<String>()
         return files.filter { seen.insert($0.name).inserted }
     }
 
-    private func uniqueFolders(_ folders: [FolderAttachmentPreview]) -> [FolderAttachmentPreview] {
+    private static func uniqueFolders(_ folders: [FolderAttachmentPreview]) -> [FolderAttachmentPreview] {
         var seen = Set<String>()
         return folders.filter { seen.insert($0.path).inserted }
     }
 
-    private var images: [PiAgentImageAttachment] {
+    private static func images(for entry: PiAgentTranscriptEntry) -> [PiAgentImageAttachment] {
         guard let rawJSON = entry.rawJSON, let data = rawJSON.data(using: .utf8), let object = try? JSONDecoder().decode([String: [PiAgentImageAttachment]].self, from: data) else { return [] }
         return object["images"] ?? []
     }

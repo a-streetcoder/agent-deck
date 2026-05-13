@@ -68,24 +68,19 @@ struct ContentView: View {
             }
     }
 
-    private func sidebarWarning(for item: SidebarItem) -> Bool {
-        guard viewModel.hasCompletedInitialRefresh else { return false }
-
-        switch item {
-        case .projects:
-            return viewModel.shouldWarnProjectSelection
-        case .agents:
-            return viewModel.hasAgentWarnings
-        case .skills:
-            return viewModel.hasSkillWarnings
-        case .prompts:
-            return viewModel.hasPromptWarnings
-        default:
-            return false
-        }
+    private var sidebarWarningSnapshot: [SidebarItem: Bool] {
+        guard viewModel.hasCompletedInitialRefresh else { return [:] }
+        return [
+            .projects: viewModel.shouldWarnProjectSelection,
+            .agents: viewModel.hasAgentWarnings,
+            .skills: viewModel.hasSkillWarnings,
+            .prompts: viewModel.hasPromptWarnings
+        ]
     }
 
+    @ViewBuilder
     private var mainContent: some View {
+        let warnings = sidebarWarningSnapshot
         NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
                 HStack {
@@ -109,7 +104,7 @@ struct ContentView: View {
                             ForEach(section.items) { item in
                                 SidebarNavigationRow(
                                     item: item,
-                                    showsWarning: sidebarWarning(for: item)
+                                    showsWarning: warnings[item] ?? false
                                 )
                                 .tag(item)
                             }
