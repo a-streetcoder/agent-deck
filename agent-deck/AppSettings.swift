@@ -8,24 +8,11 @@ enum AppAppearanceMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum PiAgentThinkingDisplayMode: String, Codable, CaseIterable, Identifiable {
-    case full = "Show"
-    case hidden = "Hidden"
-
-    var id: String { rawValue }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let rawValue = try container.decode(String.self)
-        self = PiAgentThinkingDisplayMode(rawValue: rawValue) ?? .full
-    }
-}
-
 struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
-    var showThinking: Bool = true
+    var showThinking: Bool = false
     var showWebActivity: Bool = true
-    var showToolCalls: Bool = true
-    var showErrors: Bool = true
+    var showToolCalls: Bool = false
+    var showErrors: Bool = false
     var showPlans: Bool = true
     var showDiffs: Bool = true
 
@@ -42,10 +29,10 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        showThinking = try container.decodeIfPresent(Bool.self, forKey: .showThinking) ?? true
+        showThinking = try container.decodeIfPresent(Bool.self, forKey: .showThinking) ?? false
         showWebActivity = try container.decodeIfPresent(Bool.self, forKey: .showWebActivity) ?? true
-        showToolCalls = try container.decodeIfPresent(Bool.self, forKey: .showToolCalls) ?? true
-        showErrors = try container.decodeIfPresent(Bool.self, forKey: .showErrors) ?? true
+        showToolCalls = try container.decodeIfPresent(Bool.self, forKey: .showToolCalls) ?? false
+        showErrors = try container.decodeIfPresent(Bool.self, forKey: .showErrors) ?? false
         showPlans = try container.decodeIfPresent(Bool.self, forKey: .showPlans) ?? true
         showDiffs = try container.decodeIfPresent(Bool.self, forKey: .showDiffs) ?? true
     }
@@ -59,7 +46,6 @@ struct AppSettings: Codable, Hashable {
     var piAgentIdleParkingTimeoutMinutes: Int = 10
     var piAgentLazyTranscriptLoadingEnabled: Bool = true
     var piAgentLoadedTranscriptCacheLimit: Int = 10
-    var piAgentThinkingDisplayMode: PiAgentThinkingDisplayMode = .full
     var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
@@ -90,7 +76,6 @@ struct AppSettings: Codable, Hashable {
         case piAgentIdleParkingTimeoutMinutes
         case piAgentLazyTranscriptLoadingEnabled
         case piAgentLoadedTranscriptCacheLimit
-        case piAgentThinkingDisplayMode
         case piAgentTranscriptVisibility
         case piAgentTerminalApplicationPath
         case projectsRootPath
@@ -126,7 +111,6 @@ struct AppSettings: Codable, Hashable {
         piAgentIdleParkingTimeoutMinutes = max(decodedIdleParkingTimeout, 1)
         piAgentLazyTranscriptLoadingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentLazyTranscriptLoadingEnabled) ?? true
         piAgentLoadedTranscriptCacheLimit = max(try container.decodeIfPresent(Int.self, forKey: .piAgentLoadedTranscriptCacheLimit) ?? 10, 1)
-        piAgentThinkingDisplayMode = (try? container.decodeIfPresent(PiAgentThinkingDisplayMode.self, forKey: .piAgentThinkingDisplayMode)) ?? .full
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path

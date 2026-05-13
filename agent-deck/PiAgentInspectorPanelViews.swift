@@ -102,8 +102,10 @@ struct PiAgentInspectorPanel: View {
                     supportedThinkingLevels: supportedThinkingLevels(for: session),
                     metricsSession: session,
                     onSend: {
-                        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+                        let activePasteAttachments = PiAgentPasteMarkerCodec.activeAttachments(in: composerText, attachments: composerPasteAttachments)
+                        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
                         let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let transcriptMessage = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
                         guard !isCompacting else { return }
                         let filePayload = composerFiles.map { file -> String in
@@ -112,8 +114,10 @@ struct PiAgentInspectorPanel: View {
                         let folderPayload = composerFolders.map { folder -> String in
                             "folder: `\(folder.url.path)`"
                         }
-                        let combined = [message, (filePayload + folderPayload).joined(separator: "\n")].filter { !$0.isEmpty }.joined(separator: "\n\n")
-                        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
+                        let payload = (filePayload + folderPayload).joined(separator: "\n")
+                        let combined = [message, payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        let transcriptCombined = [transcriptMessage, payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments)
                         composerText = ""
                         composerPasteAttachments = []
                         nextComposerPasteID = 1

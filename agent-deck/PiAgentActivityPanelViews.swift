@@ -207,17 +207,20 @@ struct PiAgentActivityPanel: View {
 struct PiAgentCurrentPlanCard: View {
     let title: String
     let subtitle: String
+    let isSubtitleIdentifier: Bool
     let items: [PiSessionPlanItemRecord]
 
     init(plan: PiSessionPlanRecord) {
         self.title = "Current plan"
         self.subtitle = "Latest session checklist"
+        self.isSubtitleIdentifier = false
         self.items = plan.items
     }
 
     init(event: PiSessionPlanEventRecord) {
         self.title = "Plan"
         self.subtitle = String(event.planID.uuidString.prefix(8))
+        self.isSubtitleIdentifier = true
         self.items = event.items
     }
 
@@ -234,8 +237,16 @@ struct PiAgentCurrentPlanCard: View {
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text(subtitle)
-                        .font(.caption2.weight(.medium))
+                        .font(isSubtitleIdentifier ? .system(size: 10, weight: .medium, design: .monospaced) : .caption2.weight(.medium))
                         .foregroundStyle(AppTheme.mutedText)
+                        .padding(.horizontal, isSubtitleIdentifier ? 5 : 0)
+                        .padding(.vertical, isSubtitleIdentifier ? 2 : 0)
+                        .background {
+                            if isSubtitleIdentifier {
+                                Capsule(style: .continuous)
+                                    .fill(AppTheme.contentSubtleFill.opacity(0.72))
+                            }
+                        }
                 }
                 Spacer(minLength: 0)
                 Text(progressText)

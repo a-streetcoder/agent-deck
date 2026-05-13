@@ -2,7 +2,7 @@
 
 ## Settings
 
-Agent Deck has its own app settings stored in macOS `UserDefaults` under `agentDeckAppSettings`. These include project root, GitHub cache lifetime, Pi Agent notification delay, transcript visibility, terminal application path, and whether native subagents are enabled for new sessions.
+Agent Deck has its own app settings stored in macOS `UserDefaults` under `agentDeckAppSettings`. These include project root, GitHub cache lifetime, Pi Agent notification delay, transcript visibility, terminal application path, and whether native subagents are enabled for new sessions. For new installs, transcript visibility defaults to showing plans, diffs, and web activity, while thinking blocks, non-web tool calls, and errors are hidden.
 
 Pi itself uses global and project settings files:
 

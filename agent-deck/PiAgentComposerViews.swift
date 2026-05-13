@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PiAgentPasteAttachment: Identifiable, Equatable {
+struct PiAgentPasteAttachment: Identifiable, Codable, Equatable, Hashable {
     let id: Int
     let marker: String
     let text: String
@@ -33,10 +33,16 @@ enum PiAgentPasteMarkerCodec {
         return "[paste #\(id) \(text.count) chars]"
     }
 
+    static func activeAttachments(in text: String, attachments: [PiAgentPasteAttachment]) -> [PiAgentPasteAttachment] {
+        guard !attachments.isEmpty, text.contains("[paste #") else { return [] }
+        return attachments.filter { text.contains($0.marker) }
+    }
+
     static func expandMarkers(in text: String, attachments: [PiAgentPasteAttachment]) -> String {
-        guard !attachments.isEmpty, text.contains("[paste #") else { return text }
+        let activeAttachments = activeAttachments(in: text, attachments: attachments)
+        guard !activeAttachments.isEmpty else { return text }
         var expanded = text
-        for attachment in attachments {
+        for attachment in activeAttachments {
             expanded = expanded.replacingOccurrences(of: attachment.marker, with: attachment.text)
         }
         return expanded

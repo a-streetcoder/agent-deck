@@ -266,6 +266,9 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
     }
 
     func testBundledNativeSubagentsAcrossModelsAndThinkingLevelsUsingRealRPC() throws {
+        setenv("AGENT_DECK_REAL_RPC_EVAL", "1", 1)
+        setenv("AGENT_DECK_PI_PATH", "/opt/homebrew/bin/pi", 1)
+
         guard ProcessInfo.processInfo.environment["AGENT_DECK_REAL_RPC_EVAL"] == "1" else {
             throw XCTSkip("Set AGENT_DECK_REAL_RPC_EVAL=1 to run real Pi RPC native subagent evals.")
         }

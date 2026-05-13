@@ -292,7 +292,10 @@ private struct PiAgentTranscriptTimelineItem: Identifiable {
 private struct PiAgentTranscriptTimelineSnapshot {
     let allItems: [PiAgentTranscriptTimelineItem]
     let visibleItems: [PiAgentTranscriptTimelineItem]
+    let mainVisibleItems: [PiAgentTranscriptTimelineItem]
+    let earlierVisibleItems: [PiAgentTranscriptTimelineItem]
     let preCompactionArchive: (hiddenCount: Int, compactedAt: Date)?
+    let recentWindowArchive: (hiddenCount: Int, limit: Int)?
     let planEventsByThreadID: [UUID: [PiSessionPlanEventRecord]]
 }
 
@@ -336,10 +339,12 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var lastStreamingScrollAt: Date = .distantPast
     @State private var transcriptBottomScrollRequest = 0
+    @State private var transcriptInitialBottomSessionID: UUID?
     @State private var transcriptIsPinnedToBottom = true
     @State private var transcriptAutoScrollTurn = 0
     @State private var transcriptAutoScrollSuppressedTurn: Int?
     @State private var showArchivedPreCompactionTranscript = false
+    @State private var isEarlierTranscriptSheetPresented = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
     @State private var hasBuiltVisibleSessions = false
     @State private var isUIRequestSheetPresented = false
@@ -347,6 +352,8 @@ struct PiAgentScreen: View {
     @State private var stabilizedProcessingMessage: String?
     @State private var processingMessageUpdateTask: Task<Void, Never>?
     @State private var transcriptBottomSettleTask: Task<Void, Never>?
+
+    private let recentTranscriptTimelineItemLimit = 10
 
     var body: some View {
         HStack(spacing: 0) {
@@ -368,6 +375,7 @@ struct PiAgentScreen: View {
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
             resetTranscriptAutoScroll()
+            markTranscriptInitialBottomPending(for: store.selectedSession?.id)
             requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
             viewModel.prepareRepoChangesForSelectedPiAgentSession()
@@ -406,7 +414,9 @@ struct PiAgentScreen: View {
                 lastSelectedSessionID = nil
             }
             resetTranscriptAutoScroll()
+            markTranscriptInitialBottomPending(for: newID)
             showArchivedPreCompactionTranscript = false
+            isEarlierTranscriptSheetPresented = false
             syncRuntimeFooterSnapshot()
             requestSelectedTranscriptLoadAfterViewUpdate()
             scheduleTranscriptCacheUpdate()
@@ -433,12 +443,14 @@ struct PiAgentScreen: View {
             PiNativeSubagentTranscriptSheet(
                 run: run,
                 entries: store.cachedSubagentTranscript(for: run.id),
-                thinkingDisplayMode: .full,
                 visibility: viewModel.appSettings.piAgentTranscriptVisibility
             )
             .onAppear {
                 requestSubagentTranscriptLoadAfterViewUpdate(runID: run.id)
             }
+        }
+        .sheet(isPresented: $isEarlierTranscriptSheetPresented) {
+            earlierTranscriptSheet
         }
         .sheet(item: selectedSubagentGraphBinding) { run in
             PiNativeSubagentGraphSheet(
@@ -784,7 +796,7 @@ struct PiAgentScreen: View {
         ScrollViewReader { scrollProxy in
             ScrollView(showsIndicators: false) {
             let timelineSnapshot = transcriptTimelineSnapshot
-            let timelineItems = timelineSnapshot.visibleItems
+            let timelineItems = timelineSnapshot.mainVisibleItems
             PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
                     if let session = store.selectedSession {
                         PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
@@ -806,6 +818,9 @@ struct PiAgentScreen: View {
 
                     if let archive = timelineSnapshot.preCompactionArchive {
                         preCompactionArchiveCard(archive)
+                    }
+                    if let archive = timelineSnapshot.recentWindowArchive {
+                        recentWindowArchiveCard(archive)
                     }
                     if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
                         AppRowCard {
@@ -840,23 +855,7 @@ struct PiAgentScreen: View {
                         .id("pi-agent-transcript-state-card")
                     } else {
                         ForEach(timelineItems) { item in
-                            switch item.kind {
-                            case let .thread(thread):
-                                PiAgentTranscriptThreadCard(
-                                    thread: thread,
-                                    thinkingDisplayMode: .full,
-                                    visibility: viewModel.appSettings.piAgentTranscriptVisibility,
-                                    skills: visibleSkillsForSelectedSession,
-                                    projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                                    planEvents: timelineSnapshot.planEventsByThreadID[thread.id] ?? [],
-                                    nativeSubagentRunsByID: nativeSubagentRunsByID,
-                                    nativeSubagentCard: nativeSubagentCard
-                                )
-                                .id(item.id)
-                            case let .plan(event):
-                                PiAgentCurrentPlanCard(event: event)
-                                    .id(item.id)
-                            }
+                            transcriptTimelineItemView(item, snapshot: timelineSnapshot)
                         }
                         if let processingMessage = stabilizedProcessingMessage {
                             PiAgentProcessingIndicatorCard(message: processingMessage)
@@ -882,6 +881,7 @@ struct PiAgentScreen: View {
                     )
                 }
             }
+            .defaultScrollAnchor(.bottom)
             .id(store.selectedSession?.id)
             .task(id: transcriptCache.renderRevision) {
                 handleTranscriptRenderRevision(scrollProxy)
@@ -920,10 +920,25 @@ struct PiAgentScreen: View {
         } else {
             visibleItems = items
         }
+        let earlierVisibleItems: [PiAgentTranscriptTimelineItem]
+        let mainVisibleItems: [PiAgentTranscriptTimelineItem]
+        if !showArchivedPreCompactionTranscript && visibleItems.count > recentTranscriptTimelineItemLimit {
+            earlierVisibleItems = Array(visibleItems.dropLast(recentTranscriptTimelineItemLimit))
+            mainVisibleItems = Array(visibleItems.suffix(recentTranscriptTimelineItemLimit))
+        } else {
+            earlierVisibleItems = []
+            mainVisibleItems = visibleItems
+        }
+        let recentWindowArchive = earlierVisibleItems.isEmpty
+            ? nil
+            : (hiddenCount: earlierVisibleItems.count, limit: recentTranscriptTimelineItemLimit)
         return PiAgentTranscriptTimelineSnapshot(
             allItems: items,
             visibleItems: visibleItems,
+            mainVisibleItems: mainVisibleItems,
+            earlierVisibleItems: earlierVisibleItems,
             preCompactionArchive: archiveNotice,
+            recentWindowArchive: recentWindowArchive,
             planEventsByThreadID: planEventsByThreadID(in: items)
         )
     }
@@ -943,7 +958,7 @@ struct PiAgentScreen: View {
     }
 
     private var visibleTranscriptTimelineItems: [PiAgentTranscriptTimelineItem] {
-        transcriptTimelineSnapshot.visibleItems
+        transcriptTimelineSnapshot.mainVisibleItems
     }
 
     private var preCompactionArchiveNotice: (hiddenCount: Int, compactedAt: Date)? {
@@ -989,6 +1004,86 @@ struct PiAgentScreen: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.8)).stroke(AppTheme.contentStroke, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func recentWindowArchiveCard(_ archive: (hiddenCount: Int, limit: Int)) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Earlier transcript hidden")
+                    .font(.caption.weight(.semibold))
+                Text("Showing the latest \(archive.limit) items to keep this chat responsive. \(archive.hiddenCount) earlier item\(archive.hiddenCount == 1 ? "" : "s") are available.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Spacer(minLength: 0)
+            Button("Open Earlier Transcript") {
+                isEarlierTranscriptSheetPresented = true
+            }
+            .buttonStyle(.borderless)
+            .font(.caption.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.8)).stroke(AppTheme.contentStroke, lineWidth: 1))
+    }
+
+    private var earlierTranscriptSheet: some View {
+        let snapshot = transcriptTimelineSnapshot
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Earlier Transcript")
+                        .font(.title2.bold())
+                        .fontWidth(.expanded)
+                    Text("Messages before the latest \(recentTranscriptTimelineItemLimit) visible items.")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Button("Done") {
+                    isEarlierTranscriptSheetPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(20)
+
+            Divider()
+
+            ScrollView(showsIndicators: true) {
+                PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
+                    ForEach(snapshot.earlierVisibleItems) { item in
+                        transcriptTimelineItemView(item, snapshot: snapshot)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(minWidth: 720, idealWidth: 900, minHeight: 520, idealHeight: 720)
+        .background(AppTheme.windowBackground)
+    }
+
+    @ViewBuilder
+    private func transcriptTimelineItemView(_ item: PiAgentTranscriptTimelineItem, snapshot: PiAgentTranscriptTimelineSnapshot) -> some View {
+        switch item.kind {
+        case let .thread(thread):
+            PiAgentTranscriptThreadCard(
+                thread: thread,
+                visibility: viewModel.appSettings.piAgentTranscriptVisibility,
+                skills: visibleSkillsForSelectedSession,
+                projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
+                planEvents: snapshot.planEventsByThreadID[thread.id] ?? [],
+                nativeSubagentRunsByID: nativeSubagentRunsByID,
+                nativeSubagentCard: nativeSubagentCard
+            )
+            .id(item.id)
+        case let .plan(event):
+            PiAgentCurrentPlanCard(event: event)
+                .id(item.id)
+        }
     }
 
     private func planEventsByThreadID(in timelineItems: [PiAgentTranscriptTimelineItem]) -> [UUID: [PiSessionPlanEventRecord]] {
@@ -1144,6 +1239,19 @@ struct PiAgentScreen: View {
 
     private func beginTranscriptAutoScrollTurn() {
         resetTranscriptAutoScroll()
+        transcriptInitialBottomSessionID = nil
+    }
+
+    private func markTranscriptInitialBottomPending(for sessionID: UUID?) {
+        transcriptInitialBottomSessionID = sessionID
+    }
+
+    private func consumePendingInitialBottomIfNeeded() -> Bool {
+        guard let sessionID = store.selectedSession?.id,
+              transcriptInitialBottomSessionID == sessionID,
+              !visibleTranscriptTimelineItems.isEmpty else { return false }
+        transcriptInitialBottomSessionID = nil
+        return true
     }
 
     private func suppressTranscriptAutoScrollForCurrentTurn() {
@@ -1151,6 +1259,7 @@ struct PiAgentScreen: View {
     }
 
     private func handleTranscriptRenderRevision(_ proxy: ScrollViewProxy) {
+        guard !consumePendingInitialBottomIfNeeded() else { return }
         guard !isTranscriptAutoScrollSuppressed else { return }
         scrollToConversationBottom(proxy, animated: false, respectSuppression: true)
     }
@@ -1518,16 +1627,19 @@ struct PiAgentScreen: View {
     }
 
     private func sendComposerMessage() {
-        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        let activePasteAttachments = PiAgentPasteMarkerCodec.activeAttachments(in: composerText, attachments: composerPasteAttachments)
+        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcriptMessage = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         beginTranscriptAutoScrollTurn()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments)
         requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
@@ -2004,16 +2116,19 @@ private struct PiAgentComposerPanel: View {
     }
 
     private func sendComposerMessage() {
-        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
+        let activePasteAttachments = PiAgentPasteMarkerCodec.activeAttachments(in: composerText, attachments: composerPasteAttachments)
+        let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcriptMessage = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let transcriptCombined = [expandFileReferences(in: transcriptMessage), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         onWillSend()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, images: composerImages)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments)
         onDidSend()
         clearComposerInput()
         if let sentSessionID {

@@ -930,7 +930,6 @@ struct PiNativeSubagentGraphSheet: View {
 struct PiNativeSubagentTranscriptSheet: View {
     let run: PiSubagentRunRecord
     let entries: [PiAgentTranscriptEntry]
-    let thinkingDisplayMode: PiAgentThinkingDisplayMode
     let visibility: PiAgentTranscriptVisibilitySettings
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -1028,9 +1027,9 @@ struct PiNativeSubagentTranscriptSheet: View {
         case .status, .stderr, .raw, .error:
             PiAgentStatusTranscriptRow(entry: entry)
         case .user:
-            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: .question)
+            PiAgentTranscriptCard(entry: entry, style: .question)
         default:
-            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: .threadChild)
+            PiAgentTranscriptCard(entry: entry, style: .threadChild)
         }
     }
 

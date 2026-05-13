@@ -309,14 +309,6 @@ final class AppSettingsController {
     }
 
     @discardableResult
-    func setPiAgentThinkingDisplayMode(_ mode: PiAgentThinkingDisplayMode) -> Bool {
-        guard settings.piAgentThinkingDisplayMode != mode else { return false }
-        settings.piAgentThinkingDisplayMode = mode
-        persist()
-        return true
-    }
-
-    @discardableResult
     func togglePiAgentThinkingBlocksVisibility() -> Bool {
         setPiAgentTranscriptVisibility(\.showThinking, to: !settings.piAgentTranscriptVisibility.showThinking)
     }

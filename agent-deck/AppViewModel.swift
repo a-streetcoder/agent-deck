@@ -2399,7 +2399,7 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, images: [PiAgentImageAttachment] = []) {
+    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
         guard let session = piAgentSessionStore.selectedSession else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if images.isEmpty, trimmed == "/compact" || trimmed.hasPrefix("/compact ") {
@@ -2409,11 +2409,11 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: trimmed)
         if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
-            piAgentRunner.resume(session: session, initialPrompt: text, images: images)
+            piAgentRunner.resume(session: session, initialPrompt: text, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments)
             isPiAgentInspectorPresented = selectedSidebarItem != .agent
             return
         }
-        piAgentRunner.send(text, mode: mode, to: session.id, images: images)
+        piAgentRunner.send(text, mode: mode, to: session.id, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments)
     }
 
     private func schedulePiAgentTitleUpdateIfNeeded(sessionID: UUID, plan: PiSessionPlanRecord) {
@@ -3091,11 +3091,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func resetPiAgentTerminalApplicationToDefault() {
         guard appSettingsController.resetPiAgentTerminalApplicationToDefault() else { return }
-        syncAppSettings()
-    }
-
-    func setPiAgentThinkingDisplayMode(_ mode: PiAgentThinkingDisplayMode) {
-        guard appSettingsController.setPiAgentThinkingDisplayMode(mode) else { return }
         syncAppSettings()
     }
 

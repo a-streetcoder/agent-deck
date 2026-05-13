@@ -482,7 +482,6 @@ private extension PiAgentTranscriptEntry {
 
 struct PiAgentTranscriptThreadCard: View {
     let thread: PiAgentTranscriptThread
-    let thinkingDisplayMode: PiAgentThinkingDisplayMode
     let visibility: PiAgentTranscriptVisibilitySettings
     let skills: [SkillRecord]
     let projectPath: String?
@@ -493,7 +492,7 @@ struct PiAgentTranscriptThreadCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let question = thread.question {
-                PiAgentTranscriptCard(entry: question, thinkingDisplayMode: thinkingDisplayMode, style: .question, skills: skills)
+                PiAgentTranscriptCard(entry: question, style: .question, skills: skills)
                     .id(question.id)
             }
 
@@ -507,11 +506,11 @@ struct PiAgentTranscriptThreadCard: View {
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(thread.steeringMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
+                            PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
                                 .id(entry.id)
                         }
-                        if let thinking = thread.thinking, effectiveThinkingDisplayMode != .hidden {
-                            PiAgentTranscriptCard(entry: thinking, thinkingDisplayMode: effectiveThinkingDisplayMode, style: childStyle, skills: skills)
+                        if visibility.showThinking, let thinking = thread.thinking {
+                            PiAgentTranscriptCard(entry: thinking, style: childStyle, skills: skills)
                                 .id(thinking.id)
                         }
                         if visibility.showWebActivity && !webActivities.isEmpty {
@@ -539,7 +538,7 @@ struct PiAgentTranscriptThreadCard: View {
                             }
                         }
                         ForEach(thread.assistantMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, thinkingDisplayMode: thinkingDisplayMode, style: childStyle, skills: skills)
+                            PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
                                 .id(entry.id)
                         }
                         if visibility.showErrors {
@@ -559,15 +558,11 @@ struct PiAgentTranscriptThreadCard: View {
     }
 
     private var hasChildren: Bool {
-        !thread.steeringMessages.isEmpty || (effectiveThinkingDisplayMode != .hidden && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || (visibility.showPlans && !latestPlanEvents.isEmpty) || !visibleStatusEntries.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
+        !thread.steeringMessages.isEmpty || (visibility.showThinking && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || (visibility.showPlans && !latestPlanEvents.isEmpty) || !visibleStatusEntries.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
     }
 
     private var visibleStatusEntries: [PiAgentTranscriptEntry] {
         thread.statuses.filter { !shouldHideNativeSubagentStatus($0) }
-    }
-
-    private var effectiveThinkingDisplayMode: PiAgentThinkingDisplayMode {
-        visibility.showThinking ? thinkingDisplayMode : .hidden
     }
 
     private var webActivities: [PiAgentTranscriptActivity] {
@@ -1577,6 +1572,7 @@ private struct PiAgentUserMessageContent: View {
         let legacyImageNames: [String]
         let fileAttachments: [FileAttachmentPreview]
         let folderAttachments: [FolderAttachmentPreview]
+        let pasteAttachments: [PiAgentPasteAttachment]
     }
 
     @MainActor private static var parsedContentCache: [String: ParsedContent] = [:]
@@ -1589,7 +1585,7 @@ private struct PiAgentUserMessageContent: View {
                 MarkdownTextView(source: messageText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty || !folderAttachments.isEmpty {
+            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty || !folderAttachments.isEmpty || !pasteAttachments.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     ForEach(imageAttachments.prefix(6)) { image in
                         attachmentChip(name: image.name, systemImage: "photo", attachment: .image(image))
@@ -1602,6 +1598,9 @@ private struct PiAgentUserMessageContent: View {
                     }
                     ForEach(folderAttachments.prefix(6)) { folder in
                         attachmentChip(name: folder.name, systemImage: "folder", attachment: .folder(folder))
+                    }
+                    ForEach(pasteAttachments.prefix(6)) { paste in
+                        attachmentChip(name: paste.marker, systemImage: "doc.plaintext", attachment: .paste(paste))
                     }
                     if hiddenCount > 0 {
                         Text("+\(hiddenCount)")
@@ -1624,6 +1623,7 @@ private struct PiAgentUserMessageContent: View {
     private var folderAttachments: [FolderAttachmentPreview] { parsedContent.folderAttachments }
     private var fileAttachments: [FileAttachmentPreview] { parsedContent.fileAttachments }
     private var legacyImageNames: [String] { parsedContent.legacyImageNames }
+    private var pasteAttachments: [PiAgentPasteAttachment] { parsedContent.pasteAttachments }
 
     @MainActor
     private static func parsedContent(for entry: PiAgentTranscriptEntry) -> ParsedContent {
@@ -1633,7 +1633,9 @@ private struct PiAgentUserMessageContent: View {
         let markers = ["Attached files:", "Attached images:"]
         let firstRange = markers.compactMap { entry.text.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
         let base = firstRange.map { String(entry.text[..<$0.lowerBound]) } ?? entry.text
-        let messageText = removingFolderReferences(from: removingFileTags(from: base)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pasteAttachments = pastes(for: entry)
+        let messageWithoutPastes = removingPasteMarkers(from: base, pasteAttachments: pasteAttachments)
+        let messageText = removingFolderReferences(from: removingFileTags(from: messageWithoutPastes)).trimmingCharacters(in: .whitespacesAndNewlines)
         let imageAttachments = images(for: entry)
         let inlineFileTags = inlineFileTags(in: entry.text)
         let folderAttachments = uniqueFolders(folderReferences(in: entry.text).map { path in
@@ -1655,7 +1657,8 @@ private struct PiAgentUserMessageContent: View {
             imageAttachments: imageAttachments,
             legacyImageNames: legacyImageNames,
             fileAttachments: fileAttachments,
-            folderAttachments: folderAttachments
+            folderAttachments: folderAttachments,
+            pasteAttachments: pasteAttachments
         )
         parsedContentCache[key] = parsed
         parsedContentCacheOrder.append(key)
@@ -1706,6 +1709,15 @@ private struct PiAgentUserMessageContent: View {
 
     private static func removingFileTags(from text: String) -> String {
         text.replacingOccurrences(of: #"<file name=\"[^\"]+\">[\s\S]*?</file>"#, with: "", options: .regularExpression)
+    }
+
+    private static func removingPasteMarkers(from text: String, pasteAttachments: [PiAgentPasteAttachment]) -> String {
+        guard !pasteAttachments.isEmpty else { return text }
+        var output = text
+        for paste in pasteAttachments {
+            output = output.replacingOccurrences(of: paste.marker, with: "")
+        }
+        return output
     }
 
     private static func removingFolderReferences(from text: String) -> String {
@@ -1780,12 +1792,25 @@ private struct PiAgentUserMessageContent: View {
         return folders.filter { seen.insert($0.path).inserted }
     }
 
-    private static func images(for entry: PiAgentTranscriptEntry) -> [PiAgentImageAttachment] {
-        guard let rawJSON = entry.rawJSON, let data = rawJSON.data(using: .utf8), let object = try? JSONDecoder().decode([String: [PiAgentImageAttachment]].self, from: data) else { return [] }
-        return object["images"] ?? []
+    private struct AttachmentPayload: Decodable {
+        let images: [PiAgentImageAttachment]?
+        let pastes: [PiAgentPasteAttachment]?
     }
 
-    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count + folderAttachments.count - 12) }
+    private static func attachmentPayload(for entry: PiAgentTranscriptEntry) -> AttachmentPayload? {
+        guard let rawJSON = entry.rawJSON, let data = rawJSON.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(AttachmentPayload.self, from: data)
+    }
+
+    private static func images(for entry: PiAgentTranscriptEntry) -> [PiAgentImageAttachment] {
+        attachmentPayload(for: entry)?.images ?? []
+    }
+
+    private static func pastes(for entry: PiAgentTranscriptEntry) -> [PiAgentPasteAttachment] {
+        attachmentPayload(for: entry)?.pastes ?? []
+    }
+
+    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count + folderAttachments.count + pasteAttachments.count - 12) }
 
     private func attachmentChip(name: String, systemImage: String, attachment: AttachmentPreview) -> some View {
         Button { preview = attachment } label: {
@@ -1833,6 +1858,7 @@ private enum AttachmentPreview: Identifiable, Hashable {
     case image(PiAgentImageAttachment)
     case file(FileAttachmentPreview)
     case folder(FolderAttachmentPreview)
+    case paste(PiAgentPasteAttachment)
     case missing(String)
 
     var id: String {
@@ -1840,6 +1866,7 @@ private enum AttachmentPreview: Identifiable, Hashable {
         case .image(let image): return "image-\(image.id.uuidString)"
         case .file(let file): return "file-\(file.id)"
         case .folder(let folder): return "folder-\(folder.id)"
+        case .paste(let paste): return "paste-\(paste.id)-\(paste.marker)"
         case .missing(let name): return "missing-\(name)"
         }
     }
@@ -1896,9 +1923,23 @@ private struct AttachmentPreviewPopover: View {
             }
         case .folder(let folder):
             folderPreviewBody(folder: folder)
+        case .paste(let paste):
+            pastePreviewBody(paste: paste)
         case .missing:
             empty("Preview is not available for older attachment metadata.")
         }
+    }
+
+    private func pastePreviewBody(paste: PiAgentPasteAttachment) -> some View {
+        ScrollView {
+            Text(paste.text)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+        }
+        .frame(maxHeight: 240)
+        .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
     }
 
     @ViewBuilder private func filePreviewBody(path: String) -> some View {
@@ -1965,6 +2006,7 @@ private struct AttachmentPreviewPopover: View {
         case .image(let image): return image.name
         case .file(let file): return file.name
         case .folder(let folder): return folder.name
+        case .paste(let paste): return paste.marker
         case .missing(let name): return name
         }
     }
@@ -1974,6 +2016,7 @@ private struct AttachmentPreviewPopover: View {
         case .image, .missing: return "photo"
         case .file: return "doc.text"
         case .folder: return "folder"
+        case .paste: return "doc.plaintext"
         }
     }
 
@@ -1997,7 +2040,6 @@ private struct AttachmentPreviewPopover: View {
 
 struct PiAgentTranscriptCard: View {
     let entry: PiAgentTranscriptEntry
-    let thinkingDisplayMode: PiAgentThinkingDisplayMode
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
     @State private var isThinkingExpanded = true
@@ -2102,14 +2144,7 @@ struct PiAgentTranscriptCard: View {
 
     @ViewBuilder
     private var thinkingContent: some View {
-        switch thinkingDisplayMode {
-        case .full:
-            reasoningDisclosure(source: entry.text, defaultExpanded: true)
-        case .hidden:
-            Text("Thinking…")
-                .font(.body.italic())
-                .foregroundStyle(AppTheme.mutedText)
-        }
+        reasoningDisclosure(source: entry.text, defaultExpanded: true)
     }
 
     private func reasoningDisclosure(source: String, defaultExpanded: Bool) -> some View {
