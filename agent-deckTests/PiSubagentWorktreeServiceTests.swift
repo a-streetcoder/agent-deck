@@ -119,8 +119,6 @@ final class PiSubagentWorktreeServiceTests: XCTestCase {
             status: .completed,
             agentName: "worker",
             task: "Patch files",
-            requestedContext: .fresh,
-            resolvedContext: .fresh,
             model: "zai/glm-5.1",
             thinking: nil,
             expectedOutcome: .editFilesInWorktree,

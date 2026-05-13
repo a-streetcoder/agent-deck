@@ -258,7 +258,7 @@ struct PiNativeSubagentBridgeExtensions {
         const ManagedSubagentParams = Type.Object({
             agent: Type.String({ description: "Name of the native subagent to run." }),
             task: Type.String({ description: "Specific task for the subagent." }),
-            context: Type.Optional(StringEnum(["fresh", "fork"] as const, { description: "Optional context mode override." })),
+            continueSubagentID: Type.Optional(Type.String({ description: "Stable Subagent ID to continue for a direct follow-up. Omit to start a fresh child session." })),
             reads: Type.Optional(Type.Array(Type.String(), { description: "Project-relative files the subagent should read first if current and relevant." }))
         }, { additionalProperties: false });
 
@@ -301,10 +301,11 @@ struct PiNativeSubagentBridgeExtensions {
                 name: "managed_subagent",
                 description: "Delegate a bounded task to a \(AppBrand.displayName) native subagent. Use this when a specialized subagent can work separately and return a compact result.",
                 parameters: ManagedSubagentParams,
-                promptSnippet: "managed_subagent(agent, task, context?): delegate to a \(AppBrand.displayName) native subagent and get a compact result.",
+                promptSnippet: "managed_subagent(agent, task, continueSubagentID?): delegate to a \(AppBrand.displayName) native subagent. Omit continueSubagentID to start fresh; provide it for a direct follow-up.",
                 promptGuidelines: [
                     "Use managed_subagent for separable specialist work; keep tasks narrow and include expected output.",
-                    "Do not call managed_subagent just to continue normal conversation."
+                    "Native subagents start fresh by default; use continueSubagentID only for direct follow-ups to an existing child session.",
+                    "If starting fresh for follow-up work, pass a compact continuity packet instead of assuming prior child memory."
                 ],
                 async execute(toolCallId, params, _signal, onUpdate, ctx) {
                     const payload = JSON.stringify({
@@ -313,7 +314,7 @@ struct PiNativeSubagentBridgeExtensions {
                         toolCallId,
                         agent: String((params as any).agent ?? ""),
                         task: String((params as any).task ?? ""),
-                        context: (params as any).context ? String((params as any).context) : undefined,
+                        continueSubagentID: (params as any).continueSubagentID ? String((params as any).continueSubagentID) : undefined,
                         reads: Array.isArray((params as any).reads) ? (params as any).reads.map((item: any) => String(item)) : undefined
                     });
                     onUpdate?.({ content: [{ type: "text", text: `Starting native subagent ${(params as any).agent}…` }] });

@@ -279,11 +279,11 @@ struct PiDocsScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            AppCard(title: "Context Modes") {
+            AppCard(title: "Subagent Context") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• **Fresh** (default): child starts blank, gets only its own system prompt, skills, and task.")
-                    Text("• **Fork**: child inherits the full parent conversation as read-only reference. Used for oracle, worker, planner.")
-                    Text("• Auto-detection: if any requested agent has `defaultContext: fork`, the entire invocation upgrades to fork mode.")
+                    Text("• Fresh runs: child starts blank, gets only its own system prompt, skills, project context files, and task.")
+                    Text("• Continuations: direct follow-ups can explicitly resume a prior child session by Subagent ID and update the same card.")
+                    Text("• Parent conversation history is not forked into native subagents.")
                     Text("• Recursion guard: max nesting depth (default 2) enforced via `PI_SUBAGENT_DEPTH` environment variable.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -404,8 +404,6 @@ struct PiDocsScreen: View {
                         ("thinking", "Thinking level: off, low, medium, high"),
                         ("systemPromptMode", "replace (default) or append"),
                         ("systemPrompt", "Main instruction body (below frontmatter)"),
-                        ("defaultContext", "fresh or fork — default context mode"),
-                        ("inheritProjectContext", "Whether child reads project context files"),
                         ("skills", "Explicit skill names passed to native subagents with --skill"),
                         ("tools", "Builtin tool allowlist; mcp: entries for direct MCP tools"),
                         ("extensions", "Extension loading mode: omitted, empty, or allowlist"),

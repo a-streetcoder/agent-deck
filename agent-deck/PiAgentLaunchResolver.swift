@@ -163,13 +163,10 @@ nonisolated enum PiAgentLaunchResolver {
                 else if rawValue as? Bool == false { result.thinking = nil }
             case "systemPromptMode":
                 if let value = rawValue as? String { result.systemPromptMode = value }
-            case "inheritProjectContext":
-                if let value = rawValue as? Bool { result.inheritProjectContext = value }
+            case "inheritProjectContext", "defaultContext":
+                continue
             case "inheritSkills":
                 if let value = rawValue as? Bool { result.inheritSkills = value }
-            case "defaultContext":
-                if let value = rawValue as? String { result.defaultContext = value }
-                else if rawValue as? Bool == false { result.defaultContext = nil }
             case "disabled":
                 if let value = rawValue as? Bool { result.disabled = value }
             case "skills":

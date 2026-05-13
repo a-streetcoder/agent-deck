@@ -67,6 +67,7 @@ struct AppSettings: Codable, Hashable {
     var nativeSubagentsEnabledForNewSessions: Bool = true
     var showContextSmartZoneHint: Bool = false
     var autoGeneratePiAgentSessionTitles: Bool = false
+    var autoUpdatePiAgentSessionTitles: Bool = false
     var piAgentTitleGenerationModelIdentifier: String?
     var piAgentGitAutomationEnabled: Bool = false
     var piAgentGitAutomationRequiresConfirmation: Bool = true
@@ -97,6 +98,7 @@ struct AppSettings: Codable, Hashable {
         case nativeSubagentsEnabledForNewSessions
         case showContextSmartZoneHint
         case autoGeneratePiAgentSessionTitles
+        case autoUpdatePiAgentSessionTitles
         case piAgentTitleGenerationModelIdentifier
         case piAgentGitAutomationEnabled
         case piAgentGitAutomationRequiresConfirmation
@@ -132,6 +134,7 @@ struct AppSettings: Codable, Hashable {
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         showContextSmartZoneHint = try container.decodeIfPresent(Bool.self, forKey: .showContextSmartZoneHint) ?? false
         autoGeneratePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoGeneratePiAgentSessionTitles) ?? false
+        autoUpdatePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoUpdatePiAgentSessionTitles) ?? false
         piAgentTitleGenerationModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentTitleGenerationModelIdentifier)
         piAgentGitAutomationEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationEnabled) ?? false
         piAgentGitAutomationRequiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationRequiresConfirmation) ?? true

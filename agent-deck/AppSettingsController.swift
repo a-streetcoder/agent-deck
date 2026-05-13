@@ -139,6 +139,10 @@ final class AppSettingsController {
         settings.autoGeneratePiAgentSessionTitles
     }
 
+    var shouldAutoUpdatePiAgentSessionTitles: Bool {
+        settings.autoUpdatePiAgentSessionTitles
+    }
+
     var piAgentTitleGenerationModelIdentifier: String? {
         settings.piAgentTitleGenerationModelIdentifier
     }
@@ -452,6 +456,18 @@ final class AppSettingsController {
     func setAutoGeneratePiAgentSessionTitles(_ isEnabled: Bool) -> Bool {
         guard settings.autoGeneratePiAgentSessionTitles != isEnabled else { return false }
         settings.autoGeneratePiAgentSessionTitles = isEnabled
+        if !isEnabled {
+            settings.autoUpdatePiAgentSessionTitles = false
+        }
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAutoUpdatePiAgentSessionTitles(_ isEnabled: Bool) -> Bool {
+        let stored = isEnabled && settings.autoGeneratePiAgentSessionTitles
+        guard settings.autoUpdatePiAgentSessionTitles != stored else { return false }
+        settings.autoUpdatePiAgentSessionTitles = stored
         persist()
         return true
     }

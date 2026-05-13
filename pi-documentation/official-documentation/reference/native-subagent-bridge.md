@@ -6,7 +6,7 @@ Agent Deck injects generated bridge extensions into Pi RPC sessions when native 
 
 Parent Pi Agent sessions can request app-managed work through tools such as:
 
-- `managed_subagent` — run one native subagent
+- `managed_subagent` — run one native subagent, or continue one with `continueSubagentID`
 - `managed_chain` — run a native chain graph
 - `managed_parallel` — run parallel native tasks
 - `list_supervisor_requests` — inspect blocking child requests
@@ -26,9 +26,9 @@ Children with the `contact_supervisor` tool can send:
 
 Blocking requests wait for a human or parent-agent answer. Non-blocking progress updates are recorded and acknowledged.
 
-## Context modes
+## Fresh runs and continuation
 
-A child can run fresh or forked from a parent session file. If fork is requested but no parent session file is available, Agent Deck should warn and fall back safely rather than pretending the child inherited context.
+Native subagents start fresh by default and do not receive parent conversation history. Direct follow-ups can pass a previous Subagent ID as `continueSubagentID`; Agent Deck resumes that child session and updates the same parent chat card. Agent Deck does not use forked parent context for native subagents.
 
 ## Extension isolation
 

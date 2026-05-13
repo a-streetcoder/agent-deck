@@ -102,13 +102,10 @@ struct AgentPersistence {
                 else if rawValue as? Bool == false { result.thinking = nil }
             case "systemPromptMode":
                 if let value = rawValue as? String { result.systemPromptMode = value }
-            case "inheritProjectContext":
-                if let value = rawValue as? Bool { result.inheritProjectContext = value }
+            case "inheritProjectContext", "defaultContext":
+                continue
             case "inheritSkills":
                 if let value = rawValue as? Bool { result.inheritSkills = value }
-            case "defaultContext":
-                if let value = rawValue as? String { result.defaultContext = value }
-                else if rawValue as? Bool == false { result.defaultContext = nil }
             case "disabled":
                 if let value = rawValue as? Bool { result.disabled = value }
             case "skills":
@@ -178,10 +175,6 @@ struct AgentPersistence {
         let editedPromptMode = edited.systemPromptMode ?? defaultSystemPromptMode(name: edited.name)
         let basePromptMode = base.systemPromptMode ?? defaultSystemPromptMode(name: base.name)
         if editedPromptMode != basePromptMode { values["systemPromptMode"] = editedPromptMode }
-        let editedProjectContext = edited.inheritProjectContext ?? defaultInheritProjectContext(name: edited.name)
-        let baseProjectContext = base.inheritProjectContext ?? defaultInheritProjectContext(name: base.name)
-        if editedProjectContext != baseProjectContext { values["inheritProjectContext"] = editedProjectContext }
-        if edited.defaultContext != base.defaultContext { values["defaultContext"] = edited.defaultContext ?? false }
         if edited.disabled != base.disabled { values["disabled"] = edited.disabled ?? false }
         if !arraysEqual(edited.skills, base.skills) { values["skills"] = edited.skills.isEmpty ? false : edited.skills }
         let editedToolList = joinedTools(from: edited)
@@ -289,8 +282,6 @@ struct AgentPersistence {
         if let fallbackModels = joinComma(config.fallbackModels) { lines.append("fallbackModels: \(fallbackModels)") }
         if let thinking = config.thinking, thinking != "off" { lines.append("thinking: \(thinking)") }
         lines.append("systemPromptMode: \(config.systemPromptMode ?? defaultSystemPromptMode(name: config.name))")
-        lines.append("inheritProjectContext: \((config.inheritProjectContext ?? defaultInheritProjectContext(name: config.name)) ? "true" : "false")")
-        if let defaultContext = config.defaultContext { lines.append("defaultContext: \(defaultContext)") }
         if let skills = joinComma(config.skills) { lines.append("skills: \(skills)") }
         if let extensions = config.extensions { lines.append("extensions: \(joinComma(extensions) ?? "")") }
         if let output = config.output { lines.append("output: \(output)") }

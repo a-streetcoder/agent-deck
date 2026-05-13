@@ -1,1 +1,1 @@
-{"kind":"managed_subagent","agent":"scout","task":"Map the repo and report findings.","context":"fresh","reads":["README.md","agent-deck/AppViewModel.swift"]}
+{"kind":"managed_subagent","agent":"scout","task":"Map the repo and report findings.","continueSubagentID":"11111111-1111-1111-1111-111111111111","reads":["README.md","agent-deck/AppViewModel.swift"]}

@@ -145,8 +145,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(skills: ["library-only"]),
             snapshot: snapshot,
-            task: "Use the private skill.",
-            requestedContext: .fresh
+            task: "Use the private skill."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -171,8 +170,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(),
             snapshot: .empty,
-            task: "Do not use ambient skills.",
-            requestedContext: .fresh
+            task: "Do not use ambient skills."
         )
         defer { runner.stop(runID: inherited.id, parentSessionID: parent.id) }
         XCTAssertTrue(inherited.launchCommand?.contains("--no-skills") == true)
@@ -189,8 +187,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(skills: ["missing-skill"]),
             snapshot: .empty,
-            task: "Launch anyway.",
-            requestedContext: .fresh
+            task: "Launch anyway."
         )) { error in
             XCTAssertTrue(error.localizedDescription.contains("missing-skill"))
         }
@@ -213,8 +210,7 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(tools: ["contact_supervisor"], skills: ["agent-skill"]),
             snapshot: .empty.replacing(skills: [skill]),
-            task: "Use skill without read.",
-            requestedContext: .fresh
+            task: "Use skill without read."
         )) { error in
             XCTAssertTrue(error.localizedDescription.contains("read"))
         }

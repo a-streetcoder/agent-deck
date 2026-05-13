@@ -47,9 +47,9 @@ The following table describes Pi CLI flags that are accepted by the Pi parser an
 |---|---|---|
 | `--mode rpc` | Start Pi in JSONL RPC mode over stdin/stdout. | Always present via `PiRPCClient.launchArguments`. |
 | `--no-session` | Use in-memory ephemeral session storage. | Used by title and commit-message helpers. |
-| `--session <path\|id>` | Open a specific existing session file or matching id. | Used only for parent session resume through `PiRPCClient(sessionFile:)`. |
-| `--fork <path\|id>` | Fork an existing session into a new session file. Cannot combine with `--session`, `--continue`, `--resume`, or `--no-session`. | Used by native subagents when resolved context is `.fork`. The source is Agent Deck's sanitized fork context file, not the raw parent file. |
-| `--session-dir <dir>` | Override session storage and lookup directory. | Used by every native subagent child session so child session files live under the run artifact directory. |
+| `--session <path\|id>` | Open a specific existing session file or matching id. | Used for parent session resume and explicit native subagent continuation. |
+| `--fork <path\|id>` | Fork an existing session into a new session file. Cannot combine with `--session`, `--continue`, `--resume`, or `--no-session`. | Not used by Agent Deck native subagents. |
+| `--session-dir <dir>` | Override session storage and lookup directory. | Used by fresh native subagent child sessions so child session files live under the run artifact directory. |
 | `--continue`, `-c` | Continue the most recent session. | Parser supports it. Agent Deck does not use it for RPC launches. |
 | `--resume`, `-r` | Browse/select a previous session. | Parser supports it. Agent Deck does not use it because it is interactive/headless-hostile. |
 
@@ -85,7 +85,7 @@ Pi built-in tool names from current docs: `read`, `bash`, `edit`, `write`, `grep
 | `--no-prompt-templates`, `-np` | Disable prompt-template discovery/loading. Explicit `--prompt-template` paths still load. | Used by all Agent Deck RPC launches. Parent sessions combine it with explicit app-selected `--prompt-template` paths. |
 | `--theme <path>` | Load explicit theme file/directory. Repeatable. | Parser supports it. Agent Deck does not pass explicit themes. |
 | `--no-themes` | Disable theme discovery/loading. | Used by all Agent Deck RPC launches. Themes are UI-only and unnecessary for app-owned Pi subprocesses. |
-| `--no-context-files`, `-nc` | Disable `AGENTS.md` / `CLAUDE.md` context discovery. | Used by title/commit helpers and by native subagents unless `inheritProjectContext == true`. Parent sessions intentionally omit it. |
+| `--no-context-files`, `-nc` | Disable `AGENTS.md` / `CLAUDE.md` context discovery. | Used by title/commit helpers. Parent and native subagent sessions intentionally omit it. |
 | `--system-prompt <text-or-existing-file-path>` | Replace Pi's default system prompt. Context files and skills can still append unless disabled. | Used by title helper, commit helper, and native subagents with `systemPromptMode` absent/`replace`. |
 | `--append-system-prompt <text-or-existing-file-path>` | Append text or file contents to the system prompt. Repeatable. Explicit values suppress Pi's automatic `APPEND_SYSTEM.md` discovery. | Used by parent sessions to preserve the active append file before injecting the native subagent catalog. Used by native subagents when `systemPromptMode: append`. Passed as an empty value for replace-mode native subagents and isolated helpers to suppress `APPEND_SYSTEM.md`. |
 
@@ -168,17 +168,14 @@ Sources:
 - `agent-deck/PiSubagentLaunchPlanner.swift`
 - `agent-deck/PiNativeSubagentBridgeExtensions.swift`
 
-Current launch shape:
+Fresh launch shape:
 
 ```text
 --mode rpc
 --session-dir <artifact-dir>/sessions
-# or, when resolved context is fork:
---fork <artifact-dir>/fork-context.jsonl --session-dir <artifact-dir>/sessions
 --system-prompt <agent prompt + common child-session boundary>
 # plus --append-system-prompt "" to suppress APPEND_SYSTEM.md discovery
 # or only --append-system-prompt <agent prompt + common child-session boundary> when systemPromptMode == append
-[--no-context-files]                 # when inheritProjectContext != true
 [--extension <contact-supervisor-bridge.ts>]
 [--tools <agent tool allowlist>]
 [--no-tools]                         # when tools are configured but empty after filtering
@@ -194,12 +191,21 @@ Current launch shape:
 [--model <model[:thinking]>]
 ```
 
+Continuation launch shape:
+
+```text
+--mode rpc
+--session <prior-child-session-file>
+# same prompt/tool/extension/skill flags as a fresh native subagent
+```
+
 Runtime context/resources:
 
-- Each run gets an artifact directory under `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/`.
-- Agent Deck writes `system-prompt.md`, `input.md`, and `output.md` artifacts.
-- Child session files are stored under `<artifact-dir>/sessions`.
-- The user prompt sent over RPC includes the concrete task, expected outcome, artifact directory, optional read-first path hints, and fork-context rule if applicable.
+- Each subagent has a stable run/Subagent ID and an artifact directory under `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/`.
+- Fresh runs write `system-prompt.md`, `input.md`, and `output.md` in the run artifact directory.
+- Continuations write per-turn artifacts under `<artifact-dir>/turns/<turn-id>/`, resume the prior child Pi session, and update the same parent chat card.
+- Child session files for fresh runs are stored under `<artifact-dir>/sessions`.
+- The user prompt sent over RPC includes the concrete task, expected outcome, artifact directory, and optional read-first path hints. Continuation prompts say the prior child session is available but the new task is authoritative.
 - Environment includes merged `.env` values plus:
   - `AGENT_DECK_NATIVE_SUBAGENT=1`
   - `AGENT_DECK_SUBAGENT_RUN_ID=<uuid>`
@@ -207,28 +213,19 @@ Runtime context/resources:
   - `MCP_DIRECT_TOOLS=<comma-list>` or `__none__`
 - If worktree isolation is requested, the child cwd is the isolated worktree. Otherwise it is the parent session's worktree/project path.
 
-Context mode behavior:
+Context/continuation behavior:
 
-| Requested/default context | Actual behavior |
-|---|---|
-| Fresh | Launches with an empty child session under the child session directory. |
-| Fork and parent Pi session file exists | Writes sanitized `fork-context.jsonl` and launches with `--fork <that-file>`. |
-| Fork but parent Pi session file missing | Falls back to fresh and records a warning. |
-| Agent default | Uses `defaultContext: fork` only when a parent session file exists; otherwise fresh. |
-
-Fork sanitization:
-
-- Reads the parent Pi session JSONL file.
-- Removes the most recent unanswered `managed_subagent` / `managed_parallel` invocation and its triggering user message, when found.
-- Appends a hidden boundary custom message telling the child that prior forked messages are read-only reference and the next user prompt is authoritative.
-- Does not otherwise redact parent conversation history.
+- Native subagents start fresh by default and do not receive parent conversation history.
+- Agent Deck does not use `--fork` for native subagents.
+- Direct follow-ups can continue a prior child by passing its Subagent ID through `managed_subagent(..., continueSubagentID)`. Agent Deck resumes the saved child session file with `--session`.
+- If a parent starts a fresh child for follow-up work, it should pass a compact continuity packet in the task.
 
 Skills/context behavior:
 
 - Explicit native subagent `skills:` are resolved by name from the Agent Deck skill catalog and passed to Pi as explicit `--skill <path>` arguments.
 - Agent Deck no longer pastes full skill bodies into the child system prompt.
 - Native subagents always pass `--no-skills`; there is no ambient skill inheritance in the target runtime model.
-- Unless `inheritProjectContext: true`, Agent Deck passes `--no-context-files`.
+- Native subagents use normal Pi project context-file discovery; Agent Deck does not pass `--no-context-files` for child sessions.
 - Replace-mode native subagents pass `--append-system-prompt ""` so Pi does not append project/global `APPEND_SYSTEM.md`.
 - Native subagents always pass `--no-prompt-templates`; prompt templates are parent-session shortcuts and are not assigned to child runs.
 - Native subagents always pass `--no-themes`.
@@ -236,7 +233,7 @@ Skills/context behavior:
 Privacy/context implications:
 
 - Fresh subagents are isolated from parent conversation history.
-- Forked subagents receive previous parent conversation history through the sanitized fork file; this is useful context but should be treated as parent-history disclosure.
+- Continued subagents receive their own prior child conversation history, not the parent transcript.
 - The child system prompt is currently passed as a raw process argument, even though the same text is also written to `system-prompt.md`.
 - Explicit configured extensions and Agent Deck bridge extensions still load even with `--no-extensions`.
 
@@ -267,7 +264,8 @@ Runtime context/resources:
 - Environment is supplied by the caller.
 - No persistent Pi session file is created.
 - No tools, extensions, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available.
-- The prompt includes only the first user message, trimmed and capped at 2,000 characters.
+- Initial title generation prompt includes only the first user message, trimmed and capped at 2,000 characters.
+- Optional title refresh uses the same isolated helper shape and includes only the current title, latest user message capped at 2,000 characters, and up to 12 current plan items. The helper returns either `KEEP` or a replacement title.
 - Timeout is 20 seconds.
 
 Privacy/context implications:
@@ -327,9 +325,9 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 |---|---:|---:|---:|---:|
 | `--mode rpc` | ✅ | ✅ | ✅ | ✅ |
 | `--no-session` | ❌ | ❌ | ✅ | ✅ |
-| `--session <path\|id>` | ◐ resume existing Pi session | ❌ | ❌ | ❌ |
-| `--fork <path\|id>` | ❌ | ◐ resolved `.fork` context with parent session file | ❌ | ❌ |
-| `--session-dir <dir>` | ❌ | ✅ | ❌ | ❌ |
+| `--session <path\|id>` | ◐ resume existing Pi session | ◐ explicit continuation | ❌ | ❌ |
+| `--fork <path\|id>` | ❌ | ❌ | ❌ | ❌ |
+| `--session-dir <dir>` | ❌ | ✅ fresh runs | ❌ | ❌ |
 | `--continue`, `-c` | ❌ | ❌ | ❌ | ❌ |
 | `--resume`, `-r` | ❌ | ❌ | ❌ | ❌ |
 | `--provider <name>` | ◐ selected/known provider | ◐ selected/inherited provider | ✅ selected provider | ✅ selected provider |
@@ -348,7 +346,7 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 | `--no-prompt-templates`, `-np` | ✅ | ✅ | ✅ | ✅ |
 | `--theme <path>` | ❌ | ❌ | ❌ | ❌ |
 | `--no-themes` | ✅ | ✅ | ✅ | ✅ |
-| `--no-context-files`, `-nc` | ❌ | ◐ unless `inheritProjectContext == true` | ✅ | ✅ |
+| `--no-context-files`, `-nc` | ❌ | ❌ | ✅ | ✅ |
 | `--system-prompt <text-or-path>` | ❌ | ◐ default/replace prompt mode | ✅ | ✅ |
 | `--append-system-prompt <text-or-path>` | ◐ native subagent catalog when enabled | ◐ when `systemPromptMode == append` | ❌ | ❌ |
 | `--verbose` | ❌ | ❌ | ❌ | ❌ |
@@ -368,12 +366,12 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 |---|---|---|---|---|
 | User prompt content | Yes, via RPC prompt/steer/follow-up | Yes, concrete task via RPC prompt | First message only, capped at 2,000 chars | Git status + staged diff/stat, diff capped at 12,000 chars |
 | Images | Yes, via RPC payload | No dedicated launch-path image handling currently | No | No |
-| Parent conversation history | Yes, when resuming `--session` | Only when resolved `.fork`; from sanitized fork file | No | No |
-| Persistent Pi session | Yes unless not yet created/resumed | Yes, under run artifact session dir | No, `--no-session` | No, `--no-session` |
+| Parent conversation history | Yes, when resuming `--session` | No; continuations receive only prior child-session history | No | No |
+| Persistent Pi session | Yes unless not yet created/resumed | Yes, under run artifact session dir; continuations resume by `--session` | No, `--no-session` | No, `--no-session` |
 | Built-in tools | Yes, normal Pi behavior | Yes unless `tools:` absent? If `tools:` is absent, Pi default tools apply; if present, allowlist or `--no-tools` applies. | No | No |
 | Extension tools/commands | Explicit Agent Deck extensions only | Explicit child/agent/Agent Deck extensions only | No | No |
 | Ambient extension discovery | No | No | No | No |
-| Project/global context files | Yes | Only if `inheritProjectContext: true` | No | No |
+| Project/global context files | Yes | Yes | No | No |
 | Ambient skills | No; disabled with `--no-skills` | No; disabled with `--no-skills` | No | No |
 | Native explicit skills | Default + current Project assignments via `--skill` | Agent-assigned skills via `--skill` | No | No |
 | Prompt templates | Default + current Project assignments via `--prompt-template` | No | No | No |
@@ -384,7 +382,7 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 ## Findings and recommendations
 
 1. **Documented current behavior is mostly coherent.** Parent sessions are intentionally normal Pi sessions with explicit Agent Deck extensions; helper sessions are intentionally isolated; native subagents are stricter but configurable.
-2. **Forked native subagents are the main context-exposure hotspot.** Sanitization prevents recursive/active managed-subagent continuation, but previous parent conversation history is still provided to the child. This should be documented in UI or require confirmation for parent-triggered forked runs if privacy expectations demand it.
+2. **Native subagent continuation is explicit.** Fresh runs do not receive parent history; direct follow-ups resume the prior child session by Subagent ID and update the same card.
 3. **Native subagent prompt text is exposed in process arguments.** Since Agent Deck already writes `system-prompt.md`, prefer passing `--system-prompt <path-to-system-prompt.md>` / `--append-system-prompt <path>` if Pi's path detection semantics are acceptable for all generated prompts.
 4. **Helper and child launches do not set offline/version-check behavior.** Consider `--offline` or env vars `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` for privacy-sensitive helper/child subprocesses, while checking whether this changes extension/package behavior.
 5. **Commit-message helper disclosure should be clearer.** Shipping UI should state that staged status/diff content is sent to the selected model to generate the commit message.

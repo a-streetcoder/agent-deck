@@ -5,8 +5,6 @@ whenToUse: Use when profiling a native macOS or iOS app with xctrace Time Profil
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
-inheritProjectContext: true
-defaultContext: fresh
 skills: native-app-performance, xcodebuildmcp-cli
 defaultProgress: true
 ---

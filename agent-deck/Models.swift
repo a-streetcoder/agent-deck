@@ -26,9 +26,7 @@ nonisolated struct AgentConfig: Hashable, Sendable {
     var fallbackModels: [String]
     var thinking: String?
     var systemPromptMode: String?
-    var inheritProjectContext: Bool?
     var inheritSkills: Bool?
-    var defaultContext: String?
     var disabled: Bool?
     var tools: [String]?
     var mcpDirectTools: [String]?
@@ -50,9 +48,7 @@ nonisolated struct AgentConfig: Hashable, Sendable {
         fallbackModels: [],
         thinking: nil,
         systemPromptMode: nil,
-        inheritProjectContext: nil,
         inheritSkills: nil,
-        defaultContext: nil,
         disabled: nil,
         tools: nil,
         mcpDirectTools: nil,

@@ -1377,8 +1377,12 @@ final class AppViewModel: NSObject, ObservableObject {
 
     var piAgentRunningSessionCount: Int {
         piAgentSessionStore.sessions.filter { session in
-            !session.needsAttention && (session.status.isActive || piAgentSessionHasActiveSubagent(session.id))
+            !session.needsAttention && piAgentSessionIsWorking(session)
         }.count
+    }
+
+    func piAgentSessionIsWorking(_ session: PiAgentSessionRecord) -> Bool {
+        session.status.isActive || piAgentSessionHasActiveSubagent(session.id)
     }
 
     private func piAgentSessionHasActiveSubagent(_ sessionID: UUID) -> Bool {
@@ -1765,17 +1769,23 @@ final class AppViewModel: NSObject, ObservableObject {
             completion("Native subagents are disabled for this \(AppBrand.displayName) session.")
             return
         }
-        let contextOverride = PiSubagentContextMode(bridgeValue: request.context)
+        let continueRunID = request.continueSubagentID.flatMap { UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if request.continueSubagentID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false, continueRunID == nil {
+            completion("Invalid continueSubagentID `\(request.continueSubagentID ?? "")`. Use the Subagent ID shown on the native subagent card.")
+            return
+        }
         let useWorktreeIsolation = false
         let expectedOutcome: PiSubagentExpectedOutcome = .reportOnly
         let gate = NativeSubagentCompletionGate()
         var timeoutTask: Task<Void, Never>?
-        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: false, expectedOutcome: expectedOutcome, requestedOutputPath: nil, allowOverwrite: false, readFirstPaths: request.reads ?? [], contextOverride: contextOverride) { run in
+        let launchedRun = runNativeSubagent(parentSession: session, agentName: request.agent, task: request.task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, allowDirectProjectWrites: false, expectedOutcome: expectedOutcome, requestedOutputPath: nil, allowOverwrite: false, readFirstPaths: request.reads ?? []) { run in
             timeoutTask?.cancel()
             gate.complete {
                 let status = run.status == .completed ? "completed" : run.status.rawValue
                 let summary = run.summary ?? run.error ?? "No summary returned."
-                completion("Native subagent \(run.agentName) \(status).\n\n\(summary)")
+                let isPersistedRun = self.piAgentSessionStore.subagentRuns(for: parentSessionID).contains { $0.id == run.id }
+                let idLine = isPersistedRun ? "\nSubagent ID: \(run.id.uuidString)" : ""
+                completion("Native subagent \(run.agentName) \(status).\(idLine)\n\n\(summary)")
             }
         }
         if launchedRun.status.isActive, !gate.isCompleted {
@@ -1810,7 +1820,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     @discardableResult
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         guard parentSession.subagentsEnabled else {
             let message = "Native subagents are disabled for this session."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagents Disabled", text: message))
@@ -1832,7 +1842,7 @@ final class AppViewModel: NSObject, ObservableObject {
             completion?(placeholder)
             return placeholder
         }
-        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshotWithSkillCatalog(snapshot, projectPath: parentSession.projectPath), task: task, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, contextOverride: contextOverride, completion: completion)
+        return runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshotWithSkillCatalog(snapshot, projectPath: parentSession.projectPath), task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, completion: completion)
     }
 
     private func snapshotWithSkillCatalog(_ base: ScanSnapshot, projectPath: String) -> ScanSnapshot {
@@ -1855,9 +1865,9 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     @discardableResult
-    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], contextOverride: PiSubagentContextMode? = nil, completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
+    private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) -> PiSubagentRunRecord {
         do {
-            return try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, requestedContext: contextOverride, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, onCompletion: completion)
+            return try nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, onCompletion: completion)
         } catch {
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Launch Failed", text: error.localizedDescription))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: error.localizedDescription)
@@ -1875,7 +1885,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let childRecords = tasks.enumerated().map { index, item in
             PiSubagentChildRecord(
                 id: UUID(), runID: runID, index: index, agentName: item.0, task: item.1,
-                status: .queued, requestedContext: .agentDefault, resolvedContext: nil, model: nil,
+                status: .queued, model: nil,
                 expectedOutcome: useWorktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false,
                 currentTool: nil, inputTokens: nil, outputTokens: nil, totalTokens: nil, toolCount: nil, durationMs: nil,
                 artifactDirectory: nil, sessionFile: nil, outputPath: nil, worktreePath: nil, launchCommand: nil, executionRunID: nil,
@@ -1885,7 +1895,13 @@ final class AppViewModel: NSObject, ObservableObject {
         let limit = max(1, min(concurrency, tasks.count))
         let run = nativeGraphRun(id: runID, parentSession: parentSession, mode: .parallel, title: "Parallel", task: "\(tasks.count) parallel native subagent task(s)", artifactDirectory: artifactDirectory, children: childRecords, edges: [], concurrency: limit, worktreeIsolation: useWorktreeIsolation)
         piAgentSessionStore.upsertSubagentRun(run)
-        piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .status, title: "Native Parallel Started", text: "Started \(tasks.count) task(s), concurrency \(limit)."))
+        piAgentSessionStore.append(.init(
+            sessionID: parentSession.id,
+            role: .status,
+            title: "Native Parallel Started",
+            text: "Subagent ID: \(run.id.uuidString)\n\nStarted \(tasks.count) task(s), concurrency \(limit).",
+            rawJSON: nativeSubagentCardPayload(for: run)
+        ))
         let scheduler = NativeParallelGraphScheduler(parentSession: parentSession, graphRunID: runID, tasks: tasks.map { (agentName: $0.0, task: $0.1) }, concurrency: limit, useWorktreeIsolation: useWorktreeIsolation, completion: completion)
         nativeParallelSchedulersByID[scheduler.id] = scheduler
         pumpNativeParallelScheduler(scheduler)
@@ -1941,7 +1957,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private func nativeGraphRun(id: UUID, parentSession: PiAgentSessionRecord, mode: PiSubagentRunMode, title: String, task: String, artifactDirectory: URL, children: [PiSubagentChildRecord], edges: [PiSubagentGraphEdgeRecord], concurrency: Int, worktreeIsolation: Bool) -> PiSubagentRunRecord {
         PiSubagentRunRecord(
             id: id, parentSessionID: parentSession.id, mode: mode, status: .running,
-            agentName: title, task: task, requestedContext: .agentDefault, resolvedContext: .fresh,
+            agentName: title, task: task,
             model: nil, thinking: nil, expectedOutcome: worktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false, tools: [], skills: [],
             concurrencyLimit: concurrency, worktreePolicy: worktreeIsolation ? "isolated-per-child" : "parent", aggregateSummary: nil,
             artifactDirectory: artifactDirectory.path, outputPath: artifactDirectory.appendingPathComponent("summary.md").path,
@@ -2000,6 +2016,23 @@ final class AppViewModel: NSObject, ObservableObject {
         finishNativeGraphRun(graphRunID, parentSessionID: parentSessionID, status: children.allSatisfy { $0.status == .completed } ? .completed : .failed, summary: summary, completion: nil)
     }
 
+    private func nativeSubagentCardPayload(for run: PiSubagentRunRecord) -> String? {
+        let artifactDirectory = run.artifactDirectory
+        let payload: [String: Any] = [
+            "type": "agent_deck_subagent_card",
+            "runID": run.id.uuidString,
+            "agent": run.agentName,
+            "artifactDirectory": artifactDirectory,
+            "turnIndex": run.child?.index ?? 0,
+            "authoredSystemPromptPath": URL(fileURLWithPath: artifactDirectory).appendingPathComponent("system-prompt.md").path,
+            "finalSystemPromptPath": URL(fileURLWithPath: artifactDirectory).appendingPathComponent("final-system-prompt.md").path
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+    }
+
     private func nativeGraphArtifactDirectory(for runID: UUID) -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
@@ -2037,6 +2070,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func setSessionPlanFromParentAgent(sessionID: UUID, request: PiSessionPlanSetBridgeRequest) -> String {
         let plan = piAgentSessionStore.setSessionPlan(sessionID: sessionID, items: request.items)
+        schedulePiAgentTitleUpdateIfNeeded(sessionID: sessionID, plan: plan)
         let rows = plan.items.map { ["id": $0.id, "title": $0.title, "status": $0.status.rawValue] }
         guard let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]),
               let text = String(data: data, encoding: .utf8) else {
@@ -2064,10 +2098,16 @@ final class AppViewModel: NSObject, ObservableObject {
         guard !agents.isEmpty else { return nil }
         let lines = agents.map { agent in
             let routing = (agent.resolved.whenToUse ?? agent.resolved.description).trimmingCharacters(in: .whitespacesAndNewlines)
-            let context = agent.resolved.defaultContext ?? "fresh"
             let tools = (agent.resolved.tools ?? []).isEmpty ? "default tools" : "tools: \((agent.resolved.tools ?? []).joined(separator: ", "))"
-            return "- \(agent.name): \(routing.isEmpty ? "Use when this specialist fits the requested task." : routing) [context: \(context), \(tools)]"
+            return "- \(agent.name): \(routing.isEmpty ? "Use when this specialist fits the requested task." : routing) [\(tools)]"
         }
+        let continuableRuns = piAgentSessionStore.subagentRuns(for: session.id)
+            .filter { $0.mode == .single && !$0.status.isActive && $0.childPiSessionFile?.isEmpty == false }
+            .prefix(6)
+            .map { run in
+                "- \(run.id.uuidString) \(run.agentName) — \(run.status.rawValue) — latest task: \(String(run.task.prefix(120)))"
+            }
+        let continuableSection = continuableRuns.isEmpty ? "" : "\nRecent continuable subagents:\n\(continuableRuns.joined(separator: "\n"))"
         return """
         Native \(AppBrand.displayName) tools: `ask_user`, `set_session_plan`, `update_session_plan`, `managed_subagent`, `managed_parallel`, `list_supervisor_requests`, `answer_supervisor_request`.
         - Act as the orchestrator: clarify, plan, delegate, supervise, update the visible plan, and synthesize results.
@@ -2077,8 +2117,12 @@ final class AppViewModel: NSObject, ObservableObject {
         - If you delegate planning to `planner`, convert its returned implementation plan into `set_session_plan` before implementation unless the user only asked for a report. Planner text alone does not update the visible \(AppBrand.displayName) plan.
         - Update the visible plan when steps start, complete, block, skip, or materially change.
         - Delegate bounded work with `managed_subagent`; include expected output and `reads` when known. Use worktrees for writer tasks.
+        - Native subagent runs start fresh by default. Do not assume a later `managed_subagent` call remembers an earlier child run.
+        - The tool result and native subagent card show a stable Subagent ID. For a direct follow-up to a previous child, pass that ID as `continueSubagentID` so Agent Deck resumes the same child session and updates the same card.
+        - If starting fresh for follow-up work, pass a compact continuity packet: prior findings/status, what changed, relevant files/artifact paths, and exact expected output.
+        - Prefer fresh runs for independent work; prefer continuation for direct refinement, re-review, debugging, or answering a child-specific follow-up.
         Available native subagents:
-        \(lines.joined(separator: "\n"))
+        \(lines.joined(separator: "\n"))\(continuableSection)
         """
     }
 
@@ -2363,6 +2407,48 @@ final class AppViewModel: NSObject, ObservableObject {
             return
         }
         piAgentRunner.send(text, mode: mode, to: session.id, images: images)
+    }
+
+    private func schedulePiAgentTitleUpdateIfNeeded(sessionID: UUID, plan: PiSessionPlanRecord) {
+        guard appSettings.autoGeneratePiAgentSessionTitles,
+              appSettings.autoUpdatePiAgentSessionTitles,
+              !plan.items.isEmpty,
+              !piAgentTitleGeneratingSessionIDs.contains(sessionID),
+              let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
+              !session.title.hasPrefix("Draft ·"),
+              !session.isTitleUserEdited,
+              let latestUserMessage = piAgentSessionStore.transcript(for: sessionID)
+                .filter({ $0.role == .user })
+                .max(by: { $0.timestamp < $1.timestamp })?
+                .text
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !latestUserMessage.isEmpty,
+              let model = piAgentTitleGenerationModel() else { return }
+
+        piAgentTitleGeneratingSessionIDs.insert(sessionID)
+        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        piSessionTitleGenerator.updateTitle(
+            currentTitle: session.title,
+            latestUserMessage: latestUserMessage,
+            planItems: plan.items,
+            model: model,
+            projectURL: projectURL,
+            environment: environment
+        ) { [weak self] result in
+            guard let self else { return }
+            self.piAgentTitleGeneratingSessionIDs.remove(sessionID)
+            guard case let .success(title) = result,
+                  title.caseInsensitiveCompare("KEEP") != .orderedSame else { return }
+            guard let current = self.piAgentSessionStore.sessions.first(where: { $0.id == sessionID }),
+                  !current.title.hasPrefix("Draft ·"),
+                  !current.isTitleUserEdited,
+                  current.title.caseInsensitiveCompare(title) != .orderedSame else { return }
+            withAnimation(.snappy(duration: 0.26)) {
+                self.piAgentSessionStore.applyGeneratedTitle(sessionID, title: title)
+            }
+            self.piAgentRunner.syncSessionName(for: sessionID, force: true)
+        }
     }
 
     private func schedulePiAgentTitleGenerationIfNeeded(for session: PiAgentSessionRecord, firstMessage: String) {
@@ -3005,6 +3091,11 @@ final class AppViewModel: NSObject, ObservableObject {
         syncAppSettings()
     }
 
+    func setAutoUpdatePiAgentSessionTitles(_ isEnabled: Bool) {
+        guard appSettingsController.setAutoUpdatePiAgentSessionTitles(isEnabled) else { return }
+        syncAppSettings()
+    }
+
     func setPiAgentTitleGenerationModelIdentifier(_ identifier: String?) {
         guard appSettingsController.setPiAgentTitleGenerationModelIdentifier(identifier) else { return }
         syncAppSettings()
@@ -3182,7 +3273,7 @@ final class AppViewModel: NSObject, ObservableObject {
         currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
     }
 
-    private var allDisplayAgents: [EffectiveAgentRecord] {
+    var allDisplayAgents: [EffectiveAgentRecord] {
         var byID: [EffectiveAgentRecord.ID: EffectiveAgentRecord] = [:]
         for agent in snapshot.effectiveAgents { byID[agent.id] = agent }
         for agent in catalogOnlyEffectiveAgents { byID[agent.id] = agent }
@@ -3560,9 +3651,7 @@ final class AppViewModel: NSObject, ObservableObject {
             fallbackModels: [],
             thinking: nil,
             systemPromptMode: "replace",
-            inheritProjectContext: false,
             inheritSkills: nil,
-            defaultContext: nil,
             disabled: nil,
             tools: ["read", "grep", "find", "ls", "bash"],
             mcpDirectTools: nil,

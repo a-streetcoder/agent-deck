@@ -103,8 +103,6 @@ description: Reviews diffs and implementation plans
 tools: read, grep, find, ls, bash, contact_supervisor
 skills: review-guidelines, app-patterns
 systemPromptMode: replace
-inheritProjectContext: true
-defaultContext: fresh
 ---
 ```
 

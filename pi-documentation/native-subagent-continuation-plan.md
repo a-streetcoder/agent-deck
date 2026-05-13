@@ -1,6 +1,6 @@
 # Native subagent continuation and context simplification plan
 
-Status: implementation plan only. Do not treat this file as completed behavior until the code/docs updates land.
+Status: implemented in this change set. This file remains as the saved end-to-end plan and validation checklist for the native subagent continuation work.
 
 ## Goals
 

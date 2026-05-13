@@ -47,17 +47,17 @@ struct PiAgentSidebarButton: View {
                     .renderingMode(.template)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 18, height: 18)
-                    .foregroundStyle(isSelected ? AppTheme.accentForeground.gradient : AppTheme.brandAccent.gradient)
+                    .foregroundStyle(AppTheme.brandAccent.gradient)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pi Agent")
                         .font(.callout.weight(.semibold))
                         .fontWidth(.expanded)
-                        .foregroundStyle(isSelected ? AppTheme.accentForeground : .primary)
+                        .foregroundStyle(.primary)
                     Text(statusText)
                         .font(.callout)
                         .fontWeight(.regular)
-                        .foregroundStyle(isSelected ? AppTheme.accentForeground.opacity(0.82) : AppTheme.mutedText)
+                        .foregroundStyle(AppTheme.mutedText)
                         .fontWidth(.compressed)
                         .lineLimit(1)
                 }
@@ -80,7 +80,9 @@ struct PiAgentSidebarButton: View {
                 }
 
                 if hasRunningSessions {
-                    PiAgentRunningPulse(isOnAccent: isSelected)
+                    PiAgentTypingIndicator()
+                        .scaleEffect(0.72)
+                        .frame(width: 34, alignment: .trailing)
                 }
             }
             .padding(14)
@@ -88,7 +90,7 @@ struct PiAgentSidebarButton: View {
             .background(sidebarBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isSelected ? AppTheme.brandAccentBright.opacity(0.55) : AppTheme.contentStroke, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
                 if needsAttentionCount > 0 {
@@ -114,7 +116,17 @@ struct PiAgentSidebarButton: View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
             .fill(
                 isSelected
-                    ? AnyShapeStyle(LinearGradient(colors: [AppTheme.brandAccentBright, AppTheme.brandAccent], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    ? AnyShapeStyle(
+                        LinearGradient(
+                            colors: [
+                                AppTheme.brandAccentBright.opacity(0.14),
+                                AppTheme.brandAccent.opacity(0.08),
+                                AppTheme.contentSubtleFill
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     : AnyShapeStyle(AppTheme.contentSubtleFill)
             )
     }
@@ -152,27 +164,6 @@ struct PiAgentSidebarButton: View {
     }
 }
 
-private struct PiAgentRunningPulse: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let isOnAccent: Bool
-    @State private var isPulsing = false
-
-    var body: some View {
-        Image(systemName: "circle.fill")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(isOnAccent ? AppTheme.accentForeground.opacity(0.92) : AppTheme.brandAccent)
-            .scaleEffect(reduceMotion ? 1 : (isPulsing ? 1.2 : 0.74))
-            .opacity(reduceMotion ? 1 : (isPulsing ? 1 : 0.42))
-            .shadow(color: (isOnAccent ? AppTheme.accentForeground : AppTheme.brandAccent).opacity(0.35), radius: isPulsing ? 5 : 1)
-            .accessibilityHidden(true)
-            .task {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.78).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            }
-    }
-}
 
 struct SidebarProjectGitHubCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

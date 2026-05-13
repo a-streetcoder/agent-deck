@@ -39,7 +39,7 @@ For each native run, Agent Deck builds:
 - an app artifact directory under `~/Library/Application Support/Agent Deck/Subagent Runs/<run-id>/`
 - a child system prompt made from native boundary instructions and the agent prompt
 - an input file containing the task and optional read-first hints
-- child runtime arguments for model, thinking, context inheritance, explicit agent skills, tools, extensions, and direct MCP isolation
+- child runtime arguments for model, thinking, explicit agent skills, tools, extensions, and direct MCP isolation
 - run records and transcript routing in the app session store
 
 Native subagents are not raw slash-command text inserted into the parent chat. The app owns the child lifecycle directly.
@@ -50,7 +50,7 @@ Agent Deck injects native boundary instructions into every child run:
 
 - complete only the assigned task
 - do not launch additional subagents
-- treat forked context as read-only background
+- treat the current delegated task as authoritative; direct follow-ups may explicitly continue the same child session by Subagent ID
 - keep parent/user decision authority
 - return final results normally
 - prefer narrow, correct changes
@@ -72,9 +72,7 @@ Agent Deck native agents are markdown files with YAML frontmatter. Important fie
 - `fallbackModels`
 - `thinking`
 - `systemPromptMode`
-- `inheritProjectContext`
 - `inheritSkills`
-- `defaultContext`
 - `disabled`
 - `tools`
 - `mcpDirectTools`

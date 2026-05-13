@@ -314,7 +314,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
     }
 
     func testManagedSubagentBridgeRoutesRequestAndResponds() throws {
-        let payload = #"{"agent":"scout","task":"Map the repo.","context":"fresh","reads":["README.md"]}"#
+        let payload = #"{"agent":"scout","task":"Map the repo.","continueSubagentID":"11111111-1111-1111-1111-111111111111","reads":["README.md"]}"#
         let harness = try PiTestSupport.makeBridgeHarness(event: PiRPCBridgeFixtures.bridgeEditor(id: "bridge-subagent-1", name: "managed_subagent", payload: payload))
         defer { harness.restoreEnvironment() }
 
@@ -335,7 +335,7 @@ final class PiAgentBridgeSmokeTests: XCTestCase {
         })
         XCTAssertEqual(captured?.agent, "scout")
         XCTAssertEqual(captured?.task, "Map the repo.")
-        XCTAssertEqual(captured?.context, "fresh")
+        XCTAssertEqual(captured?.continueSubagentID, "11111111-1111-1111-1111-111111111111")
         XCTAssertEqual(captured?.reads, ["README.md"])
         XCTAssertEqual(responseValue(id: "bridge-subagent-1", in: harness.stdinLog), "subagent accepted")
         XCTAssertEqual(store.transcriptsBySessionID[session.id]?.last?.title, "Native Subagent Requested")

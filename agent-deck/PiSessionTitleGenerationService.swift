@@ -36,9 +36,64 @@ final class PiSessionTitleGenerationService {
     private var runsByID: [UUID: Run] = [:]
     private let timeoutNanoseconds: UInt64 = 20_000_000_000
     private let maxFirstMessageCharacters = 2_000
+    private let maxTitleUpdateMessageCharacters = 2_000
+    private let maxPlanItems = 12
 
     func generateTitle(
         for firstMessage: String,
+        model: AvailableModel,
+        projectURL: URL,
+        environment: [String: String],
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        startHelper(
+            systemPrompt: Self.titleSystemPrompt,
+            userPrompt: prompt(for: firstMessage),
+            model: model,
+            projectURL: projectURL,
+            environment: environment,
+            completion: completion
+        )
+    }
+
+    func updateTitle(
+        currentTitle: String,
+        latestUserMessage: String,
+        planItems: [PiSessionPlanItemRecord],
+        model: AvailableModel,
+        projectURL: URL,
+        environment: [String: String],
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        startHelper(
+            systemPrompt: Self.titleUpdateSystemPrompt,
+            userPrompt: updatePrompt(currentTitle: currentTitle, latestUserMessage: latestUserMessage, planItems: planItems),
+            model: model,
+            projectURL: projectURL,
+            environment: environment,
+            completion: completion
+        )
+    }
+
+    static func runtimeModelArgument(modelID: String, thinkingLevel: String) -> String {
+        let trimmedModel = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedThinking = thinkingLevel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedModel.isEmpty, !trimmedThinking.isEmpty else { return trimmedModel }
+
+        let knownThinkingSuffixes = ["off", "minimal", "low", "medium", "high", "xhigh"]
+        let baseModel: String
+        if let suffix = trimmedModel.split(separator: ":").last,
+           knownThinkingSuffixes.contains(String(suffix)) {
+            baseModel = trimmedModel.split(separator: ":").dropLast().joined(separator: ":")
+        } else {
+            baseModel = trimmedModel
+        }
+        return "\(baseModel):\(trimmedThinking)"
+    }
+
+    private func startHelper(
+        systemPrompt: String,
+        userPrompt: String,
         model: AvailableModel,
         projectURL: URL,
         environment: [String: String],
@@ -59,7 +114,7 @@ final class PiSessionTitleGenerationService {
                     "--no-prompt-templates",
                     "--no-themes",
                     "--system-prompt",
-                    Self.titleSystemPrompt,
+                    systemPrompt,
                     "--append-system-prompt",
                     "",
                 ],
@@ -90,26 +145,10 @@ final class PiSessionTitleGenerationService {
                 }
             }
 
-            client.prompt(prompt(for: firstMessage))
+            client.prompt(userPrompt)
         } catch {
             completion(.failure(error))
         }
-    }
-
-    static func runtimeModelArgument(modelID: String, thinkingLevel: String) -> String {
-        let trimmedModel = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedThinking = thinkingLevel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedModel.isEmpty, !trimmedThinking.isEmpty else { return trimmedModel }
-
-        let knownThinkingSuffixes = ["off", "minimal", "low", "medium", "high", "xhigh"]
-        let baseModel: String
-        if let suffix = trimmedModel.split(separator: ":").last,
-           knownThinkingSuffixes.contains(String(suffix)) {
-            baseModel = trimmedModel.split(separator: ":").dropLast().joined(separator: ":")
-        } else {
-            baseModel = trimmedModel
-        }
-        return "\(baseModel):\(trimmedThinking)"
     }
 
     func cancelAll() {
@@ -188,6 +227,17 @@ final class PiSessionTitleGenerationService {
     - Return only the title
     """
 
+    private static let titleUpdateSystemPrompt = """
+    You update Agent Deck coding-agent session titles. Decide whether the latest user message and current plan meaningfully change the session's main goal.
+
+    Requirements:
+    - If the current title still fits, return exactly: KEEP
+    - If the title should change, return only the new title
+    - New titles must be 3 to 7 words, Title Case, no quotes, no markdown, no trailing punctuation
+    - Prefer the concrete product/code outcome over process wording
+    - Do not change titles for minor follow-ups, progress updates, or implementation details
+    """
+
     private func prompt(for firstMessage: String) -> String {
         let trimmedMessage = firstMessage
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,6 +247,32 @@ final class PiSessionTitleGenerationService {
         <message>
         \(trimmedMessage)
         </message>
+        """
+    }
+
+    private func updatePrompt(currentTitle: String, latestUserMessage: String, planItems: [PiSessionPlanItemRecord]) -> String {
+        let trimmedTitle = currentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = latestUserMessage
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(maxTitleUpdateMessageCharacters)
+        let planText = planItems.prefix(maxPlanItems).map { item in
+            "- [\(item.status.rawValue)] \(item.title)"
+        }.joined(separator: "\n")
+        return """
+        Current session title:
+        <current_title>
+        \(trimmedTitle)
+        </current_title>
+
+        Latest user message:
+        <latest_user_message>
+        \(trimmedMessage)
+        </latest_user_message>
+
+        Current plan:
+        <plan>
+        \(planText)
+        </plan>
         """
     }
 

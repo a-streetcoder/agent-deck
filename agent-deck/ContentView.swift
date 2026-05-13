@@ -719,39 +719,46 @@ struct ContentView: View {
     }
 
     private var currentAgentModelQuickEditorSections: [AgentModelQuickEditorSection] {
-        let filteredAgents = viewModel.filteredAgents
-        let plainBuiltins = filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
-        let libraryBackedActiveAgentNames = Set(viewModel.snapshot.libraryAgents.map(\.name))
+        let filteredAgents = viewModel.selectedProjectPath == nil ? viewModel.allDisplayAgents : viewModel.filteredAgents
+
+        func sortedUnique(_ agents: [EffectiveAgentRecord]) -> [EffectiveAgentRecord] {
+            preferredAgentsByName(agents) { records in records.first }
+        }
 
         func preferredAgentsByName(_ agents: [EffectiveAgentRecord], prefer: ([EffectiveAgentRecord]) -> EffectiveAgentRecord?) -> [EffectiveAgentRecord] {
-            Dictionary(grouping: agents, by: \.name).values.compactMap(prefer)
+            Dictionary(grouping: agents, by: { $0.name.lowercased() }).values.compactMap(prefer)
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
 
-        let libraryAgents = preferredAgentsByName(
-            filteredAgents.filter { $0.resolutionKind == .library || libraryBackedActiveAgentNames.contains($0.name) }
-        ) { records in
-            records.first { $0.resolutionKind == .library }
-            ?? records.first { $0.projectCustom == nil }
-            ?? records.first
+        let builtinCandidates = filteredAgents.filter { agent in
+            agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil
         }
+        let builtinAgents = sortedUnique(builtinCandidates)
 
-        if let selectedProject = viewModel.selectedDiscoveredProject {
-            let activeCustomAgents = filteredAgents.filter { agent in
-                agent.resolutionKind != .library && !(agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil)
-            }
+        let editableNonBuiltinAgents = filteredAgents.filter { agent in
+            let isPlainBuiltin = agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil
+            return !isPlainBuiltin
+        }
+        if viewModel.selectedProjectPath == nil {
             return [
-                AgentModelQuickEditorSection(title: "Active in \(selectedProject.name)", agents: activeCustomAgents),
-                AgentModelQuickEditorSection(title: "Library Agents", agents: libraryAgents),
-                AgentModelQuickEditorSection(title: "Builtin Agents", agents: plainBuiltins)
+                AgentModelQuickEditorSection(title: "Custom Agents", agents: sortedUnique(editableNonBuiltinAgents)),
+                AgentModelQuickEditorSection(title: "Builtin Agents", agents: builtinAgents)
             ]
         }
 
-        let globalCustomAgents = filteredAgents.filter { $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+        let activeCandidates = editableNonBuiltinAgents.filter { agent in
+            agent.resolved.disabled != true
+        }
+        let inactiveCandidates = editableNonBuiltinAgents.filter { agent in
+            agent.resolved.disabled == true
+        }
+        let activeAgents = sortedUnique(activeCandidates)
+        let inactiveAgents = sortedUnique(inactiveCandidates)
+
         return [
-            AgentModelQuickEditorSection(title: "Global Agents", agents: globalCustomAgents),
-            AgentModelQuickEditorSection(title: "Library Agents", agents: libraryAgents),
-            AgentModelQuickEditorSection(title: "Builtin Agents", agents: plainBuiltins)
+            AgentModelQuickEditorSection(title: "Active Agents", agents: activeAgents),
+            AgentModelQuickEditorSection(title: "Inactive Agents", agents: inactiveAgents, isDimmed: true),
+            AgentModelQuickEditorSection(title: "Builtin Agents", agents: builtinAgents)
         ]
     }
 

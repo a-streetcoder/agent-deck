@@ -1402,7 +1402,7 @@ struct PiAgentStatusTranscriptRow: View {
         guard let raw = entry.rawJSON,
               let data = raw.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["type"] as? String == "agent_deck_subagent_started",
+              ["agent_deck_subagent_started", "agent_deck_subagent_card"].contains(object["type"] as? String),
               let authored = object["authoredSystemPromptPath"] as? String,
               let final = object["finalSystemPromptPath"] as? String else { return nil }
         return SubagentPromptMetadata(authoredSystemPromptPath: authored, finalSystemPromptPath: final)
@@ -1471,11 +1471,11 @@ struct PiAgentSystemPromptAuditCard: View {
 
 private extension PiAgentTranscriptEntry {
     var nativeSubagentRunID: UUID? {
-        guard title == "Subagent Started",
-              let rawJSON,
+        guard let rawJSON,
               let data = rawJSON.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["type"] as? String == "agent_deck_subagent_started",
+              let type = object["type"] as? String,
+              ["agent_deck_subagent_started", "agent_deck_subagent_card"].contains(type),
               let runID = object["runID"] as? String else { return nil }
         return UUID(uuidString: runID)
     }

@@ -99,13 +99,11 @@ enum PiTestSupport {
         name: String = "scout",
         model: String? = nil,
         thinking: String? = nil,
-        defaultContext: String? = nil,
         tools: [String]? = nil,
         extensions: [String]? = nil,
         skills: [String] = [],
         output: String? = nil,
         defaultReads: [String]? = nil,
-        inheritProjectContext: Bool? = nil,
         inheritSkills: Bool? = nil,
         systemPromptMode: String? = nil,
         systemPrompt: String = ""
@@ -117,9 +115,7 @@ enum PiTestSupport {
         config.thinking = thinking
         config.systemPromptMode = systemPromptMode
         config.systemPrompt = systemPrompt
-        config.inheritProjectContext = inheritProjectContext
         config.inheritSkills = inheritSkills
-        config.defaultContext = defaultContext
         config.tools = tools
         config.extensions = extensions
         config.skills = skills
@@ -255,21 +251,6 @@ enum PiTestSupport {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         return condition()
-    }
-
-    static func makeParentSessionFileWithActiveManagedSubagentCall() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-parent-session-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let fileURL = directory.appendingPathComponent("parent.jsonl")
-        let lines = [
-            #"{"type":"session","version":3,"id":"019dfa20-a8c3-7659-829e-078c2e704c1b","timestamp":"2026-05-05T21:52:17.603Z","cwd":"/tmp/agent-deck-test-project"}"#,
-            #"{"type":"message","id":"old-user","parentId":null,"timestamp":"2026-05-05T21:53:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Earlier useful context"}]}}"#,
-            #"{"type":"message","id":"old-assistant","parentId":"old-user","timestamp":"2026-05-05T21:53:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Earlier assistant answer"}],"provider":"zai","model":"glm-5.1"}}"#,
-            #"{"type":"message","id":"active-user","parentId":"old-assistant","timestamp":"2026-05-05T23:50:42.964Z","message":{"role":"user","content":[{"type":"text","text":"Use managed_subagent with agent scout, context fork, and task:\nSay whether you were launched with forked context."}]}}"#,
-            #"{"type":"message","id":"active-assistant","parentId":"active-user","timestamp":"2026-05-05T23:50:47.657Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_active","name":"managed_subagent","arguments":{"agent":"scout","context":"fork","task":"Say whether you were launched with forked context."}}],"provider":"zai","model":"glm-5.1","stopReason":"toolUse"}}"#
-        ]
-        try (lines.joined(separator: "\n") + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
-        return fileURL
     }
 
     static func shellSingleQuoted(_ value: String) -> String {

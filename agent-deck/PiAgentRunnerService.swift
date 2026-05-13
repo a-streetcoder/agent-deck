@@ -65,8 +65,10 @@ final class PiAgentRunnerService {
     private var pendingThinkingLevelsBySessionID: [UUID: PendingThinkingLevel] = [:]
     private var pendingConfigurationRestartSessionIDs: Set<UUID> = []
     private var streamFlushTasksBySessionID: [UUID: Task<Void, Never>] = [:]
+    private var pendingIdleTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     private var idleParkingTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     private var idleParkingTimeout: TimeInterval?
+    private let idleConfirmationDelay: Duration = .milliseconds(900)
     var onTurnFinished: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
@@ -158,6 +160,7 @@ final class PiAgentRunnerService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
         let message = userMessage(trimmed, images: images)
+        cancelPendingIdle(for: sessionID)
         cancelIdleParking(for: sessionID)
         guard let client = clientsBySessionID[sessionID] else {
             store.append(.init(sessionID: sessionID, role: .error, title: "Not Running", text: "Resume the session before sending a message."))
@@ -435,8 +438,35 @@ final class PiAgentRunnerService {
     }
 
     private func cancelIdleParking(for sessionID: UUID) {
+        cancelPendingIdle(for: sessionID)
         idleParkingTasksBySessionID[sessionID]?.cancel()
         idleParkingTasksBySessionID[sessionID] = nil
+    }
+
+    private func cancelPendingIdle(for sessionID: UUID) {
+        pendingIdleTasksBySessionID[sessionID]?.cancel()
+        pendingIdleTasksBySessionID[sessionID] = nil
+    }
+
+    private func scheduleIdleConfirmation(sessionID: UUID) {
+        guard pendingIdleTasksBySessionID[sessionID] == nil else { return }
+        pendingIdleTasksBySessionID[sessionID] = Task { [weak self] in
+            try? await Task.sleep(for: self?.idleConfirmationDelay ?? .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.confirmIdleIfStillEligible(sessionID: sessionID)
+            }
+        }
+    }
+
+    private func confirmIdleIfStillEligible(sessionID: UUID) {
+        pendingIdleTasksBySessionID[sessionID] = nil
+        guard let session = store.sessions.first(where: { $0.id == sessionID }),
+              session.status.isActive,
+              store.uiRequestsBySessionID[sessionID] == nil else { return }
+        mark(sessionID, status: .idle, error: nil)
+        scheduleIdleParkingIfNeeded(sessionID: sessionID)
+        onTurnFinished?(sessionID)
     }
 
     private func scheduleIdleParkingIfNeeded(sessionID: UUID) {
@@ -622,6 +652,7 @@ final class PiAgentRunnerService {
         case "response":
             handleResponse(event, rawLine: rawLine, sessionID: sessionID)
         case "agent_start", "turn_start":
+            cancelPendingIdle(for: sessionID)
             cancelIdleParking(for: sessionID)
             mark(sessionID, status: .running, error: nil)
             if event.type == "turn_start" {
@@ -633,11 +664,9 @@ final class PiAgentRunnerService {
                 store.upsert(.init(id: entryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: "", rawJSON: nil))
             }
         case "agent_end", "turn_end":
-            mark(sessionID, status: .idle, error: nil)
+            scheduleIdleConfirmation(sessionID: sessionID)
             clientsBySessionID[sessionID]?.getState()
             clientsBySessionID[sessionID]?.getSessionStats()
-            scheduleIdleParkingIfNeeded(sessionID: sessionID)
-            onTurnFinished?(sessionID)
         case "message_update":
             handleMessageUpdate(event, rawLine: rawLine, sessionID: sessionID)
         case "message_end":
@@ -911,13 +940,11 @@ final class PiAgentRunnerService {
                 record.thinkingLevel = reportedThinkingLevel ?? record.thinkingLevel
             }
             if let streaming = data["isStreaming"]?.compactDescription, streaming == "true" {
+                cancelPendingIdle(for: sessionID)
                 cancelIdleParking(for: sessionID)
-                if !record.needsAttention {
-                    record.status = .running
-                }
+                record.status = .running
             } else if record.status.isActive {
-                record.status = .idle
-                shouldScheduleIdleParking = true
+                scheduleIdleConfirmation(sessionID: sessionID)
             } else if record.status == .idle {
                 shouldScheduleIdleParking = true
             }
@@ -1607,6 +1634,7 @@ final class PiAgentRunnerService {
     }
 
     private func mark(_ sessionID: UUID, status: PiAgentRunStatus, error: String?) {
+        cancelPendingIdle(for: sessionID)
         store.updateSession(sessionID) { record in
             record.status = status
             record.lastError = error

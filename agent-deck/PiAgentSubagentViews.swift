@@ -191,14 +191,28 @@ struct PiNativeSubagentRunCard: View {
     private var header: some View {
         HStack(spacing: 10) {
             PiSubagentActivityGlyph(color: statusColor, isActive: effectiveStatus.isActive)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(run.agentName)
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(run.agentName)
+                        .font(.headline)
+                    Text(shortRunID)
+                        .font(.caption2.monospaced().weight(.medium))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.72)))
+                        .textSelection(.enabled)
+                        .help(run.id.uuidString)
+                }
                 PiSubagentStatusText(status: effectiveStatus, color: statusColor)
             }
             Spacer(minLength: 0)
             actionButtons
         }
+    }
+
+    private var shortRunID: String {
+        String(run.id.uuidString.prefix(8))
     }
 
     @ViewBuilder
@@ -267,9 +281,12 @@ struct PiNativeSubagentRunCard: View {
 
     private var detailRows: [(String, String)] {
         var rows: [(String, String)] = [
-            ("Context", "requested \(run.requestedContext.rawValue), resolved \(run.resolvedContext.rawValue)")
+            ("Subagent ID", run.id.uuidString)
         ]
-        if let duration = run.durationMs {
+        if let turnIndex = run.child?.index, turnIndex > 0 {
+            rows.append(("Continuation", "Turn \(turnIndex + 1)"))
+        }
+        if let duration = latestDurationMs {
             rows.append(("Duration", formattedDuration(duration)))
         }
         if let totalTokens {
@@ -334,7 +351,7 @@ struct PiNativeSubagentRunCard: View {
 
     private var compactMetadata: [CompactMetadataItem] {
         var items: [CompactMetadataItem] = []
-        if let duration = run.durationMs {
+        if let duration = latestDurationMs {
             items.append(.init(text: formattedDuration(duration), icon: "timer"))
         }
         if let totalTokens {
@@ -350,6 +367,10 @@ struct PiNativeSubagentRunCard: View {
             items.append(.init(text: thinkingLevel, icon: "brain.head.profile"))
         }
         return items
+    }
+
+    private var latestDurationMs: Int? {
+        run.child?.durationMs ?? run.durationMs
     }
 
     private var totalTokens: Int? {
@@ -415,7 +436,7 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private func artifactURL(named fileName: String) -> URL {
-        URL(fileURLWithPath: run.artifactDirectory).appendingPathComponent(fileName)
+        URL(fileURLWithPath: run.child?.artifactDirectory ?? run.artifactDirectory).appendingPathComponent(fileName)
     }
 
     private func canOpenArtifact(named fileName: String) -> Bool {
@@ -800,8 +821,6 @@ struct PiNativeSubagentRunSheet: View {
         let description: String
         let model: String?
         let thinking: String?
-        let defaultContext: String?
-        let inheritProjectContext: Bool
         let tools: [String]
         let skills: [String]
         let output: String?
@@ -810,8 +829,6 @@ struct PiNativeSubagentRunSheet: View {
             description = agent.resolved.description
             model = agent.resolved.model
             thinking = agent.resolved.thinking
-            defaultContext = agent.resolved.defaultContext
-            inheritProjectContext = agent.resolved.inheritProjectContext == true
             tools = agent.resolved.tools ?? []
             skills = agent.resolved.skills
             output = agent.resolved.output
@@ -871,8 +888,6 @@ struct PiNativeSubagentRunSheet: View {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 6) {
                         subagentInfoLine("Model", selectedInfo.model ?? "Default")
                         subagentInfoLine("Thinking", selectedInfo.thinking ?? "Default")
-                        subagentInfoLine("Context", selectedInfo.defaultContext ?? "fresh")
-                        subagentInfoLine("Project Context", selectedInfo.inheritProjectContext ? "Inherited" : "Off")
                         subagentInfoLine("Assigned Skills", selectedInfo.skills.isEmpty ? "None" : selectedInfo.skills.joined(separator: ", "))
                         subagentInfoLine("Tools", selectedInfo.tools.isEmpty ? "Default" : selectedInfo.tools.joined(separator: ", "))
                         subagentInfoLine("Output", selectedInfo.output ?? "App artifact")

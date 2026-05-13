@@ -600,11 +600,6 @@ private struct AgentDetailView: View {
                         }
 
                         settingsSection("Behavior") {
-                            configEditorRow("Project Context") {
-                                Toggle("Inherit project context", isOn: inlineDefaultedOptionalBoolBinding(for: \.inheritProjectContext) { draft.config.name == "delegate" })
-                                    .toggleStyle(.switch)
-                            }
-
                             configEditorRow("Availability") {
                                 Toggle("Disabled", isOn: inlineOptionalBoolBinding(for: \.disabled))
                                     .toggleStyle(.switch)
@@ -661,7 +656,6 @@ private struct AgentDetailView: View {
                         readOnlyFieldRow("Fallback Models", value: agent.resolved.fallbackModels.isEmpty ? "—" : agent.resolved.fallbackModels.joined(separator: ", "))
                         readOnlyFieldRow("Thinking", value: agent.resolved.thinking ?? "off")
                         readOnlyFieldRow("Prompt Mode", value: agent.resolved.systemPromptMode ?? "—")
-                        readOnlyFieldRow("Inherit Project Context", value: display(agent.resolved.inheritProjectContext))
                         readOnlyFieldRow("Disabled", value: display(agent.resolved.disabled))
                         readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
                         readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
@@ -1210,7 +1204,6 @@ private struct AgentDetailView: View {
             "name": agent.resolved.name,
             "description": agent.resolved.description,
             "systemPromptMode": agent.resolved.systemPromptMode ?? "",
-            "inheritProjectContext": agent.resolved.inheritProjectContext as Any,
             "disabled": agent.resolved.disabled as Any,
             "skills": agent.resolved.skills
         ]
@@ -1492,7 +1485,6 @@ private struct AgentDetailView: View {
         add("Fallback Models", beforeConfig.fallbackModels.isEmpty ? "—" : beforeConfig.fallbackModels.joined(separator: ", "), afterConfig.fallbackModels.isEmpty ? "—" : afterConfig.fallbackModels.joined(separator: ", "))
         add("Thinking", beforeConfig.thinking ?? "off", afterConfig.thinking ?? "off")
         add("Prompt Mode", beforeConfig.systemPromptMode ?? "—", afterConfig.systemPromptMode ?? "—")
-        add("Inherit Project Context", display(beforeConfig.inheritProjectContext), display(afterConfig.inheritProjectContext))
         add("Disabled", display(beforeConfig.disabled), display(afterConfig.disabled))
         add("Tools", ((beforeConfig.tools ?? []) + (beforeConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined, ((afterConfig.tools ?? []) + (afterConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined)
         add("Extensions", (beforeConfig.extensions ?? []).nonEmptyJoined, (afterConfig.extensions ?? []).nonEmptyJoined)

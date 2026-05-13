@@ -5,8 +5,6 @@ whenToUse: Use for approved, bounded implementation after the parent has a clear
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
 thinking: high
 systemPromptMode: replace
-inheritProjectContext: true
-defaultContext: fork
 defaultReads: plan.md, context.md
 defaultProgress: true
 ---

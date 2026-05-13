@@ -424,6 +424,14 @@ private struct AutomationsSettingsTab: View {
                     isOn: autoGenerateSessionTitlesBinding
                 )
 
+                SettingsToggleRow(
+                    title: "Update titles:",
+                    label: "Refresh generated titles as plans change",
+                    note: "When enabled, new session plans may start a hidden helper to keep AI-generated, non-user-edited titles aligned with the latest request.",
+                    isOn: autoUpdateSessionTitlesBinding
+                )
+                .disabled(!viewModel.appSettings.autoGeneratePiAgentSessionTitles)
+
                 SettingsPickerRow(
                     title: "Title model:",
                     selection: titleGenerationModelBinding,
@@ -472,6 +480,13 @@ private struct AutomationsSettingsTab: View {
         Binding(
             get: { viewModel.appSettings.autoGeneratePiAgentSessionTitles },
             set: { viewModel.setAutoGeneratePiAgentSessionTitles($0) }
+        )
+    }
+
+    private var autoUpdateSessionTitlesBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.autoUpdatePiAgentSessionTitles },
+            set: { viewModel.setAutoUpdatePiAgentSessionTitles($0) }
         )
     }
 

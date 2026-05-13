@@ -203,49 +203,49 @@ struct PiAgentSessionRow: View {
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .center, spacing: 8) {
-                    HStack(alignment: .center, spacing: 6) {
-                        PiAgentProjectIcon(project: project, session: session)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .center, spacing: 8) {
+                HStack(alignment: .center, spacing: 6) {
+                    PiAgentProjectIcon(project: project, session: session)
 
-                        titleView
-                            .layoutPriority(1)
-                    }
-                    .layoutPriority(1)
-
-                    Spacer(minLength: 0)
+                    titleView
+                        .layoutPriority(1)
                 }
+                .layoutPriority(1)
 
-                HStack(spacing: 6) {
-                    Image("github")
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .frame(width: 13, height: 13)
-                    Text(subtitle)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .minimumScaleFactor(0.8)
-                }
-                .font(.footnote)
-                .foregroundStyle(AppTheme.mutedText)
+                Spacer(minLength: 0)
+            }
 
-                Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
+            HStack(spacing: 6) {
+                Image("github")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: 13, height: 13)
+                Text(subtitle)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .minimumScaleFactor(0.8)
             }
-            .saturation(seenAppearanceAmount)
-            .opacity(seenContentOpacity)
-            .layoutPriority(1)
+            .font(.footnote)
+            .foregroundStyle(AppTheme.mutedText)
 
-            attentionStatusSlot
+            Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
+        .saturation(seenAppearanceAmount)
+        .opacity(seenContentOpacity)
         .padding(.horizontal, 18)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .trailing) {
+            attentionStatusSlot
+                .padding(.trailing, 12)
+                .allowsHitTesting(false)
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(statusHelp)
@@ -290,7 +290,7 @@ struct PiAgentSessionRow: View {
 
     @ViewBuilder
     private var attentionStatusSlot: some View {
-        ZStack {
+        ZStack(alignment: .trailing) {
             if isRunning {
                 activeStatusLabel
                     .transition(.opacity)
@@ -299,21 +299,25 @@ struct PiAgentSessionRow: View {
                     .transition(.opacity)
             }
         }
-        .frame(width: 40, height: 58, alignment: .center)
         .animation(.snappy(duration: 0.24), value: isRunning)
         .animation(.snappy(duration: 0.24), value: session.needsAttention)
     }
 
     private var activeStatusLabel: some View {
-        PiAgentSessionRunningIndicator()
+        Text("ACTIVE")
+            .font(.system(size: 7, weight: .bold, design: .monospaced))
+            .tracking(1.2)
+            .foregroundStyle(AppTheme.brandAccent.opacity(0.72))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(Capsule(style: .continuous).fill(AppTheme.contentFill.opacity(0.72)))
             .accessibilityHidden(true)
     }
 
     private var needsAttentionBell: some View {
         Image(systemName: "bell.fill")
-            .font(.system(size: 18, weight: .bold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(AppTheme.brandAccent)
-            .frame(width: 28, height: 28, alignment: .center)
             .help("Pi Agent finished and needs review")
             .accessibilityLabel("Needs review")
     }
@@ -420,30 +424,6 @@ struct PiAgentSessionRow: View {
         case .failed: return .red
         case .stopped: return .orange
         case .draft: return .secondary
-        }
-    }
-}
-
-private struct PiAgentSessionRunningIndicator: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isPulsing = false
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 6, weight: .bold))
-                .scaleEffect(reduceMotion ? 1 : (isPulsing ? 1.25 : 0.72))
-                .opacity(reduceMotion ? 1 : (isPulsing ? 1 : 0.4))
-            Text("RUNNING")
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .tracking(1.1)
-        }
-        .foregroundStyle(AppTheme.brandAccent.opacity(0.78))
-        .task {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.78).repeatForever(autoreverses: true)) {
-                isPulsing = true
-            }
         }
     }
 }

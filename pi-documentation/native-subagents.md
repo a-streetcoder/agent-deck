@@ -54,7 +54,7 @@ Agent `output` frontmatter such as `plan.md` is advisory only. Agent Deck does n
 
 ## Read-first files
 
-Callers can pass files the child should read first. Manual runs expose a “Files to read first” field; `managed_subagent` accepts an optional `reads` array.
+Callers can pass files the child should read first. Manual runs expose a “Files to read first” field; `managed_subagent` accepts an optional `reads` array and an optional `continueSubagentID` for direct follow-ups.
 
 Rules:
 
@@ -66,6 +66,12 @@ Rules:
 - the child is instructed to read current project files if relevant
 
 This avoids stale context problems such as an old `plan.md` from a previous session misleading a new child run.
+
+## Fresh runs and continuation
+
+Native subagents start fresh by default: a normal `managed_subagent` call creates a new child Pi session and does not receive parent chat history or prior child history. For a direct follow-up, the parent can pass the previous card's Subagent ID as `continueSubagentID`; Agent Deck resumes that child Pi session with `--session <child-session-file>` and updates the same native subagent card.
+
+Use fresh runs for independent work. Use continuation for direct refinement, re-review, debugging, or child-specific follow-up questions. If starting fresh for follow-up work, pass a compact continuity packet with prior findings, changed files, relevant artifacts, and expected output.
 
 ## System prompt construction
 
@@ -81,7 +87,7 @@ Agent Deck follows that model:
 
 1. Native boundary instructions + agent system prompt are passed as system prompt content.
 2. Expected outcome, read-first files, artifact directory, and the concrete task are sent as the user task prompt.
-3. If `inheritProjectContext` is false, Agent Deck passes `--no-context-files`.
+3. Native child sessions use normal Pi project context-file discovery.
 4. Agent Deck always passes `--no-skills` and then explicit `--skill <path>` arguments for skills assigned to that agent.
 5. Ambient extension discovery is disabled with `--no-extensions`; only configured extensions and app bridge extensions are loaded.
 

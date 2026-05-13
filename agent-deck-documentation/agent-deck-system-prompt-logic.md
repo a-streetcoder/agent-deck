@@ -138,18 +138,16 @@ Agent Deck writes at least:
 The child prompt is split deliberately:
 
 - **System prompt content:** agent Markdown body followed by common child-session boundary instructions. The common boundary avoids defining the agent role; role identity belongs in the agent body.
-- **User task prompt:** concrete task, expected outcome, artifact directory, read-first hints, and fork-context rule when relevant.
+- **User task prompt:** concrete task, expected outcome, artifact directory, and read-first hints. Continuation prompts also state that prior child messages are available but the new task is authoritative.
 
 Default child launch shape:
 
 ```text
 pi --mode rpc
   --session-dir <artifact-dir>/sessions
-  [--fork <artifact-dir>/fork-context.jsonl]
   --system-prompt <agent prompt + common child-session boundary>
   --append-system-prompt ""
   # or only --append-system-prompt <agent prompt + common child-session boundary> when systemPromptMode: append
-  [--no-context-files]
   [--tools <agent tool allowlist> | --no-tools]
   --no-extensions
   [--extension <agent-configured extension>]...
@@ -171,7 +169,9 @@ Replace-mode native subagents also pass `--append-system-prompt ""`. This is int
 
 If `systemPromptMode: append`, Agent Deck uses `--append-system-prompt`. In that mode Pi keeps its normal base prompt selection and appends the agent prompt.
 
-If `inheritProjectContext` is not `true`, Agent Deck passes `--no-context-files`. If it is `true`, Pi may load normal global/ancestor/project context files for the child cwd.
+Native subagents use normal Pi project context-file discovery. Agent Deck does not pass `--no-context-files` for child sessions.
+
+Direct follow-ups can continue a prior native subagent by Subagent ID. Continuation launches use `--session <prior-child-session-file>` instead of `--session-dir` and update the same parent chat card.
 
 Native subagents always pass `--no-skills` and then explicit `--skill` arguments for skills assigned to that agent. They do not inherit parent Default or Project skills automatically, and they do not use ambient skill discovery.
 

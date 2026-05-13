@@ -1,6 +1,6 @@
 ---
 name: agent-authoring
-description: Use when creating or reviewing Agent Deck agents, including frontmatter, tools, supervisor behavior, context, and skill assignment.
+description: Use when creating or reviewing Agent Deck agents, including frontmatter, tools, supervisor behavior, continuation behavior, and skill assignment.
 ---
 
 # Agent Deck Agent Authoring
@@ -19,8 +19,6 @@ whenToUse: Use for the precise delegation condition that should make the parent 
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
-inheritProjectContext: true
-defaultContext: fresh
 skills: agent-authoring
 ---
 
@@ -52,10 +50,9 @@ When creating an agent, decide:
 3. Routing: write `whenToUse` as one concise sentence that tells the parent exactly when to delegate to this agent; keep it distinct from the human-facing `description`.
 4. Tool boundary: prefer `read`, `grep`, `find`, `ls`; add `bash`, `edit`, `write` only when needed.
 5. Supervisor behavior: include `contact_supervisor` only when the child should ask for decisions or meaningful blockers.
-6. Context: `fresh` by default; `fork` only when parent history is useful and safe to disclose.
-7. Project context: use `inheritProjectContext: true` when project conventions such as `AGENTS.md` matter.
-8. Skills: assign explicit skill names in `skills:`. Agent Deck passes them through Pi native `--skill` injection. Do not use `inheritSkills`.
-9. Validation: specify what files, commands, or evidence the agent should inspect before completion.
+6. Continuation behavior: native subagents start fresh by default; the parent can explicitly continue a prior Subagent ID for direct follow-ups.
+7. Skills: assign explicit skill names in `skills:`. Agent Deck passes them through Pi native `--skill` injection. Do not use `inheritSkills`.
+8. Validation: specify what files, commands, or evidence the agent should inspect before completion.
 
 ## Scope rules
 
@@ -89,6 +86,5 @@ If the agent has `contact_supervisor`, Agent Deck injects the generic supervisor
 ## Good defaults
 
 - `systemPromptMode: replace` for focused specialists.
-- `inheritProjectContext: true` when project conventions matter.
-- `defaultContext: fresh` for reviewers/scouts; `fork` for workers/planners that benefit from parent context.
+- Native delegated runs use normal project context-file discovery; do not add context-inheritance frontmatter.
 - Read-only tools for scout/planner/reviewer; add write tools only for implementation agents.

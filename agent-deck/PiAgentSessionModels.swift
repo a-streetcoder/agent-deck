@@ -87,7 +87,7 @@ struct PiSubagentSupervisorRequest: Identifiable, Codable, Hashable {
 struct PiManagedSubagentBridgeRequest: Codable, Hashable {
     var agent: String
     var task: String
-    var context: String?
+    var continueSubagentID: String?
     var reads: [String]?
 }
 
@@ -270,24 +270,6 @@ struct PiSubagentGraphEdgeRecord: Identifiable, Codable, Hashable {
     var toChildID: UUID
 }
 
-enum PiSubagentContextMode: String, Codable, Hashable, CaseIterable, Identifiable {
-    case agentDefault
-    case fresh
-    case fork
-
-    var id: String { rawValue }
-
-    init?(bridgeValue: String?) {
-        guard let value = bridgeValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !value.isEmpty else { return nil }
-        switch value {
-        case "fresh": self = .fresh
-        case "fork": self = .fork
-        case "agentdefault", "agent_default", "default": self = .agentDefault
-        default: return nil
-        }
-    }
-}
-
 enum PiSubagentExpectedOutcome: String, Codable, Hashable, CaseIterable, Identifiable {
     case reportOnly
     case editFilesInWorktree
@@ -313,8 +295,6 @@ struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var agentName: String
     var task: String?
     var status: PiSubagentRunStatus
-    var requestedContext: PiSubagentContextMode?
-    var resolvedContext: PiSubagentContextMode?
     var model: String?
     var expectedOutcome: PiSubagentExpectedOutcome?
     var requestedOutputPath: String?
@@ -347,8 +327,6 @@ struct PiSubagentRunRecord: Identifiable, Codable, Hashable {
     var status: PiSubagentRunStatus
     var agentName: String
     var task: String
-    var requestedContext: PiSubagentContextMode
-    var resolvedContext: PiSubagentContextMode
     var model: String?
     var thinking: String?
     var expectedOutcome: PiSubagentExpectedOutcome?
@@ -392,8 +370,6 @@ extension PiSubagentRunRecord {
             status: .failed,
             agentName: agentName,
             task: task,
-            requestedContext: .agentDefault,
-            resolvedContext: .fresh,
             model: nil,
             thinking: nil,
             expectedOutcome: nil,

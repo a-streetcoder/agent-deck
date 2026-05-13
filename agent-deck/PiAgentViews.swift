@@ -247,7 +247,11 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         case .assistant:
             return isMeaningfulAssistantEntry(entry)
         case .status:
-            return entry.title == "Compaction" || entry.title == "Retry" || entry.title == "Subagent Started"
+            return entry.isNativeSubagentCard
+                || entry.title == "Compaction"
+                || entry.title == "Retry"
+                || entry.title == "Subagent Started"
+                || entry.title == "Native Subagent Requested"
         case .tool:
             return !(entry.title == "Tool Call" && entry.text.localizedCaseInsensitiveContains("preparing tool call"))
         case .stderr:
@@ -261,6 +265,16 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return true }
         return !piAgentLeakedToolNames.contains(text.lowercased())
+    }
+}
+
+private extension PiAgentTranscriptEntry {
+    var isNativeSubagentCard: Bool {
+        guard let rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = object["type"] as? String else { return false }
+        return type == "agent_deck_subagent_started" || type == "agent_deck_subagent_card"
     }
 }
 
@@ -616,7 +630,7 @@ struct PiAgentScreen: View {
 
     @ViewBuilder
     private func sessionListRow(_ session: PiAgentSessionRecord) -> some View {
-        let isWorking = sessionIsWorking(session)
+        let isWorking = viewModel.piAgentSessionIsWorking(session)
 
         PiAgentSessionRow(
             session: session,
@@ -670,18 +684,14 @@ struct PiAgentScreen: View {
         }
     }
 
-    private func sessionIsWorking(_ session: PiAgentSessionRecord) -> Bool {
-        session.status.isActive || store.subagentRuns(for: session.id).contains { $0.status.isActive }
-    }
-
     @ViewBuilder
     private func sessionListRowBackground(isSelected: Bool, isActive: Bool) -> some View {
         if isSelected {
             LinearGradient(
                 colors: [
-                    AppTheme.brandAccentBright.opacity(0.28),
-                    AppTheme.brandAccent.opacity(0.18),
-                    AppTheme.brandAccentDeep.opacity(0.24)
+                    AppTheme.brandAccentBright.opacity(0.12),
+                    AppTheme.brandAccent.opacity(0.07),
+                    AppTheme.brandAccentDeep.opacity(0.10)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -1456,7 +1466,7 @@ struct PiAgentScreen: View {
     }
 
     private var runningCount: Int {
-        scopedSessions.filter { $0.status.isActive }.count
+        scopedSessions.filter { viewModel.piAgentSessionIsWorking($0) }.count
     }
 
     private var emptySessionsMessage: String {

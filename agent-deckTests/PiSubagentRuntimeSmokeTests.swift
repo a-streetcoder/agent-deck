@@ -59,19 +59,7 @@ final class PiSubagentLaunchPlannerTests: XCTestCase {
         ])
     }
 
-    @MainActor
-    func testForkContextRequiresParentSessionFile() throws {
-        let agent = PiTestSupport.makeAgent(defaultContext: "fork")
 
-        XCTAssertEqual(
-            PiSubagentLaunchPlanner.resolvedContextMode(for: agent, parentSession: try PiTestSupport.makeParentSession(piSessionFile: nil), requestedContext: .fork),
-            .fresh
-        )
-        XCTAssertEqual(
-            PiSubagentLaunchPlanner.resolvedContextMode(for: agent, parentSession: try PiTestSupport.makeParentSession(piSessionFile: "/tmp/parent.jsonl"), requestedContext: .agentDefault),
-            .fork
-        )
-    }
 }
 
 @MainActor
@@ -98,8 +86,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(name: "scout"),
             snapshot: .empty,
-            task: "report env",
-            requestedContext: .fresh
+            task: "report env"
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -125,8 +112,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(model: nil, thinking: nil),
             snapshot: .empty,
-            task: "report current directory",
-            requestedContext: .fresh
+            task: "report current directory"
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -158,8 +144,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(systemPrompt: "You are `example`, a focused test agent."),
             snapshot: .empty,
-            task: "Check prompt order.",
-            requestedContext: .fresh
+            task: "Check prompt order."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -169,7 +154,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertLessThan(agentRange.lowerBound, commonRange.lowerBound)
     }
 
-    func testInheritProjectContextTrueAllowsPiContextDiscovery() throws {
+    func testNativeSubagentsAllowProjectContextDiscovery() throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
         setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
@@ -181,15 +166,71 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
 
         let run = try runner.runSingle(
             parentSession: parent,
-            agent: PiTestSupport.makeAgent(inheritProjectContext: true),
+            agent: PiTestSupport.makeAgent(),
             snapshot: .empty,
-            task: "Check context flags.",
-            requestedContext: .fresh
+            task: "Check context flags."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
         let command = try XCTUnwrap(run.launchCommand)
         XCTAssertFalse(command.contains("--no-context-files"))
+    }
+
+    func testContinuationResumesChildSessionAndUpdatesSameParentCard() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-continuation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let argsLog = directory.appendingPathComponent("args.log")
+        let childSessionFile = directory.appendingPathComponent("child-session.jsonl")
+        try "{}\n".write(to: childSessionFile, atomically: true, encoding: .utf8)
+        let script = """
+        #!/bin/sh
+        printf '%s\n' '--- invocation ---' >> \(PiTestSupport.shellSingleQuoted(argsLog.path))
+        printf '%s\n' "$@" >> \(PiTestSupport.shellSingleQuoted(argsLog.path))
+        while IFS= read -r line; do
+          case "$line" in
+            *'"type":"get_state"'*)
+              printf '%s\n' '{"type":"response","command":"get_state","success":true,"data":{"sessionFile":"\(childSessionFile.path)","isStreaming":false}}'
+              ;;
+            *'"type":"prompt"'*)
+              printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}'
+              printf '%s\n' '{"type":"agent_end"}'
+              ;;
+          esac
+        done
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restorePiPath(oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiSubagentRunService(store: store)
+        let parent = try PiTestSupport.makeParentSession()
+
+        let first = try runner.runSingle(parentSession: parent, agent: PiTestSupport.makeAgent(), snapshot: .empty, task: "First pass.")
+        XCTAssertTrue(PiTestSupport.waitUntil { store.subagentRuns(for: parent.id).first(where: { $0.id == first.id })?.status == .completed })
+
+        let continued = try runner.runSingle(parentSession: parent, agent: PiTestSupport.makeAgent(), snapshot: .empty, task: "Direct follow-up.", continueRunID: first.id)
+        XCTAssertEqual(continued.id, first.id)
+        XCTAssertTrue(PiTestSupport.waitUntil { store.subagentRuns(for: parent.id).first(where: { $0.id == first.id })?.child?.index == 1 && store.subagentRuns(for: parent.id).first(where: { $0.id == first.id })?.status == .completed })
+
+        let args = try String(contentsOf: argsLog, encoding: .utf8)
+        XCTAssertTrue(args.contains("--session\n\(childSessionFile.path)"))
+        XCTAssertFalse(args.contains("--fork"))
+        XCTAssertFalse(args.contains("--no-context-files"))
+
+        let cards = store.transcript(for: parent.id).filter { entry in
+            guard let rawJSON = entry.rawJSON,
+                  let data = rawJSON.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let runID = object["runID"] as? String else { return false }
+            return UUID(uuidString: runID) == first.id
+        }
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertTrue(cards.first?.text.contains("Direct follow-up.") == true)
     }
 
     func testReadFirstPathsRejectAbsoluteAndParentTraversalInputs() throws {
@@ -207,7 +248,6 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             agent: PiTestSupport.makeAgent(defaultReads: ["README.md", "/etc/passwd", "../secret.txt"]),
             snapshot: .empty,
             task: "Read allowed files only.",
-            requestedContext: .fresh,
             readFirstPaths: ["agent-deck/AppViewModel.swift", "/tmp/nope", "../../outside"]
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
@@ -220,37 +260,6 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
         XCTAssertFalse(input.contains("../secret.txt"))
     }
 
-    func testForkedRunUsesSanitizedReferenceSessionInArtifactDirectory() throws {
-        let fakePi = try PiTestSupport.makeFakePiExecutable()
-        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
-        setenv("AGENT_DECK_PI_PATH", fakePi.path, 1)
-        defer { restorePiPath(oldPiPath) }
-
-        let parentSessionFile = try PiTestSupport.makeParentSessionFileWithActiveManagedSubagentCall()
-        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
-        let runner = PiSubagentRunService(store: store)
-        let parent = try PiTestSupport.makeParentSession(piSessionFile: parentSessionFile.path)
-
-        let run = try runner.runSingle(
-            parentSession: parent,
-            agent: PiTestSupport.makeAgent(),
-            snapshot: .empty,
-            task: "Say whether you were launched with forked context.",
-            requestedContext: .fork
-        )
-        defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
-
-        let artifactDirectory = run.artifactDirectory.asFileURL
-        let forkContext = try String(contentsOf: artifactDirectory.appendingPathComponent("fork-context.jsonl"), encoding: .utf8)
-
-        XCTAssertEqual(run.resolvedContext, .fork)
-        XCTAssertTrue(run.launchCommand?.contains("--fork") == true)
-        XCTAssertFalse(run.launchCommand?.contains(parentSessionFile.path) == true)
-        XCTAssertTrue(forkContext.contains("Earlier useful context"))
-        XCTAssertTrue(forkContext.contains("\(AppBrand.displayName) native subagent boundary"))
-        XCTAssertFalse(forkContext.contains("Use managed_subagent with agent scout"))
-        XCTAssertFalse(forkContext.contains("\"name\":\"managed_subagent\""))
-    }
 
     func testLaunchCommandIsolatesChildPiFromAmbientExtensionsContextAndSkills() throws {
         let customExtension = "/tmp/agent-deck-custom-extension.ts"
@@ -265,17 +274,15 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(
                 tools: ["shell", "contact_supervisor"],
-                extensions: [customExtension],
-                inheritProjectContext: false
+                extensions: [customExtension]
             ),
             snapshot: .empty,
-            task: "Check isolation flags.",
-            requestedContext: .fresh
+            task: "Check isolation flags."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
         let command = try XCTUnwrap(run.launchCommand)
-        XCTAssertTrue(command.contains("--no-context-files"))
+        XCTAssertFalse(command.contains("--no-context-files"))
         XCTAssertTrue(command.contains("--system-prompt"))
         XCTAssertTrue(command.contains("--append-system-prompt ''"))
         XCTAssertTrue(command.contains("--no-skills"))
@@ -306,8 +313,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(),
             snapshot: .empty,
-            task: "Capture prompt.",
-            requestedContext: .fresh
+            task: "Capture prompt."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -357,8 +363,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(skills: ["private-skill"]),
             snapshot: snapshot,
-            task: "Use the private skill.",
-            requestedContext: .fresh
+            task: "Use the private skill."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -382,8 +387,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(skills: ["missing-private-skill"]),
             snapshot: .empty,
-            task: "Use missing skill if needed.",
-            requestedContext: .fresh
+            task: "Use missing skill if needed."
         )) { error in
             XCTAssertTrue(error.localizedDescription.contains("missing-private-skill"))
         }
@@ -422,8 +426,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(tools: ["contact_supervisor"]),
             snapshot: .empty,
-            task: "Report progress.",
-            requestedContext: .fresh
+            task: "Report progress."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -448,8 +451,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(tools: ["contact_supervisor"]),
             snapshot: .empty,
-            task: "Ask for decision.",
-            requestedContext: .fresh
+            task: "Ask for decision."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -477,8 +479,7 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             parentSession: parent,
             agent: PiTestSupport.makeAgent(tools: ["contact_supervisor"]),
             snapshot: .empty,
-            task: "Ask to interview the user.",
-            requestedContext: .fresh
+            task: "Ask to interview the user."
         )
         defer { runner.stop(runID: run.id, parentSessionID: parent.id) }
 
@@ -512,7 +513,6 @@ final class PiSubagentRunServiceSmokeTests: XCTestCase {
             agent: PiTestSupport.makeAgent(output: "docs/advisory.md"),
             snapshot: .empty,
             task: "Produce the requested outcome.",
-            requestedContext: .fresh,
             expectedOutcome: expectedOutcome,
             requestedOutputPath: requestedOutputPath,
             allowOverwrite: false

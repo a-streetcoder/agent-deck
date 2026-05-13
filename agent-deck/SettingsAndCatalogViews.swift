@@ -295,6 +295,7 @@ struct AgentModelQuickEditorContext: Identifiable {
 struct AgentModelQuickEditorSection: Identifiable {
     let title: String
     let agents: [EffectiveAgentRecord]
+    var isDimmed = false
 
     var id: String { title }
 }
@@ -324,9 +325,10 @@ struct AgentModelQuickEditorSheet: View {
         self.makeDraft = makeDraft
         self.onSave = onSave
 
-        let seeded = Dictionary(uniqueKeysWithValues: context.sections
-            .flatMap(\.agents)
-            .compactMap { agent in makeDraft(agent).map { (agent.id, $0) } })
+        var seeded: [EffectiveAgentRecord.ID: AgentEditorDraft] = [:]
+        for agent in context.sections.flatMap(\.agents) where seeded[agent.id] == nil {
+            seeded[agent.id] = makeDraft(agent)
+        }
         _drafts = State(initialValue: seeded)
         _baselines = State(initialValue: seeded)
     }
@@ -345,31 +347,18 @@ struct AgentModelQuickEditorSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Model + thinking only")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
             }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     ForEach(context.sections) { section in
                         if !section.agents.isEmpty {
-                            AppCard(title: section.title) {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    ForEach(section.agents) { agent in
-                                        if let draftBinding = binding(for: agent.id) {
-                                            AgentModelQuickEditRow(
-                                                agent: agent,
-                                                draft: draftBinding,
-                                                availableModels: availableModels,
-                                                isDirty: isDirty(agent.id)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            AgentModelQuickEditSectionView(
+                                section: section,
+                                availableModels: availableModels,
+                                binding: binding(for:),
+                                isDirty: isDirty
+                            )
                         }
                     }
                 }
@@ -392,8 +381,8 @@ struct AgentModelQuickEditorSheet: View {
                 .disabled(dirtyAgentIDs.isEmpty)
             }
         }
-        .padding(20)
-        .frame(minWidth: 860, minHeight: 640)
+        .padding(AppTheme.pagePadding)
+        .frame(minWidth: 900, minHeight: 560)
     }
 
     private var dirtyAgentIDs: [EffectiveAgentRecord.ID] {
@@ -442,6 +431,84 @@ struct AgentModelQuickEditorSheet: View {
     }
 }
 
+struct AgentModelQuickEditSectionView: View {
+    let section: AgentModelQuickEditorSection
+    let availableModels: [AvailableModel]
+    let binding: (EffectiveAgentRecord.ID) -> Binding<AgentEditorDraft>?
+    let isDirty: (EffectiveAgentRecord.ID) -> Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(section.title)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Spacer()
+            }
+            .padding(.horizontal, sectionContentInset)
+            .padding(.top, sectionContentInset)
+            .padding(.bottom, AppTheme.contentSpacing)
+
+            Grid(alignment: .leading, horizontalSpacing: AppTheme.contentSpacing, verticalSpacing: 0) {
+                GridRow {
+                    AgentModelColumnHeader("Agent")
+                    AgentModelColumnHeader("Model")
+                    AgentModelColumnHeader("Thinking")
+                    AgentModelColumnHeader("")
+                }
+                .padding(.bottom, AppTheme.contentSpacing / 2)
+
+                Divider().gridCellColumns(4)
+
+                ForEach(editableAgents) { agent in
+                    if let draftBinding = binding(agent.id) {
+                        AgentModelQuickEditRow(
+                            agent: agent,
+                            draft: draftBinding,
+                            availableModels: availableModels,
+                            isDirty: isDirty(agent.id)
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal, sectionContentInset)
+
+            Text("Default model and thinking can be changed in Sidebar > Models.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .padding(.horizontal, sectionContentInset)
+                .padding(.top, AppTheme.contentSpacing / 2)
+                .padding(.bottom, sectionContentInset)
+        }
+        .opacity(section.isDimmed ? 0.58 : 1)
+        .background(AppTheme.contentSubtleFill.opacity(section.isDimmed ? 0.10 : 0.18), in: RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        )
+    }
+
+    private var sectionContentInset: CGFloat { AppTheme.pagePadding }
+
+    private var editableAgents: [EffectiveAgentRecord] {
+        section.agents.filter { binding($0.id) != nil }
+    }
+}
+
+private struct AgentModelColumnHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.mutedText)
+    }
+}
+
 struct AgentModelQuickEditRow: View {
     let agent: EffectiveAgentRecord
     @Binding var draft: AgentEditorDraft
@@ -449,61 +516,55 @@ struct AgentModelQuickEditRow: View {
     let isDirty: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        GridRow {
             HStack(spacing: 8) {
                 Text(agent.name)
-                    .font(.headline)
-                    .fontWidth(.expanded)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
                 if isDirty {
                     AppLabelTag(text: "Unsaved", color: .orange)
                 }
             }
+            .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
 
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Model")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    Picker("Model", selection: modelSelectionBinding) {
-                        Text("Use Pi Default Model").tag("")
-                        ForEach(availableModels, id: \.identifier) { model in
-                            Text(model.identifier).tag(model.identifier)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if let summary = selectedModelMetadataSummary {
-                        Text(summary)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(1)
-                    }
+            Picker("Model", selection: modelSelectionBinding) {
+                Text("Default").tag("")
+                ForEach(availableModels, id: \.identifier) { model in
+                    Text(model.identifier).tag(model.identifier)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Thinking")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                    Picker("Thinking", selection: thinkingSelectionBinding) {
-                        ForEach(availableThinkingLevels, id: \.self) { level in
-                            Text(level.capitalized).tag(level)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 180, alignment: .leading)
-                }
-                .frame(width: 220, alignment: .leading)
-                .padding(12)
-                .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(minWidth: 320, maxWidth: .infinity, alignment: .leading)
+            .help(selectedModelMetadataSummary ?? "Use the default model from Sidebar > Models")
+
+            Picker("Thinking", selection: thinkingSelectionBinding) {
+                if usesDefaultModel {
+                    Text("Default").tag(defaultThinkingSelection)
+                } else {
+                    ForEach(availableThinkingLevels, id: \.self) { level in
+                        Text(level.capitalized).tag(level)
+                    }
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 130, alignment: .leading)
+            .disabled(usesDefaultModel || availableThinkingLevels.isEmpty)
+            .help(usesDefaultModel ? "Select a specific model to override thinking for this agent" : "Override thinking for the selected model")
+
+            Text(selectedModelMetadataSummary ?? "Default")
+                .font(.caption.monospaced())
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
+                .frame(width: 96, alignment: .trailing)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.contentSubtleFill.opacity(0.28), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.vertical, AppTheme.contentSpacing / 2)
+        .background(isDirty ? Color.orange.opacity(0.08) : Color.clear)
+    }
+
+    private var usesDefaultModel: Bool {
+        draft.config.model == nil
     }
 
     private var selectedModel: AvailableModel? {
@@ -515,6 +576,8 @@ struct AgentModelQuickEditRow: View {
         guard let model = selectedModel else { return nil }
         return "context: \(model.contextWindow)"
     }
+
+    private var defaultThinkingSelection: String { "__default__" }
 
     private var availableThinkingLevels: [String] {
         selectedModel?.supportedThinkingLevels ?? []
@@ -533,10 +596,12 @@ struct AgentModelQuickEditRow: View {
     private var thinkingSelectionBinding: Binding<String> {
         Binding(
             get: {
+                guard !usesDefaultModel else { return defaultThinkingSelection }
                 let current = draft.config.thinking ?? "off"
                 return availableThinkingLevels.contains(current) ? current : (availableThinkingLevels.first ?? "off")
             },
             set: { newValue in
+                guard newValue != defaultThinkingSelection else { return }
                 draft.config.thinking = newValue == "off" ? nil : newValue
             }
         )

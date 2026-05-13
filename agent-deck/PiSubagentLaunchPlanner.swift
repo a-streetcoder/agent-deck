@@ -36,19 +36,6 @@ enum PiSubagentLaunchPlanner {
         )
     }
 
-    static func resolvedContextMode(for agent: EffectiveAgentRecord, parentSession: PiAgentSessionRecord, requestedContext: PiSubagentContextMode) -> PiSubagentContextMode {
-        switch requestedContext {
-        case .fresh:
-            return .fresh
-        case .fork:
-            return parentSession.piSessionFile == nil ? .fresh : .fork
-        case .agentDefault:
-            if agent.resolved.defaultContext == "fork", parentSession.piSessionFile != nil { return .fork }
-            if agent.resolved.defaultContext == "fresh" { return .fresh }
-            return .fresh
-        }
-    }
-
     private static func suffixedModel(_ rawModel: String?, thinking: String?) -> String? {
         guard let model = rawModel?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty else { return nil }
         guard let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty, thinking != "off" else { return model }
