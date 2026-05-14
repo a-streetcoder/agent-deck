@@ -552,9 +552,19 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailSplitView: some View {
+        if toolbarSearchIsVisible {
+            detailSplitContent
+                .searchable(text: toolbarSearchBinding, placement: .toolbar, prompt: toolbarSearchPrompt)
+        } else {
+            detailSplitContent
+        }
+    }
+
+    @ViewBuilder
+    private var detailSplitContent: some View {
         if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
             HStack(spacing: 0) {
-                searchableDetailView
+                detailView
                     .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
 
                 Divider()
@@ -562,18 +572,8 @@ struct ContentView: View {
                     .frame(width: 400)
             }
         } else {
-            searchableDetailView
-                .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-
-    @ViewBuilder
-    private var searchableDetailView: some View {
-        if toolbarSearchIsVisible {
-            detailView.searchable(text: toolbarSearchBinding, placement: .toolbar, prompt: toolbarSearchPrompt)
-        } else {
             detailView
+                .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
