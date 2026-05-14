@@ -17,7 +17,6 @@ private enum PiAgentGitHubPanelSection: String, CaseIterable, Identifiable {
 struct PiAgentRepoChangesPanel: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isPresented: Bool
-    @State private var filterText = ""
     @State private var selectedSection: PiAgentGitHubPanelSection = .issues
     @State private var presentedIssue: GitHubWorkItem?
     @State private var isCommitConfirmationPresented = false
@@ -27,10 +26,7 @@ struct PiAgentRepoChangesPanel: View {
 
     private var items: [PiAgentGitChangeListItem] {
         guard let snapshot else { return [] }
-        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return PiAgentGitChangeListItem.items(from: snapshot).filter { item in
-            query.isEmpty || item.path.localizedCaseInsensitiveContains(query)
-        }
+        return PiAgentGitChangeListItem.items(from: snapshot)
     }
 
     var body: some View {
@@ -283,16 +279,11 @@ struct PiAgentRepoChangesPanel: View {
     }
 
     private func changesListControls(_ snapshot: RepositoryChangesSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Filter files", text: $filterText)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 8) {
-                Text("\(snapshot.totalChangeCount) changed file\(snapshot.totalChangeCount == 1 ? "" : "s")")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                Spacer(minLength: 8)
-            }
+        HStack(spacing: 8) {
+            Text("\(snapshot.totalChangeCount) changed file\(snapshot.totalChangeCount == 1 ? "" : "s")")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+            Spacer(minLength: 8)
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.55)))
