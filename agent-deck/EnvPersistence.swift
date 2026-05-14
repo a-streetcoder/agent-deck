@@ -13,7 +13,7 @@ struct EnvPersistence {
         )
     }
 
-    func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> EnvEditorDraft {
+    func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?, prefilledKey: String? = nil) -> EnvEditorDraft {
         let path = switch scope {
         case .library, .global:
             fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env").path
@@ -23,7 +23,7 @@ struct EnvPersistence {
 
         return EnvEditorDraft(
             originalKey: nil,
-            key: "NEW_KEY",
+            key: prefilledKey ?? "NEW_KEY",
             value: "",
             path: path,
             scope: scope == .project ? .project : .global

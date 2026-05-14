@@ -497,6 +497,7 @@ struct DoctorScreen: View {
     @State private var webFetchStatus = WebFetchDependencyService().status()
     @State private var isInstallingWebFetchDependencies = false
     @State private var webFetchInstallMessage: String?
+    @State private var envDraft: EnvEditorDraft?
 
     private var snapshot: ScanSnapshot {
         viewModel.snapshot
@@ -515,6 +516,17 @@ struct DoctorScreen: View {
                 await refreshSetupChecks()
             }
             refreshWebFetchStatus()
+        }
+        .sheet(item: $envDraft) { draft in
+            EnvEditorSheet(
+                draft: draft,
+                onCancel: { envDraft = nil },
+                onSave: { updated in
+                    try viewModel.saveEnvDraft(updated)
+                    envDraft = nil
+                    Task { await refreshSetupChecks() }
+                }
+            )
         }
     }
 
@@ -656,9 +668,21 @@ struct DoctorScreen: View {
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 7) {
-                Text(item.title)
-                    .font(.body.weight(.semibold))
-                    .fontWidth(.expanded)
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(.body.weight(.semibold))
+                        .fontWidth(.expanded)
+                    if let infoURL = item.infoURL {
+                        Button {
+                            NSWorkspace.shared.open(infoURL)
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Open \(infoURL.host ?? infoURL.absoluteString)")
+                    }
+                }
 
                 Text(item.detail)
                     .font(.caption)
@@ -695,6 +719,8 @@ struct DoctorScreen: View {
         case .chooseProjectRoot:
             viewModel.chooseProjectsRootDirectory()
             Task { await refreshSetupChecks() }
+        case .addGlobalEnvKey(let name):
+            envDraft = viewModel.makeNewEnvDraft(scope: .global, prefilledKey: name)
         }
     }
 
@@ -723,9 +749,21 @@ struct DoctorScreen: View {
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Exa API Key")
-                        .font(.body.weight(.semibold))
-                        .fontWidth(.expanded)
+                    HStack(spacing: 6) {
+                        Text("Exa API Key")
+                            .font(.body.weight(.semibold))
+                            .fontWidth(.expanded)
+                        if !hasExaAPIKey, let infoURL = URL(string: "https://dashboard.exa.ai/api-keys") {
+                            Button {
+                                NSWorkspace.shared.open(infoURL)
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 13))
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Get an Exa API key at dashboard.exa.ai")
+                        }
+                    }
 
                     Text(hasExaAPIKey
                          ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Exa web tools are loaded by the app. Enhanced web_fetch fallback setup is still shown here for standby use."
@@ -739,6 +777,12 @@ struct DoctorScreen: View {
                     AppKeyValueList(rows: webAccessRows)
 
                     HStack(spacing: 8) {
+                        if !hasExaAPIKey {
+                            Button("Add EXA_API_KEY…") {
+                                envDraft = viewModel.makeNewEnvDraft(scope: .global, prefilledKey: "EXA_API_KEY")
+                            }
+                        }
+
                         Button {
                             Task { await installWebFetchDependencies() }
                         } label: {

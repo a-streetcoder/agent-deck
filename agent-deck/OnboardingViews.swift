@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TourKit
 
@@ -98,6 +99,7 @@ struct SetupChecklistView: View {
     let onFinish: (Bool) -> Void
     @State private var items: [SetupCheckItem] = []
     @State private var isRefreshing = true
+    @State private var envDraft: EnvEditorDraft?
 
     fileprivate init(
         viewModel: AppViewModel,
@@ -184,6 +186,17 @@ struct SetupChecklistView: View {
             if items.isEmpty {
                 await loadInitialItems()
             }
+        }
+        .sheet(item: $envDraft) { draft in
+            EnvEditorSheet(
+                draft: draft,
+                onCancel: { envDraft = nil },
+                onSave: { updated in
+                    try viewModel.saveEnvDraft(updated)
+                    envDraft = nil
+                    Task { await refresh() }
+                }
+            )
         }
     }
 
@@ -284,9 +297,21 @@ struct SetupChecklistView: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(item.title)
-                    .font(.body.weight(.semibold))
-                    .fontWidth(.expanded)
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(.body.weight(.semibold))
+                        .fontWidth(.expanded)
+                    if let infoURL = item.infoURL {
+                        Button {
+                            NSWorkspace.shared.open(infoURL)
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Open \(infoURL.host ?? infoURL.absoluteString)")
+                    }
+                }
                 Text(item.detail)
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
@@ -325,6 +350,8 @@ struct SetupChecklistView: View {
         case .chooseProjectRoot:
             viewModel.chooseProjectsRootDirectory()
             Task { await refresh() }
+        case .addGlobalEnvKey(let name):
+            envDraft = viewModel.makeNewEnvDraft(scope: .global, prefilledKey: name)
         }
     }
 }
@@ -336,6 +363,7 @@ struct SetupCheckItem: Identifiable, Hashable {
     let status: SetupCheckStatus
     let recovery: String?
     let action: SetupCheckAction?
+    let infoURL: URL?
 
     init(
         id: String,
@@ -343,7 +371,8 @@ struct SetupCheckItem: Identifiable, Hashable {
         detail: String,
         status: SetupCheckStatus,
         recovery: String?,
-        action: SetupCheckAction? = nil
+        action: SetupCheckAction? = nil,
+        infoURL: URL? = nil
     ) {
         self.id = id
         self.title = title
@@ -351,15 +380,18 @@ struct SetupCheckItem: Identifiable, Hashable {
         self.status = status
         self.recovery = recovery
         self.action = action
+        self.infoURL = infoURL
     }
 }
 
 enum SetupCheckAction: Hashable {
     case chooseProjectRoot
+    case addGlobalEnvKey(name: String)
 
     var buttonTitle: String {
         switch self {
         case .chooseProjectRoot: "Choose Folder…"
+        case .addGlobalEnvKey(let name): "Add \(name)…"
         }
     }
 }
@@ -564,7 +596,9 @@ struct SetupDependencyService {
                 ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions."
                 : "Required for Exa web_search, fetch_content, and get_search_content. Without it, install enhanced web_fetch dependencies from Doctor for known-URL fallback.",
             status: hasKey ? .passed : .warning,
-            recovery: hasKey ? nil : "Add EXA_API_KEY to ~/.pi/agent/.env or the selected project's .pi/.env for Exa search."
+            recovery: nil,
+            action: hasKey ? nil : .addGlobalEnvKey(name: "EXA_API_KEY"),
+            infoURL: hasKey ? nil : URL(string: "https://dashboard.exa.ai/api-keys")
         )
     }
 
