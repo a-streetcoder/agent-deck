@@ -45,7 +45,12 @@ struct WelcomeOnboardingSheet: View {
             case .tour:
                 tourView
             case .setup:
-                SetupChecklistView(viewModel: viewModel, preloadedItems: setupItemsTask, onFinish: onFinish)
+                SetupChecklistView(
+                    viewModel: viewModel,
+                    preloadedItems: setupItemsTask,
+                    onBack: { phase = .tour },
+                    onFinish: onFinish
+                )
             }
         }
         .task {
@@ -79,6 +84,7 @@ struct WelcomeOnboardingSheet: View {
 struct SetupChecklistView: View {
     @ObservedObject var viewModel: AppViewModel
     fileprivate let preloadedItems: Task<[SetupCheckItem], Never>?
+    let onBack: () -> Void
     let onFinish: (Bool) -> Void
     @State private var items: [SetupCheckItem] = []
     @State private var isRefreshing = true
@@ -86,10 +92,12 @@ struct SetupChecklistView: View {
     fileprivate init(
         viewModel: AppViewModel,
         preloadedItems: Task<[SetupCheckItem], Never>? = nil,
+        onBack: @escaping () -> Void,
         onFinish: @escaping (Bool) -> Void
     ) {
         self.viewModel = viewModel
         self.preloadedItems = preloadedItems
+        self.onBack = onBack
         self.onFinish = onFinish
     }
 
@@ -147,12 +155,10 @@ struct SetupChecklistView: View {
 
             Divider()
             HStack {
-                if shouldPromptForProjectSelection {
-                    Button("Select Project") {
-                        viewModel.selectedSidebarItem = .projects
-                        onFinish(false)
-                    }
+                Button("Back") {
+                    onBack()
                 }
+                projectSelectionMenu
                 Spacer()
                 Button(finishButtonTitle) {
                     onFinish(needsDoctor)
@@ -175,12 +181,44 @@ struct SetupChecklistView: View {
         items.contains { $0.status != .passed }
     }
 
-    private var shouldPromptForProjectSelection: Bool {
-        items.contains { $0.id == "selected-project" && $0.status != .passed }
-    }
-
     private var finishButtonTitle: String {
         needsDoctor ? "Review Setup" : "Done"
+    }
+
+    private var selectableProjects: [DiscoveredProject] {
+        viewModel.discoveredProjects.sorted {
+            $0.repositoryDisplayName.localizedCaseInsensitiveCompare($1.repositoryDisplayName) == .orderedAscending
+        }
+    }
+
+    private var projectSelectionTitle: String {
+        guard let selectedProject = viewModel.selectedDiscoveredProject else {
+            return "Select Project"
+        }
+        return selectedProject.repositoryDisplayName
+    }
+
+    private var projectSelectionMenu: some View {
+        Menu {
+            if selectableProjects.isEmpty {
+                Text("No discovered projects")
+            } else {
+                ForEach(selectableProjects) { project in
+                    Button {
+                        selectProject(project)
+                    } label: {
+                        Label(
+                            project.repositoryDisplayName,
+                            systemImage: viewModel.selectedProjectPath == project.path ? "checkmark" : project.fallbackSymbolName
+                        )
+                    }
+                }
+            }
+        } label: {
+            Label(projectSelectionTitle, systemImage: "folder")
+        }
+        .disabled(selectableProjects.isEmpty)
+        .help(selectableProjects.isEmpty ? "No projects were discovered in the projects folder" : "Enable and select a project")
     }
 
     private var loadingRow: some View {
@@ -220,6 +258,12 @@ struct SetupChecklistView: View {
         let projectRootPath = viewModel.appSettings.projectsRootPath
         let githubAccount = viewModel.currentGitHubAccount
         items = await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount, selectedProjectPath: viewModel.selectedProjectPath)
+    }
+
+    private func selectProject(_ project: DiscoveredProject) {
+        viewModel.setProjectEnabled(true, for: project)
+        viewModel.setSelectedProject(project.url)
+        Task { await refresh() }
     }
 
     private func setupRow(_ item: SetupCheckItem) -> some View {
@@ -306,10 +350,11 @@ struct SetupDependencyService {
         async let models = modelCheck()
         let github = await githubCheck(account: githubAccount)
         let project = projectRootCheck(path: projectRootPath)
+        let discoveredProjectCount = discoveredProjectCount(projectRootPath: projectRootPath)
         let web = exaAPIKeyCheck(projectRootPath: selectedProjectPath ?? projectRootPath)
 
         if github.status == .passed {
-            let selectedProject = selectedProjectCheck(selectedProjectPath: selectedProjectPath)
+            let selectedProject = selectedProjectCheck(selectedProjectPath: selectedProjectPath, discoveredProjectCount: discoveredProjectCount)
             return await [pi, models, project, github, selectedProject, web]
         }
 
@@ -392,14 +437,30 @@ struct SetupDependencyService {
         )
     }
 
-    private func selectedProjectCheck(selectedProjectPath: String?) -> SetupCheckItem {
+    private func discoveredProjectCount(projectRootPath: String) -> Int {
+        ProjectDiscovery()
+            .discoverProjects(rootDirectoryURL: URL(fileURLWithPath: projectRootPath))
+            .count
+    }
+
+    private func selectedProjectCheck(selectedProjectPath: String?, discoveredProjectCount: Int) -> SetupCheckItem {
         guard let selectedProjectPath, !selectedProjectPath.isEmpty else {
+            if discoveredProjectCount == 0 {
+                return SetupCheckItem(
+                    id: "selected-project",
+                    title: "Selected Project",
+                    detail: "No projects were discovered. You can still start projectless Pi Agent sessions from the projects folder.",
+                    status: .passed,
+                    recovery: nil
+                )
+            }
+
             return SetupCheckItem(
                 id: "selected-project",
                 title: "Selected Project",
                 detail: "Select a project to enable project agents, repo context, GitHub issue workflows, and project `.env` resolution.",
                 status: .warning,
-                recovery: "Choose Select Project, then pick a repository from Projects."
+                recovery: "Choose Select Project below, then pick a discovered repository."
             )
         }
 

@@ -869,20 +869,19 @@ struct PiAgentScreen: View {
                         .help("Delete selected sessions")
                         .accessibilityLabel("Delete selected sessions")
                     }
-                    if viewModel.selectedDiscoveredProject == nil {
+                    if viewModel.selectedDiscoveredProject == nil, !piAgentNewSessionProjects.isEmpty {
                         PiAgentAddSessionMenuButton(
                             projects: piAgentNewSessionProjects,
                             selectedProject: viewModel.selectedDiscoveredProject
                         ) { project in
                             viewModel.createPiAgentDraft(for: project)
                         }
-                        .disabled(piAgentNewSessionProjects.isEmpty)
                         .help("Choose a project for the new Pi Agent session")
                     } else {
                         PiAgentAddSessionButton {
                             viewModel.createPiAgentDraftForSelectedProject()
                         }
-                        .help("New Pi Agent session")
+                        .help(viewModel.selectedDiscoveredProject == nil ? "New projectless Pi Agent session" : "New Pi Agent session")
                     }
                 }
             }
