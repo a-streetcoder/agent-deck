@@ -37,6 +37,7 @@ private extension Array where Element == PiStartupResourceItem {
 struct PiAgentStartupResourcesCard: View {
     @ObservedObject var viewModel: AppViewModel
     let session: PiAgentSessionRecord
+    var onExpansionChange: () -> Void = {}
     @State private var isExpanded = false
 
     var body: some View {
@@ -46,6 +47,7 @@ struct PiAgentStartupResourcesCard: View {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isExpanded.toggle()
                     }
+                    onExpansionChange()
                 } label: {
                     header
                 }
@@ -87,7 +89,6 @@ struct PiAgentStartupResourcesCard: View {
                     hintChip("⇧/⌘/⌥ ↩", "newline")
                     hintChip("Esc", "stop running turn")
                     hintChip("Esc Esc", "clear input")
-                    hintChip("⌃P/⌃N", "input history")
                     hintChip("/", "commands")
                     hintChip("@", "file suggestions")
                 }

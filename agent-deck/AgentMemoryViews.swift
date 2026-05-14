@@ -375,10 +375,12 @@ private struct MemoryDetailView: View {
                 } label: {
                     Label("Actions", systemImage: "ellipsis.circle")
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
 
                 Button("Edit") { isEditing = true }
-                    .buttonStyle(AppSecondaryButtonStyle())
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
             }
 
         }

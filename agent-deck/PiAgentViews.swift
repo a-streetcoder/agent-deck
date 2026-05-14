@@ -327,7 +327,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
@@ -734,6 +734,7 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
+    @State private var startupResourcesLayoutRevision = 0
     @State private var showArchivedPreCompactionTranscript = false
     @State private var isEarlierTranscriptSheetPresented = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
@@ -1205,7 +1206,13 @@ struct PiAgentScreen: View {
         var items: [PiAgentAppKitTranscriptItem] = []
 
         if let session = store.selectedSession {
-            items.append(PiAgentAppKitTranscriptItem(id: "startup-resources-\(session.id.uuidString)", view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session)), contentRevision: contentRevision))
+            items.append(PiAgentAppKitTranscriptItem(
+                id: "startup-resources-\(session.id.uuidString)",
+                view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session) {
+                    startupResourcesLayoutRevision &+= 1
+                }),
+                contentRevision: contentRevision &+ startupResourcesLayoutRevision
+            ))
             if let finalSystemPrompt = session.finalSystemPrompt {
                 items.append(PiAgentAppKitTranscriptItem(id: "system-prompt-\(session.id.uuidString)", view: AnyView(PiAgentSystemPromptAuditCard(title: "Final System Prompt", subtitle: "", prompt: finalSystemPrompt)), contentRevision: contentRevision))
             }
@@ -1226,7 +1233,7 @@ struct PiAgentScreen: View {
         }
         if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
             items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(loadingTranscriptCard), contentRevision: contentRevision))
-        } else if timelineItems.isEmpty {
+        } else if timelineItems.isEmpty && items.isEmpty {
             items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(emptyTranscriptCard), contentRevision: contentRevision))
         } else {
             for item in timelineItems {
@@ -1712,24 +1719,8 @@ struct PiAgentScreen: View {
             onStop: { viewModel.stopSelectedPiAgentSession() },
             onCreateSession: createSessionFromComposer,
             onCreateSessionForProject: createSessionFromComposer,
-            onClear: clearComposerInput,
-            onHistoryPrevious: composerHistoryPrevious,
-            onHistoryNext: composerHistoryNext
+            onClear: clearComposerInput
         )
-        .onMoveCommand { direction in
-            switch direction {
-            case .up:
-                if let historyText = composerHistoryPrevious() {
-                    composerText = historyText
-                }
-            case .down:
-                if let historyText = composerHistoryNext() {
-                    composerText = historyText
-                }
-            default:
-                break
-            }
-        }
         .popover(
             isPresented: Binding(
                 get: { hasComposerSuggestions },
@@ -1980,40 +1971,6 @@ struct PiAgentScreen: View {
         composerFiles = []
         composerFolders = []
         composerAttachmentError = nil
-    }
-
-    private var composerHistoryMessages: [String] {
-        guard let sessionID = store.selectedSession?.id else { return [] }
-        var seen: Set<String> = []
-        return store.transcript(for: sessionID)
-            .filter { $0.role == .user }
-            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .filter { seen.insert($0).inserted }
-    }
-
-    private func composerHistoryPrevious() -> String? {
-        let history = composerHistoryMessages
-        guard !history.isEmpty else { return nil }
-        if composerHistoryIndex == nil {
-            composerHistoryDraft = composerText
-            composerHistoryIndex = history.count
-        }
-        let nextIndex = max((composerHistoryIndex ?? history.count) - 1, 0)
-        composerHistoryIndex = nextIndex
-        return history[nextIndex]
-    }
-
-    private func composerHistoryNext() -> String? {
-        let history = composerHistoryMessages
-        guard let index = composerHistoryIndex else { return nil }
-        let nextIndex = index + 1
-        if nextIndex >= history.count {
-            resetComposerHistoryNavigation(keepDraft: true)
-            return composerHistoryDraft
-        }
-        composerHistoryIndex = nextIndex
-        return history[nextIndex]
     }
 
     private func resetComposerHistoryNavigation(keepDraft: Bool = false) {
