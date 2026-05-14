@@ -112,6 +112,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
     private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
+    let agentMemoryStore = AgentMemoryStore()
 
     private let agentPersistence = AgentPersistence()
     private let envPersistence = EnvPersistence()
@@ -173,6 +174,7 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
+        configureAgentMemory()
         piAgentSessionStoreCancellable = piAgentSessionStore.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -213,6 +215,12 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         piAgentRunner.parentPromptTemplateArgumentsProvider = { [weak self] projectURL in
             try self?.parentPromptTemplateArguments(for: projectURL) ?? []
+        }
+        piAgentRunner.parentMemoryArgumentsProvider = { [weak self] session, projectURL, initialPrompt in
+            self?.parentMemoryArguments(for: session, projectURL: projectURL, initialPrompt: initialPrompt) ?? []
+        }
+        nativeSubagentRunner.childMemoryArgumentsProvider = { [weak self] parentSession, agent, task in
+            self?.childMemoryArguments(for: parentSession, agent: agent, task: task) ?? []
         }
         registerAppNotificationObservers()
         startAutoRefresh()
@@ -3104,6 +3112,66 @@ final class AppViewModel: NSObject, ObservableObject {
         syncAppSettings()
     }
 
+    func setAgentMemoryEnabled(_ isEnabled: Bool) {
+        guard appSettingsController.setAgentMemoryEnabled(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setAgentMemorySubagentsEnabled(_ isEnabled: Bool) {
+        guard appSettingsController.setAgentMemorySubagentsEnabled(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setAgentMemoryShowTranscriptCards(_ isEnabled: Bool) {
+        guard appSettingsController.setAgentMemoryShowTranscriptCards(isEnabled) else { return }
+        syncAppSettings()
+    }
+
+    func setAgentMemoryInjectionCharacterBudget(_ budget: Int) {
+        guard appSettingsController.setAgentMemoryInjectionCharacterBudget(budget) else { return }
+        syncAppSettings()
+    }
+
+    func createAgentMemory(title: String, summary: String, body: String, kind: AgentMemoryKind, tags: [String]) {
+        do {
+            let record = try agentMemoryStore.createMemory(
+                kind: kind,
+                scope: selectedProjectPath == nil ? .global : .project,
+                status: .active,
+                title: title,
+                summary: summary,
+                body: body,
+                projectPath: selectedProjectPath,
+                tags: tags
+            )
+            appendMemoryEvent(.stored, records: [record], summary: "Stored \(record.kind.displayName.lowercased()) memory: \(record.title).")
+        } catch {
+            appendMemoryBlockedEvent(error.localizedDescription)
+        }
+    }
+
+    func updateAgentMemory(id: String, title: String, summary: String, body: String, tags: [String]) {
+        do {
+            try agentMemoryStore.updateMemory(id: id, title: title, summary: summary, body: body, tags: tags)
+            if let record = agentMemoryStore.records.first(where: { $0.id == id }) {
+                appendMemoryEvent(.edited, records: [record], summary: "Edited memory: \(record.title).")
+            }
+        } catch {
+            appendMemoryBlockedEvent(error.localizedDescription)
+        }
+    }
+
+    func setAgentMemoryStatus(_ id: String, status: AgentMemoryStatus) {
+        agentMemoryStore.setStatus(id: id, status: status)
+        if let record = agentMemoryStore.records.first(where: { $0.id == id }) {
+            appendMemoryEvent(status == .archived ? .archived : .edited, records: [record], summary: "Set memory status to \(status.displayName): \(record.title).")
+        }
+    }
+
+    func deleteAgentMemory(_ id: String) {
+        agentMemoryStore.deleteMemory(id: id)
+    }
+
     func setShowContextSmartZoneHint(_ isEnabled: Bool) {
         guard appSettingsController.setShowContextSmartZoneHint(isEnabled) else { return }
         syncAppSettings()
@@ -3180,6 +3248,7 @@ final class AppViewModel: NSObject, ObservableObject {
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()
+        configureAgentMemory()
     }
 
     private func writeOpenAIFastModeConfig() {
@@ -3197,6 +3266,54 @@ final class AppViewModel: NSObject, ObservableObject {
             lazyLoadingEnabled: isPiAgentLazyTranscriptLoadingEnabled,
             cacheLimit: piAgentLoadedTranscriptCacheLimit
         )
+    }
+
+    private func configureAgentMemory() {
+        objectWillChange.send()
+    }
+
+    private func parentMemoryArguments(for session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?) -> [String] {
+        guard appSettings.agentMemoryEnabled else { return [] }
+        let query = [initialPrompt, session.title, session.repository].compactMap { $0 }.joined(separator: "\n")
+        guard let retrieval = agentMemoryStore.retrieve(
+            projectPath: session.projectPath,
+            query: query,
+            maxItems: 5,
+            maxCharacters: appSettings.agentMemoryInjectionCharacterBudget
+        ) else { return [] }
+        agentMemoryStore.markUsed(retrieval.records.map(\.id))
+        appendMemoryEvent(.recalled, records: retrieval.records, summary: "Loaded \(retrieval.records.count) relevant memor\(retrieval.records.count == 1 ? "y" : "ies") for this session.", sessionID: session.id)
+        return PiParentAppendPromptResolver.appendSystemPromptArguments(projectURL: projectURL, agentDeckAppendPrompts: [retrieval.prompt])
+    }
+
+    private func childMemoryArguments(for parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, task: String) -> [String] {
+        guard appSettings.agentMemoryEnabled, appSettings.agentMemorySubagentsEnabled else { return [] }
+        let query = [agent.name, agent.resolved.description, task].joined(separator: "\n")
+        guard let retrieval = agentMemoryStore.retrieve(
+            projectPath: parentSession.projectPath,
+            query: query,
+            maxItems: 4,
+            maxCharacters: min(appSettings.agentMemoryInjectionCharacterBudget, 3_500)
+        ) else { return [] }
+        agentMemoryStore.markUsed(retrieval.records.map(\.id))
+        appendMemoryEvent(.recalled, records: retrieval.records, summary: "Loaded \(retrieval.records.count) scoped memor\(retrieval.records.count == 1 ? "y" : "ies") for subagent \(agent.name).", sessionID: parentSession.id)
+        return ["--append-system-prompt", retrieval.prompt]
+    }
+
+    private func appendMemoryEvent(_ kind: AgentMemoryEventKind, records: [AgentMemoryRecord], summary: String, sessionID explicitSessionID: UUID? = nil) {
+        guard appSettings.agentMemoryShowTranscriptCards,
+              let sessionID = explicitSessionID ?? piAgentSessionStore.selectedSessionID else { return }
+        let event = agentMemoryStore.transcriptEvent(kind: kind, records: records, summary: summary)
+        let rawJSON = (try? JSONEncoder().encode(event)).flatMap { String(data: $0, encoding: .utf8) }
+        piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: event.title, text: event.summary, rawJSON: rawJSON))
+    }
+
+    private func appendMemoryBlockedEvent(_ summary: String) {
+        guard appSettings.agentMemoryShowTranscriptCards,
+              let sessionID = piAgentSessionStore.selectedSessionID else { return }
+        let event = AgentMemoryTranscriptEvent(type: AgentMemoryTranscriptEvent.rawType, event: .blocked, memoryIDs: [], scope: nil, title: AgentMemoryEventKind.blocked.displayTitle, summary: summary)
+        let rawJSON = (try? JSONEncoder().encode(event)).flatMap { String(data: $0, encoding: .utf8) }
+        piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: event.title, text: event.summary, rawJSON: rawJSON))
     }
 
     private func handleProjectsRootSettingsChange() {

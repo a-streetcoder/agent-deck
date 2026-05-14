@@ -59,6 +59,18 @@ struct CreditsScreen: View {
                     )
                     Divider()
                     creditRow(
+                        title: "pi-memctx",
+                        detail: "Agent Deck Memory's Markdown pack, workspace memory, and compact local retrieval design is inspired by weauratech's MIT-licensed pi-memctx. Agent Deck does not bundle or depend on that package.",
+                        url: "https://github.com/weauratech/pi-memctx"
+                    )
+                    Divider()
+                    creditRow(
+                        title: "pi-hermes-memory",
+                        detail: "Agent Deck Memory's failure and correction memory concepts are informed by chandra447's MIT-licensed pi-hermes-memory. Agent Deck does not bundle or depend on that package.",
+                        url: "https://github.com/chandra447/pi-hermes-memory"
+                    )
+                    Divider()
+                    creditRow(
                         title: "htmlparser2 and Turndown",
                         detail: "Optional enhanced web_fetch dependencies installed from npm. htmlparser2 and Turndown are MIT licensed; their current transitive parser dependencies are BSD-2-Clause.",
                         url: "https://www.npmjs.com/package/htmlparser2"

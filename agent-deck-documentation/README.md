@@ -4,6 +4,7 @@ This directory is the canonical Agent Deck documentation set for users, maintain
 
 Start with:
 
+- [Agent Deck Memory](memory.md)
 - [Agent Deck system prompt logic](agent-deck-system-prompt-logic.md)
 - [Pi RPC launch flags and subprocess context](pi-rpc-launch-flags.md)
 - [Skills in Agent Deck](skills-logic.md)

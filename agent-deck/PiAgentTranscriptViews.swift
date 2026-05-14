@@ -529,7 +529,10 @@ struct PiAgentTranscriptThreadCard: View {
                             }
                         }
                         ForEach(visibleStatusEntries) { entry in
-                            if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
+                            if let memoryEvent = entry.agentMemoryEvent {
+                                PiAgentMemoryActivityCard(event: memoryEvent)
+                                    .id(entry.id)
+                            } else if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
                                 nativeSubagentCard(run)
                                     .id(entry.id)
                             } else {
@@ -609,6 +612,18 @@ struct PiAgentTranscriptThreadCard: View {
             latestByPlanID[event.planID] = event
         }
         return latestByPlanID.values.sorted { $0.timestamp < $1.timestamp }
+    }
+}
+
+extension PiAgentTranscriptEntry {
+    var agentMemoryEvent: AgentMemoryTranscriptEvent? {
+        guard let rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let event = try? JSONDecoder().decode(AgentMemoryTranscriptEvent.self, from: data),
+              event.type == AgentMemoryTranscriptEvent.rawType else {
+            return nil
+        }
+        return event
     }
 }
 

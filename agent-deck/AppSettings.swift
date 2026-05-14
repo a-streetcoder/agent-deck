@@ -51,6 +51,12 @@ struct AppSettings: Codable, Hashable {
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
     var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
+    var agentMemoryEnabled: Bool = false
+    var agentMemoryProjectEnabledByDefault: Bool = true
+    var agentMemorySubagentsEnabled: Bool = true
+    var agentMemoryShowTranscriptCards: Bool = true
+    var agentMemoryInjectionCharacterBudget: Int = 6_000
+    var agentMemoryRetentionDays: Int = 120
     var showContextSmartZoneHint: Bool = false
     var autoGeneratePiAgentSessionTitles: Bool = false
     var autoUpdatePiAgentSessionTitles: Bool = false
@@ -81,6 +87,12 @@ struct AppSettings: Codable, Hashable {
         case projectsRootPath
         case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
+        case agentMemoryEnabled
+        case agentMemoryProjectEnabledByDefault
+        case agentMemorySubagentsEnabled
+        case agentMemoryShowTranscriptCards
+        case agentMemoryInjectionCharacterBudget
+        case agentMemoryRetentionDays
         case showContextSmartZoneHint
         case autoGeneratePiAgentSessionTitles
         case autoUpdatePiAgentSessionTitles
@@ -116,6 +128,12 @@ struct AppSettings: Codable, Hashable {
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
+        agentMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryEnabled) ?? false
+        agentMemoryProjectEnabledByDefault = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryProjectEnabledByDefault) ?? true
+        agentMemorySubagentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemorySubagentsEnabled) ?? true
+        agentMemoryShowTranscriptCards = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryShowTranscriptCards) ?? true
+        agentMemoryInjectionCharacterBudget = max(try container.decodeIfPresent(Int.self, forKey: .agentMemoryInjectionCharacterBudget) ?? 6_000, 1_000)
+        agentMemoryRetentionDays = max(try container.decodeIfPresent(Int.self, forKey: .agentMemoryRetentionDays) ?? 120, 1)
         showContextSmartZoneHint = try container.decodeIfPresent(Bool.self, forKey: .showContextSmartZoneHint) ?? false
         autoGeneratePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoGeneratePiAgentSessionTitles) ?? false
         autoUpdatePiAgentSessionTitles = try container.decodeIfPresent(Bool.self, forKey: .autoUpdatePiAgentSessionTitles) ?? false

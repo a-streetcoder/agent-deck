@@ -778,6 +778,8 @@ struct ContentView: View {
         switch viewModel.selectedSidebarItem {
         case .projects:
             ProjectsScreen(viewModel: viewModel)
+        case .memory:
+            MemoryScreen(viewModel: viewModel, memoryStore: viewModel.agentMemoryStore)
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,

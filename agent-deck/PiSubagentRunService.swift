@@ -14,6 +14,7 @@ final class PiSubagentRunService {
     private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
     private var streamFlushTasksByRunID: [UUID: Task<Void, Never>] = [:]
     private let fileManager = FileManager.default
+    var childMemoryArgumentsProvider: ((PiAgentSessionRecord, EffectiveAgentRecord, String) throws -> [String])?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -97,6 +98,9 @@ final class PiSubagentRunService {
         extraArguments.append(contentsOf: skillArguments)
         extraArguments.append("--no-prompt-templates")
         extraArguments.append("--no-themes")
+        if let childMemoryArgumentsProvider {
+            extraArguments.append(contentsOf: try childMemoryArgumentsProvider(parentSession, agent, trimmedTask))
+        }
 
         let modelSelection = PiSubagentLaunchPlanner.modelSelection(for: agent, parentSession: parentSession)
         let modelArgument = modelSelection.modelArgument

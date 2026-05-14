@@ -2,6 +2,7 @@ import Foundation
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case projects = "Projects"
+    case memory = "Memory"
     case agent = "Pi Agent"
     case agents = "Agents"
     case skills = "Skills"
@@ -18,6 +19,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .projects: return "folder"
+        case .memory: return "brain"
         case .agent: return "sparkles.rectangle.stack"
         case .agents: return "rectangle.connected.to.line.below"
         case .skills: return "wand.and.stars"
@@ -43,7 +45,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     var items: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.projects]
+            return [.projects, .memory]
         case .piResources:
             return [.agents, .skills, .prompts]
         case .runtime:

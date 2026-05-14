@@ -107,6 +107,10 @@ final class AppSettingsController {
         settings.nativeSubagentsEnabledForNewSessions
     }
 
+    var isAgentMemoryEnabled: Bool {
+        settings.agentMemoryEnabled
+    }
+
     var disabledModelIdentifiers: Set<String> {
         settings.disabledModelIdentifiers
     }
@@ -512,6 +516,39 @@ final class AppSettingsController {
     func setSubagentsEnabledForNewSessions(_ isEnabled: Bool) -> Bool {
         guard settings.nativeSubagentsEnabledForNewSessions != isEnabled else { return false }
         settings.nativeSubagentsEnabledForNewSessions = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAgentMemoryEnabled(_ isEnabled: Bool) -> Bool {
+        guard settings.agentMemoryEnabled != isEnabled else { return false }
+        settings.agentMemoryEnabled = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAgentMemorySubagentsEnabled(_ isEnabled: Bool) -> Bool {
+        guard settings.agentMemorySubagentsEnabled != isEnabled else { return false }
+        settings.agentMemorySubagentsEnabled = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAgentMemoryShowTranscriptCards(_ isEnabled: Bool) -> Bool {
+        guard settings.agentMemoryShowTranscriptCards != isEnabled else { return false }
+        settings.agentMemoryShowTranscriptCards = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAgentMemoryInjectionCharacterBudget(_ budget: Int) -> Bool {
+        let normalized = min(max(budget, 1_000), 20_000)
+        guard settings.agentMemoryInjectionCharacterBudget != normalized else { return false }
+        settings.agentMemoryInjectionCharacterBudget = normalized
         persist()
         return true
     }

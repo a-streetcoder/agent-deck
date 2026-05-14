@@ -79,6 +79,7 @@ final class PiAgentRunnerService {
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
     var parentSkillArgumentsProvider: ((URL) throws -> [String])?
     var parentPromptTemplateArgumentsProvider: ((URL) throws -> [String])?
+    var parentMemoryArgumentsProvider: ((PiAgentSessionRecord, URL, String?) throws -> [String])?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -362,6 +363,9 @@ final class PiAgentRunnerService {
             extraArguments.append("--no-themes")
             if let parentPromptTemplateArgumentsProvider {
                 extraArguments.append(contentsOf: try parentPromptTemplateArgumentsProvider(projectURL))
+            }
+            if let parentMemoryArgumentsProvider {
+                extraArguments.append(contentsOf: try parentMemoryArgumentsProvider(session, projectURL, initialPrompt))
             }
             let sessionID = session.id
             let clientRunID = UUID()
