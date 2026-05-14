@@ -11,9 +11,8 @@ struct MemoryScreen: View {
 
     var body: some View {
         AppPage("Memory", subtitle: "Review project and global memories used by Agent Deck") {
-            overviewCard
-            controlsCard
-            contentCard
+            heroCard
+            libraryCard
         }
         .sheet(isPresented: $isNewMemoryPresented) {
             MemoryEditorSheet(
@@ -30,13 +29,17 @@ struct MemoryScreen: View {
         }
     }
 
+    private var currentRecords: [AgentMemoryRecord] {
+        memoryStore.records(projectPath: viewModel.selectedProjectPath)
+    }
+
     private var filteredRecords: [AgentMemoryRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return memoryStore.records(projectPath: viewModel.selectedProjectPath).filter { record in
+        return currentRecords.filter { record in
             if let selectedStatus, record.status != selectedStatus { return false }
             if let selectedKind, record.kind != selectedKind { return false }
             guard !query.isEmpty else { return true }
-            let haystack = ([record.title, record.summary, record.kind.displayName, record.status.displayName] + record.tags)
+            let haystack = ([record.title, record.summary, record.kind.displayName, record.status.displayName, record.scope.displayName, record.filePath] + record.tags)
                 .joined(separator: " ")
                 .lowercased()
             return haystack.contains(query)
@@ -45,90 +48,164 @@ struct MemoryScreen: View {
 
     private var selectedRecord: AgentMemoryRecord? {
         guard let selectedRecordID else { return filteredRecords.first }
-        return memoryStore.records.first(where: { $0.id == selectedRecordID }) ?? filteredRecords.first
+        return filteredRecords.first(where: { $0.id == selectedRecordID }) ?? filteredRecords.first
     }
 
-    private var overviewCard: some View {
-        AppCard(title: "Memory Status") {
-            HStack(spacing: 10) {
-                MemoryMetricTile(title: "Active", value: "\(memoryStore.activeRecords.count)", systemImage: "brain")
-                MemoryMetricTile(title: "Pending", value: "\(memoryStore.pendingRecords.count)", systemImage: "text.badge.plus")
-                MemoryMetricTile(title: "Project", value: viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "All", systemImage: "folder")
-                Spacer(minLength: 0)
-                Toggle("Enabled", isOn: Binding(
-                    get: { viewModel.appSettings.agentMemoryEnabled },
-                    set: { viewModel.setAgentMemoryEnabled($0) }
-                ))
-                .toggleStyle(.switch)
+    private var activeCount: Int { currentRecords.filter(\.isInjectable).count }
+    private var pendingCount: Int { currentRecords.filter { $0.status == .pending }.count }
+    private var staleCount: Int { currentRecords.filter { $0.status == .stale }.count }
+
+    private var projectLabel: String {
+        viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "All projects"
+    }
+
+    private var heroCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 18) {
+                    ZStack {
+                        Circle()
+                            .fill(AppTheme.brandAccent.opacity(0.14))
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundStyle(AppTheme.brandAccent)
+                    }
+                    .frame(width: 64, height: 64)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 8) {
+                            Text("Agent Memory")
+                                .font(.title2.weight(.bold))
+                                .fontWidth(.expanded)
+                            AppLabelTag(text: viewModel.appSettings.agentMemoryEnabled ? "Enabled" : "Paused", color: viewModel.appSettings.agentMemoryEnabled ? .green : .orange)
+                        }
+                        Text("Curate the durable context agents can recall: decisions, preferences, runbooks, failures, and discoveries. Pending memories stay out of prompts until you approve them.")
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    VStack(alignment: .trailing, spacing: 10) {
+                        Toggle("Memory", isOn: Binding(
+                            get: { viewModel.appSettings.agentMemoryEnabled },
+                            set: { viewModel.setAgentMemoryEnabled($0) }
+                        ))
+                        .toggleStyle(.switch)
+
+                        Button {
+                            isNewMemoryPresented = true
+                        } label: {
+                            Label("New Memory", systemImage: "plus")
+                        }
+                        .buttonStyle(AppPrimaryButtonStyle())
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    MemoryMetricTile(title: "Injectable", value: "\(activeCount)", systemImage: "bolt.fill", color: AppTheme.brandAccent)
+                    MemoryMetricTile(title: "Pending Review", value: "\(pendingCount)", systemImage: "text.badge.plus", color: .orange)
+                    MemoryMetricTile(title: "Needs Refresh", value: "\(staleCount)", systemImage: "clock.badge.exclamationmark", color: .yellow)
+                    MemoryMetricTile(title: "Scope", value: projectLabel, systemImage: "folder", color: .blue)
+                }
             }
         }
     }
 
-    private var controlsCard: some View {
-        AppCard(title: "Browse") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    TextField("Search memories", text: $searchText)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        isNewMemoryPresented = true
-                    } label: {
-                        Label("New", systemImage: "plus")
+    private var libraryCard: some View {
+        AppCard(title: "Memory Library", trailing: {
+            Text("\(filteredRecords.count) of \(currentRecords.count)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+        }) {
+            VStack(alignment: .leading, spacing: 14) {
+                filterBar
+
+                if currentRecords.isEmpty {
+                    ContentUnavailableView("No Memories Yet", systemImage: "brain", description: Text("Create a memory manually or let agents propose memories from sessions."))
+                        .frame(maxWidth: .infinity, minHeight: 360)
+                } else if filteredRecords.isEmpty {
+                    ContentUnavailableView("No Matching Memories", systemImage: "line.3.horizontal.decrease.circle", description: Text("Try clearing search or changing the filters."))
+                        .frame(maxWidth: .infinity, minHeight: 360)
+                } else {
+                    HStack(alignment: .top, spacing: 14) {
+                        memoryList
+
+                        Divider()
+
+                        if let selectedRecord {
+                            MemoryDetailView(record: selectedRecord, memoryStore: memoryStore, viewModel: viewModel)
+                                .frame(maxWidth: .infinity, minHeight: 430, alignment: .topLeading)
+                        }
                     }
                 }
-                HStack(spacing: 8) {
-                    Picker("Status", selection: Binding(
-                        get: { selectedStatus?.rawValue ?? "all" },
-                        set: { selectedStatus = $0 == "all" ? nil : AgentMemoryStatus(rawValue: $0) }
-                    )) {
-                        Text("All Statuses").tag("all")
-                        ForEach(AgentMemoryStatus.allCases) { status in
-                            Text(status.displayName).tag(status.rawValue)
-                        }
+            }
+        }
+    }
+
+    private var filterBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("Search titles, summaries, tags, paths", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                Button("Clear") {
+                    searchText = ""
+                    selectedStatus = nil
+                    selectedKind = nil
+                }
+                .disabled(searchText.isEmpty && selectedStatus == nil && selectedKind == nil)
+            }
+
+            HStack(spacing: 8) {
+                Picker("Status", selection: Binding(
+                    get: { selectedStatus?.rawValue ?? "all" },
+                    set: { selectedStatus = $0 == "all" ? nil : AgentMemoryStatus(rawValue: $0) }
+                )) {
+                    Text("All Statuses").tag("all")
+                    ForEach(AgentMemoryStatus.allCases) { status in
+                        Text(status.displayName).tag(status.rawValue)
                     }
-                    .frame(width: 180)
-                    Picker("Kind", selection: Binding(
-                        get: { selectedKind?.rawValue ?? "all" },
-                        set: { selectedKind = $0 == "all" ? nil : AgentMemoryKind(rawValue: $0) }
-                    )) {
-                        Text("All Types").tag("all")
-                        ForEach(AgentMemoryKind.allCases) { kind in
-                            Text(kind.displayName).tag(kind.rawValue)
-                        }
-                    }
-                    .frame(width: 210)
                 }
                 .labelsHidden()
+                .frame(width: 170)
+
+                Picker("Type", selection: Binding(
+                    get: { selectedKind?.rawValue ?? "all" },
+                    set: { selectedKind = $0 == "all" ? nil : AgentMemoryKind(rawValue: $0) }
+                )) {
+                    Text("All Types").tag("all")
+                    ForEach(AgentMemoryKind.allCases) { kind in
+                        Text(kind.displayName).tag(kind.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 210)
+
+                Spacer()
+
+                if pendingCount > 0 {
+                    Label("\(pendingCount) pending approval", systemImage: "exclamationmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
             }
         }
+        .padding(12)
+        .appControlSurface(cornerRadius: 12)
     }
 
-    private var contentCard: some View {
-        AppCard(title: "Memory Files") {
-            HStack(alignment: .top, spacing: 14) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(filteredRecords) { record in
-                            MemoryRecordRow(record: record, isSelected: record.id == selectedRecord?.id) {
-                                selectedRecordID = record.id
-                            }
-                        }
+    private var memoryList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(filteredRecords) { record in
+                    MemoryRecordRow(record: record, isSelected: record.id == selectedRecord?.id) {
+                        selectedRecordID = record.id
                     }
-                    .padding(.vertical, 2)
-                }
-                .frame(minWidth: 280, idealWidth: 340, maxWidth: 420, minHeight: 360)
-
-                Divider()
-
-                if let selectedRecord {
-                    MemoryDetailView(record: selectedRecord, memoryStore: memoryStore, viewModel: viewModel)
-                        .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
-                } else {
-                    ContentUnavailableView("No Memories", systemImage: "brain", description: Text("Create a memory or approve pending memories to make them available to sessions."))
-                        .frame(maxWidth: .infinity, minHeight: 360)
                 }
             }
+            .padding(.vertical, 2)
         }
+        .frame(minWidth: 310, idealWidth: 360, maxWidth: 440, minHeight: 430)
     }
 }
 
@@ -136,23 +213,29 @@ private struct MemoryMetricTile: View {
     let title: String
     let value: String
     let systemImage: String
+    let color: Color
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .foregroundStyle(AppTheme.brandAccent)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 28, height: 28)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(value)
-                    .font(.headline)
+                    .font(.headline.weight(.bold))
+                    .fontWidth(.expanded)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
         }
-        .padding(10)
-        .frame(minWidth: 112, alignment: .leading)
-        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appContentSurface(cornerRadius: 12)
     }
 }
 
@@ -163,46 +246,46 @@ private struct MemoryRecordRow: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Text(record.title.isEmpty ? "Untitled Memory" : record.title)
-                        .font(.body.weight(.semibold))
-                        .lineLimit(1)
-                    Spacer()
-                    Text(record.status.displayName)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(statusColor)
-                }
-                Text(record.summary)
-                    .font(.callout)
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: record.kind.systemImage)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(record.status.tint)
+                    .frame(width: 30, height: 30)
+                    .background(record.status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(record.title.isEmpty ? "Untitled Memory" : record.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 6)
+                        MemoryStatusBadge(status: record.status)
+                    }
+
+                    Text(record.summary.isEmpty ? "No summary provided." : record.summary)
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(2)
+
+                    HStack(spacing: 6) {
+                        Label(record.kind.displayName, systemImage: record.kind.systemImage)
+                        Label(record.scope.displayName, systemImage: record.scope.systemImage)
+                        if record.useCount > 0 {
+                            Label("\(record.useCount)x", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(record.kind.displayName)
-                    Text(record.scope.displayName)
-                    if record.useCount > 0 { Text("Used \(record.useCount)x") }
+                    .lineLimit(1)
                 }
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
             }
-            .padding(10)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? AppTheme.contentSubtleFill : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke.opacity(0.5), lineWidth: 1)
-            }
+            .appContentSurface(cornerRadius: 12, isSelected: isSelected)
         }
         .buttonStyle(.plain)
-    }
-
-    private var statusColor: Color {
-        switch record.status {
-        case .pending: return .orange
-        case .active, .pinned: return .green
-        case .stale: return .yellow
-        case .archived, .rejected: return AppTheme.mutedText
-        }
+        .accessibilityLabel(record.title.isEmpty ? "Untitled Memory" : record.title)
     }
 }
 
@@ -214,42 +297,26 @@ private struct MemoryDetailView: View {
 
     var body: some View {
         let document = memoryStore.document(for: record)
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(record.title)
-                        .font(.title3.weight(.semibold))
-                    Text(record.summary)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Menu {
-                    Button("Approve") { viewModel.setAgentMemoryStatus(record.id, status: .active) }
-                    Button("Pin") { viewModel.setAgentMemoryStatus(record.id, status: .pinned) }
-                    Button("Mark Stale") { viewModel.setAgentMemoryStatus(record.id, status: .stale) }
-                    Button("Archive") { viewModel.setAgentMemoryStatus(record.id, status: .archived) }
-                    Button("Reject") { viewModel.setAgentMemoryStatus(record.id, status: .rejected) }
-                    Divider()
-                    Button("Delete", role: .destructive) { viewModel.deleteAgentMemory(record.id) }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                Button("Edit") { isEditing = true }
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            header(document: document)
 
-            AppKeyValueList(rows: [
-                ("Type", record.kind.displayName),
-                ("Status", record.status.displayName),
-                ("Scope", record.scope.displayName),
-                ("Path", record.filePath)
-            ])
+            HStack(alignment: .top, spacing: 12) {
+                MemoryInfoPanel(record: record)
+                    .frame(width: 220)
 
-            ScrollView {
-                MarkdownTextView(source: document.body.isEmpty ? "_No body._" : document.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(.vertical, 6)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Memory Body")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    ScrollView {
+                        MarkdownTextView(source: document.body.isEmpty ? "_No body._" : document.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(12)
+                    }
+                    .frame(minHeight: 250)
+                    .appContentSurface(cornerRadius: 12)
+                }
             }
         }
         .sheet(isPresented: $isEditing) {
@@ -265,6 +332,124 @@ private struct MemoryDetailView: View {
                     viewModel.updateAgentMemory(id: record.id, title: title, summary: summary, body: body, tags: tags)
                 }
             )
+        }
+    }
+
+    private func header(document: AgentMemoryDocument) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: record.kind.systemImage)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(record.status.tint)
+                    .frame(width: 44, height: 44)
+                    .background(record.status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(record.title.isEmpty ? "Untitled Memory" : record.title)
+                            .font(.title3.weight(.bold))
+                            .fontWidth(.expanded)
+                            .lineLimit(2)
+                        MemoryStatusBadge(status: record.status)
+                    }
+                    Text(record.summary.isEmpty ? "No summary provided." : record.summary)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                Menu {
+                    Button("Approve") { viewModel.setAgentMemoryStatus(record.id, status: .active) }
+                    Button("Pin") { viewModel.setAgentMemoryStatus(record.id, status: .pinned) }
+                    Button("Mark Stale") { viewModel.setAgentMemoryStatus(record.id, status: .stale) }
+                    Button("Archive") { viewModel.setAgentMemoryStatus(record.id, status: .archived) }
+                    Button("Reject") { viewModel.setAgentMemoryStatus(record.id, status: .rejected) }
+                    Divider()
+                    Button("Delete", role: .destructive) { viewModel.deleteAgentMemory(record.id) }
+                } label: {
+                    Label("Actions", systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+
+                Button("Edit") { isEditing = true }
+                    .buttonStyle(AppSecondaryButtonStyle())
+            }
+
+            if !record.tags.isEmpty {
+                FlowTagRow(tags: record.tags)
+            }
+        }
+        .padding(14)
+        .appContentSurface(cornerRadius: 14)
+    }
+}
+
+private struct MemoryInfoPanel: View {
+    let record: AgentMemoryRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Details")
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            AppKeyValueList(rows: rows)
+
+            AppCopyTextButton(title: "Copy Path", text: record.filePath)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .appContentSurface(cornerRadius: 12)
+    }
+
+    private var rows: [(String, String)] {
+        var rows: [(String, String)] = [
+            ("Type", record.kind.displayName),
+            ("Status", record.status.displayName),
+            ("Scope", record.scope.displayName),
+            ("Created", record.createdAt.formatted(date: .abbreviated, time: .shortened)),
+            ("Updated", record.updatedAt.formatted(date: .abbreviated, time: .shortened)),
+            ("Used", record.useCount == 0 ? "Never" : "\(record.useCount) time\(record.useCount == 1 ? "" : "s")")
+        ]
+        if let lastUsedAt = record.lastUsedAt {
+            rows.append(("Last Used", lastUsedAt.formatted(date: .abbreviated, time: .shortened)))
+        }
+        if let sourceAgentName = record.sourceAgentName, !sourceAgentName.isEmpty {
+            rows.append(("Source", sourceAgentName))
+        }
+        rows.append(("Path", record.filePath))
+        return rows
+    }
+}
+
+private struct MemoryStatusBadge: View {
+    let status: AgentMemoryStatus
+
+    var body: some View {
+        Label(status.displayName, systemImage: status.systemImage)
+            .font(.caption2.weight(.bold))
+            .fontWidth(.expanded)
+            .foregroundStyle(status.tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(status.tint.opacity(0.12), in: Capsule(style: .continuous))
+    }
+}
+
+private struct FlowTagRow: View {
+    let tags: [String]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(AppTheme.contentSubtleFill, in: Capsule(style: .continuous))
+            }
         }
     }
 }
@@ -300,37 +485,74 @@ private struct MemoryEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title2.weight(.semibold))
-            TextField("Title", text: $memoryTitle)
-            TextField("Summary", text: $summary)
-            Picker("Type", selection: $kind) {
-                ForEach(AgentMemoryKind.allCases) { kind in
-                    Text(kind.displayName).tag(kind)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.title2.weight(.bold))
+                    .fontWidth(.expanded)
+                Text("Give agents concise, reusable context. Good memories are specific, durable, and easy to verify.")
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
+                GridRow {
+                    Text("Title").foregroundStyle(AppTheme.mutedText)
+                    TextField("Short descriptive title", text: $memoryTitle)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Summary").foregroundStyle(AppTheme.mutedText)
+                    TextField("One sentence agents can scan", text: $summary)
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Type").foregroundStyle(AppTheme.mutedText)
+                    Picker("Type", selection: $kind) {
+                        ForEach(AgentMemoryKind.allCases) { kind in
+                            Label(kind.displayName, systemImage: kind.systemImage).tag(kind)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                }
+                GridRow {
+                    Text("Tags").foregroundStyle(AppTheme.mutedText)
+                    TextField("Comma-separated tags", text: $tags)
+                        .textFieldStyle(.roundedBorder)
                 }
             }
-            TextField("Tags", text: $tags)
-            TextEditor(text: $bodyText)
-                .font(.body.monospaced())
-                .frame(minHeight: 240)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(AppTheme.contentStroke, lineWidth: 1)
-                }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Body")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                TextEditor(text: $bodyText)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 250)
+                    .padding(6)
+                    .appContentSurface(cornerRadius: 10)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    onSave(memoryTitle, summary, bodyText, kind, tags.split(separator: ",").map { String($0) })
+                    onSave(memoryTitle.trimmedForMemory, summary.trimmedForMemory, bodyText, kind, parsedTags)
                     dismiss()
                 }
+                .buttonStyle(AppPrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .disabled(memoryTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(memoryTitle.trimmedForMemory.isEmpty)
             }
         }
-        .padding(20)
-        .frame(width: 680, height: 520)
+        .padding(22)
+        .frame(width: 720, height: 600)
+    }
+
+    private var parsedTags: [String] {
+        tags.split(separator: ",")
+            .map { String($0).trimmedForMemory }
+            .filter { !$0.isEmpty }
     }
 }
 
@@ -368,5 +590,61 @@ struct PiAgentMemoryActivityCard: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+}
+
+private extension AgentMemoryKind {
+    var systemImage: String {
+        switch self {
+        case .context: return "doc.text.magnifyingglass"
+        case .decision: return "checkmark.seal"
+        case .observation: return "eye"
+        case .runbook: return "list.bullet.rectangle"
+        case .failure: return "exclamationmark.triangle"
+        case .sessionSummary: return "text.alignleft"
+        case .subagentFinding: return "person.2.wave.2"
+        case .preference: return "slider.horizontal.3"
+        }
+    }
+}
+
+private extension AgentMemoryScope {
+    var systemImage: String {
+        switch self {
+        case .global: return "globe"
+        case .project: return "folder"
+        case .session: return "bubble.left.and.bubble.right"
+        case .subagent: return "person.2"
+        }
+    }
+}
+
+private extension AgentMemoryStatus {
+    var tint: Color {
+        switch self {
+        case .pending: return .orange
+        case .active: return .green
+        case .pinned: return AppTheme.brandAccent
+        case .stale: return .yellow
+        case .archived: return .secondary
+        case .rejected: return .red
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .pending: return "hourglass"
+        case .active: return "checkmark.circle.fill"
+        case .pinned: return "pin.fill"
+        case .stale: return "clock.badge.exclamationmark"
+        case .archived: return "archivebox.fill"
+        case .rejected: return "xmark.circle.fill"
+        }
+    }
+}
+
+private extension String {
+    var trimmedForMemory: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

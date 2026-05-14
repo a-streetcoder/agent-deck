@@ -178,8 +178,6 @@ private struct SettingsButtonRow<Content: View>: View {
 }
 
 private struct SettingsPickerRow<SelectionValue: Hashable, Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     let title: String
     @Binding var selection: SelectionValue
     var note: String? = nil
@@ -190,10 +188,10 @@ private struct SettingsPickerRow<SelectionValue: Hashable, Content: View>: View 
             Picker(title, selection: $selection) {
                 content
             }
-            .id("\(selection)-\(colorScheme)")
+            .pickerStyle(.menu)
             .labelsHidden()
             .tint(AppTheme.brandAccent)
-            .frame(width: 220, alignment: .leading)
+            .frame(width: SettingsLayout.controlWidth, alignment: .leading)
         }
     }
 }
@@ -442,7 +440,6 @@ private struct AutomationsSettingsTab: View {
                         Text(model.identifier).tag(model.identifier)
                     }
                 }
-                .disabled(!viewModel.appSettings.autoGeneratePiAgentSessionTitles || viewModel.enabledAvailableModels.isEmpty)
             }
 
             SettingsSection {
@@ -471,7 +468,19 @@ private struct AutomationsSettingsTab: View {
                         Text(model.identifier).tag(model.identifier)
                     }
                 }
-                .disabled(!viewModel.appSettings.piAgentGitAutomationEnabled || viewModel.enabledAvailableModels.isEmpty)
+
+                if viewModel.enabledAvailableModels.isEmpty {
+                    HStack(spacing: 8) {
+                        Label("No enabled models available", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button("Refresh Models") {
+                            viewModel.refreshModels()
+                        }
+                    }
+                    .font(.footnote)
+                    .padding(.leading, SettingsLayout.labelWidth + 16)
+                }
             }
         }
     }
