@@ -670,10 +670,7 @@ private struct PiAgentGitHubIssueSheet: View {
     }
 
     private func comments(_ detail: GitHubIssueDetail) -> some View {
-        AppCard(title: "Comments", trailing: {
-            Text("\(detail.comments.count)")
-                .foregroundStyle(AppTheme.mutedText)
-        }) {
+        AppCard(title: "Comments") {
             if detail.comments.isEmpty {
                 Text("No comments yet.")
                     .foregroundStyle(AppTheme.mutedText)
