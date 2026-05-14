@@ -416,6 +416,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var orderedIDs: [String] = []
         private var isProgrammaticScroll = false
         private var lastPinnedState = true
+        private var lastColumnWidth: CGFloat = 0
 
         init(onPinnedToBottomChange: @escaping (Bool) -> Void, onUserScrolledAwayFromBottom: @escaping () -> Void) {
             self.onPinnedToBottomChange = onPinnedToBottomChange
@@ -429,17 +430,27 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if nextIDs == orderedIDs {
                 let visible = tableView.rows(in: tableView.visibleRect)
                 guard visible.location != NSNotFound else { return }
-                tableView.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)), columnIndexes: IndexSet(integer: 0))
+                let rows = IndexSet(integersIn: visible.location..<(visible.location + visible.length))
+                tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+                tableView.noteHeightOfRows(withIndexesChanged: rows)
             } else {
                 orderedIDs = nextIDs
                 tableView.reloadData()
+                if !items.isEmpty {
+                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<items.count))
+                }
             }
         }
 
         func updateColumnWidth() {
             guard let tableView, let scrollView else { return }
             let width = max(200, scrollView.contentView.bounds.width)
+            guard abs(width - lastColumnWidth) > 0.5 else { return }
+            lastColumnWidth = width
             tableView.tableColumns.first?.width = width
+            if !items.isEmpty {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<items.count))
+            }
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int {
@@ -543,6 +554,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         func host(_ view: AnyView) {
             if let hostingView {
                 hostingView.rootView = view
+                hostingView.invalidateIntrinsicContentSize()
+                hostingView.needsLayout = true
+                needsLayout = true
                 return
             }
             let hostingView = NSHostingView(rootView: view)
