@@ -396,6 +396,16 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
             parent.text = textView.string
         }
 
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                return historyPrevious(in: textView)
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                return historyNext(in: textView)
+            }
+            return false
+        }
+
         func setDropTargeted(_ targeted: Bool) {
             parent.onDropTargeted(targeted)
         }
@@ -549,13 +559,41 @@ final class DropSafeNSTextView: NSTextView {
 
     private var shouldUseHistoryPrevious: Bool {
         guard selectedRange().length == 0 else { return false }
+        if !string.contains("\n") { return true }
         return selectedRange().location <= (string as NSString).lineRange(for: selectedRange()).location
     }
 
     private var shouldUseHistoryNext: Bool {
         guard selectedRange().length == 0 else { return false }
+        if !string.contains("\n") { return true }
         let nsString = string as NSString
         return NSMaxRange(nsString.lineRange(for: selectedRange())) >= nsString.length
+    }
+
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(NSResponder.moveUp(_:)), shouldUseHistoryPrevious,
+           keyHandler?.historyPrevious(in: self) == true {
+            return
+        }
+        if selector == #selector(NSResponder.moveDown(_:)), shouldUseHistoryNext,
+           keyHandler?.historyNext(in: self) == true {
+            return
+        }
+        super.doCommand(by: selector)
+    }
+
+    override func moveUp(_ sender: Any?) {
+        if shouldUseHistoryPrevious, keyHandler?.historyPrevious(in: self) == true {
+            return
+        }
+        super.moveUp(sender)
+    }
+
+    override func moveDown(_ sender: Any?) {
+        if shouldUseHistoryNext, keyHandler?.historyNext(in: self) == true {
+            return
+        }
+        super.moveDown(sender)
     }
 
     override func paste(_ sender: Any?) {

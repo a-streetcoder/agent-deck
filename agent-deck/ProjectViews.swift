@@ -785,13 +785,6 @@ private struct PiSystemInstructionsProjectDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, AppTheme.pagePadding)
-                .padding(.top, AppTheme.pagePadding)
-                .padding(.bottom, 12)
-
-            Divider()
-
             if let project {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
@@ -996,50 +989,24 @@ private struct PiInstructionFileEditor: View {
     @State private var sheetDraft = ""
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: iconName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(iconColor)
-                .frame(width: 22, height: 22)
+        VStack(alignment: .leading, spacing: 10) {
+            headerRow
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(file.title)
-                        .font(.subheadline.weight(.semibold))
-                        .fontWidth(.expanded)
-                    if isDirty {
-                        Text("Unsaved")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
-                    }
+            if showsPreview {
+                ScrollView {
+                    Text(previewText)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
                 }
-
-                Text(file.displayPath)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Text(summaryText)
+                .frame(minHeight: 96, maxHeight: 150)
+                .appControlSurface(cornerRadius: 10)
+            } else {
+                Text("No file yet. Create it only if this scope needs a custom prompt part.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(2)
             }
-
-            Spacer(minLength: 8)
-
-            Button(file.exists ? "Edit" : "Create") {
-                sheetDraft = text
-                isEditorPresented = true
-            }
-            .controlSize(.small)
-
-            Button { revealInFinder() } label: {
-                Image(systemName: "folder")
-            }
-            .buttonStyle(.plain)
-            .controlSize(.small)
-            .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1060,15 +1027,70 @@ private struct PiInstructionFileEditor: View {
         }
     }
 
-    private var summaryText: String {
+    private var headerRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: iconName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(file.title)
+                        .font(.subheadline.weight(.semibold))
+                        .fontWidth(.expanded)
+                    Text(file.status.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(file.status.color)
+                    if isDirty {
+                        Text("Unsaved")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                Text(file.displayPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(file.exists ? "Edit" : "Create") {
+                sheetDraft = text
+                isEditorPresented = true
+            }
+            .controlSize(.small)
+            .help(file.exists ? "Edit this prompt file" : "Create this prompt file")
+
+            if isDirty {
+                Button("Save") {
+                    save()
+                }
+                .controlSize(.small)
+                .help("Save pending edits")
+            }
+
+            Button { revealInFinder() } label: {
+                Image(systemName: "folder")
+                    .font(.body)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
+        }
+    }
+
+    private var showsPreview: Bool {
+        file.exists || isDirty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var previewText: String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !file.exists {
-            return "Not created. Create it only if this scope needs a custom prompt part."
-        }
-        if trimmed.isEmpty {
-            return "Created, but empty."
-        }
-        return trimmed.replacingOccurrences(of: "\n", with: " ")
+        return trimmed.isEmpty ? "Created, but empty." : trimmed
     }
 
     private var iconName: String {
