@@ -182,7 +182,7 @@ struct SkillsScreen: View {
                     catalogSection(skills: catalogSkills)
                 }
             } else {
-                appListSection("Default Skills", info: "Default skills are passed to every parent Pi Agent session, including project and projectless sessions.") {
+                appListSection("Default Skills", info: "Injected into every parent Pi Agent session. This is global runtime injection, not per-project assignment.") {
                     if globalSkills.isEmpty {
                         nativeEmptyRow("No default skills.")
                     }
@@ -201,7 +201,7 @@ struct SkillsScreen: View {
     }
 
     private func catalogSection(skills: [SkillRecord]) -> some View {
-        appListSection("Catalog", info: "Catalog skills are not injected until marked Default, assigned to a project, or assigned to an agent.") {
+        appListSection("Catalog", info: "Available skills. They are not injected until made Default, assigned to a project runtime, or assigned to a subagent.") {
             ForEach(skills, id: \.name) { skill in
                 skillListRow(skill, inactive: true)
                     .tag(skill.id)
@@ -297,12 +297,12 @@ struct SkillsScreen: View {
                 }
 
             if !viewModel.skillIsEnabledGlobally(skill) {
-                AppCard(title: "Project Assignment") {
+                AppCard(title: "Project Runtime Assignment") {
                     projectAssignmentList(for: skill)
                 }
             }
 
-            AppCard(title: "Agent Assignment") {
+            AppCard(title: "Subagent Runtime Assignment") {
                 agentAssignmentList(for: skill)
             }
 
@@ -591,7 +591,7 @@ struct SkillsScreen: View {
 
     private func projectAssignmentList(for skill: SkillRecord) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Check each project whose parent Pi Agent sessions should receive this skill via --skill.")
+            Text("Assign this skill to parent Pi Agent sessions only when they run in the selected project. This does not make the skill default for other projects.")
                 .foregroundStyle(AppTheme.mutedText)
 
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -617,7 +617,7 @@ struct SkillsScreen: View {
 
     private func agentAssignmentList(for skill: SkillRecord) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Check each native agent that should receive this skill via --skill when it runs.")
+            Text("Assign this skill only to the selected native subagents when they run. Parent Pi Agent sessions do not receive it from this setting.")
                 .foregroundStyle(AppTheme.mutedText)
 
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -687,12 +687,12 @@ struct SkillsScreen: View {
 
     private func defaultSkillHelpText(for skill: SkillRecord) -> String {
         if viewModel.skillIsEnabledGlobally(skill) {
-            return "This skill is passed to every parent Pi Agent session. Removing Default keeps the skill in its current folder."
+            return "This skill is injected into every parent Pi Agent session, including projectless sessions and sessions for any project. It is not copied into projects. Removing Default keeps the skill in its current folder."
         }
         if skill.source.kind == .project || skill.source.kind == .legacyProject {
-            return "Make this skill shared by moving its entire skill folder to ~/.pi/agent/skills and passing it to every parent Pi Agent session."
+            return "Make this project-local skill global by moving its skill folder to ~/.pi/agent/skills, then inject it into every parent Pi Agent session."
         }
-        return "Make this skill available by default in every parent Pi Agent session."
+        return "Inject this skill into every parent Pi Agent session, including projectless sessions and sessions for any project. This does not copy or assign it to project folders."
     }
 
     private func assignedProjectSummary(_ skill: SkillRecord) -> String {

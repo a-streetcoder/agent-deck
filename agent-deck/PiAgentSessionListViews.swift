@@ -49,14 +49,13 @@ struct PiAgentAddSessionButton: View {
 struct PiAgentAddSessionMenuButton: View {
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
+    let action: () -> Void
     let onSelectProject: (DiscoveredProject) -> Void
     @Environment(\.isEnabled) private var isEnabled
     @State private var isPresented = false
 
     var body: some View {
-        Button {
-            isPresented.toggle()
-        } label: {
+        Button(action: buttonAction) {
             PiAgentAddSessionButtonLabel(showsChevron: false, isEnabled: isEnabled)
         }
         .buttonStyle(.plain)
@@ -70,6 +69,14 @@ struct PiAgentAddSessionMenuButton: View {
                     onSelectProject(project)
                 }
             )
+        }
+    }
+
+    private func buttonAction() {
+        if projects.isEmpty {
+            action()
+        } else {
+            isPresented.toggle()
         }
     }
 
