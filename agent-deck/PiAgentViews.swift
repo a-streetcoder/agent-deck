@@ -462,12 +462,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard let scrollView else { return }
             updateColumnWidth()
             let pinned = isPinnedToBottom(scrollView)
-            if pinned != lastPinnedState {
-                lastPinnedState = pinned
-                onPinnedToBottomChange(pinned)
-            }
+            publishPinnedState(pinned)
             if !pinned, !isProgrammaticScroll {
-                onUserScrolledAwayFromBottom()
+                DispatchQueue.main.async { [weak self] in
+                    self?.onUserScrolledAwayFromBottom()
+                }
             }
         }
 
@@ -515,8 +514,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 }
             }
             isProgrammaticScroll = false
-            lastPinnedState = true
-            onPinnedToBottomChange(true)
+            publishPinnedState(true)
+        }
+
+        private func publishPinnedState(_ pinned: Bool) {
+            guard pinned != lastPinnedState else { return }
+            lastPinnedState = pinned
+            DispatchQueue.main.async { [weak self] in
+                self?.onPinnedToBottomChange(pinned)
+            }
         }
     }
 
