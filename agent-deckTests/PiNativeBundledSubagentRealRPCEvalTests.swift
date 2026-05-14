@@ -18,6 +18,14 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         let provider: String?
         let model: String
         let thinking: String
+        let agents: Set<String>?
+
+        init(provider: String?, model: String, thinking: String, agents: Set<String>? = nil) {
+            self.provider = provider
+            self.model = model
+            self.thinking = thinking
+            self.agents = agents
+        }
 
         var modelConfig: EvalModelConfig {
             EvalModelConfig(provider: provider, model: model)
@@ -51,7 +59,54 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         let outputPath: String
         let artifactDirectory: String
         let durationMs: Int?
+        let tokenUsage: EvalTokenUsage
         let error: String?
+    }
+
+    private struct EvalTokenUsage: Codable, Hashable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let cacheReadTokens: Int?
+        let cacheWriteTokens: Int?
+        let totalTokens: Int?
+        let costUSD: Double?
+        let costSource: String?
+        let pricing: EvalModelPricing?
+
+        var markdownSummary: String {
+            [
+                inputTokens.map { "in: \($0)" },
+                outputTokens.map { "out: \($0)" },
+                cacheReadTokens.map { "cache read: \($0)" },
+                cacheWriteTokens.map { "cache write: \($0)" },
+                totalTokens.map { "total: \($0)" },
+                costUSD.map { String(format: "cost: $%.6f", $0) }
+            ]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        }
+    }
+
+    private struct EvalModelPricing: Codable, Hashable {
+        let provider: String
+        let model: String
+        let inputPerMillion: Double
+        let outputPerMillion: Double
+        let cacheReadPerMillion: Double
+        let cacheWritePerMillion: Double
+    }
+
+    private struct PiModelPricingRow: Decodable {
+        let provider: String
+        let model: String
+        let cost: Cost
+
+        struct Cost: Decodable {
+            let input: Double
+            let output: Double
+            let cacheRead: Double
+            let cacheWrite: Double
+        }
     }
 
     private struct EvalManifest: Codable, Hashable {
@@ -67,12 +122,12 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
 
     // Edit these constants when you want to change eval coverage.
     private let evalModels: [EvalModelConfig] = [
-        .init(provider: "openai", model: "gpt-5.5")
+        .init(provider: "openai-codex", model: "gpt-5.4"),
+        .init(provider: "openai-codex", model: "gpt-5.5")
     ]
 
     private let evalThinkingLevels = [
         "off",
-        "minimal",
         "low",
         "medium",
         "high"
@@ -86,16 +141,31 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
     //     .init(provider: "opencode", model: "deepseek", thinking: "high"),
     //     .init(provider: "openai", model: "gpt-5.4", thinking: "low")
     // ]
-    private let exactEvalRuns: [EvalRunConfig]? = nil
+    private let exactEvalRuns: [EvalRunConfig]? = [
+        .init(provider: "openai-codex", model: "gpt-5.4", thinking: "off"),
+        .init(provider: "openai-codex", model: "gpt-5.4", thinking: "low"),
+        .init(provider: "openai-codex", model: "gpt-5.4", thinking: "medium"),
+        .init(provider: "openai-codex", model: "gpt-5.4", thinking: "high"),
+        .init(provider: "openai-codex", model: "gpt-5.5", thinking: "off"),
+        .init(provider: "openai-codex", model: "gpt-5.5", thinking: "low"),
+        .init(provider: "openai-codex", model: "gpt-5.5", thinking: "medium"),
+        .init(provider: "openai-codex", model: "gpt-5.5", thinking: "high"),
+        .init(provider: "openai-codex", model: "gpt-5.4-mini", thinking: "medium", agents: ["explorer", "reviewer"]),
+        .init(provider: "openai-codex", model: "gpt-5.4-mini", thinking: "high", agents: ["explorer", "reviewer"]),
+        .init(provider: "openai-codex", model: "gpt-5.4-mini", thinking: "xhigh", agents: ["explorer", "reviewer"])
+    ]
 
     private let enabledAgents: Set<String> = [
         "explorer",
         "planner",
-        "coder",
         "reviewer"
     ]
 
-    private let enabledTaskIDs: Set<String>? = nil
+    private let enabledTaskIDs: Set<String>? = [
+        "explorer-native-subagent-model-flow",
+        "planner-appkit-chat-performance-port",
+        "reviewer-agent-rename-commit"
+    ]
 
     private let runTimeoutSeconds: TimeInterval = 10 * 60
 
@@ -139,24 +209,46 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 ]
             ),
             EvalTask(
-                id: "planner-real-rpc-eval-harness",
+                id: "planner-appkit-chat-performance-port",
                 agent: "planner",
                 prompt: """
-                Plan an implementation for an opt-in real RPC evaluation test for bundled native subagents.
-                It must run this repo as the project, test configurable models and thinking levels
-                off/minimal/low/medium/high, save artifacts, and score report-only outputs.
-                Do not edit files. Do not run formatting, tests, or git commands.
-                Return a concrete implementation plan with files, steps, risks, and validation.
+                Plan a production-grade performance rewrite of Agent Deck's Pi Agent chat UI.
+
+                Context: The current SwiftUI chat in Pi Agent view feels slow and can render blank chats until
+                the user scrolls. Prior attempts included SwiftUI optimization, profiler investigation, and
+                LazyVStack, but the issue remains. The goal is to preserve all UI/UX and functionality while
+                improving rendering and streaming performance.
+
+                Requirements:
+                1. Inspect the current chat UI and list all user-visible and functional capabilities it has.
+                2. Plan an AppKit solution that is 1:1 equivalent in rendering, information density, look and feel,
+                   row behavior, selection/copy affordances, native subagent cards, thinking/tool rendering, and
+                   auto-scrolling while Pi streams content.
+                3. Plan how to use web research and Apple documentation for the AppKit design choices.
+                4. Include a measurement strategy using profiler sessions. If useful, reference the local skill at
+                   /Users/andrea/Documents/GitHub/skill-sources/agent-scripts/skills/native-app-performance.
+                5. Compare two implementation branches:
+                   - app-kit: full AppKit port of the chat UI, and session list too if profiling justifies it.
+                   - app-kit-hybrid: mixed AppKit/SwiftUI approach for rows or host views.
+                6. Define validation to prove no UI, UX, information, behavior, or accessibility regressions.
+                7. Define a final report structure comparing real performance differences and tradeoffs.
+
+                Do not edit files. Do not run formatting, tests, or git commands. Return a concrete implementation
+                plan with files to inspect, architecture options, profiling steps, risks, acceptance criteria, and
+                report outline.
                 """,
                 expectedFacts: [
-                    "agent-deckTests",
-                    "PiSubagentRunService",
-                    "PiAgentSessionStore",
-                    "AGENT_DECK_REAL_RPC_EVAL",
-                    "AGENT_DECK_PI_PATH",
-                    "bundled-agents",
-                    "summary.json",
-                    "score.json"
+                    "PiAgentViews",
+                    "PiAgentTranscriptViews",
+                    "PiAgentSubagentViews",
+                    "PiAgentActivityPanelViews",
+                    "AppKit",
+                    "NSScrollView",
+                    "NSTableView",
+                    "auto-scroll",
+                    "Instruments",
+                    "app-kit",
+                    "app-kit-hybrid"
                 ]
             ),
             EvalTask(
@@ -224,23 +316,24 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 ]
             ),
             EvalTask(
-                id: "reviewer-runtime-validation-coverage",
+                id: "reviewer-agent-rename-commit",
                 agent: "reviewer",
                 prompt: """
-                Review the current native subagent runtime validation coverage.
-                Look for meaningful gaps around real RPC behavior, model/thinking inheritance,
-                artifact persistence, fork context, and no-edit report-only safety.
-                Do not edit files. Do not run formatting, tests, or git commands.
-                Return findings first with file/test evidence.
+                Review commit 6820ba5 (Rename built-in subagents to explorer and coder) in this repository.
+                Use read-only inspection only; git show/diff/log commands are allowed, but do not edit files,
+                run formatting, or run tests. Focus on correctness, migration risk, stale references, and whether
+                UI/tests/docs/runtime behavior consistently use the renamed native agents.
+                Return findings first with concrete file/symbol/commit evidence. If there are no material issues,
+                say so clearly and include the strongest validation evidence.
                 """,
                 expectedFacts: [
-                    "PiSubagentRuntimeSmokeTests",
-                    "PiAgentBridgeSmokeTests",
-                    "PiTestSupport",
-                    "fake Pi executable",
-                    "real RPC",
-                    "model/thinking",
-                    "fork"
+                    "6820ba5",
+                    "explorer",
+                    "coder",
+                    "scout",
+                    "worker",
+                    "bundled-agents",
+                    "PiNativeBundledSubagentRealRPCEvalTests"
                 ]
             ),
             EvalTask(
@@ -266,9 +359,6 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
     }
 
     func testBundledNativeSubagentsAcrossModelsAndThinkingLevelsUsingRealRPC() throws {
-        setenv("AGENT_DECK_REAL_RPC_EVAL", "1", 1)
-        setenv("AGENT_DECK_PI_PATH", "/opt/homebrew/bin/pi", 1)
-
         guard ProcessInfo.processInfo.environment["AGENT_DECK_REAL_RPC_EVAL"] == "1" else {
             throw XCTSkip("Set AGENT_DECK_REAL_RPC_EVAL=1 to run real Pi RPC native subagent evals.")
         }
@@ -278,6 +368,9 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
 
         let projectURL = repoRootURL()
         let outputRoot = try makeOutputRoot()
+        let runConfigs = expandedRunConfigs()
+        let pricingByModel = try loadModelPricing(runConfigs: runConfigs)
+        try writeJSON(Array(pricingByModel.values).sorted { $0.provider + $0.model < $1.provider + $1.model }, to: outputRoot.appendingPathComponent("model-pricing.json"))
         let snapshot = PiScanner().scan(projectRoot: projectURL)
         let agentsByName = Dictionary(uniqueKeysWithValues: snapshot.builtinAgents.map { ($0.name, effectiveBuiltinAgent($0, projectRoot: projectURL.path)) })
         let tasks = evalTasks.filter { task in
@@ -302,10 +395,9 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         )
 
         var summaries: [EvalRunSummary] = []
-        let runConfigs = expandedRunConfigs()
         for task in tasks {
             let baseAgent = try XCTUnwrap(agentsByName[task.agent], "Missing bundled/effective agent named \(task.agent)")
-            for runConfig in runConfigs {
+            for runConfig in runConfigs where runConfig.agents?.contains(task.agent) ?? true {
                 let model = runConfig.modelConfig
                 let agent = evalAgent(from: baseAgent)
                 let parent = try PiTestSupport.makeParentSession(
@@ -330,7 +422,8 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                     thinking: runConfig.thinking,
                     runner: runner,
                     store: store,
-                    runDirectory: runDirectory
+                    runDirectory: runDirectory,
+                    pricing: pricingByModel[pricingKey(provider: model.provider, model: model.model)]
                 )
                 summaries.append(summary)
             }
@@ -353,7 +446,8 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         thinking: String,
         runner: PiSubagentRunService,
         store: PiAgentSessionStore,
-        runDirectory: URL
+        runDirectory: URL,
+        pricing: EvalModelPricing?
     ) throws -> EvalRunSummary {
         let run: PiSubagentRunRecord
         do {
@@ -382,6 +476,7 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 outputPath: "",
                 artifactDirectory: "",
                 durationMs: nil,
+                tokenUsage: EvalTokenUsage(inputTokens: nil, outputTokens: nil, cacheReadTokens: nil, cacheWriteTokens: nil, totalTokens: nil, costUSD: nil, costSource: nil, pricing: pricing),
                 error: error.localizedDescription
             )
         }
@@ -405,8 +500,11 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         try copyArtifactIfExists(artifactDirectory.appendingPathComponent("system-prompt.md"), to: runDirectory.appendingPathComponent("system-prompt.md"))
         try copyArtifactIfExists(outputURL, to: runDirectory.appendingPathComponent("output.md"))
         try writeJSON(transcript, to: runDirectory.appendingPathComponent("transcript.json"))
+        let tokenUsage = tokenUsageFromSessionFile(finalRun.childPiSessionFile ?? finalRun.child?.sessionFile, fallbackRun: finalRun, pricing: pricing)
+
         try writeJSON(finalRun, to: runDirectory.appendingPathComponent("run.json"))
         try writeJSON(score, to: runDirectory.appendingPathComponent("score.json"))
+        try writeJSON(tokenUsage, to: runDirectory.appendingPathComponent("token-usage.json"))
 
         return EvalRunSummary(
             agent: task.agent,
@@ -421,6 +519,7 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
             outputPath: outputURL.path,
             artifactDirectory: artifactDirectory.path,
             durationMs: finalRun.durationMs,
+            tokenUsage: tokenUsage,
             error: finalRun.error
         )
     }
@@ -537,20 +636,180 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
         try FileManager.default.copyItem(at: source, to: destination)
     }
 
+    private func loadModelPricing(runConfigs: [EvalRunConfig]) throws -> [String: EvalModelPricing] {
+        let piPath = try XCTUnwrap(ProcessInfo.processInfo.environment["AGENT_DECK_PI_PATH"], "AGENT_DECK_PI_PATH is required to load Pi model pricing.")
+        let packageRoot = piPackageRoot(from: URL(fileURLWithPath: piPath).resolvingSymlinksInPath())
+        let authStorage = packageRoot.appendingPathComponent("dist/core/auth-storage.js").absoluteString
+        let modelRegistry = packageRoot.appendingPathComponent("dist/core/model-registry.js").absoluteString
+        let requested = Set(runConfigs.map { pricingKey(provider: $0.provider, model: $0.model) })
+        let requestedJSON = String(data: try JSONEncoder().encode(Array(requested)), encoding: .utf8) ?? "[]"
+        let script = """
+        import { AuthStorage } from '\(authStorage)';
+        import { ModelRegistry } from '\(modelRegistry)';
+        const requested = new Set(\(requestedJSON));
+        const registry = ModelRegistry.create(AuthStorage.create());
+        const rows = registry.getAll()
+          .filter((model) => requested.has(`${model.provider}/${model.id}`))
+          .map((model) => ({ provider: model.provider, model: model.id, cost: model.cost }));
+        console.log(JSON.stringify(rows));
+        """
+        let output = try runProcess(executable: "/usr/bin/env", arguments: ["node", "--input-type=module", "-e", script])
+        let rows = try JSONDecoder().decode([PiModelPricingRow].self, from: Data(output.utf8))
+        let pricing = Dictionary(uniqueKeysWithValues: rows.map { row in
+            (pricingKey(provider: row.provider, model: row.model), EvalModelPricing(
+                provider: row.provider,
+                model: row.model,
+                inputPerMillion: row.cost.input,
+                outputPerMillion: row.cost.output,
+                cacheReadPerMillion: row.cost.cacheRead,
+                cacheWritePerMillion: row.cost.cacheWrite
+            ))
+        })
+        let missing = requested.subtracting(pricing.keys)
+        XCTAssertTrue(missing.isEmpty, "Missing Pi model pricing for: \(missing.sorted().joined(separator: ", "))")
+        if !missing.isEmpty {
+            throw NSError(domain: "PiNativeBundledSubagentRealRPCEvalTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing Pi model pricing for: \(missing.sorted().joined(separator: ", "))"])
+        }
+        return pricing
+    }
+
+    private func piPackageRoot(from resolvedPiURL: URL) -> URL {
+        let parent = resolvedPiURL.deletingLastPathComponent()
+        if parent.lastPathComponent == "dist" {
+            return parent.deletingLastPathComponent()
+        }
+        return parent
+    }
+
+    private func runProcess(executable: String, arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let out = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if process.terminationStatus != 0 {
+            let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw NSError(domain: "PiNativeBundledSubagentRealRPCEvalTests", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: err.isEmpty ? out : err])
+        }
+        return out
+    }
+
+    private func tokenUsageFromSessionFile(_ sessionFile: String?, fallbackRun: PiSubagentRunRecord, pricing: EvalModelPricing?) -> EvalTokenUsage {
+        let sessionUsage = sessionFile.flatMap { aggregateUsage(fromSessionFile: $0) }
+        let input = sessionUsage?.inputTokens ?? fallbackRun.child?.inputTokens
+        let output = sessionUsage?.outputTokens ?? fallbackRun.child?.outputTokens
+        let cacheRead = sessionUsage?.cacheReadTokens
+        let cacheWrite = sessionUsage?.cacheWriteTokens
+        let total = sessionUsage?.totalTokens ?? fallbackRun.child?.totalTokens ?? [input, output, cacheRead, cacheWrite].compactMap { $0 }.reduce(0, +)
+        let pricedCost = estimatedCost(inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, pricing: pricing)
+        return EvalTokenUsage(
+            inputTokens: input,
+            outputTokens: output,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            totalTokens: total,
+            costUSD: sessionUsage?.costUSD ?? pricedCost,
+            costSource: sessionUsage?.costUSD != nil ? "session_usage" : (pricedCost == nil ? nil : "pi_model_pricing"),
+            pricing: pricing
+        )
+    }
+
+    private func aggregateUsage(fromSessionFile path: String) -> EvalTokenUsage? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        var input = 0
+        var output = 0
+        var cacheRead = 0
+        var cacheWrite = 0
+        var total = 0
+        var cost = 0.0
+        var sawUsage = false
+        var sawCost = false
+        for line in text.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let usage = usageObject(in: object) else { continue }
+            sawUsage = true
+            input += intValue(usage["input"])
+            output += intValue(usage["output"])
+            cacheRead += intValue(usage["cacheRead"])
+            cacheWrite += intValue(usage["cacheWrite"])
+            total += intValue(usage["totalTokens"]) + intValue(usage["total"])
+            if let costObject = usage["cost"] as? [String: Any] {
+                sawCost = true
+                let explicitTotal = doubleValue(costObject["total"])
+                cost += explicitTotal == 0
+                    ? doubleValue(costObject["input"]) + doubleValue(costObject["output"]) + doubleValue(costObject["cacheRead"]) + doubleValue(costObject["cacheWrite"])
+                    : explicitTotal
+            }
+        }
+        guard sawUsage else { return nil }
+        let computedTotal = total == 0 ? input + output + cacheRead + cacheWrite : total
+        return EvalTokenUsage(
+            inputTokens: input,
+            outputTokens: output,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            totalTokens: computedTotal,
+            costUSD: sawCost ? cost : nil,
+            costSource: sawCost ? "session_usage" : nil,
+            pricing: nil
+        )
+    }
+
+    private func usageObject(in object: [String: Any]) -> [String: Any]? {
+        if let message = object["message"] as? [String: Any], message["role"] as? String == "assistant" {
+            return message["usage"] as? [String: Any]
+        }
+        if object["role"] as? String == "assistant" {
+            return object["usage"] as? [String: Any]
+        }
+        return nil
+    }
+
+    private func estimatedCost(inputTokens: Int?, outputTokens: Int?, cacheReadTokens: Int?, cacheWriteTokens: Int?, pricing: EvalModelPricing?) -> Double? {
+        guard let pricing else { return nil }
+        return (Double(inputTokens ?? 0) * pricing.inputPerMillion
+            + Double(outputTokens ?? 0) * pricing.outputPerMillion
+            + Double(cacheReadTokens ?? 0) * pricing.cacheReadPerMillion
+            + Double(cacheWriteTokens ?? 0) * pricing.cacheWritePerMillion) / 1_000_000
+    }
+
+    private func intValue(_ value: Any?) -> Int {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) ?? 0 }
+        return 0
+    }
+
+    private func doubleValue(_ value: Any?) -> Double {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let string = value as? String { return Double(string) ?? 0 }
+        return 0
+    }
+
+    private func pricingKey(provider: String?, model: String) -> String {
+        "\(provider ?? "default")/\(model)"
+    }
+
     private func writeSummaryMarkdown(_ summaries: [EvalRunSummary], to url: URL) throws {
         var lines = [
             "# Native Bundled Subagent Real RPC Eval",
             "",
-            "| Agent | Model | Thinking | Task | Status | Score | Missing Facts |",
-            "|---|---|---|---|---|---:|---|"
+            "| Agent | Model | Thinking | Task | Status | Score | Tokens | Missing Facts |",
+            "|---|---|---|---|---|---:|---|---|"
         ]
         for summary in summaries.sorted(by: summarySort) {
             let model = [summary.provider, summary.model].compactMap { $0 }.joined(separator: "/")
             let missing = summary.missingFacts.isEmpty ? "" : summary.missingFacts.joined(separator: ", ")
-            lines.append("| \(summary.agent) | \(model) | \(summary.thinking) | \(summary.taskID) | \(summary.status) | \(summary.score) | \(missing) |")
+            let tokens = summary.tokenUsage.markdownSummary.isEmpty ? "unavailable" : summary.tokenUsage.markdownSummary
+            lines.append("| \(summary.agent) | \(model) | \(summary.thinking) | \(summary.taskID) | \(summary.status) | \(summary.score) | \(tokens) | \(missing) |")
         }
         lines.append("")
-        lines.append("Scores are automatic first-pass fact matching from 1-5. Manually review each `output.md` for accuracy, hallucinations, and usefulness.")
+        lines.append("Scores are automatic first-pass fact matching from 1-5. Manually review each `output.md` for accuracy, hallucinations, and usefulness. Token counts and per-run USD cost are recorded in `token-usage.json` and `summary.json`; model pricing captured from Pi's model registry is saved in `model-pricing.json`.")
         try writeText(lines.joined(separator: "\n"), to: url)
     }
 
