@@ -299,6 +299,262 @@ private struct PiAgentTranscriptTimelineSnapshot {
     let planEventsByThreadID: [UUID: [PiSessionPlanEventRecord]]
 }
 
+private struct PiAgentAppKitTranscriptItem {
+    let id: String
+    let view: AnyView
+}
+
+private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
+    let items: [PiAgentAppKitTranscriptItem]
+    let sessionID: UUID?
+    let renderRevision: Int
+    let streamingRevision: Int
+    let autoScrollTurnRevision: Int
+    let bottomScrollRequest: Int
+    let isAutoScrollSuppressed: Bool
+    let onPinnedToBottomChange: (Bool) -> Void
+    let onUserScrolledAwayFromBottom: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPinnedToBottomChange: onPinnedToBottomChange, onUserScrolledAwayFromBottom: onUserScrolledAwayFromBottom)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.scrollerStyle = .overlay
+
+        let tableView = NSTableView()
+        tableView.headerView = nil
+        tableView.backgroundColor = .clear
+        tableView.enclosingScrollView?.drawsBackground = false
+        tableView.usesAutomaticRowHeights = true
+        tableView.rowHeight = 120
+        tableView.intercellSpacing = NSSize(width: 0, height: 12)
+        tableView.style = .plain
+        tableView.selectionHighlightStyle = .none
+        tableView.allowsColumnSelection = false
+        tableView.allowsMultipleSelection = false
+        tableView.allowsEmptySelection = true
+        tableView.delegate = context.coordinator
+        tableView.dataSource = context.coordinator
+
+        let column = NSTableColumn(identifier: Coordinator.columnIdentifier)
+        column.resizingMask = .autoresizingMask
+        column.minWidth = 200
+        tableView.addTableColumn(column)
+
+        scrollView.documentView = tableView
+        context.coordinator.tableView = tableView
+        context.coordinator.scrollView = scrollView
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.boundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
+        context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
+        context.coordinator.updateColumnWidth()
+        let wasPinned = context.coordinator.isPinnedToBottom(scrollView)
+        context.coordinator.update(items: items)
+
+        if context.coordinator.sessionID != sessionID {
+            context.coordinator.sessionID = sessionID
+            context.coordinator.lastRenderRevision = renderRevision
+            context.coordinator.lastStreamingRevision = streamingRevision
+            context.coordinator.lastAutoScrollTurnRevision = autoScrollTurnRevision
+            context.coordinator.lastBottomScrollRequest = bottomScrollRequest
+            context.coordinator.scrollToBottom(animated: false, settle: true)
+            return
+        }
+
+        if context.coordinator.lastAutoScrollTurnRevision != autoScrollTurnRevision || context.coordinator.lastBottomScrollRequest != bottomScrollRequest {
+            context.coordinator.lastAutoScrollTurnRevision = autoScrollTurnRevision
+            context.coordinator.lastBottomScrollRequest = bottomScrollRequest
+            context.coordinator.scrollToBottom(animated: true, settle: true)
+        } else if context.coordinator.lastRenderRevision != renderRevision {
+            context.coordinator.lastRenderRevision = renderRevision
+            guard !isAutoScrollSuppressed, wasPinned else { return }
+            context.coordinator.scrollToBottom(animated: false, settle: true)
+        } else if context.coordinator.lastStreamingRevision != streamingRevision {
+            context.coordinator.lastStreamingRevision = streamingRevision
+            guard !isAutoScrollSuppressed, wasPinned else { return }
+            context.coordinator.scrollToBottom(animated: false, settle: false)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        NotificationCenter.default.removeObserver(coordinator)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        static let columnIdentifier = NSUserInterfaceItemIdentifier("TranscriptColumn")
+        private static let cellIdentifier = NSUserInterfaceItemIdentifier("TranscriptCell")
+
+        weak var scrollView: NSScrollView?
+        weak var tableView: NSTableView?
+        var sessionID: UUID?
+        var lastRenderRevision = -1
+        var lastStreamingRevision = -1
+        var lastAutoScrollTurnRevision = -1
+        var lastBottomScrollRequest = -1
+        var onPinnedToBottomChange: (Bool) -> Void
+        var onUserScrolledAwayFromBottom: () -> Void
+        private var items: [PiAgentAppKitTranscriptItem] = []
+        private var orderedIDs: [String] = []
+        private var isProgrammaticScroll = false
+        private var lastPinnedState = true
+
+        init(onPinnedToBottomChange: @escaping (Bool) -> Void, onUserScrolledAwayFromBottom: @escaping () -> Void) {
+            self.onPinnedToBottomChange = onPinnedToBottomChange
+            self.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
+        }
+
+        func update(items: [PiAgentAppKitTranscriptItem]) {
+            guard let tableView else { return }
+            let nextIDs = items.map(\.id)
+            self.items = items
+            if nextIDs == orderedIDs {
+                let visible = tableView.rows(in: tableView.visibleRect)
+                guard visible.location != NSNotFound else { return }
+                tableView.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)), columnIndexes: IndexSet(integer: 0))
+            } else {
+                orderedIDs = nextIDs
+                tableView.reloadData()
+            }
+        }
+
+        func updateColumnWidth() {
+            guard let tableView, let scrollView else { return }
+            let width = max(200, scrollView.contentView.bounds.width)
+            tableView.tableColumns.first?.width = width
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            items.count
+        }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard items.indices.contains(row) else { return nil }
+            let item = items[row]
+            let cell = (tableView.makeView(withIdentifier: Self.cellIdentifier, owner: self) as? TranscriptCellView) ?? TranscriptCellView(identifier: Self.cellIdentifier)
+            cell.host(item.view)
+            return cell
+        }
+
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            false
+        }
+
+        @objc func boundsDidChange(_ notification: Notification) {
+            guard let scrollView else { return }
+            updateColumnWidth()
+            let pinned = isPinnedToBottom(scrollView)
+            if pinned != lastPinnedState {
+                lastPinnedState = pinned
+                onPinnedToBottomChange(pinned)
+            }
+            if !pinned, !isProgrammaticScroll {
+                onUserScrolledAwayFromBottom()
+            }
+        }
+
+        func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
+            guard let documentView = scrollView.documentView else { return true }
+            let visible = scrollView.contentView.bounds
+            let maxY = max(0, documentView.bounds.height - visible.height)
+            return maxY - visible.origin.y < 28
+        }
+
+        func scrollToBottom(animated: Bool, settle: Bool) {
+            guard let tableView else { return }
+            performScrollToBottom(tableView, animated: animated)
+            guard settle else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+                guard let self, let tableView = self.tableView else { return }
+                self.performScrollToBottom(tableView, animated: false)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+                guard let self, let tableView = self.tableView else { return }
+                self.performScrollToBottom(tableView, animated: false)
+            }
+        }
+
+        private func performScrollToBottom(_ tableView: NSTableView, animated: Bool) {
+            guard !items.isEmpty else { return }
+            tableView.layoutSubtreeIfNeeded()
+            let lastRow = items.count - 1
+            isProgrammaticScroll = true
+            if animated, let scrollView {
+                let rect = tableView.rect(ofRow: lastRow)
+                let targetY = max(0, rect.maxY - scrollView.contentView.bounds.height)
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: targetY))
+                }
+            } else {
+                tableView.scrollRowToVisible(lastRow)
+                if let scrollView, let documentView = scrollView.documentView {
+                    let visibleHeight = scrollView.contentView.bounds.height
+                    let maxY = max(0, documentView.bounds.height - visibleHeight)
+                    scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                }
+            }
+            isProgrammaticScroll = false
+            lastPinnedState = true
+            onPinnedToBottomChange(true)
+        }
+    }
+
+    final class TranscriptCellView: NSTableCellView {
+        private var hostingView: NSHostingView<AnyView>?
+
+        init(identifier: NSUserInterfaceItemIdentifier) {
+            super.init(frame: .zero)
+            self.identifier = identifier
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+        }
+
+        func host(_ view: AnyView) {
+            if let hostingView {
+                hostingView.rootView = view
+                return
+            }
+            let hostingView = NSHostingView(rootView: view)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            hostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            addSubview(hostingView)
+            NSLayoutConstraint.activate([
+                hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                hostingView.topAnchor.constraint(equalTo: topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            self.hostingView = hostingView
+        }
+    }
+}
+
 private extension PiAgentTranscriptThread {
     var timelineTimestamp: Date {
         let activityEntries = activities.compactMap(\.representativeEntry)
@@ -353,7 +609,10 @@ struct PiAgentScreen: View {
     @State private var processingMessageUpdateTask: Task<Void, Never>?
     @State private var transcriptBottomSettleTask: Task<Void, Never>?
 
-    private let recentTranscriptTimelineItemLimit = 10
+    // AppKit-backed scrolling can keep the full visible post-compaction transcript mounted.
+    // Pre-compaction archive hiding still applies, but the former latest-10 SwiftUI safety
+    // window is disabled so long conversations can be stress-tested and reviewed in place.
+    private let recentTranscriptTimelineItemLimit = Int.max
 
     var body: some View {
         HStack(spacing: 0) {
@@ -793,117 +1052,99 @@ struct PiAgentScreen: View {
     }
 
     private var transcript: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView(showsIndicators: false) {
-            let timelineSnapshot = transcriptTimelineSnapshot
-            let timelineItems = timelineSnapshot.mainVisibleItems
-            PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
-                    if let session = store.selectedSession {
-                        PiAgentStartupResourcesCard(viewModel: viewModel, session: session)
-                        if let finalSystemPrompt = session.finalSystemPrompt {
-                            PiAgentSystemPromptAuditCard(
-                                title: "Final System Prompt",
-                                subtitle: "",
-                                prompt: finalSystemPrompt
-                            )
-                        }
-                        ForEach(store.supervisorRequests(for: session.id).filter { $0.status == .pending }) { request in
-                            PiSubagentSupervisorRequestCard(
-                                request: request,
-                                onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
-                                onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
-                            )
-                        }
-                    }
+        PiAgentAppKitTranscriptView(
+            items: appKitTranscriptItems,
+            sessionID: store.selectedSession?.id,
+            renderRevision: transcriptCache.renderRevision,
+            streamingRevision: transcriptCache.streamingRevision,
+            autoScrollTurnRevision: transcriptCache.autoScrollTurnRevision,
+            bottomScrollRequest: transcriptBottomScrollRequest,
+            isAutoScrollSuppressed: isTranscriptAutoScrollSuppressed,
+            onPinnedToBottomChange: { isPinnedToBottom in
+                transcriptIsPinnedToBottom = isPinnedToBottom
+            },
+            onUserScrolledAwayFromBottom: {
+                guard store.selectedSession?.status.isActive == true else { return }
+                suppressTranscriptAutoScrollForCurrentTurn()
+            }
+        )
+        .onChange(of: selectedSessionProcessingMessage) { _, message in
+            updateStabilizedProcessingMessage(message)
+            guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
+            requestTranscriptBottomScroll()
+        }
+    }
 
-                    if let archive = timelineSnapshot.preCompactionArchive {
-                        preCompactionArchiveCard(archive)
-                    }
-                    if let archive = timelineSnapshot.recentWindowArchive {
-                        recentWindowArchiveCard(archive)
-                    }
-                    if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
-                        AppRowCard {
-                            HStack(spacing: 12) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Loading transcript")
-                                        .font(.headline)
-                                    Text("Restoring the selected chat from disk.")
-                                        .foregroundStyle(AppTheme.mutedText)
-                                }
-                                Spacer()
-                            }
-                        }
-                        .id("pi-agent-transcript-state-card")
-                    } else if timelineItems.isEmpty {
-                        AppRowCard {
-                            HStack(spacing: 12) {
-                                Image(systemName: "text.bubble")
-                                    .font(.title2)
-                                    .foregroundStyle(AppTheme.mutedText)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("No transcript yet")
-                                        .font(.headline)
-                                    Text("Send a message below to launch Pi Agent for this session.")
-                                        .foregroundStyle(AppTheme.mutedText)
-                                }
-                                Spacer()
-                            }
-                        }
-                        .id("pi-agent-transcript-state-card")
-                    } else {
-                        ForEach(timelineItems) { item in
-                            transcriptTimelineItemView(item, snapshot: timelineSnapshot)
-                        }
-                        if let processingMessage = stabilizedProcessingMessage {
-                            PiAgentProcessingIndicatorCard(message: processingMessage)
-                                .id("pi-agent-processing")
-                        }
-                    }
+    private var appKitTranscriptItems: [PiAgentAppKitTranscriptItem] {
+        let timelineSnapshot = transcriptTimelineSnapshot
+        let timelineItems = timelineSnapshot.mainVisibleItems
+        var items: [PiAgentAppKitTranscriptItem] = []
 
-                    Color.clear
-                        .frame(height: 1)
-                        .id("pi-agent-bottom-anchor")
+        if let session = store.selectedSession {
+            items.append(PiAgentAppKitTranscriptItem(id: "startup-resources-\(session.id.uuidString)", view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session))))
+            if let finalSystemPrompt = session.finalSystemPrompt {
+                items.append(PiAgentAppKitTranscriptItem(id: "system-prompt-\(session.id.uuidString)", view: AnyView(PiAgentSystemPromptAuditCard(title: "Final System Prompt", subtitle: "", prompt: finalSystemPrompt))))
+            }
+            for request in store.supervisorRequests(for: session.id).filter({ $0.status == .pending }) {
+                items.append(PiAgentAppKitTranscriptItem(id: "supervisor-request-\(request.id)", view: AnyView(PiSubagentSupervisorRequestCard(
+                    request: request,
+                    onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
+                    onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
+                ))))
+            }
+        }
+
+        if let archive = timelineSnapshot.preCompactionArchive {
+            items.append(PiAgentAppKitTranscriptItem(id: "pre-compaction-archive", view: AnyView(preCompactionArchiveCard(archive))))
+        }
+        if let archive = timelineSnapshot.recentWindowArchive {
+            items.append(PiAgentAppKitTranscriptItem(id: "recent-window-archive", view: AnyView(recentWindowArchiveCard(archive))))
+        }
+        if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
+            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(loadingTranscriptCard)))
+        } else if timelineItems.isEmpty {
+            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(emptyTranscriptCard)))
+        } else {
+            for item in timelineItems {
+                items.append(PiAgentAppKitTranscriptItem(id: item.id, view: AnyView(transcriptTimelineItemView(item, snapshot: timelineSnapshot))))
+            }
+            if let processingMessage = stabilizedProcessingMessage {
+                items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-processing", view: AnyView(PiAgentProcessingIndicatorCard(message: processingMessage))))
+            }
+        }
+        items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-bottom-anchor", view: AnyView(Color.clear.frame(height: 1))))
+        return items
+    }
+
+    private var loadingTranscriptCard: some View {
+        AppRowCard {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Loading transcript")
+                        .font(.headline)
+                    Text("Restoring the selected chat from disk.")
+                        .foregroundStyle(AppTheme.mutedText)
                 }
-                .id(transcriptLazyStackIdentity)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .background {
-                    PiAgentScrollPositionObserver(
-                        onPinnedToBottomChange: { isPinnedToBottom in
-                            transcriptIsPinnedToBottom = isPinnedToBottom
-                        },
-                        onUserScrolledAwayFromBottom: {
-                            guard store.selectedSession?.status.isActive == true else { return }
-                            suppressTranscriptAutoScrollForCurrentTurn()
-                        }
-                    )
+                Spacer()
+            }
+        }
+    }
+
+    private var emptyTranscriptCard: some View {
+        AppRowCard {
+            HStack(spacing: 12) {
+                Image(systemName: "text.bubble")
+                    .font(.title2)
+                    .foregroundStyle(AppTheme.mutedText)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No transcript yet")
+                        .font(.headline)
+                    Text("Send a message below to launch Pi Agent for this session.")
+                        .foregroundStyle(AppTheme.mutedText)
                 }
-            }
-            .defaultScrollAnchor(.bottom)
-            .id(store.selectedSession?.id)
-            .task(id: transcriptCache.renderRevision) {
-                handleTranscriptRenderRevision(scrollProxy)
-            }
-            .task(id: transcriptCache.autoScrollTurnRevision) {
-                await Task.yield()
-                beginTranscriptAutoScrollTurn()
-                scrollToConversationBottom(scrollProxy, animated: true, respectSuppression: false)
-            }
-            .task(id: transcriptCache.streamingRevision) {
-                guard !isTranscriptAutoScrollSuppressed else { return }
-                await Task.yield()
-                throttleStreamingScroll(scrollProxy)
-            }
-            .onChange(of: selectedSessionProcessingMessage) { _, message in
-                updateStabilizedProcessingMessage(message)
-                guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
-                scrollToProcessingIndicator(scrollProxy)
-            }
-            .task(id: transcriptBottomScrollRequest) {
-                await Task.yield()
-                scrollToRequestedBottom(scrollProxy)
+                Spacer()
             }
         }
     }
