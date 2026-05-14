@@ -124,6 +124,7 @@ struct ContentView: View {
                                     showsWarning: warnings[item] ?? false
                                 )
                                 .tag(item)
+                                .disabled(item == .instructions && viewModel.selectedProjectPath == nil)
                             }
                         }
                     }
@@ -241,6 +242,16 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .projects {
                 ToolbarItemGroup {
+                    Button {
+                        viewModel.refresh(includeModels: false, scanAllProjects: true)
+                    } label: {
+                        Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
+                    .toolbarNeutralChrome()
+                    .help("Refresh project discovery")
+                    .disabled(viewModel.isRefreshingProjects)
+
                     Button("Enable All") {
                         showingEnableAllProjectsAlert = true
                     }
@@ -813,6 +824,8 @@ struct ContentView: View {
         switch viewModel.selectedSidebarItem {
         case .projects:
             ProjectsScreen(viewModel: viewModel)
+        case .instructions:
+            SystemInstructionsScreen(viewModel: viewModel)
         case .memory:
             MemoryScreen(viewModel: viewModel, memoryStore: viewModel.agentMemoryStore)
         case .agents:

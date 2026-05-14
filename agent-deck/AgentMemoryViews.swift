@@ -8,6 +8,7 @@ struct MemoryScreen: View {
     @State private var selectedKind: AgentMemoryKind?
     @State private var selectedRecordID: String?
     @State private var isNewMemoryPresented = false
+    @State private var isInfoPresented = false
 
     var body: some View {
         AppPage("Memory", subtitle: "Review project memories used by Agent Deck") {
@@ -15,6 +16,24 @@ struct MemoryScreen: View {
             libraryCard
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isInfoPresented.toggle()
+                } label: {
+                    Label("Memory Info", systemImage: "info.circle")
+                }
+                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                    MemoryInfoPopover(
+                        enabled: viewModel.appSettings.agentMemoryEnabled,
+                        projectName: projectLabel,
+                        recordCount: currentRecords.count,
+                        injectableCount: currentRecords.filter(\.isInjectable).count,
+                        staleCount: currentRecords.filter { $0.status == .stale }.count
+                    )
+                }
+                .help("Explain Agent Deck memory")
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isNewMemoryPresented = true
@@ -65,10 +84,6 @@ struct MemoryScreen: View {
         return filteredRecords.first(where: { $0.id == selectedRecordID }) ?? filteredRecords.first
     }
 
-    private var activeCount: Int { currentRecords.filter(\.isInjectable).count }
-    private var pinnedCount: Int { currentRecords.filter { $0.status == .pinned }.count }
-    private var staleCount: Int { currentRecords.filter { $0.status == .stale }.count }
-
     private var projectLabel: String {
         viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "No project selected"
     }
@@ -81,31 +96,14 @@ struct MemoryScreen: View {
             ))
             .toggleStyle(.switch)
         }) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Durable project context that agents can recall: architecture notes, decisions, preferences, runbooks, and recurring failures.")
-                    .foregroundStyle(AppTheme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    MemoryOverviewPill(text: viewModel.appSettings.agentMemoryEnabled ? "Enabled" : "Paused", systemImage: SidebarItem.memory.systemImage, color: viewModel.appSettings.agentMemoryEnabled ? .green : .orange)
-                    MemoryOverviewPill(text: projectLabel, systemImage: "folder", color: .blue)
-                    MemoryOverviewPill(text: "\(activeCount) injectable", systemImage: "bolt.fill", color: AppTheme.brandAccent)
-                    MemoryOverviewPill(text: "\(pinnedCount) pinned", systemImage: "pin.fill", color: .purple)
-                    if staleCount > 0 {
-                        MemoryOverviewPill(text: "\(staleCount) stale", systemImage: "clock.badge.exclamationmark", color: .yellow)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
+            Text("Durable project context that agents can recall: architecture notes, decisions, preferences, runbooks, and recurring failures.")
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var libraryCard: some View {
-        AppCard(title: "Memory Library", trailing: {
-            Text("\(filteredRecords.count) of \(currentRecords.count)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
-        }) {
+        AppCard(title: "Memory Library") {
             VStack(alignment: .leading, spacing: 14) {
                 filterBar
 
@@ -185,21 +183,71 @@ struct MemoryScreen: View {
     }
 }
 
-private struct MemoryOverviewPill: View {
-    let text: String
-    let systemImage: String
-    let color: Color
+
+private struct MemoryInfoPopover: View {
+    let enabled: Bool
+    let projectName: String
+    let recordCount: Int
+    let injectableCount: Int
+    let staleCount: Int
 
     var body: some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(color.opacity(0.12), in: Capsule(style: .continuous))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: SidebarItem.memory.systemImage)
+                    .foregroundStyle(AppTheme.brandAccent)
+                Text("Agent Deck Memory")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                infoRow("What is stored", "Project-scoped, durable facts: architecture notes, decisions, preferences, runbooks, and recurring failures.")
+                infoRow("When agents see it", "Active and pinned memories can be injected into Pi sessions when they are relevant to the task. Stale and archived memories are not injected automatically.")
+                infoRow("Current project", projectName)
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                stat("Status", enabled ? "Enabled" : "Paused", color: enabled ? .green : .orange)
+                stat("Memories", "\(recordCount)", color: AppTheme.brandAccent)
+                stat("Injectable", "\(injectableCount)", color: .green)
+                stat("Stale", "\(staleCount)", color: .yellow)
+            }
+        }
+        .padding(16)
+        .frame(width: 460, alignment: .leading)
+    }
+
+    private func infoRow(_ title: String, _ description: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .fontWidth(.expanded)
+            Text(description)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func stat(_ title: String, _ value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
+
 
 private struct MemoryRecordRow: View {
     let record: AgentMemoryRecord
@@ -222,7 +270,9 @@ private struct MemoryRecordRow: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                         Spacer(minLength: 6)
-                        MemoryStatusBadge(status: record.status)
+                        Text(record.status.displayName)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
                     }
 
                     Text(record.summary.isEmpty ? "No summary provided." : record.summary)
@@ -233,9 +283,6 @@ private struct MemoryRecordRow: View {
                     HStack(spacing: 6) {
                         Label(record.kind.displayName, systemImage: record.kind.systemImage)
                         Label(record.scope.displayName, systemImage: record.scope.systemImage)
-                        if record.useCount > 0 {
-                            Label("\(record.useCount)x", systemImage: "arrow.triangle.2.circlepath")
-                        }
                     }
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
@@ -307,13 +354,10 @@ private struct MemoryDetailView: View {
                     .background(record.status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(record.title.isEmpty ? "Untitled Memory" : record.title)
-                            .font(.title3.weight(.bold))
-                            .fontWidth(.expanded)
-                            .lineLimit(2)
-                        MemoryStatusBadge(status: record.status)
-                    }
+                    Text(record.title.isEmpty ? "Untitled Memory" : record.title)
+                        .font(.title3.weight(.bold))
+                        .fontWidth(.expanded)
+                        .lineLimit(2)
                     Text(record.summary.isEmpty ? "No summary provided." : record.summary)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -337,9 +381,6 @@ private struct MemoryDetailView: View {
                     .buttonStyle(AppSecondaryButtonStyle())
             }
 
-            if !record.tags.isEmpty {
-                FlowTagRow(tags: record.tags)
-            }
         }
         .padding(14)
         .appContentSurface(cornerRadius: 14)
@@ -370,48 +411,13 @@ private struct MemoryInfoPanel: View {
             ("Status", record.status.displayName),
             ("Scope", record.scope.displayName),
             ("Created", record.createdAt.formatted(date: .abbreviated, time: .shortened)),
-            ("Updated", record.updatedAt.formatted(date: .abbreviated, time: .shortened)),
-            ("Used", record.useCount == 0 ? "Never" : "\(record.useCount) time\(record.useCount == 1 ? "" : "s")")
+            ("Updated", record.updatedAt.formatted(date: .abbreviated, time: .shortened))
         ]
-        if let lastUsedAt = record.lastUsedAt {
-            rows.append(("Last Used", lastUsedAt.formatted(date: .abbreviated, time: .shortened)))
-        }
         if let sourceAgentName = record.sourceAgentName, !sourceAgentName.isEmpty {
             rows.append(("Source", sourceAgentName))
         }
         rows.append(("Path", record.filePath))
         return rows
-    }
-}
-
-private struct MemoryStatusBadge: View {
-    let status: AgentMemoryStatus
-
-    var body: some View {
-        Label(status.displayName, systemImage: status.systemImage)
-            .font(.caption2.weight(.bold))
-            .fontWidth(.expanded)
-            .foregroundStyle(status.tint)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(status.tint.opacity(0.12), in: Capsule(style: .continuous))
-    }
-}
-
-private struct FlowTagRow: View {
-    let tags: [String]
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(AppTheme.contentSubtleFill, in: Capsule(style: .continuous))
-            }
-        }
     }
 }
 

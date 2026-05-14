@@ -302,6 +302,13 @@ private struct PiAgentTranscriptTimelineSnapshot {
 private struct PiAgentAppKitTranscriptItem {
     let id: String
     let view: AnyView
+    let contentRevision: Int
+
+    init(id: String, view: AnyView, contentRevision: Int = 0) {
+        self.id = id
+        self.view = view
+        self.contentRevision = contentRevision
+    }
 }
 
 private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
@@ -311,12 +318,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     let streamingRevision: Int
     let autoScrollTurnRevision: Int
     let bottomScrollRequest: Int
-    let isAutoScrollSuppressed: Bool
     let onPinnedToBottomChange: (Bool) -> Void
-    let onUserScrolledAwayFromBottom: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPinnedToBottomChange: onPinnedToBottomChange, onUserScrolledAwayFromBottom: onUserScrolledAwayFromBottom)
+        Coordinator(onPinnedToBottomChange: onPinnedToBottomChange)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -348,32 +353,37 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
-        context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         let wasPinned = context.coordinator.isPinnedToBottom(scrollView)
-        context.coordinator.update(items: items, forceRemeasureVisibleRows: true)
+        let isSessionSwitch = context.coordinator.sessionID != sessionID
+        let isStructuralUpdate = context.coordinator.lastRenderRevision != renderRevision
+        context.coordinator.update(
+            items: items,
+            forceRemeasureVisibleRows: isSessionSwitch || isStructuralUpdate
+        )
+        context.coordinator.updatePinnedState(scrollView)
 
-        if context.coordinator.sessionID != sessionID {
+        if isSessionSwitch {
             context.coordinator.sessionID = sessionID
             context.coordinator.lastRenderRevision = renderRevision
             context.coordinator.lastStreamingRevision = streamingRevision
             context.coordinator.lastAutoScrollTurnRevision = autoScrollTurnRevision
             context.coordinator.lastBottomScrollRequest = bottomScrollRequest
-            context.coordinator.scrollToBottom(animated: false, settle: true)
+            context.coordinator.scrollToBottom(settle: true, forceRemeasure: true)
             return
         }
 
         if context.coordinator.lastAutoScrollTurnRevision != autoScrollTurnRevision || context.coordinator.lastBottomScrollRequest != bottomScrollRequest {
             context.coordinator.lastAutoScrollTurnRevision = autoScrollTurnRevision
             context.coordinator.lastBottomScrollRequest = bottomScrollRequest
-            context.coordinator.scrollToBottom(animated: true, settle: true)
+            context.coordinator.scrollToBottom(settle: true, forceRemeasure: true)
         } else if context.coordinator.lastRenderRevision != renderRevision {
             context.coordinator.lastRenderRevision = renderRevision
-            guard !isAutoScrollSuppressed, wasPinned else { return }
-            context.coordinator.scrollToBottom(animated: false, settle: true)
+            guard wasPinned else { return }
+            context.coordinator.scrollToBottom(settle: true, forceRemeasure: true)
         } else if context.coordinator.lastStreamingRevision != streamingRevision {
             context.coordinator.lastStreamingRevision = streamingRevision
-            guard !isAutoScrollSuppressed, wasPinned else { return }
-            context.coordinator.scrollToBottom(animated: false, settle: false)
+            guard wasPinned else { return }
+            context.coordinator.scrollToBottom(settle: false, forceRemeasure: false)
         }
     }
 
@@ -391,14 +401,17 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         var lastAutoScrollTurnRevision = -1
         var lastBottomScrollRequest = -1
         var onPinnedToBottomChange: (Bool) -> Void
-        var onUserScrolledAwayFromBottom: () -> Void
         private var items: [PiAgentAppKitTranscriptItem] = []
         private var orderedIDs: [String] = []
         private var heightByID: [String: CGFloat] = [:]
         private var originYByID: [String: CGFloat] = [:]
-        private var hostedViewsByID: [String: NSHostingView<AnyView>] = [:]
+        private var contentRevisionByID: [String: Int] = [:]
+        private var hostedViewsByID: [String: TranscriptHostingView] = [:]
         private var dirtyIDs: Set<String> = []
         private var isProgrammaticScroll = false
+        private var isLayingOutVisibleRows = false
+        private var pendingScrollWorkItem: DispatchWorkItem?
+        private var settleGeneration = 0
         private var lastPinnedState = true
         private var contentWidth: CGFloat = 0
         private var contentHeight: CGFloat = 0
@@ -406,20 +419,22 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private let rowSpacing: CGFloat = 12
         private let realizationBuffer: CGFloat = 900
 
-        init(onPinnedToBottomChange: @escaping (Bool) -> Void, onUserScrolledAwayFromBottom: @escaping () -> Void) {
+        init(onPinnedToBottomChange: @escaping (Bool) -> Void) {
             self.onPinnedToBottomChange = onPinnedToBottomChange
-            self.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
         }
 
         func update(items: [PiAgentAppKitTranscriptItem], forceRemeasureVisibleRows: Bool) {
-            guard let scrollView, let documentView else { return }
+            guard let documentView else { return }
             let nextIDs = items.map(\.id)
+            let nextRevisions = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.contentRevision) })
             self.items = items
             if nextIDs == orderedIDs {
                 if forceRemeasureVisibleRows {
                     dirtyIDs.formUnion(nextIDs)
+                } else {
+                    dirtyIDs.formUnion(nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] })
                 }
-                updateContentWidthIfNeeded(scrollView)
+                contentRevisionByID = nextRevisions
                 layoutVisibleRows(forceRemeasure: forceRemeasureVisibleRows)
             } else {
                 let nextIDSet = Set(nextIDs)
@@ -427,91 +442,97 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 for id in removedIDs {
                     heightByID[id] = nil
                     originYByID[id] = nil
+                    contentRevisionByID[id] = nil
                     dirtyIDs.remove(id)
                     if let hostedView = hostedViewsByID.removeValue(forKey: id) {
                         hostedView.removeFromSuperview()
                     }
                 }
                 orderedIDs = nextIDs
+                contentRevisionByID = nextRevisions
                 dirtyIDs.formUnion(nextIDs)
-                updateContentWidthIfNeeded(scrollView)
                 recomputeLayout()
                 resizeDocumentView(documentView)
                 layoutVisibleRows(forceRemeasure: true)
             }
         }
 
-        private func updateContentWidthIfNeeded(_ scrollView: NSScrollView) {
+        @discardableResult
+        private func updateContentWidthIfNeeded(_ scrollView: NSScrollView) -> Bool {
             let width = max(200, scrollView.contentView.bounds.width)
-            guard abs(width - contentWidth) > 0.5 else { return }
+            guard abs(width - contentWidth) > 0.5 else { return false }
             contentWidth = width
-            heightByID.removeAll(keepingCapacity: true)
             dirtyIDs.formUnion(items.map(\.id))
             recomputeLayout()
             if let documentView {
                 resizeDocumentView(documentView)
             }
+            return true
         }
 
         @objc func boundsDidChange(_ notification: Notification) {
             guard let scrollView else { return }
-            updateContentWidthIfNeeded(scrollView)
             layoutVisibleRows(forceRemeasure: false)
             let pinned = isPinnedToBottom(scrollView)
-            publishPinnedState(pinned)
             if !pinned, !isProgrammaticScroll {
-                DispatchQueue.main.async { [weak self] in
-                    self?.onUserScrolledAwayFromBottom()
-                }
+                cancelPendingScrolls()
             }
+            publishPinnedState(pinned)
+        }
+
+        func updatePinnedState(_ scrollView: NSScrollView) {
+            publishPinnedState(isPinnedToBottom(scrollView))
         }
 
         func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
             guard let documentView = scrollView.documentView else { return true }
             let visible = scrollView.contentView.bounds
             let maxY = max(0, documentView.bounds.height - visible.height)
-            return maxY - visible.origin.y < 28
+            return maxY - visible.origin.y < 80
         }
 
-        func scrollToBottom(animated: Bool, settle: Bool) {
-            guard let scrollView else { return }
-            layoutVisibleRows(forceRemeasure: true)
-            performScrollToBottom(scrollView, animated: animated)
-            guard settle else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+        func scrollToBottom(settle: Bool, forceRemeasure: Bool) {
+            pendingScrollWorkItem?.cancel()
+            settleGeneration &+= 1
+            let generation = settleGeneration
+            let workItem = DispatchWorkItem { [weak self] in
                 guard let self, let scrollView = self.scrollView else { return }
-                self.layoutVisibleRows(forceRemeasure: true)
-                self.performScrollToBottom(scrollView, animated: false)
+                self.layoutVisibleRows(forceRemeasure: forceRemeasure)
+                self.performScrollToBottom(scrollView)
+                guard settle else { return }
+                self.scheduleSettleScroll(after: 0.04, generation: generation)
+                self.scheduleSettleScroll(after: 0.14, generation: generation)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
-                guard let self, let scrollView = self.scrollView else { return }
+            pendingScrollWorkItem = workItem
+            DispatchQueue.main.async(execute: workItem)
+        }
+
+        private func scheduleSettleScroll(after delay: TimeInterval, generation: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      generation == self.settleGeneration,
+                      let scrollView = self.scrollView else { return }
                 self.layoutVisibleRows(forceRemeasure: true)
-                self.performScrollToBottom(scrollView, animated: false)
+                self.performScrollToBottom(scrollView)
             }
         }
 
-        private func performScrollToBottom(_ scrollView: NSScrollView, animated: Bool) {
+        private func cancelPendingScrolls() {
+            pendingScrollWorkItem?.cancel()
+            pendingScrollWorkItem = nil
+            settleGeneration &+= 1
+        }
+
+        private func performScrollToBottom(_ scrollView: NSScrollView) {
             guard !items.isEmpty else { return }
             guard let documentView = scrollView.documentView else { return }
             documentView.layoutSubtreeIfNeeded()
             let visibleHeight = scrollView.contentView.bounds.height
             let maxY = max(0, documentView.bounds.height - visibleHeight)
             isProgrammaticScroll = true
-            if animated {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.18
-                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: maxY))
-                } completionHandler: { [weak self] in
-                    Task { @MainActor in
-                        self?.finishProgrammaticScroll()
-                    }
-                }
-            } else {
-                scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-                finishProgrammaticScroll()
-            }
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            finishProgrammaticScroll()
             publishPinnedState(true)
         }
 
@@ -546,14 +567,19 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         private func layoutVisibleRows(forceRemeasure: Bool) {
-            guard let scrollView, let documentView else { return }
-            updateContentWidthIfNeeded(scrollView)
+            guard let scrollView, let documentView, !isLayingOutVisibleRows else { return }
+            isLayingOutVisibleRows = true
+            defer { isLayingOutVisibleRows = false }
+            let wasPinnedBeforeLayout = isPinnedToBottom(scrollView)
+            let widthChanged = updateContentWidthIfNeeded(scrollView)
             recomputeLayout()
             resizeDocumentView(documentView)
+            if wasPinnedBeforeLayout && widthChanged {
+                performScrollToBottom(scrollView)
+            }
 
             let visibleRect = scrollView.contentView.bounds.insetBy(dx: 0, dy: -realizationBuffer)
             let visibleBounds = scrollView.contentView.bounds
-            let wasPinnedBeforeLayout = isPinnedToBottom(scrollView)
             var visibleIDs = Set<String>()
             var didChangeHeight = false
             var originAdjustment: CGFloat = 0
@@ -581,7 +607,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if didChangeHeight {
                 recomputeLayout()
                 resizeDocumentView(documentView)
-                if !wasPinnedBeforeLayout, abs(originAdjustment) > 0.5 {
+                if wasPinnedBeforeLayout {
+                    performScrollToBottom(scrollView)
+                } else if abs(originAdjustment) > 0.5 {
                     let maxY = max(0, contentHeight - scrollView.contentView.bounds.height)
                     let adjustedY = min(max(0, visibleBounds.origin.y + originAdjustment), maxY)
                     scrollView.contentView.scroll(to: NSPoint(x: 0, y: adjustedY))
@@ -593,9 +621,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 guard let hostedView = hostedViewsByID[item.id] else { continue }
                 let y = originYByID[item.id] ?? 0
                 let height = heightByID[item.id] ?? estimatedRowHeight
-                hostedView.rootView = sizedView(for: item)
-                hostedView.frame = CGRect(x: 0, y: y, width: contentWidth, height: height)
-                hostedView.needsLayout = true
+                let nextFrame = CGRect(x: 0, y: y, width: contentWidth, height: height)
+                if hostedView.frame != nextFrame {
+                    hostedView.frame = nextFrame
+                }
             }
 
             let hostedIDsToRemove = hostedViewsByID.keys.filter { !visibleIDs.contains($0) }
@@ -605,15 +634,24 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             }
         }
 
-        private func hostedView(for item: PiAgentAppKitTranscriptItem, in documentView: NSView) -> NSHostingView<AnyView> {
+        private func hostedView(for item: PiAgentAppKitTranscriptItem, in documentView: NSView) -> TranscriptHostingView {
             if let hostedView = hostedViewsByID[item.id] {
-                hostedView.rootView = sizedView(for: item)
                 return hostedView
             }
-            let hostingView = NSHostingView(rootView: sizedView(for: item))
+            let hostingView = TranscriptHostingView(rootView: sizedView(for: item))
             hostingView.translatesAutoresizingMaskIntoConstraints = true
             hostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
             hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            hostingView.onIntrinsicContentSizeInvalidated = { [weak self, weak hostingView] in
+                DispatchQueue.main.async { [weak self, weak hostingView] in
+                    guard let self,
+                          !self.isLayingOutVisibleRows,
+                          let hostingView,
+                          let id = self.hostedViewsByID.first(where: { $0.value === hostingView })?.key else { return }
+                    self.dirtyIDs.insert(id)
+                    self.layoutVisibleRows(forceRemeasure: false)
+                }
+            }
             documentView.addSubview(hostingView)
             hostedViewsByID[item.id] = hostingView
             return hostingView
@@ -623,7 +661,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             AnyView(item.view.frame(width: contentWidth, alignment: .topLeading))
         }
 
-        private func measure(_ hostedView: NSHostingView<AnyView>, item: PiAgentAppKitTranscriptItem) -> CGFloat {
+        private func measure(_ hostedView: TranscriptHostingView, item: PiAgentAppKitTranscriptItem) -> CGFloat {
+            hostedView.suppressesIntrinsicInvalidationCallback = true
+            defer { hostedView.suppressesIntrinsicInvalidationCallback = false }
             hostedView.rootView = sizedView(for: item)
             hostedView.frame = CGRect(x: 0, y: 0, width: contentWidth, height: heightByID[item.id] ?? estimatedRowHeight)
             hostedView.invalidateIntrinsicContentSize()
@@ -638,6 +678,17 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
     final class TranscriptDocumentView: NSView {
         override var isFlipped: Bool { true }
+    }
+
+    final class TranscriptHostingView: NSHostingView<AnyView> {
+        var onIntrinsicContentSizeInvalidated: (() -> Void)?
+        var suppressesIntrinsicInvalidationCallback = false
+
+        override func invalidateIntrinsicContentSize() {
+            super.invalidateIntrinsicContentSize()
+            guard !suppressesIntrinsicInvalidationCallback else { return }
+            onIntrinsicContentSizeInvalidated?()
+        }
     }
 }
 
@@ -676,13 +727,13 @@ struct PiAgentScreen: View {
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
     @State private var composerAttachmentError: String?
+    @State private var composerHistoryIndex: Int?
+    @State private var composerHistoryDraft = ""
     @State private var selectedSubagentTranscriptRunID: UUID?
     @State private var selectedSubagentGraphRunID: UUID?
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
-    @State private var transcriptAutoScrollTurn = 0
-    @State private var transcriptAutoScrollSuppressedTurn: Int?
     @State private var showArchivedPreCompactionTranscript = false
     @State private var isEarlierTranscriptSheetPresented = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
@@ -1136,18 +1187,13 @@ struct PiAgentScreen: View {
             streamingRevision: transcriptCache.streamingRevision,
             autoScrollTurnRevision: transcriptCache.autoScrollTurnRevision,
             bottomScrollRequest: transcriptBottomScrollRequest,
-            isAutoScrollSuppressed: isTranscriptAutoScrollSuppressed,
             onPinnedToBottomChange: { isPinnedToBottom in
                 transcriptIsPinnedToBottom = isPinnedToBottom
-            },
-            onUserScrolledAwayFromBottom: {
-                guard store.selectedSession?.status.isActive == true else { return }
-                suppressTranscriptAutoScrollForCurrentTurn()
             }
         )
         .onChange(of: selectedSessionProcessingMessage) { _, message in
             updateStabilizedProcessingMessage(message)
-            guard message != nil, !isTranscriptAutoScrollSuppressed else { return }
+            guard message != nil, transcriptIsPinnedToBottom else { return }
             requestTranscriptBottomScroll()
         }
     }
@@ -1155,42 +1201,80 @@ struct PiAgentScreen: View {
     private var appKitTranscriptItems: [PiAgentAppKitTranscriptItem] {
         let timelineSnapshot = transcriptTimelineSnapshot
         let timelineItems = timelineSnapshot.mainVisibleItems
+        let contentRevision = appKitTranscriptSharedContentRevision(snapshot: timelineSnapshot)
         var items: [PiAgentAppKitTranscriptItem] = []
 
         if let session = store.selectedSession {
-            items.append(PiAgentAppKitTranscriptItem(id: "startup-resources-\(session.id.uuidString)", view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session))))
+            items.append(PiAgentAppKitTranscriptItem(id: "startup-resources-\(session.id.uuidString)", view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session)), contentRevision: contentRevision))
             if let finalSystemPrompt = session.finalSystemPrompt {
-                items.append(PiAgentAppKitTranscriptItem(id: "system-prompt-\(session.id.uuidString)", view: AnyView(PiAgentSystemPromptAuditCard(title: "Final System Prompt", subtitle: "", prompt: finalSystemPrompt))))
+                items.append(PiAgentAppKitTranscriptItem(id: "system-prompt-\(session.id.uuidString)", view: AnyView(PiAgentSystemPromptAuditCard(title: "Final System Prompt", subtitle: "", prompt: finalSystemPrompt)), contentRevision: contentRevision))
             }
             for request in store.supervisorRequests(for: session.id).filter({ $0.status == .pending }) {
                 items.append(PiAgentAppKitTranscriptItem(id: "supervisor-request-\(request.id)", view: AnyView(PiSubagentSupervisorRequestCard(
                     request: request,
                     onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
                     onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
-                ))))
+                )), contentRevision: contentRevision))
             }
         }
 
         if let archive = timelineSnapshot.preCompactionArchive {
-            items.append(PiAgentAppKitTranscriptItem(id: "pre-compaction-archive", view: AnyView(preCompactionArchiveCard(archive))))
+            items.append(PiAgentAppKitTranscriptItem(id: "pre-compaction-archive", view: AnyView(preCompactionArchiveCard(archive)), contentRevision: contentRevision))
         }
         if let archive = timelineSnapshot.recentWindowArchive {
-            items.append(PiAgentAppKitTranscriptItem(id: "recent-window-archive", view: AnyView(recentWindowArchiveCard(archive))))
+            items.append(PiAgentAppKitTranscriptItem(id: "recent-window-archive", view: AnyView(recentWindowArchiveCard(archive)), contentRevision: contentRevision))
         }
         if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
-            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(loadingTranscriptCard)))
+            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(loadingTranscriptCard), contentRevision: contentRevision))
         } else if timelineItems.isEmpty {
-            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(emptyTranscriptCard)))
+            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(emptyTranscriptCard), contentRevision: contentRevision))
         } else {
             for item in timelineItems {
-                items.append(PiAgentAppKitTranscriptItem(id: item.id, view: AnyView(transcriptTimelineItemView(item, snapshot: timelineSnapshot))))
+                items.append(PiAgentAppKitTranscriptItem(
+                    id: item.id,
+                    view: AnyView(transcriptTimelineItemView(item, snapshot: timelineSnapshot)),
+                    contentRevision: appKitTranscriptContentRevision(for: item, snapshot: timelineSnapshot, sharedRevision: contentRevision)
+                ))
             }
             if let processingMessage = stabilizedProcessingMessage {
-                items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-processing", view: AnyView(PiAgentProcessingIndicatorCard(message: processingMessage))))
+                items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-processing", view: AnyView(PiAgentProcessingIndicatorCard(message: processingMessage)), contentRevision: contentRevision))
             }
         }
-        items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-bottom-anchor", view: AnyView(Color.clear.frame(height: 1))))
+        items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-bottom-anchor", view: AnyView(Color.clear.frame(height: 1)), contentRevision: contentRevision))
         return items
+    }
+
+    private func appKitTranscriptSharedContentRevision(snapshot: PiAgentTranscriptTimelineSnapshot) -> Int {
+        var hasher = Hasher()
+        hasher.combine(store.selectedSession?.id)
+        hasher.combine(store.selectedSession?.updatedAt)
+        hasher.combine(String(describing: store.selectedSession?.status))
+        hasher.combine(store.isSelectedTranscriptLoading)
+        hasher.combine(stabilizedProcessingMessage)
+        hasher.combine(String(describing: viewModel.appSettings.piAgentTranscriptVisibility))
+        hasher.combine(visibleSkillsForSelectedSession.map(\.name))
+        if let sessionID = store.selectedSession?.id {
+            hasher.combine(store.supervisorRequests(for: sessionID).map { "\($0.id):\($0.status)" })
+            hasher.combine(store.subagentRuns(for: sessionID).map { "\($0.id):\($0.status):\($0.updatedAt)" })
+        }
+        return hasher.finalize()
+    }
+
+    private func appKitTranscriptContentRevision(
+        for item: PiAgentTranscriptTimelineItem,
+        snapshot: PiAgentTranscriptTimelineSnapshot,
+        sharedRevision: Int
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(sharedRevision)
+        switch item.kind {
+        case let .thread(thread):
+            hasher.combine(thread)
+            hasher.combine(snapshot.planEventsByThreadID[thread.id] ?? [])
+        case let .plan(event):
+            hasher.combine(event)
+        }
+        return hasher.finalize()
     }
 
     private var loadingTranscriptCard: some View {
@@ -1461,6 +1545,9 @@ struct PiAgentScreen: View {
 
         if session.status == .starting { return "Starting Pi" }
         if session.isCompacting { return "Compacting context" }
+        if let subagentMessage = runningSubagentsProcessingMessage(for: session) {
+            return subagentMessage
+        }
 
         if let lastEntry = store.selectedTranscript.last {
             return processingMessage(after: lastEntry)
@@ -1511,7 +1598,43 @@ struct PiAgentScreen: View {
         let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard title.hasPrefix("Tool:") else { return "Running tool" }
         let toolName = title.dropFirst("Tool:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-        return toolName.isEmpty ? "Running tool" : "Running \(toolName)"
+        switch toolName {
+        case "managed_subagent": return "Starting subagent"
+        case "managed_parallel": return "Starting parallel agents"
+        default: return toolName.isEmpty ? "Running tool" : "Running \(toolName)"
+        }
+    }
+
+    private func runningSubagentsProcessingMessage(for session: PiAgentSessionRecord) -> String? {
+        let agentNames = runningSubagentNames(for: session)
+        guard !agentNames.isEmpty else { return nil }
+        let prefix = agentNames.count == 1 ? "Running agent" : "Running agents"
+        return "\(prefix): \(formattedRunningAgentList(agentNames))"
+    }
+
+    private func runningSubagentNames(for session: PiAgentSessionRecord) -> [String] {
+        var names: [String] = []
+        for run in store.subagentRuns(for: session.id) where run.status.isActive {
+            if run.mode == .parallel, let children = run.children, !children.isEmpty {
+                names.append(contentsOf: children
+                    .filter { $0.status.isActive }
+                    .sorted { $0.index < $1.index }
+                    .map(\.agentName))
+            } else if let child = run.child, child.status.isActive {
+                names.append(child.agentName)
+            } else {
+                names.append(run.agentName)
+            }
+        }
+        return names.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private func formattedRunningAgentList(_ names: [String]) -> String {
+        let uniqueNames = names.reduce(into: [String]()) { result, name in
+            if !result.contains(name) { result.append(name) }
+        }
+        guard uniqueNames.count > 3 else { return uniqueNames.joined(separator: ", ") }
+        return uniqueNames.prefix(3).joined(separator: ", ") + " +\(uniqueNames.count - 3) more"
     }
 
     private func scheduleTranscriptCacheUpdate() {
@@ -1545,22 +1668,12 @@ struct PiAgentScreen: View {
         }
     }
 
-    private var isTranscriptAutoScrollSuppressed: Bool {
-        transcriptAutoScrollSuppressedTurn == transcriptAutoScrollTurn
-    }
-
     private func resetTranscriptAutoScroll() {
-        transcriptAutoScrollTurn &+= 1
-        transcriptAutoScrollSuppressedTurn = nil
         transcriptIsPinnedToBottom = true
     }
 
     private func beginTranscriptAutoScrollTurn() {
         resetTranscriptAutoScroll()
-    }
-
-    private func suppressTranscriptAutoScrollForCurrentTurn() {
-        transcriptAutoScrollSuppressedTurn = transcriptAutoScrollTurn
     }
 
     private func requestTranscriptBottomScroll() {
@@ -1599,7 +1712,9 @@ struct PiAgentScreen: View {
             onStop: { viewModel.stopSelectedPiAgentSession() },
             onCreateSession: createSessionFromComposer,
             onCreateSessionForProject: createSessionFromComposer,
-            onClear: clearComposerInput
+            onClear: clearComposerInput,
+            onHistoryPrevious: composerHistoryPrevious,
+            onHistoryNext: composerHistoryNext
         )
         .popover(
             isPresented: Binding(
@@ -1809,6 +1924,7 @@ struct PiAgentScreen: View {
     }
 
     private func loadComposerDraft(for sessionID: UUID?) {
+        resetComposerHistoryNavigation()
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
             composerPasteAttachments = []
@@ -1842,6 +1958,7 @@ struct PiAgentScreen: View {
     }
 
     private func clearComposerInput() {
+        resetComposerHistoryNavigation()
         composerText = ""
         composerPasteAttachments = []
         nextComposerPasteID = 1
@@ -1849,6 +1966,47 @@ struct PiAgentScreen: View {
         composerFiles = []
         composerFolders = []
         composerAttachmentError = nil
+    }
+
+    private var composerHistoryMessages: [String] {
+        guard let sessionID = store.selectedSession?.id else { return [] }
+        var seen: Set<String> = []
+        return store.transcript(for: sessionID)
+            .filter { $0.role == .user }
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { seen.insert($0).inserted }
+    }
+
+    private func composerHistoryPrevious() -> String? {
+        let history = composerHistoryMessages
+        guard !history.isEmpty else { return nil }
+        if composerHistoryIndex == nil {
+            composerHistoryDraft = composerText
+            composerHistoryIndex = history.count
+        }
+        let nextIndex = max((composerHistoryIndex ?? history.count) - 1, 0)
+        composerHistoryIndex = nextIndex
+        return history[nextIndex]
+    }
+
+    private func composerHistoryNext() -> String? {
+        let history = composerHistoryMessages
+        guard let index = composerHistoryIndex else { return nil }
+        let nextIndex = index + 1
+        if nextIndex >= history.count {
+            resetComposerHistoryNavigation(keepDraft: true)
+            return composerHistoryDraft
+        }
+        composerHistoryIndex = nextIndex
+        return history[nextIndex]
+    }
+
+    private func resetComposerHistoryNavigation(keepDraft: Bool = false) {
+        composerHistoryIndex = nil
+        if !keepDraft {
+            composerHistoryDraft = ""
+        }
     }
 
     private func createSessionFromComposer() {

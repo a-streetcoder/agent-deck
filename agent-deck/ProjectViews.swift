@@ -172,6 +172,290 @@ private actor ProjectIconCache {
     }
 }
 
+struct SystemInstructionsScreen: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        if let project = viewModel.selectedDiscoveredProject {
+            PiSystemInstructionsProjectDetail(
+                project: project,
+                includesNativeSubagentCatalog: viewModel.areSubagentsEnabledForNewSessions
+            )
+        } else {
+            AppPage("System Prompt", subtitle: "Select a project to manage its effective prompt") {
+                AppCard(title: "No Project Selected") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Choose a project from the sidebar", systemImage: "folder.badge.gearshape")
+                            .font(.headline)
+                            .fontWidth(.expanded)
+                        Text("The System Prompt view is project-scoped. Once a project is active, you can manage the project files and the global fallback files that contribute to that project’s effective prompt.")
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+}
+
+private final class PiInstructionDraftCache {
+    static var draftsByScope: [String: [String: String]] = [:]
+    static var originalsByScope: [String: [String: String]] = [:]
+    static var existingPathsByScope: [String: Set<String>] = [:]
+
+    static func store(scope: String, drafts: [String: String], originals: [String: String], existingPaths: Set<String>) {
+        draftsByScope[scope] = drafts
+        originalsByScope[scope] = originals
+        existingPathsByScope[scope] = existingPaths
+    }
+
+    static func cached(scope: String) -> (drafts: [String: String], originals: [String: String], existingPaths: Set<String>)? {
+        guard let drafts = draftsByScope[scope], let originals = originalsByScope[scope], let existingPaths = existingPathsByScope[scope] else { return nil }
+        return (drafts, originals, existingPaths)
+    }
+}
+
+private struct PiGlobalSystemInstructionsDetail: View {
+    @State private var drafts: [String: String] = [:]
+    @State private var originals: [String: String] = [:]
+    @State private var existingPaths: Set<String> = []
+    @State private var statusMessage: String?
+    @State private var isInfoPresented = false
+    @State private var isPreviewPresented = false
+
+    private var isDirty: Bool {
+        drafts.contains { path, text in text != originals[path, default: ""] }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, AppTheme.pagePadding)
+                .padding(.top, AppTheme.pagePadding)
+                .padding(.bottom, 12)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .appControlSurface(cornerRadius: 10)
+                    }
+
+                    scopeCard
+
+                    instructionSection(
+                        title: "Base system prompt",
+                        description: "Global `~/.pi/agent/SYSTEM.md` replaces Pi’s built-in base prompt when a project does not provide `.pi/SYSTEM.md`.",
+                        files: files(for: .base)
+                    )
+
+                    instructionSection(
+                        title: "Append system prompt",
+                        description: "Global `~/.pi/agent/APPEND_SYSTEM.md` is appended when a project does not provide `.pi/APPEND_SYSTEM.md`.",
+                        files: files(for: .append)
+                    )
+
+                    instructionSection(
+                        title: "Global context files",
+                        description: "Pi loads one global context file. `AGENTS.md` wins over `CLAUDE.md` when both exist.",
+                        files: files(for: .context)
+                    )
+                }
+                .padding(AppTheme.pagePadding)
+            }
+            .sheet(isPresented: $isPreviewPresented) {
+                PiGlobalSystemPromptPreviewSheet(preview: PiInstructionPreviewBuilder.globalPreview(existingPaths: existingPaths, drafts: drafts))
+            }
+            .task {
+                loadFiles()
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isPreviewPresented = true
+                } label: {
+                    Label("Preview", systemImage: "doc.text.magnifyingglass")
+                }
+                .help("Preview the global instruction pieces from the current editor contents")
+            }
+        }
+        .onDisappear {
+            PiInstructionDraftCache.store(scope: "global", drafts: drafts, originals: originals, existingPaths: existingPaths)
+        }
+    }
+
+    private var scopeCard: some View {
+        AppCard(title: "Scope") {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "globe")
+                    .foregroundStyle(AppTheme.brandAccent)
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Applies to all projects unless a project provides its own `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md`, or context file.")
+                    if isDirty {
+                        Text("Unsaved edits are preserved while you move around this view. Use Save on each changed file to write them to disk.")
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "globe")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.brandAccent)
+                .frame(width: 32, height: 32)
+                .background(AppTheme.brandAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Global System Prompt")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Text("~/.pi/agent")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+
+            Spacer()
+
+            Button {
+                isInfoPresented.toggle()
+            } label: {
+                Label("Info", systemImage: "info.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                PiSystemInstructionsInfoPopover()
+            }
+            .help("Explain Pi instruction assembly")
+
+        }
+    }
+
+    private var instructionFiles: [PiInstructionFile] {
+        PiInstructionFile.globalCatalog(existingPaths: existingPaths)
+    }
+
+    private func files(for role: PiInstructionFile.Role) -> [PiInstructionFile] {
+        instructionFiles.filter { $0.role == role }
+    }
+
+    private func instructionSection(title: String, description: String, files: [PiInstructionFile]) -> some View {
+        AppCard(title: title) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(files) { file in
+                    PiInstructionFileEditor(
+                        file: file,
+                        text: Binding(
+                            get: { drafts[file.id, default: ""] },
+                            set: { drafts[file.id] = $0 }
+                        ),
+                        isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
+                        save: { save(file) },
+                        revealInFinder: { revealInFinder(file) }
+                    )
+                }
+            }
+        }
+    }
+
+    private func loadFiles() {
+        if let cached = PiInstructionDraftCache.cached(scope: "global") {
+            drafts = cached.drafts
+            originals = cached.originals
+            existingPaths = cached.existingPaths
+            statusMessage = nil
+            return
+        }
+
+        let discoveredExistingPaths = PiInstructionFile.discoverGlobalExistingPaths()
+        let files = PiInstructionFile.globalCatalog(existingPaths: discoveredExistingPaths)
+        var loadedDrafts: [String: String] = [:]
+        var loadedOriginals: [String: String] = [:]
+        for file in files {
+            let content = (try? String(contentsOf: file.url, encoding: .utf8)) ?? ""
+            loadedDrafts[file.id] = content
+            loadedOriginals[file.id] = content
+        }
+        existingPaths = discoveredExistingPaths
+        drafts = loadedDrafts
+        originals = loadedOriginals
+        statusMessage = nil
+    }
+
+    private func save(_ file: PiInstructionFile) {
+        do {
+            try FileManager.default.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let text = drafts[file.id, default: ""]
+            try text.write(to: file.url, atomically: true, encoding: .utf8)
+            originals[file.id] = text
+            existingPaths.insert(file.id)
+            statusMessage = "Saved \(file.displayPath)."
+        } catch {
+            statusMessage = "Could not save \(file.displayPath): \(error.localizedDescription)"
+        }
+    }
+
+    private func revealInFinder(_ file: PiInstructionFile) {
+        if FileManager.default.fileExists(atPath: file.url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([file.url])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([file.url.deletingLastPathComponent()])
+        }
+    }
+}
+
+private struct PiGlobalSystemPromptPreviewSheet: View {
+    let preview: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Global Instruction Preview")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text("~/.pi/agent")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding(16)
+
+            Divider()
+
+            ScrollView {
+                Text(preview)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+        }
+        .frame(minWidth: 760, minHeight: 620)
+    }
+}
+
 struct ProjectsScreen: View {
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -187,8 +471,10 @@ struct ProjectsScreen: View {
     @State private var searchText = ""
     @State private var debouncedSearchText = ""
     @State private var selectedInstructionProjectPath: String?
+    @State private var agentsRecapProject: DiscoveredProject?
     @State private var skillsRecapProject: DiscoveredProject?
     @State private var projectPendingRemoval: DiscoveredProject?
+    @State private var projectDeleteError: String?
 
     var body: some View {
         HSplitView {
@@ -216,22 +502,44 @@ struct ProjectsScreen: View {
         .onChange(of: visibleProjects.map(\.path)) { _, _ in
             ensureInstructionSelection()
         }
+        .sheet(item: $agentsRecapProject) { project in
+            ProjectAgentsRecapSheet(
+                project: project,
+                recap: viewModel.agentRecap(for: project)
+            )
+        }
         .sheet(item: $skillsRecapProject) { project in
             ProjectSkillsRecapSheet(
                 project: project,
                 recap: viewModel.skillRecap(for: project)
             )
         }
-        .alert("Remove from Agent Deck?", isPresented: removeProjectAlertBinding, presenting: projectPendingRemoval) { project in
+        .alert("Remove project?", isPresented: removeProjectAlertBinding, presenting: projectPendingRemoval) { project in
             Button("Cancel", role: .cancel) {
                 projectPendingRemoval = nil
             }
-            Button("Remove from List", role: .destructive) {
+            Button("Hide from List") {
                 viewModel.removeProjectFromLibrary(project)
                 projectPendingRemoval = nil
             }
+            Button("Move to Trash", role: .destructive) {
+                do {
+                    try viewModel.moveProjectToTrash(project)
+                } catch {
+                    projectDeleteError = error.localizedDescription
+                }
+                projectPendingRemoval = nil
+            }
         } message: { project in
-            Text("Hide \(project.repositoryDisplayName) from the project list? This does not delete files from disk.")
+            Text("Hide \(project.repositoryDisplayName) from Agent Deck, or move the project folder to the macOS Trash. Moving to Trash deletes the folder from its current location.")
+        }
+        .alert("Couldn’t move project to Trash", isPresented: Binding(
+            get: { projectDeleteError != nil },
+            set: { if !$0 { projectDeleteError = nil } }
+        )) {
+            Button("OK", role: .cancel) { projectDeleteError = nil }
+        } message: {
+            Text(projectDeleteError ?? "Unknown error")
         }
     }
 
@@ -415,6 +723,16 @@ struct ProjectsScreen: View {
             .help(preference.isFavorite ? "Remove favorite" : "Add favorite")
 
             Button {
+                agentsRecapProject = project
+            } label: {
+                Image(systemName: "sparkles.rectangle.stack")
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Show agents for this project")
+
+            Button {
                 skillsRecapProject = project
             } label: {
                 Image(systemName: "wand.and.stars")
@@ -460,6 +778,10 @@ private struct PiSystemInstructionsProjectDetail: View {
     @State private var statusMessage: String?
     @State private var isInfoPresented = false
     @State private var isPreviewPresented = false
+
+    private var isDirty: Bool {
+        drafts.contains { path, text in text != originals[path, default: ""] }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -517,6 +839,34 @@ private struct PiSystemInstructionsProjectDetail: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isInfoPresented.toggle()
+                } label: {
+                    Label("Info", systemImage: "info.circle")
+                }
+                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                    PiSystemInstructionsInfoPopover()
+                }
+                .help("Explain Pi prompt assembly")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isPreviewPresented = true
+                } label: {
+                    Label("Preview", systemImage: "doc.text.magnifyingglass")
+                }
+                .disabled(project == nil)
+                .help("Preview the effective prompt from the current editor contents")
+            }
+        }
+        .onDisappear {
+            if let project {
+                PiInstructionDraftCache.store(scope: "project:\(project.path)", drafts: drafts, originals: originals, existingPaths: existingPaths)
+            }
+        }
     }
 
     private var header: some View {
@@ -524,7 +874,7 @@ private struct PiSystemInstructionsProjectDetail: View {
             if let project {
                 ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("System Instructions")
+                    Text("Project System Prompt")
                         .font(.headline)
                         .fontWidth(.expanded)
                     Text(project.path)
@@ -534,31 +884,12 @@ private struct PiSystemInstructionsProjectDetail: View {
                         .truncationMode(.middle)
                 }
             } else {
-                Text("System Instructions")
+                Text("Project System Prompt")
                     .font(.headline)
                     .fontWidth(.expanded)
             }
 
             Spacer()
-
-            Button {
-                isInfoPresented.toggle()
-            } label: {
-                Label("Info", systemImage: "info.circle")
-                    .labelStyle(.iconOnly)
-            }
-            .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                PiSystemInstructionsInfoPopover()
-            }
-            .help("Explain Pi instruction assembly")
-
-            Button {
-                isPreviewPresented = true
-            } label: {
-                Label("Preview", systemImage: "doc.text.magnifyingglass")
-            }
-            .disabled(project == nil)
-            .help("Preview the effective prompt from the current editor contents")
         }
     }
 
@@ -596,6 +927,15 @@ private struct PiSystemInstructionsProjectDetail: View {
     }
 
     private func loadFiles(for project: DiscoveredProject) {
+        let scope = "project:\(project.path)"
+        if let cached = PiInstructionDraftCache.cached(scope: scope) {
+            drafts = cached.drafts
+            originals = cached.originals
+            existingPaths = cached.existingPaths
+            statusMessage = nil
+            return
+        }
+
         let discoveredExistingPaths = PiInstructionFile.discoverExistingPaths(for: project.url)
         let files = PiInstructionFile.catalog(for: project.url, existingPaths: discoveredExistingPaths)
         var loadedDrafts: [String: String] = [:]
@@ -652,66 +992,154 @@ private struct PiInstructionFileEditor: View {
     let save: () -> Void
     let revealInFinder: () -> Void
 
+    @State private var isEditorPresented = false
+    @State private var sheetDraft = ""
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(file.title)
-                            .font(.subheadline.weight(.semibold))
-                            .fontWidth(.expanded)
-                        statusBadge
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: iconName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(file.title)
+                        .font(.subheadline.weight(.semibold))
+                        .fontWidth(.expanded)
+                    if isDirty {
+                        Text("Unsaved")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
                     }
+                }
+
+                Text(file.displayPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(summaryText)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(file.exists ? "Edit" : "Create") {
+                sheetDraft = text
+                isEditorPresented = true
+            }
+            .controlSize(.small)
+
+            Button { revealInFinder() } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appPanelSurface(cornerRadius: 12)
+        .sheet(isPresented: $isEditorPresented) {
+            PiInstructionFileEditorSheet(
+                file: file,
+                text: $sheetDraft,
+                saveTitle: file.exists ? "Save" : "Create",
+                onCancel: { isEditorPresented = false },
+                onSave: {
+                    text = sheetDraft
+                    save()
+                    isEditorPresented = false
+                },
+                revealInFinder: revealInFinder
+            )
+        }
+    }
+
+    private var summaryText: String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !file.exists {
+            return "Not created. Create it only if this scope needs a custom prompt part."
+        }
+        if trimmed.isEmpty {
+            return "Created, but empty."
+        }
+        return trimmed.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private var iconName: String {
+        switch file.status {
+        case .active: return "checkmark.circle"
+        case .shadowed: return "moon"
+        case .available: return file.exists ? "doc.text" : "doc.badge.plus"
+        }
+    }
+
+    private var iconColor: Color {
+        switch file.status {
+        case .active: return .green
+        case .shadowed: return .secondary
+        case .available: return AppTheme.mutedText
+        }
+    }
+}
+
+private struct PiInstructionFileEditorSheet: View {
+    let file: PiInstructionFile
+    @Binding var text: String
+    let saveTitle: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    let revealInFinder: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(file.title)
+                        .font(.headline)
+                        .fontWidth(.expanded)
                     Text(file.displayPath)
                         .font(.caption.monospaced())
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    Text(file.note)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
                 Spacer()
-
-                Button("Save") { save() }
-                    .controlSize(.small)
-                    .opacity(isDirty ? 1 : 0)
-                    .disabled(!isDirty)
-                    .accessibilityHidden(!isDirty)
-
                 Button { revealInFinder() } label: {
-                    Image(systemName: "folder")
+                    Label("Reveal", systemImage: "folder")
                 }
-                .buttonStyle(.plain)
-                .controlSize(.small)
-                .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
             }
+            .padding(18)
 
-            Text(file.note)
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
-                .fixedSize(horizontal: false, vertical: true)
+            Divider()
 
             TextEditor(text: $text)
-                .font(.system(.caption, design: .monospaced))
-                .frame(minHeight: file.role == .context ? 120 : 96)
+                .font(.system(.body, design: .monospaced))
                 .scrollContentBackground(.hidden)
-                .padding(6)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(AppTheme.contentSubtleFill)
-                        .stroke(AppTheme.contentStroke, lineWidth: 1)
-                )
-        }
-        .padding(12)
-        .appPanelSurface(cornerRadius: 12)
-    }
+                .padding(12)
+                .frame(minHeight: 360)
 
-    private var statusBadge: some View {
-        Text(file.status.label)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(file.status.color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(file.status.color.opacity(0.12)))
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Cancel") { onCancel() }
+                Button(saveTitle) { onSave() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 760, height: 560)
     }
 }
 
@@ -780,6 +1208,145 @@ private struct PiSystemPromptPreviewSheet: View {
             }
         }
         .frame(minWidth: 760, minHeight: 620)
+    }
+}
+
+private struct ProjectAgentsRecapSheet: View {
+    let project: DiscoveredProject
+    let recap: ProjectAgentRecap
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Project Agents")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text(project.repositoryDisplayName)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button("Done") {
+                    dismiss()
+                }
+            }
+            .padding(18)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("These are the native agents Agent Deck makes available for this project after default assignments, project assignments, and builtin overrides are resolved.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if hasResolvedAgents {
+                        if !recap.defaultAgents.isEmpty {
+                            agentRecapSection(title: "Default", agents: recap.defaultAgents, color: .blue)
+                        }
+
+                        if !recap.projectAgents.isEmpty {
+                            agentRecapSection(title: "Project", agents: recap.projectAgents, color: .green)
+                        }
+
+                        if !recap.otherEffectiveAgents.isEmpty {
+                            agentRecapSection(title: "Built-in & Overrides", agents: recap.otherEffectiveAgents, color: AppTheme.assistantAccent)
+                        }
+                    } else {
+                        ContentUnavailableView(
+                            "No Agents",
+                            systemImage: "sparkles.rectangle.stack",
+                            description: Text("No project agent catalog has been loaded for this project yet.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 32)
+                    }
+
+                    if !recap.unresolvedNames.isEmpty {
+                        unresolvedAgentSection
+                    }
+                }
+                .padding(18)
+            }
+        }
+        .frame(width: 560, height: 620)
+    }
+
+    private var hasResolvedAgents: Bool {
+        !recap.defaultAgents.isEmpty || !recap.projectAgents.isEmpty || !recap.otherEffectiveAgents.isEmpty
+    }
+
+    private func agentRecapSection(title: String, agents: [EffectiveAgentRecord], color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(agents) { agent in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: agent.resolved.disabled == true ? "nosign" : "sparkles.rectangle.stack")
+                            .foregroundStyle(agent.resolved.disabled == true ? .red : color)
+                            .frame(width: 18)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(agent.name)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(agent.resolutionKind.rawValue)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(color)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(color.opacity(0.12), in: Capsule(style: .continuous))
+                            }
+                            if !agent.resolved.description.isEmpty {
+                                Text(agent.resolved.description)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private var unresolvedAgentSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Needs Attention")
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(recap.unresolvedNames, id: \.self) { name in
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(name)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
     }
 }
 
@@ -949,6 +1516,48 @@ private struct PiInstructionFile: Identifiable, Hashable {
     var id: String { url.path }
     var displayPath: String { url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
 
+    static func globalCatalog(existingPaths: Set<String>) -> [PiInstructionFile] {
+        let globalDir = globalAgentDirectory
+        let globalSystem = globalDir.appendingPathComponent("SYSTEM.md")
+        let globalAppend = globalDir.appendingPathComponent("APPEND_SYSTEM.md")
+        let globalActiveContext = activeContextFile(in: globalDir, existingPaths: existingPaths)?.path
+
+        return [
+            PiInstructionFile(
+                url: globalSystem,
+                role: .base,
+                title: "Global SYSTEM.md",
+                note: "Global replacement for Pi’s built-in base prompt.",
+                status: status(for: globalSystem.path, activePath: existingPaths.contains(globalSystem.path) ? globalSystem.path : nil, existingPaths: existingPaths),
+                exists: existingPaths.contains(globalSystem.path)
+            ),
+            PiInstructionFile(
+                url: globalAppend,
+                role: .append,
+                title: "Global APPEND_SYSTEM.md",
+                note: "Global append prompt used when no project append prompt overrides it.",
+                status: status(for: globalAppend.path, activePath: existingPaths.contains(globalAppend.path) ? globalAppend.path : nil, existingPaths: existingPaths),
+                exists: existingPaths.contains(globalAppend.path)
+            ),
+            PiInstructionFile(
+                url: globalDir.appendingPathComponent("AGENTS.md"),
+                role: .context,
+                title: "Global AGENTS.md",
+                note: "Global context loaded for every Pi session unless context files are disabled.",
+                status: status(for: globalDir.appendingPathComponent("AGENTS.md").path, activePath: globalActiveContext, existingPaths: existingPaths),
+                exists: existingPaths.contains(globalDir.appendingPathComponent("AGENTS.md").path)
+            ),
+            PiInstructionFile(
+                url: globalDir.appendingPathComponent("CLAUDE.md"),
+                role: .context,
+                title: "Global CLAUDE.md",
+                note: "Fallback global context. It is shadowed when global AGENTS.md exists.",
+                status: status(for: globalDir.appendingPathComponent("CLAUDE.md").path, activePath: globalActiveContext, existingPaths: existingPaths),
+                exists: existingPaths.contains(globalDir.appendingPathComponent("CLAUDE.md").path)
+            )
+        ]
+    }
+
     static func catalog(for projectURL: URL, existingPaths: Set<String>) -> [PiInstructionFile] {
         let projectURL = projectURL.standardizedFileURL
         let globalDir = globalAgentDirectory
@@ -998,6 +1607,23 @@ private struct PiInstructionFile: Identifiable, Hashable {
 
         files.append(contentsOf: contextFiles(for: projectURL, existingPaths: existingPaths))
         return files
+    }
+
+    static func discoverGlobalExistingPaths() -> Set<String> {
+        let globalDir = globalAgentDirectory
+        let fileManager = FileManager.default
+        var paths = Set<String>()
+        [
+            globalDir.appendingPathComponent("SYSTEM.md"),
+            globalDir.appendingPathComponent("APPEND_SYSTEM.md"),
+            globalDir.appendingPathComponent("AGENTS.md"),
+            globalDir.appendingPathComponent("AGENTS.MD"),
+            globalDir.appendingPathComponent("CLAUDE.md"),
+            globalDir.appendingPathComponent("CLAUDE.MD")
+        ].forEach { url in
+            if fileManager.fileExists(atPath: url.path) { paths.insert(url.path) }
+        }
+        return paths
     }
 
     static func discoverExistingPaths(for projectURL: URL) -> Set<String> {
@@ -1168,6 +1794,35 @@ private struct PiInstructionFile: Identifiable, Hashable {
 }
 
 private enum PiInstructionPreviewBuilder {
+    static func globalPreview(existingPaths: Set<String>, drafts: [String: String]) -> String {
+        let catalog = PiInstructionFile.globalCatalog(existingPaths: existingPaths.union(drafts.compactMap { path, content in
+            existingPaths.contains(path) || content.isEmpty ? nil : path
+        }))
+        var prompt: String
+        if let baseFile = catalog.first(where: { $0.role == .base && $0.status == .active }) {
+            prompt = content(for: baseFile.url, drafts: drafts)
+        } else {
+            prompt = """
+            [PI BUILT-IN DEFAULT SYSTEM PROMPT]
+            [Pi tool-aware guidance is generated at runtime when the built-in prompt is used.]
+            """
+        }
+        if let appendFile = catalog.first(where: { $0.role == .append && $0.status == .active }) {
+            prompt += "\n\n\(content(for: appendFile.url, drafts: drafts))"
+        }
+        if let contextFile = catalog.first(where: { $0.role == .context && $0.status == .active }) {
+            prompt += "\n\n# Global Context\n\n## \(contextFile.url.path)\n\n\(content(for: contextFile.url, drafts: drafts))"
+        }
+        prompt += """
+
+        [PROJECT CONTEXT FILES, when a project session is launched]
+        [PI SKILL CATALOG, if skills are enabled and the read tool is available]
+        Current date: \(currentDateString())
+        Current working directory: [selected project]
+        """
+        return prompt
+    }
+
     static func preview(projectURL: URL, existingPaths: Set<String>, drafts: [String: String], includesNativeSubagentCatalog: Bool = false) -> String {
         let projectURL = projectURL.standardizedFileURL
         let draftedNewPaths = drafts.compactMap { path, content in

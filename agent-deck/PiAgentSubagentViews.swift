@@ -728,11 +728,11 @@ private struct PiSubagentStopButtonStyle: ButtonStyle {
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
             .background(
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.red.opacity(configuration.isPressed ? 0.18 : 0.12))
             )
             .overlay(
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(Color.red.opacity(configuration.isPressed ? 0.42 : 0.28), lineWidth: 1)
             )
             .opacity(configuration.isPressed ? 0.82 : 1)

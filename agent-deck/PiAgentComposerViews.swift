@@ -79,6 +79,8 @@ struct PiAgentComposerBox: View {
     let onCreateSession: () -> Void
     let onCreateSessionForProject: (DiscoveredProject) -> Void
     let onClear: () -> Void
+    var onHistoryPrevious: () -> String? = { nil }
+    var onHistoryNext: () -> String? = { nil }
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -128,6 +130,8 @@ struct PiAgentComposerBox: View {
                     onUnsupportedDrop: { attachmentError = "Drop images, files, or folders." },
                     onSend: onSend,
                     onClear: onClear,
+                    onHistoryPrevious: onHistoryPrevious,
+                    onHistoryNext: onHistoryNext,
                     isDisabled: isDisabled
                 )
                 .padding(.horizontal, 12)
@@ -221,7 +225,7 @@ struct PiAgentComposerBox: View {
         .onPasteCommand(of: [.png, .jpeg, .tiff, .gif, .webP, .fileURL]) { _ in
             addImages(PiAgentComposerImageLoader.imagesFromPasteboard())
         }
-        .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image, .plainText, .utf8PlainText], isTargeted: $isDropTargeted) { providers in
+        .onDrop(of: [.fileURL, .png, .jpeg, .tiff, .gif, .webP, .image], isTargeted: $isDropTargeted) { providers in
             PiAgentComposerImageLoader.loadDropItems(from: providers) { attachments, files in
                 let folderURLs = files.filter { PiAgentFolderAttachment(url: $0) != nil }
                 let fileURLs = files.filter { PiAgentFolderAttachment(url: $0) == nil }
@@ -327,6 +331,8 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     var onUnsupportedDrop: () -> Void
     var onSend: () -> Void
     var onClear: () -> Void
+    var onHistoryPrevious: () -> String?
+    var onHistoryNext: () -> String?
     var isDisabled: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -435,6 +441,24 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
             guard !parent.isDisabled else { return }
             parent.onClear()
         }
+
+        func historyPrevious(in textView: NSTextView) -> Bool {
+            guard !parent.isDisabled, let value = parent.onHistoryPrevious() else { return false }
+            replaceTextView(textView, with: value)
+            return true
+        }
+
+        func historyNext(in textView: NSTextView) -> Bool {
+            guard !parent.isDisabled, let value = parent.onHistoryNext() else { return false }
+            replaceTextView(textView, with: value)
+            return true
+        }
+
+        private func replaceTextView(_ textView: NSTextView, with value: String) {
+            textView.string = value
+            textView.setSelectedRange(NSRange(location: (value as NSString).length, length: 0))
+            parent.text = value
+        }
     }
 }
 
@@ -449,6 +473,8 @@ protocol DropSafeNSTextViewDropHandler: AnyObject {
 protocol DropSafeNSTextViewKeyHandler: AnyObject {
     func send()
     func clear()
+    func historyPrevious(in textView: NSTextView) -> Bool
+    func historyNext(in textView: NSTextView) -> Bool
 }
 
 final class DropSafeNSTextView: NSTextView {
@@ -501,6 +527,12 @@ final class DropSafeNSTextView: NSTextView {
             insertNewlineIgnoringFieldEditor(self)
             return
         }
+        if event.keyCode == 126, shouldUseHistoryPrevious {
+            if keyHandler?.historyPrevious(in: self) == true { return }
+        }
+        if event.keyCode == 125, shouldUseHistoryNext {
+            if keyHandler?.historyNext(in: self) == true { return }
+        }
         if event.keyCode == 53 {
             let now = event.timestamp
             if let lastEscapeAt, now - lastEscapeAt < 0.6 {
@@ -513,6 +545,17 @@ final class DropSafeNSTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    private var shouldUseHistoryPrevious: Bool {
+        guard selectedRange().length == 0 else { return false }
+        return selectedRange().location <= (string as NSString).lineRange(for: selectedRange()).location
+    }
+
+    private var shouldUseHistoryNext: Bool {
+        guard selectedRange().length == 0 else { return false }
+        let nsString = string as NSString
+        return NSMaxRange(nsString.lineRange(for: selectedRange())) >= nsString.length
     }
 
     override func paste(_ sender: Any?) {
@@ -679,12 +722,7 @@ enum PiAgentComposerImageLoader {
                 group.enter()
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                     defer { group.leave() }
-                    let url: URL?
-                    if let data = item as? Data {
-                        url = URL(dataRepresentation: data, relativeTo: nil)
-                    } else {
-                        url = item as? URL
-                    }
+                    let url = fileURL(fromProviderItem: item)
                     if let url, let image = imageAttachment(fromFileURL: url) {
                         accumulator.appendImage(image)
                     } else {
@@ -739,6 +777,26 @@ enum PiAgentComposerImageLoader {
             var seen = Set<String>()
             return (attachments, files.filter { seen.insert($0.path).inserted })
         }
+    }
+
+    nonisolated private static func fileURL(fromProviderItem item: NSSecureCoding?) -> URL? {
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        if let url = item as? URL {
+            return url
+        }
+        if let url = item as? NSURL {
+            return url as URL
+        }
+        if let value = item as? String {
+            return value.hasPrefix("file:") ? URL(string: value) : URL(fileURLWithPath: value)
+        }
+        if let value = item as? NSString {
+            let string = value as String
+            return string.hasPrefix("file:") ? URL(string: string) : URL(fileURLWithPath: string)
+        }
+        return nil
     }
 
     nonisolated static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {

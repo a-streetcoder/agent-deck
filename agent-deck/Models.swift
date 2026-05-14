@@ -147,6 +147,13 @@ nonisolated struct ProjectSkillRecap: Hashable, Sendable {
     let unresolvedNames: [String]
 }
 
+nonisolated struct ProjectAgentRecap: Hashable, Sendable {
+    let defaultAgents: [EffectiveAgentRecord]
+    let projectAgents: [EffectiveAgentRecord]
+    let otherEffectiveAgents: [EffectiveAgentRecord]
+    let unresolvedNames: [String]
+}
+
 nonisolated struct ExternalSkillCandidate: Identifiable, Hashable, Sendable {
     let name: String
     let description: String?

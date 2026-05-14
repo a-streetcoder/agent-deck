@@ -64,6 +64,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var selectedCommandItemID: String?
     @Published var selectedAgentFilter: AgentFilter = .all
     @Published var discoveredProjects: [DiscoveredProject] = []
+    @Published var isRefreshingProjects = false
     @Published var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
     @Published var selectedProjectPath: String?
     @Published var allProjectSnapshots: [String: ScanSnapshot] = [:]
@@ -296,6 +297,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let externalSkillPaths = appSettings.externalSkillPaths
         refreshRequestID += 1
         let requestID = refreshRequestID
+        isRefreshingProjects = true
 
         refreshTask?.cancel()
         let viewModel = self
@@ -315,6 +317,9 @@ final class AppViewModel: NSObject, ObservableObject {
                     result,
                     includeModels: includeModels
                 )
+                if requestID == viewModel.refreshRequestID {
+                    viewModel.isRefreshingProjects = false
+                }
             }
         }
     }
@@ -617,6 +622,18 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func removeProjectFromLibrary(_ project: DiscoveredProject) {
+        forgetProject(project)
+        refreshGitHubProjectScopedState()
+    }
+
+    func moveProjectToTrash(_ project: DiscoveredProject) throws {
+        try FileManager.default.trashItem(at: project.url, resultingItemURL: nil)
+        forgetProject(project)
+        refresh(includeModels: false, scanAllProjects: true)
+        refreshGitHubProjectScopedState()
+    }
+
+    private func forgetProject(_ project: DiscoveredProject) {
         projectPreferencesStore.setHidden(true, for: project.path)
         applyProjectPreferenceChanges()
         allProjectSnapshots.removeValue(forKey: project.path)
@@ -630,7 +647,6 @@ final class AppViewModel: NSObject, ObservableObject {
         if selectedProjectPath == nil {
             snapshot = makeAggregateSnapshot()
         }
-        refreshGitHubProjectScopedState()
     }
 
     func toggleProjectFavorite(_ project: DiscoveredProject) {
@@ -4719,6 +4735,38 @@ final class AppViewModel: NSObject, ObservableObject {
         return ProjectSkillRecap(
             defaultSkills: defaultResult.0,
             projectSkills: projectResult.0,
+            unresolvedNames: (defaultResult.1 + projectResult.1).sorted()
+        )
+    }
+
+    func agentRecap(for project: DiscoveredProject) -> ProjectAgentRecap {
+        let defaultNames = appSettings.defaultAgentNames
+        let projectNames = projectPreference(for: project.path).assignedAgentNames.subtracting(defaultNames)
+        let effectiveAgents = (allProjectSnapshots[project.path]?.effectiveAgents ?? [])
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let effectiveByName = Dictionary(uniqueKeysWithValues: effectiveAgents.map { ($0.name, $0) })
+
+        func resolvedAgents(for names: Set<String>) -> ([EffectiveAgentRecord], [String]) {
+            var agents: [EffectiveAgentRecord] = []
+            var unresolved: [String] = []
+            for name in names.sorted() {
+                if let agent = effectiveByName[name] {
+                    agents.append(agent)
+                } else {
+                    unresolved.append(name)
+                }
+            }
+            return (agents, unresolved)
+        }
+
+        let defaultResult = resolvedAgents(for: defaultNames)
+        let projectResult = resolvedAgents(for: projectNames)
+        let highlightedNames = Set(defaultResult.0.map(\.name)).union(projectResult.0.map(\.name))
+        let otherEffectiveAgents = effectiveAgents.filter { !highlightedNames.contains($0.name) }
+        return ProjectAgentRecap(
+            defaultAgents: defaultResult.0,
+            projectAgents: projectResult.0,
+            otherEffectiveAgents: otherEffectiveAgents,
             unresolvedNames: (defaultResult.1 + projectResult.1).sorted()
         )
     }
