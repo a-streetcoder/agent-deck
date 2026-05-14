@@ -22,6 +22,7 @@ struct MemoryScreen: View {
                     Label("New Memory", systemImage: "plus")
                 }
                 .symbolRenderingMode(.monochrome)
+                .foregroundStyle(AppTheme.brandAccent)
                 .tint(AppTheme.brandAccent)
                 .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
                 .disabled(viewModel.selectedProjectPath == nil)

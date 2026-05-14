@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 private enum PiAgentGitHubPanelSection: String, CaseIterable, Identifiable {
-    case changes
     case issues
+    case changes
 
     var id: String { rawValue }
     var title: String {
@@ -18,8 +18,10 @@ struct PiAgentRepoChangesPanel: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isPresented: Bool
     @State private var filterText = ""
-    @State private var selectedSection: PiAgentGitHubPanelSection = .changes
+    @State private var selectedSection: PiAgentGitHubPanelSection = .issues
     @State private var presentedIssue: GitHubWorkItem?
+    @State private var isCommitConfirmationPresented = false
+    @State private var isCommitAndPushConfirmationPresented = false
 
     private var snapshot: RepositoryChangesSnapshot? { viewModel.githubRepositoryChanges }
 
@@ -267,17 +269,14 @@ struct PiAgentRepoChangesPanel: View {
 
                 LazyVStack(alignment: .leading, spacing: 5) {
                     ForEach(items) { item in
-                        PiAgentGitChangeRow(
-                            item: item,
-                            onToggleIncluded: { toggleIncluded(item) }
-                        )
+                        PiAgentGitChangeRow(item: item)
                     }
                 }
 
                 Divider()
                     .padding(.top, 8)
 
-                commitBox(snapshot)
+                piAgentGitActionsBox
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -289,14 +288,10 @@ struct PiAgentRepoChangesPanel: View {
                 .textFieldStyle(.roundedBorder)
 
             HStack(spacing: 8) {
-                Button("Include All") { viewModel.stageAllChanges() }
-                    .disabled(!snapshot.canStageAll)
-                Button("Exclude All") { viewModel.unstageAllChanges() }
-                    .disabled(!snapshot.canUnstageAll)
-                Spacer(minLength: 8)
-                Text("\(snapshot.staged.count)/\(snapshot.totalChangeCount)")
+                Text("\(snapshot.totalChangeCount) changed file\(snapshot.totalChangeCount == 1 ? "" : "s")")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
+                Spacer(minLength: 8)
             }
         }
         .padding(10)
@@ -368,49 +363,117 @@ struct PiAgentRepoChangesPanel: View {
             .foregroundStyle(color)
     }
 
-    private func commitBox(_ snapshot: RepositoryChangesSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Commit")
+    private var piAgentGitActionsBox: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Pi Agent Git Actions")
                 .font(.headline)
-            Text("Write a title, optionally add a description, then commit the included files.")
+            Text("Uses the same commands as the Pi Agent toolbar. Commit actions stage all changes and generate the title and description automatically.")
                 .font(.footnote)
                 .foregroundStyle(AppTheme.mutedText)
 
-            TextField("Commit title", text: $viewModel.githubCommitMessage)
-                .textFieldStyle(.roundedBorder)
-
-            Text("Description")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
-            TextEditor(text: $viewModel.githubCommitDescription)
-                .font(.body)
-                .frame(minHeight: 72, maxHeight: 100)
-                .padding(6)
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentFill))
-
-            HStack {
-                Button(viewModel.githubIsCommitting ? "Committing…" : "Commit \(snapshot.staged.count) file\(snapshot.staged.count == 1 ? "" : "s")") { viewModel.commitChanges() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.githubIsCommitting || !snapshot.canCommit || viewModel.githubCommitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                if snapshot.canPush {
-                    Button(viewModel.githubIsPushing ? "Pushing…" : "Push \(snapshot.aheadCount)") { viewModel.pushCurrentBranch() }
-                        .disabled(viewModel.githubIsPushing)
-                }
-                Spacer()
+            VStack(spacing: 8) {
+                gitActionButton(
+                    title: "Commit",
+                    subtitle: "Stage all changes and create an AI-generated commit.",
+                    systemImage: "checkmark.seal",
+                    isRunning: viewModel.piAgentGitAutomationAction == .commit,
+                    isDisabled: !viewModel.canCommitSelectedPiAgentSession,
+                    action: commitTapped
+                )
+                gitActionButton(
+                    title: "Push",
+                    subtitle: "Push committed changes on the current branch.",
+                    systemImage: "arrow.up.circle",
+                    isRunning: viewModel.piAgentGitAutomationAction == .push,
+                    isDisabled: !viewModel.canPushSelectedPiAgentSession,
+                    action: { viewModel.pushSelectedPiAgentSession() }
+                )
+                gitActionButton(
+                    title: "Commit & Push",
+                    subtitle: "Stage all changes, commit, then push.",
+                    systemImage: "shippingbox.and.arrow.backward",
+                    isRunning: viewModel.piAgentGitAutomationAction == .commitAndPush,
+                    isDisabled: !viewModel.canCommitAndPushSelectedPiAgentSession,
+                    action: commitAndPushTapped
+                )
             }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.55)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+        .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
+            Button("Commit All Changes") { viewModel.commitSelectedPiAgentSession() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(commitAlertMessage(pushAfterCommit: false))
+        }
+        .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
+            Button("Commit & Push All Changes") { viewModel.commitAndPushSelectedPiAgentSession() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(commitAlertMessage(pushAfterCommit: true))
+        }
     }
 
-    private func toggleIncluded(_ item: PiAgentGitChangeListItem) {
-        if item.isIncluded {
-            viewModel.unstage(item.path)
-        } else {
-            viewModel.stage(item.path)
+    private func gitActionButton(title: String, subtitle: String, systemImage: String, isRunning: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Image(systemName: systemImage)
+                        .opacity(isRunning ? 0 : 1)
+                    if isRunning {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .symbolEffect(.rotate, options: .repeating)
+                    }
+                }
+                .font(.title3.weight(.semibold))
+                .frame(width: 28)
+                .foregroundStyle(AppTheme.brandAccent)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.callout.weight(.semibold))
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(AppTheme.contentFill))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+
+    private func commitTapped() {
+        if viewModel.appSettings.piAgentGitAutomationRequiresConfirmation {
+            isCommitConfirmationPresented = true
+        } else {
+            viewModel.commitSelectedPiAgentSession()
+        }
+    }
+
+    private func commitAndPushTapped() {
+        if viewModel.appSettings.piAgentGitAutomationRequiresConfirmation {
+            isCommitAndPushConfirmationPresented = true
+        } else {
+            viewModel.commitAndPushSelectedPiAgentSession()
+        }
+    }
+
+    private func commitAlertMessage(pushAfterCommit: Bool) -> String {
+        let action = pushAfterCommit
+            ? "This stages all changes, generates a commit title and description, commits, and pushes the current branch."
+            : "This stages all changes, generates a commit title and description, and commits on the current branch."
+        guard let session = viewModel.piAgentSessionStore.selectedSession else { return action }
+        let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
+        return "Repository: \(repoName)\n\n\(action)"
     }
 }
 
@@ -759,31 +822,23 @@ private struct PiAgentGitChangeListItem: Identifiable, Hashable {
 
 private struct PiAgentGitChangeRow: View {
     let item: PiAgentGitChangeListItem
-    let onToggleIncluded: () -> Void
 
     var body: some View {
-        Button(action: onToggleIncluded) {
-            HStack(spacing: 9) {
-                Image(systemName: item.isIncluded ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(item.isIncluded ? AppTheme.brandAccent : AppTheme.mutedText)
-                Image(systemName: "doc.text")
-                    .foregroundStyle(AppTheme.mutedText)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.path)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.primary)
-                    Text(item.badgeText)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(item.badgeColor)
-                }
-                Spacer(minLength: 0)
+        HStack(spacing: 9) {
+            Image(systemName: "doc.text")
+                .foregroundStyle(AppTheme.mutedText)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.path)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.primary)
+                Text(item.badgeText)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(item.badgeColor)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(item.isIncluded ? AppTheme.selectionFill : Color.clear))
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .help(item.isIncluded ? "Exclude from commit" : "Include in commit")
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
     }
 }

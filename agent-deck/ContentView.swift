@@ -289,6 +289,7 @@ struct ContentView: View {
                         } label: {
                             Label("New", systemImage: "plus")
                         }
+                        .menuIndicator(.hidden)
                         .toolbarPrimaryActionChrome()
                         .help("Create a library agent, then choose global or project visibility")
                     }
@@ -380,6 +381,7 @@ struct ContentView: View {
                         } label: {
                             Label("New Key", systemImage: "plus")
                         }
+                        .menuIndicator(.hidden)
                         .toolbarPrimaryActionChrome()
                         .help("Choose where to store the new environment key")
                     }
