@@ -46,13 +46,14 @@ nonisolated struct PiScanner {
             projectSettings: settings.first(where: { $0.path == projectSettings?.path })
         )
 
-        let skills =
+        let skills = deduplicatedByCanonicalPath(
             bundledSkills +
             scanSkills(at: globalSkills, scope: .global) +
             scanSkills(at: extraGlobalSkills, scope: .global, allowRootMarkdown: false) +
             scanSkills(at: projectSkills, scope: .project) +
             packageSkillScan.skills
-        let librarySkills = scanExternalSkills(paths: externalSkillPaths)
+        )
+        let librarySkills = deduplicatedByCanonicalPath(scanExternalSkills(paths: externalSkillPaths))
 
         let envKeys =
             scanEnv(at: globalEnv, scope: .global) +
@@ -174,6 +175,24 @@ nonisolated struct PiScanner {
             urls.append(url)
         }
         return urls
+    }
+
+    /// Deduplicates a list of skill records by their canonical (symlink-resolved) file path.
+    /// Without this, a symlink at `~/.pi/agent/skills/foo` pointing to `~/.agents/skills/foo`
+    /// produces two `SkillRecord`s with the same content, which then surfaces as a
+    /// "Duplicate skill name" diagnostic. Resolving to the canonical path collapses these
+    /// to a single record while preserving scan order (first occurrence wins).
+    private func deduplicatedByCanonicalPath(_ skills: [SkillRecord]) -> [SkillRecord] {
+        var seen: Set<String> = []
+        var result: [SkillRecord] = []
+        result.reserveCapacity(skills.count)
+        for skill in skills {
+            let canonical = URL(fileURLWithPath: skill.filePath).resolvingSymlinksInPath().path
+            if seen.insert(canonical).inserted {
+                result.append(skill)
+            }
+        }
+        return result
     }
 
     private func scanSkills(at directory: URL?, scope: ResourceScopeKind, allowRootMarkdown: Bool = true) -> [SkillRecord] {
