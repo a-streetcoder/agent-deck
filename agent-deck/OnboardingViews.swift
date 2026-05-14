@@ -5,24 +5,34 @@ private enum WelcomeTourContent {
     static var pages: [TourPage] {
         [
             TourPage(
-                imageName: "pi",
-                title: "Welcome to \(AppBrand.displayName)",
-                description: "A native macOS workspace for Pi Agent sessions, projects, agents, prompts, skills, models, and GitHub work."
+                imageName: "agent-deck",
+                title: "Command Pi from \(AppBrand.displayName)",
+                description: "Run Pi coding sessions from a focused Mac workspace with project context, models, repo activity, and session state in one place."
             ),
             TourPage(
                 imageName: "pi",
-                title: "Native Pi Agent",
-                description: "Start and resume Pi sessions in the app with transcript rendering, activity tracking, repo changes, and inspector controls."
+                title: "Work in a Coding Chat",
+                description: "Use a customizable chat view built for implementation work: full transcripts, tool calls, file previews, attachments, and live controls."
             ),
             TourPage(
                 imageName: "pi",
-                title: "Native Subagents",
-                description: "Delegate single or parallel work through app-managed child Pi sessions with supervisor cards and worktree safety."
+                title: "Orchestrate Subagents",
+                description: "Delegate focused work to custom subagents, run them alone or in parallel, supervise decisions, and keep worktrees isolated."
+            ),
+            TourPage(
+                imageName: "pi",
+                title: "Shape Your Agent System",
+                description: "Create, organize, assign, and reuse agents, skills, and prompts so project workflows become clear, portable, and repeatable."
+            ),
+            TourPage(
+                imageName: "pi",
+                title: "Manage Project Instructions",
+                description: "Control system guidance, AGENTS.md, CLAUDE.md, and project-scoped instructions from one place instead of hunting through files."
             ),
             TourPage(
                 imageName: "github",
-                title: "GitHub When You Need It",
-                description: "Connect the GitHub CLI for issue boards, comments, repo changes, commits, and pushes from selected projects."
+                title: "Connect the Wider Workflow",
+                description: "Bring in GitHub, project folders, environment keys, and model setup when you need them. Setup checks confirm the workspace is ready."
             )
         ]
     }
