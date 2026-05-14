@@ -224,7 +224,9 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                 2. Plan an AppKit solution that is 1:1 equivalent in rendering, information density, look and feel,
                    row behavior, selection/copy affordances, native subagent cards, thinking/tool rendering, and
                    auto-scrolling while Pi streams content.
-                3. Plan how to use web research and Apple documentation for the AppKit design choices.
+                3. Plan how to use web research and Apple documentation for the AppKit design choices. If Apple
+                   documentation is needed, use/read the local skill at:
+                   /Users/andrea/.pi/agent/skills/apple-documentation/SKILL.md
                 4. Include a measurement strategy using profiler sessions. If useful, reference the local skill at
                    /Users/andrea/Documents/GitHub/skill-sources/agent-scripts/skills/native-app-performance.
                 5. Compare two implementation branches:
@@ -243,6 +245,7 @@ final class PiNativeBundledSubagentRealRPCEvalTests: XCTestCase {
                     "PiAgentSubagentViews",
                     "PiAgentActivityPanelViews",
                     "AppKit",
+                    "apple-documentation",
                     "NSScrollView",
                     "NSTableView",
                     "auto-scroll",
