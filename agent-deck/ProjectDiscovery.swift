@@ -19,7 +19,7 @@ nonisolated struct DiscoveredProject: Identifiable, Hashable, Sendable {
 nonisolated struct ProjectDiscovery {
     private let fileManager = FileManager.default
 
-    static func defaultRootDirectoryURL(fileManager: FileManager = .default) -> URL {
+    static func suggestedRootDirectoryURL(fileManager: FileManager = .default) -> URL? {
         let home = fileManager.homeDirectoryForCurrentUser
         let candidates = [
             home.appendingPathComponent("Documents/GitHub", isDirectory: true),
@@ -28,11 +28,12 @@ nonisolated struct ProjectDiscovery {
             home.appendingPathComponent("Developer", isDirectory: true)
         ].map(\.standardizedFileURL)
 
-        for candidate in candidates where directoryExists(candidate, fileManager: fileManager) {
-            return candidate
-        }
+        return candidates.first { directoryExists($0, fileManager: fileManager) }
+    }
 
-        return candidates.first ?? home.standardizedFileURL
+    static func defaultRootDirectoryURL(fileManager: FileManager = .default) -> URL {
+        suggestedRootDirectoryURL(fileManager: fileManager)
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Documents/GitHub", isDirectory: true).standardizedFileURL
     }
 
     func discoverProjects(

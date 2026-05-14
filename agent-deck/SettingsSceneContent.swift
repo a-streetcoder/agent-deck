@@ -273,15 +273,15 @@ private struct GeneralSettingsTab: View {
 
             SettingsSection {
                 SettingsTextFieldRow(
-                    title: "Project root:",
-                    placeholder: "Root folder",
+                    title: "Projects folder:",
+                    placeholder: "Parent folder containing your projects",
                     text: projectsRootPathBinding,
-                    note: "Default: \(ProjectDiscovery.defaultRootDirectoryURL().path)"
+                    note: "Choose the parent folder that contains your projects, not a single project repository. Suggested: \(ProjectDiscovery.defaultRootDirectoryURL().path)"
                 )
 
                 SettingsButtonRow {
                     Button("Choose Folder...") { viewModel.chooseProjectsRootDirectory() }
-                    Button("Use Default") { viewModel.resetProjectsRootPathToDefault() }
+                    Button("Use Suggested") { viewModel.resetProjectsRootPathToDefault() }
                     Button("Reveal in Finder") { revealInFinder(viewModel.configuredProjectsRootPath) }
                 }
             }

@@ -3057,6 +3057,11 @@ final class AppViewModel: NSObject, ObservableObject {
         handleProjectsRootSettingsChange()
     }
 
+    func useSuggestedProjectsRootDirectory() {
+        guard appSettingsController.useSuggestedProjectsRootDirectory() else { return }
+        handleProjectsRootSettingsChange()
+    }
+
     func setProjectsRootPath(_ path: String) {
         guard appSettingsController.setProjectsRootPath(path) else { return }
         handleProjectsRootSettingsChange()
@@ -3808,6 +3813,14 @@ final class AppViewModel: NSObject, ObservableObject {
         appSettingsController.configuredProjectsRootPath
     }
 
+    var suggestedProjectsRootPath: String? {
+        appSettingsController.suggestedProjectsRootURL?.path
+    }
+
+    var hasConfirmedProjectsRootPath: Bool {
+        appSettingsController.hasConfirmedProjectsRootPath
+    }
+
     var enabledProjects: [DiscoveredProject] {
         discoveredProjects.filter { projectPreference(for: $0.path).isEnabled }
     }
@@ -3832,6 +3845,14 @@ final class AppViewModel: NSObject, ObservableObject {
 
     var shouldWarnProjectSelection: Bool {
         enabledProjects.isEmpty
+    }
+
+    var shouldWarnDoctor: Bool {
+        !hasConfirmedProjectsRootPath || !configuredProjectsRootExists || !snapshot.warnings.isEmpty
+    }
+
+    private var configuredProjectsRootExists: Bool {
+        (try? configuredProjectsRootURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     var hasAgentWarnings: Bool {

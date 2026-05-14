@@ -69,9 +69,9 @@ struct ContentView: View {
     var body: some View {
         mainContent
             .sheet(isPresented: $isOnboardingPresented, onDismiss: completeOnboarding) {
-                WelcomeOnboardingSheet(viewModel: viewModel) { openDoctor in
-                    if openDoctor {
-                        viewModel.selectedSidebarItem = .doctor
+                WelcomeOnboardingSheet(viewModel: viewModel) { target in
+                    if let target {
+                        viewModel.selectedSidebarItem = target
                     }
                     completeOnboarding()
                 }
@@ -84,7 +84,8 @@ struct ContentView: View {
             .projects: viewModel.shouldWarnProjectSelection,
             .agents: viewModel.hasAgentWarnings,
             .skills: viewModel.hasSkillWarnings,
-            .prompts: viewModel.hasPromptWarnings
+            .prompts: viewModel.hasPromptWarnings,
+            .doctor: viewModel.shouldWarnDoctor
         ]
     }
 

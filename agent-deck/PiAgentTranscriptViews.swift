@@ -217,7 +217,8 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
             return Array(uniqueLinks(links).prefix(20))
         case "fetch_content", "web_fetch":
             let links = entries.flatMap(fetchContentLinks)
-            return Array(uniqueLinks(links).prefix(20))
+            if !links.isEmpty { return Array(uniqueLinks(links).prefix(20)) }
+            return Array(uniqueLinks(entries.flatMap { extractedLinks(from: toolDetails(from: $0)) + parseSourceLinks(from: $0.text) }).prefix(20))
         case "get_search_content":
             let links = entries.compactMap { entry -> PiAgentWebLink? in
                 let details = toolDetails(from: entry)
@@ -1062,7 +1063,7 @@ struct PiAgentWebActivitySummaryView: View {
             case "web_search": return "Web search"
             case "fetch_content": return "Fetch content"
             case "get_search_content": return "Read web content"
-            case "web_fetch": return "Web fetch"
+            case "web_fetch": return "URL fetch"
             default: break
             }
         }
@@ -1100,7 +1101,7 @@ struct PiAgentWebActivitySummaryView: View {
             case "web_search": return "Search"
             case "fetch_content": return "Fetched"
             case "get_search_content": return "Read content"
-            case "web_fetch": return "Fetched URL"
+            case "web_fetch": return "Fetched"
             default: return name.replacingOccurrences(of: "_", with: " ").capitalized
             }
         }

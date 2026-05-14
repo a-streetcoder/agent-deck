@@ -40,7 +40,7 @@ private enum WelcomeTourContent {
 
 struct WelcomeOnboardingSheet: View {
     @ObservedObject var viewModel: AppViewModel
-    let onFinish: (Bool) -> Void
+    let onFinish: (SidebarItem?) -> Void
     @State private var phase: Phase = .tour
     @State private var setupItemsTask: Task<[SetupCheckItem], Never>?
 
@@ -75,7 +75,7 @@ struct WelcomeOnboardingSheet: View {
             continueButtonTitle: "Continue",
             finishButtonTitle: "Check Setup",
             onFinish: { phase = .setup },
-            onClose: { onFinish(false) }
+            onClose: { onFinish(nil) }
         )
         .frame(width: 660)
     }
@@ -85,8 +85,16 @@ struct WelcomeOnboardingSheet: View {
         let projectRootPath = viewModel.appSettings.projectsRootPath
         let githubAccount = viewModel.currentGitHubAccount
         let selectedProjectPath = viewModel.selectedProjectPath
+        let hasConfirmedProjectsRootPath = viewModel.hasConfirmedProjectsRootPath
+        let suggestedProjectsRootPath = viewModel.suggestedProjectsRootPath
         setupItemsTask = Task {
-            await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount, selectedProjectPath: selectedProjectPath)
+            await SetupDependencyService().loadItems(
+                projectRootPath: projectRootPath,
+                githubAccount: githubAccount,
+                selectedProjectPath: selectedProjectPath,
+                hasConfirmedProjectsRootPath: hasConfirmedProjectsRootPath,
+                suggestedProjectsRootPath: suggestedProjectsRootPath
+            )
         }
     }
 }
@@ -95,7 +103,7 @@ struct SetupChecklistView: View {
     @ObservedObject var viewModel: AppViewModel
     fileprivate let preloadedItems: Task<[SetupCheckItem], Never>?
     let onBack: () -> Void
-    let onFinish: (Bool) -> Void
+    let onFinish: (SidebarItem?) -> Void
     @State private var items: [SetupCheckItem] = []
     @State private var isRefreshing = true
 
@@ -103,7 +111,7 @@ struct SetupChecklistView: View {
         viewModel: AppViewModel,
         preloadedItems: Task<[SetupCheckItem], Never>? = nil,
         onBack: @escaping () -> Void,
-        onFinish: @escaping (Bool) -> Void
+        onFinish: @escaping (SidebarItem?) -> Void
     ) {
         self.viewModel = viewModel
         self.preloadedItems = preloadedItems
@@ -141,24 +149,26 @@ struct SetupChecklistView: View {
             Divider()
 
             ScrollView {
-                VStack(spacing: 0) {
-                    if isRefreshing && items.isEmpty {
-                        loadingRow
-                    } else {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            setupRow(item)
-                            if index < items.count - 1 {
-                                Divider()
-                                    .padding(.leading, 56)
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(spacing: 0) {
+                        if isRefreshing && items.isEmpty {
+                            loadingRow
+                        } else {
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                setupRow(item)
+                                if index < items.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 56)
+                                }
                             }
                         }
                     }
+                    .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(AppTheme.contentStroke, lineWidth: 1)
+                    )
                 }
-                .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(AppTheme.contentStroke, lineWidth: 1)
-                )
                 .padding(24)
             }
             .background(AppTheme.windowBackground)
@@ -168,10 +178,9 @@ struct SetupChecklistView: View {
                 Button("Back") {
                     onBack()
                 }
-                projectSelectionMenu
                 Spacer()
                 Button(finishButtonTitle) {
-                    onFinish(needsDoctor)
+                    onFinish(finishTarget)
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -188,47 +197,17 @@ struct SetupChecklistView: View {
     }
 
     private var needsDoctor: Bool {
-        items.contains { $0.status != .passed }
+        items.contains { $0.status == .failed }
+    }
+
+    private var finishTarget: SidebarItem? {
+        if needsDoctor { return .doctor }
+        if viewModel.enabledProjects.isEmpty, !viewModel.discoveredProjects.isEmpty { return .projects }
+        return nil
     }
 
     private var finishButtonTitle: String {
         needsDoctor ? "Review Setup" : "Done"
-    }
-
-    private var selectableProjects: [DiscoveredProject] {
-        viewModel.discoveredProjects.sorted {
-            $0.repositoryDisplayName.localizedCaseInsensitiveCompare($1.repositoryDisplayName) == .orderedAscending
-        }
-    }
-
-    private var projectSelectionTitle: String {
-        guard let selectedProject = viewModel.selectedDiscoveredProject else {
-            return "Select Project"
-        }
-        return selectedProject.repositoryDisplayName
-    }
-
-    private var projectSelectionMenu: some View {
-        Menu {
-            if selectableProjects.isEmpty {
-                Text("No discovered projects")
-            } else {
-                ForEach(selectableProjects) { project in
-                    Button {
-                        selectProject(project)
-                    } label: {
-                        Label(
-                            project.repositoryDisplayName,
-                            systemImage: viewModel.selectedProjectPath == project.path ? "checkmark" : project.fallbackSymbolName
-                        )
-                    }
-                }
-            }
-        } label: {
-            Label(projectSelectionTitle, systemImage: "folder")
-        }
-        .disabled(selectableProjects.isEmpty)
-        .help(selectableProjects.isEmpty ? "No projects were discovered in the projects folder" : "Enable and select a project")
     }
 
     private var loadingRow: some View {
@@ -267,13 +246,13 @@ struct SetupChecklistView: View {
         defer { isRefreshing = false }
         let projectRootPath = viewModel.appSettings.projectsRootPath
         let githubAccount = viewModel.currentGitHubAccount
-        items = await SetupDependencyService().loadItems(projectRootPath: projectRootPath, githubAccount: githubAccount, selectedProjectPath: viewModel.selectedProjectPath)
-    }
-
-    private func selectProject(_ project: DiscoveredProject) {
-        viewModel.setProjectEnabled(true, for: project)
-        viewModel.setSelectedProject(project.url)
-        Task { await refresh() }
+        items = await SetupDependencyService().loadItems(
+            projectRootPath: projectRootPath,
+            githubAccount: githubAccount,
+            selectedProjectPath: viewModel.selectedProjectPath,
+            hasConfirmedProjectsRootPath: viewModel.hasConfirmedProjectsRootPath,
+            suggestedProjectsRootPath: viewModel.suggestedProjectsRootPath
+        )
     }
 
     private func setupRow(_ item: SetupCheckItem) -> some View {
@@ -298,6 +277,18 @@ struct SetupChecklistView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if item.status != .passed, item.action != nil || item.secondaryAction != nil {
+                    HStack(spacing: 8) {
+                        if let action = item.action {
+                            Button(action.buttonTitle) { perform(action) }
+                        }
+                        if let secondaryAction = item.secondaryAction {
+                            Button(secondaryAction.buttonTitle) { perform(secondaryAction) }
+                        }
+                    }
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                }
             }
 
             Spacer(minLength: 16)
@@ -312,6 +303,16 @@ struct SetupChecklistView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
     }
+
+    private func perform(_ action: SetupCheckAction) {
+        switch action {
+        case .chooseProjectRoot:
+            viewModel.chooseProjectsRootDirectory()
+        case .useSuggestedProjectRoot:
+            viewModel.useSuggestedProjectsRootDirectory()
+        }
+        Task { await refresh() }
+    }
 }
 
 struct SetupCheckItem: Identifiable, Hashable {
@@ -320,6 +321,38 @@ struct SetupCheckItem: Identifiable, Hashable {
     let detail: String
     let status: SetupCheckStatus
     let recovery: String?
+    let action: SetupCheckAction?
+    let secondaryAction: SetupCheckAction?
+
+    init(
+        id: String,
+        title: String,
+        detail: String,
+        status: SetupCheckStatus,
+        recovery: String?,
+        action: SetupCheckAction? = nil,
+        secondaryAction: SetupCheckAction? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.status = status
+        self.recovery = recovery
+        self.action = action
+        self.secondaryAction = secondaryAction
+    }
+}
+
+enum SetupCheckAction: Hashable {
+    case chooseProjectRoot
+    case useSuggestedProjectRoot
+
+    var buttonTitle: String {
+        switch self {
+        case .chooseProjectRoot: "Choose Folder…"
+        case .useSuggestedProjectRoot: "Use Suggested Folder"
+        }
+    }
 }
 
 enum SetupCheckStatus: Hashable {
@@ -338,7 +371,7 @@ enum SetupCheckStatus: Hashable {
     var systemImage: String {
         switch self {
         case .passed: "checkmark.circle.fill"
-        case .warning: "exclamationmark.triangle.fill"
+        case .warning: "circle.dashed"
         case .failed: "xmark.circle.fill"
         }
     }
@@ -346,7 +379,7 @@ enum SetupCheckStatus: Hashable {
     var color: Color {
         switch self {
         case .passed: .green
-        case .warning: .orange
+        case .warning: .secondary
         case .failed: .red
         }
     }
@@ -355,18 +388,18 @@ enum SetupCheckStatus: Hashable {
 struct SetupDependencyService {
     private let commandRunner = CommandRunner()
 
-    func loadItems(projectRootPath: String, githubAccount: GitHubHostAccount?, selectedProjectPath: String?) async -> [SetupCheckItem] {
+    func loadItems(
+        projectRootPath: String,
+        githubAccount: GitHubHostAccount?,
+        selectedProjectPath: String?,
+        hasConfirmedProjectsRootPath: Bool = true,
+        suggestedProjectsRootPath: String? = nil
+    ) async -> [SetupCheckItem] {
         async let pi = piCheck()
         async let models = modelCheck()
         let github = await githubCheck(account: githubAccount)
-        let project = projectRootCheck(path: projectRootPath)
-        let discoveredProjectCount = discoveredProjectCount(projectRootPath: projectRootPath)
-        let web = exaAPIKeyCheck(projectRootPath: selectedProjectPath ?? projectRootPath)
-
-        if github.status == .passed {
-            let selectedProject = selectedProjectCheck(selectedProjectPath: selectedProjectPath, discoveredProjectCount: discoveredProjectCount)
-            return await [pi, models, project, github, selectedProject, web]
-        }
+        let project = projectRootCheck(path: projectRootPath, isConfirmed: hasConfirmedProjectsRootPath, suggestedPath: suggestedProjectsRootPath)
+        let web = webAccessCheck(projectRootPath: selectedProjectPath ?? projectRootPath)
 
         return await [pi, models, project, github, web]
     }
@@ -436,49 +469,65 @@ struct SetupDependencyService {
         }
     }
 
-    private func projectRootCheck(path: String) -> SetupCheckItem {
+    private func projectRootCheck(path: String, isConfirmed: Bool, suggestedPath: String?) -> SetupCheckItem {
         let isDirectory = (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        return SetupCheckItem(
-            id: "project-root",
-            title: "Projects Folder",
-            detail: isDirectory ? path : "Choose a folder \(AppBrand.displayName) can scan for projects.",
-            status: isDirectory ? .passed : .failed,
-            recovery: isDirectory ? nil : "Open Settings > Projects and choose an existing projects folder."
-        )
-    }
+        let hasSuggestedDirectory = suggestedPath?.isEmpty == false
 
-    private func discoveredProjectCount(projectRootPath: String) -> Int {
-        ProjectDiscovery()
-            .discoverProjects(rootDirectoryURL: URL(fileURLWithPath: projectRootPath))
-            .count
-    }
-
-    private func selectedProjectCheck(selectedProjectPath: String?, discoveredProjectCount: Int) -> SetupCheckItem {
-        guard let selectedProjectPath, !selectedProjectPath.isEmpty else {
-            if discoveredProjectCount == 0 {
-                return SetupCheckItem(
-                    id: "selected-project",
-                    title: "Selected Project",
-                    detail: "No projects were discovered. You can still start projectless Pi Agent sessions from the projects folder.",
-                    status: .passed,
-                    recovery: nil
-                )
-            }
-
+        if !isConfirmed {
             return SetupCheckItem(
-                id: "selected-project",
-                title: "Selected Project",
-                detail: "Select a project to enable project agents, repo context, GitHub issue workflows, and project `.env` resolution.",
-                status: .warning,
-                recovery: "Choose Select Project below, then pick a discovered repository."
+                id: "project-root",
+                title: "Projects Root Folder",
+                detail: hasSuggestedDirectory
+                    ? "Choose the parent folder that contains your projects, not a single project repository. Suggested: \(suggestedPath!)"
+                    : "Choose the parent folder that contains your projects, not a single project repository.",
+                status: .failed,
+                recovery: nil,
+                action: hasSuggestedDirectory ? .useSuggestedProjectRoot : .chooseProjectRoot,
+                secondaryAction: hasSuggestedDirectory ? .chooseProjectRoot : nil
             )
         }
 
         return SetupCheckItem(
-            id: "selected-project",
-            title: "Selected Project",
-            detail: URL(fileURLWithPath: selectedProjectPath).lastPathComponent,
-            status: .passed,
+            id: "project-root",
+            title: "Projects Root Folder",
+            detail: isDirectory ? path : "Choose the parent folder that contains your projects, not a single project repository.",
+            status: isDirectory ? .passed : .failed,
+            recovery: isDirectory ? nil : "Choose an existing parent folder for your projects.",
+            action: isDirectory ? nil : .chooseProjectRoot
+        )
+    }
+
+    private func webAccessCheck(projectRootPath: String?) -> SetupCheckItem {
+        let projectRoot = projectRootPath.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectRoot)
+        let hasKey = environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let fallbackInstalled = WebFetchDependencyService().status().isInstalled
+
+        if hasKey {
+            return SetupCheckItem(
+                id: "web-access",
+                title: "Web Access",
+                detail: "EXA_API_KEY is configured. Exa web tools are available to new Pi sessions.",
+                status: .passed,
+                recovery: nil
+            )
+        }
+
+        if fallbackInstalled {
+            return SetupCheckItem(
+                id: "web-access",
+                title: "Web Access",
+                detail: "Optional. URL fetch fallback dependencies are installed. Configure Exa search later in Doctor if you want web search.",
+                status: .warning,
+                recovery: nil
+            )
+        }
+
+        return SetupCheckItem(
+            id: "web-access",
+            title: "Web Access",
+            detail: "Optional. Configure Exa search or install the URL fetch fallback later in Doctor.",
+            status: .warning,
             recovery: nil
         )
     }
@@ -507,21 +556,6 @@ struct SetupDependencyService {
             detail: "Optional. Install GitHub CLI and run `gh auth login` for issue, comment, commit, and push workflows.",
             status: .warning,
             recovery: "Install GitHub CLI, run `gh auth login`, then refresh this check."
-        )
-    }
-
-    private func exaAPIKeyCheck(projectRootPath: String?) -> SetupCheckItem {
-        let projectRoot = projectRootPath.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectRoot)
-        let hasKey = environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        return SetupCheckItem(
-            id: "exa-api-key",
-            title: "Exa API Key",
-            detail: hasKey
-                ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions."
-                : "Required for Exa web_search, fetch_content, and get_search_content. Without it, install enhanced web_fetch dependencies from Doctor for known-URL fallback.",
-            status: hasKey ? .passed : .warning,
-            recovery: hasKey ? nil : "Add EXA_API_KEY to ~/.pi/agent/.env or the selected project's .pi/.env for Exa search."
         )
     }
 

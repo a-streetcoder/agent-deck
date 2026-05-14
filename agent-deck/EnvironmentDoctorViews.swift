@@ -505,12 +505,13 @@ struct DoctorScreen: View {
     }
 
     var body: some View {
-        AppPage("Doctor", subtitle: "Check what \(AppBrand.displayName) is missing and fix the essentials faster") {
+        AppPage("Doctor", subtitle: "Runtime health, dependencies, and actionable warnings") {
             piAgentSection
-            setupChecksSection
+            dependenciesSection
             webAccessSection
-            settingsSection
-            warningsSection
+            if !snapshot.warnings.isEmpty {
+                warningsSection
+            }
         }
         .task {
             if setupItems.isEmpty {
@@ -540,17 +541,28 @@ struct DoctorScreen: View {
     // MARK: - Pi Agent
 
     private var piAgentSection: some View {
-        AppCard(title: "Pi Agent") {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: piAgentIconName)
-                    .font(.title3)
-                    .foregroundStyle(piAgentStatusColor)
-                    .frame(width: 24)
+        AppCard(title: "Pi Runtime") {
+            HStack(alignment: .top, spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(AppTheme.contentSubtleFill)
+                        .stroke(AppTheme.contentStroke, lineWidth: 1)
+                    Image("pi")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .foregroundStyle(piAgentStatusColor)
+                        .padding(13)
+                }
+                .frame(width: 54, height: 54)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Pi CLI Runtime")
-                        .font(.body.weight(.semibold))
-                        .fontWidth(.expanded)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Pi CLI")
+                            .font(.title3.weight(.semibold))
+                            .fontWidth(.expanded)
+                        AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
+                    }
 
                     if let status = piRuntimeStatus {
                         Text(status.detail)
@@ -576,17 +588,15 @@ struct DoctorScreen: View {
                         HStack(spacing: 10) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Checking Pi agent runtime...")
+                            Text("Checking Pi CLI...")
                                 .foregroundStyle(AppTheme.mutedText)
                         }
                     }
                 }
 
                 Spacer(minLength: 8)
-
-                AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
         }
     }
 
@@ -626,42 +636,59 @@ struct DoctorScreen: View {
         return rows
     }
 
-    // MARK: - Setup Checks
+    // MARK: - Dependencies
 
-    private var setupChecksSection: some View {
-        AppCard(title: "Setup Checks") {
+    private var dependenciesSection: some View {
+        AppCard(title: "Dependencies", trailing: {
+            Button {
+                Task { await refreshSetupChecks() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .disabled(isRefreshingSetup)
+            .help("Refresh dependencies")
+        }) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Same checks shown during onboarding.")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                    Spacer()
-                    Button {
-                        Task { await refreshSetupChecks() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(isRefreshingSetup)
-                    .help("Refresh setup checks")
-                }
+                Text("Required items affect core workflows. Optional items enable integrations.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
 
                 if isRefreshingSetup && setupItems.isEmpty {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Checking \(AppBrand.displayName) setup...")
+                        Text("Checking dependencies...")
                             .foregroundStyle(AppTheme.mutedText)
                     }
                     .padding(.vertical, 8)
                 } else {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(setupItems.enumerated()), id: \.element.id) { index, item in
-                            setupCheckRow(item)
-                            if index < setupItems.count - 1 {
-                                Divider()
-                            }
-                        }
+                    dependencyGroup("Required", items: requiredDependencyItems)
+                    if !optionalDependencyItems.isEmpty {
+                        dependencyGroup("Optional", items: optionalDependencyItems)
                     }
+                }
+            }
+        }
+    }
+
+    private var requiredDependencyItems: [SetupCheckItem] {
+        setupItems.filter { $0.status != .warning }
+    }
+
+    private var optionalDependencyItems: [SetupCheckItem] {
+        setupItems.filter { $0.status == .warning }
+    }
+
+    private func dependencyGroup(_ title: String, items: [SetupCheckItem]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+                .padding(.bottom, 4)
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                setupCheckRow(item)
+                if index < items.count - 1 {
+                    Divider()
                 }
             }
         }
@@ -693,6 +720,18 @@ struct DoctorScreen: View {
                         .padding(.vertical, 6)
                         .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
                 }
+
+                if item.status != .passed, item.action != nil || item.secondaryAction != nil {
+                    HStack(spacing: 8) {
+                        if let action = item.action {
+                            Button(action.buttonTitle) { performSetupAction(action) }
+                        }
+                        if let secondaryAction = item.secondaryAction {
+                            Button(secondaryAction.buttonTitle) { performSetupAction(secondaryAction) }
+                        }
+                    }
+                    .controlSize(.small)
+                }
             }
 
             Spacer(minLength: 8)
@@ -702,6 +741,16 @@ struct DoctorScreen: View {
         .padding(.vertical, 12)
     }
 
+    private func performSetupAction(_ action: SetupCheckAction) {
+        switch action {
+        case .chooseProjectRoot:
+            viewModel.chooseProjectsRootDirectory()
+        case .useSuggestedProjectRoot:
+            viewModel.useSuggestedProjectsRootDirectory()
+        }
+        Task { await refreshSetupChecks() }
+    }
+
     @MainActor
     private func refreshSetupChecks() async {
         isRefreshingSetup = true
@@ -709,7 +758,9 @@ struct DoctorScreen: View {
         async let setup = SetupDependencyService().loadItems(
             projectRootPath: viewModel.appSettings.projectsRootPath,
             githubAccount: viewModel.currentGitHubAccount,
-            selectedProjectPath: viewModel.selectedProjectPath
+            selectedProjectPath: viewModel.selectedProjectPath,
+            hasConfirmedProjectsRootPath: viewModel.hasConfirmedProjectsRootPath,
+            suggestedProjectsRootPath: viewModel.suggestedProjectsRootPath
         )
         async let piRuntime = PiAgentUpdateService().loadStatus()
         setupItems = await setup
@@ -720,86 +771,110 @@ struct DoctorScreen: View {
 
     private var webAccessSection: some View {
         AppCard(title: "Web Access") {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: hasExaAPIKey ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.title3)
-                    .foregroundStyle(hasExaAPIKey ? .green : .orange)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Exa API Key")
-                        .font(.body.weight(.semibold))
-                        .fontWidth(.expanded)
-
-                    Text(hasExaAPIKey
-                         ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions. Exa web tools are loaded by the app. Enhanced web_fetch fallback setup is still shown here for standby use."
-                         : webFetchStatus.isInstalled
-                            ? "Exa web_search, fetch_content, and get_search_content require EXA_API_KEY. Enhanced web_fetch dependencies are installed, so Agent Deck loads the URL fetch fallback."
-                            : "Exa web_search, fetch_content, and get_search_content require EXA_API_KEY. Install enhanced web_fetch dependencies to enable URL fetch fallback.")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    AppKeyValueList(rows: webAccessRows)
-
-                    HStack(spacing: 8) {
-                        Button {
-                            Task { await installWebFetchDependencies() }
-                        } label: {
-                            if isInstallingWebFetchDependencies {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Text(webFetchStatus.isInstalled ? "Reinstall Web Fetch Dependencies" : "Install Web Fetch Dependencies")
-                            }
-                        }
-                        .disabled(isInstallingWebFetchDependencies)
-
-                        Button {
-                            refreshWebFetchStatus()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .disabled(isInstallingWebFetchDependencies)
-                        .help("Refresh web fetch dependency status")
-                    }
-
-                    if let webFetchInstallMessage {
-                        Text(webFetchInstallMessage)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                AppLabelTag(
-                    text: webAccessStatusLabel,
-                    color: webAccessStatusColor
+            VStack(alignment: .leading, spacing: 0) {
+                webAccessOptionRow(
+                    icon: hasExaAPIKey ? "checkmark.circle.fill" : "circle.dashed",
+                    iconColor: hasExaAPIKey ? .green : .secondary,
+                    title: "Exa Search",
+                    detail: hasExaAPIKey
+                        ? "EXA_API_KEY is configured. Exa web_search, fetch_content, and get_search_content are available to new Pi sessions."
+                        : "Optional. Add EXA_API_KEY to enable Exa web_search, fetch_content, and get_search_content.",
+                    tag: hasExaAPIKey ? "Ready" : "Optional",
+                    tagColor: hasExaAPIKey ? .green : .secondary
                 )
+
+                Divider()
+
+                webFetchFallbackRow
             }
-            .padding(.vertical, 12)
         }
     }
 
-    private var webAccessRows: [(String, String)] {
-        return [
-            ("Exa", hasExaAPIKey ? "Configured" : "Missing"),
-            ("Fallback", webFetchStatus.isInstalled ? (hasExaAPIKey ? "web_fetch ready, standby" : "web_fetch ready") : "Dependencies missing"),
-            ("Install path", webFetchStatus.installDirectory.path),
+    private func webAccessOptionRow(icon: String, iconColor: Color, title: String, detail: String, tag: String, tagColor: Color) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(iconColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+            AppLabelTag(text: tag, color: tagColor)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var webFetchFallbackRow: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: webFetchStatus.isInstalled ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                .font(.title3)
+                .foregroundStyle(webFetchStatus.isInstalled ? .green : .orange)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("URL Fetch Fallback")
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+
+                Text(webFetchStatus.isInstalled
+                     ? "Installed. Used as a fallback for known URLs when Exa is not configured or direct URL fetching is enough."
+                     : "Optional fallback for fetching known URLs without Exa search. Installs htmlparser2 and turndown locally for Agent Deck.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                AppKeyValueList(rows: webFetchFallbackRows)
+
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await installWebFetchDependencies() }
+                    } label: {
+                        if isInstallingWebFetchDependencies {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text(webFetchStatus.isInstalled ? "Reinstall Dependencies" : "Install Dependencies")
+                        }
+                    }
+                    .disabled(isInstallingWebFetchDependencies)
+
+                    Button {
+                        refreshWebFetchStatus()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(isInstallingWebFetchDependencies)
+                    .help("Refresh fallback dependency status")
+                }
+
+                if let webFetchInstallMessage {
+                    Text(webFetchInstallMessage)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Spacer(minLength: 8)
+            AppLabelTag(text: webFetchStatus.isInstalled ? "Ready" : "Optional", color: webFetchStatus.isInstalled ? .green : .orange)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var webFetchFallbackRows: [(String, String)] {
+        [
+            ("Status", webFetchStatus.isInstalled ? "Installed" : "Dependencies missing"),
             ("Packages", WebFetchDependencyService.packages.joined(separator: ", "))
         ]
-    }
-
-    private var webAccessStatusLabel: String {
-        if hasExaAPIKey { return webFetchStatus.isInstalled ? "Exa + Fallback" : "Exa" }
-        return webFetchStatus.isInstalled ? "Fallback Ready" : "Needs Install"
-    }
-
-    private var webAccessStatusColor: Color {
-        if hasExaAPIKey || webFetchStatus.isInstalled { return .green }
-        return .orange
     }
 
     private func refreshWebFetchStatus() {

@@ -49,6 +49,7 @@ struct AppSettings: Codable, Hashable {
     var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
+    var didConfirmProjectsRootPath: Bool = false
     var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
     var agentMemoryEnabled: Bool = false
@@ -85,6 +86,7 @@ struct AppSettings: Codable, Hashable {
         case piAgentTranscriptVisibility
         case piAgentTerminalApplicationPath
         case projectsRootPath
+        case didConfirmProjectsRootPath
         case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
         case agentMemoryEnabled
@@ -125,7 +127,9 @@ struct AppSettings: Codable, Hashable {
         piAgentLoadedTranscriptCacheLimit = max(try container.decodeIfPresent(Int.self, forKey: .piAgentLoadedTranscriptCacheLimit) ?? 10, 1)
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
+        let hasStoredProjectsRootPath = container.contains(.projectsRootPath)
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
+        didConfirmProjectsRootPath = try container.decodeIfPresent(Bool.self, forKey: .didConfirmProjectsRootPath) ?? hasStoredProjectsRootPath
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         agentMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryEnabled) ?? false

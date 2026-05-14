@@ -63,6 +63,14 @@ final class AppSettingsController {
         configuredProjectsRootURL.path
     }
 
+    var suggestedProjectsRootURL: URL? {
+        ProjectDiscovery.suggestedRootDirectoryURL()
+    }
+
+    var hasConfirmedProjectsRootPath: Bool {
+        settings.didConfirmProjectsRootPath
+    }
+
     var piAgentTerminalApplicationDisplayName: String {
         guard let path = settings.piAgentTerminalApplicationPath, !path.isEmpty else {
             return "macOS default"
@@ -221,12 +229,18 @@ final class AppSettingsController {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Folder"
-        panel.message = "Choose the folder \(AppBrand.displayName) should scan for projects and use for projectless Pi Agent sessions."
-        panel.directoryURL = configuredProjectsRootURL
+        panel.prompt = "Choose Projects Folder"
+        panel.message = "Choose the parent folder that contains your projects. Do not choose a single project repository."
+        panel.directoryURL = suggestedProjectsRootURL ?? configuredProjectsRootURL
 
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         return setProjectsRootPath(url.path)
+    }
+
+    @discardableResult
+    func useSuggestedProjectsRootDirectory() -> Bool {
+        guard let suggestedProjectsRootURL else { return false }
+        return setProjectsRootPath(suggestedProjectsRootURL.path)
     }
 
     @discardableResult
@@ -235,8 +249,9 @@ final class AppSettingsController {
         let normalizedPath = trimmed.isEmpty
             ? ProjectDiscovery.defaultRootDirectoryURL().path
             : URL(fileURLWithPath: trimmed).standardizedFileURL.path
-        guard settings.projectsRootPath != normalizedPath else { return false }
+        guard settings.projectsRootPath != normalizedPath || !settings.didConfirmProjectsRootPath else { return false }
         settings.projectsRootPath = normalizedPath
+        settings.didConfirmProjectsRootPath = true
         persist()
         return true
     }
