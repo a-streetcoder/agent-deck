@@ -61,7 +61,7 @@ struct ContentView: View {
             .sheet(isPresented: $isOnboardingPresented, onDismiss: completeOnboarding) {
                 WelcomeOnboardingSheet(viewModel: viewModel) { openDoctor in
                     if openDoctor {
-                        viewModel.selectedSidebarItem = .diagnostics
+                        viewModel.selectedSidebarItem = .doctor
                     }
                     completeOnboarding()
                 }
@@ -794,8 +794,8 @@ struct ContentView: View {
                     envDraft = viewModel.makeEnvDraft(for: record)
                 }
             )
-        case .diagnostics:
-            DiagnosticsScreen(viewModel: viewModel)
+        case .doctor:
+            DoctorScreen(viewModel: viewModel)
         case .piDocs:
             PiDocsScreen()
         case .credits:

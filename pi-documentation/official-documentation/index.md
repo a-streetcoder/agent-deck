@@ -9,7 +9,7 @@ This is the canonical starting point for Agent Deck's official documentation.
 3. [Projects and GitHub](user-guide/projects-and-github.md)
 4. [Agents, chains, skills, prompts](user-guide/resources.md)
 5. [Native subagents](user-guide/native-subagents.md)
-6. [Diagnostics and troubleshooting](user-guide/diagnostics.md)
+6. [Doctor and troubleshooting](user-guide/doctor.md)
 
 ## Power users configuring Pi
 

@@ -1,8 +1,8 @@
-# Diagnostics and Troubleshooting
+# Doctor and Troubleshooting
 
-The Diagnostics screen is the first place to check when Agent Deck behavior does not match expectations.
+The Doctor screen is the first place to check when Agent Deck behavior does not match expectations.
 
-## What diagnostics surface
+## What Doctor Surfaces
 
 - missing Pi CLI, Git, GitHub CLI, or package dependencies
 - malformed frontmatter or JSON files

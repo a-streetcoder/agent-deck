@@ -55,7 +55,7 @@ struct CommandRunner: CommandRunning {
             process.executableURL = executableURL
             process.arguments = arguments
             process.currentDirectoryURL = currentDirectoryURL
-            process.environment = Self.processEnvironment(merging: environment)
+            process.environment = Self.processEnvironment(merging: environment, executableURL: executableURL)
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
@@ -234,7 +234,7 @@ struct CommandRunner: CommandRunning {
         }
     }
 
-    private static func processEnvironment(merging environment: [String: String]?) -> [String: String] {
+    private static func processEnvironment(merging environment: [String: String]?, executableURL: URL? = nil) -> [String: String] {
         var merged = ProcessInfo.processInfo.environment
         let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         if let existingPath = merged["PATH"], !existingPath.isEmpty {
@@ -248,6 +248,14 @@ struct CommandRunner: CommandRunning {
         }
         if let environment {
             merged.merge(environment) { _, new in new }
+        }
+        if let executableURL {
+            let executableDirectory = executableURL.deletingLastPathComponent().path
+            let path = merged["PATH"] ?? defaultPath
+            let pathParts = path.split(separator: ":").map(String.init)
+            if !pathParts.contains(executableDirectory) {
+                merged["PATH"] = ([executableDirectory] + pathParts).joined(separator: ":")
+            }
         }
         return merged
     }

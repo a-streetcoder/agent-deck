@@ -509,7 +509,7 @@ struct SetupDependencyService {
             title: "Exa API Key",
             detail: hasKey
                 ? "EXA_API_KEY is available to new \(AppBrand.displayName) Pi sessions."
-                : "Required for Exa web_search, fetch_content, and get_search_content. Without it, install enhanced web_fetch dependencies from Diagnostics for known-URL fallback.",
+                : "Required for Exa web_search, fetch_content, and get_search_content. Without it, install enhanced web_fetch dependencies from Doctor for known-URL fallback.",
             status: hasKey ? .passed : .warning,
             recovery: hasKey ? nil : "Add EXA_API_KEY to ~/.pi/agent/.env or the selected project's .pi/.env for Exa search."
         )

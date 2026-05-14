@@ -90,8 +90,8 @@ Status: implemented in this change set. This file remains as the saved end-to-en
   - activity items for continued turns should group under the same run where appropriate.
 - `agent-deck/AgentManagementViews.swift`
 - `agent-deck/EditorSheets.swift`
-- `agent-deck/EnvironmentDiagnosticsViews.swift`
-  - remove `defaultContext` and `inheritProjectContext` UI/diagnostics.
+- `agent-deck/EnvironmentDoctorViews.swift`
+  - remove `defaultContext` and `inheritProjectContext` UI/Doctor checks.
 
 ### Agent config/scanning/persistence
 

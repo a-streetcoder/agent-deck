@@ -37,10 +37,37 @@ struct SkillsInfoPopover: View {
     }
 }
 
+private enum SkillWarningSelection: Identifiable, Hashable {
+    case missing(SkillReferenceWarning)
+    case diagnostic(DiagnosticWarning)
+
+    var id: String {
+        switch self {
+        case let .missing(warning): return "missing:\(warning.id)"
+        case let .diagnostic(warning): return "diagnostic:\(warning.id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case let .missing(warning): return warning.missingSkill
+        case .diagnostic: return "Skill Warning"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case let .missing(warning): return "Referenced by \(warning.agentName) in \(warning.project.name)"
+        case .diagnostic: return "Skill catalog issue"
+        }
+    }
+}
+
 struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var selectedSkillID: SkillRecord.ID?
+    @State private var selectedWarning: SkillWarningSelection?
     @State private var isImportSheetPresented = false
     @State private var shouldPromptForImportSource = false
     @State private var importSourceURL: URL?
@@ -58,7 +85,10 @@ struct SkillsScreen: View {
             skillLibraryContent
                 .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
 
-            AppPage(selectedSkill?.name ?? "Skill Details", subtitle: selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }) {
+            AppPage(
+                selectedWarning?.title ?? selectedSkill?.name ?? "Skill Details",
+                subtitle: selectedWarning?.subtitle ?? selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }
+            ) {
                 skillDetailContent
             }
         }
@@ -67,6 +97,9 @@ struct SkillsScreen: View {
         .onChange(of: viewModel.selectedSkillID) { _, _ in synchronizeSelectionFromViewModel() }
         .onChange(of: selectedSkillID) { _, id in
             guard viewModel.selectedSkillID != id else { return }
+            if id != nil {
+                selectedWarning = nil
+            }
             viewModel.selectedSkillID = id
         }
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckImportSkillsRequested)) { _ in
@@ -196,7 +229,13 @@ struct SkillsScreen: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.orange)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedSkillID = nil
+            selectedWarning = .missing(warning)
+        }
         .padding(.vertical, 6)
+        .listRowBackground(selectedWarning == .missing(warning) ? AppTheme.selectionFill : Color.clear)
     }
 
     private func diagnosticWarningRow(_ warning: DiagnosticWarning) -> some View {
@@ -209,12 +248,25 @@ struct SkillsScreen: View {
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedSkillID = nil
+            selectedWarning = .diagnostic(warning)
+        }
         .padding(.vertical, 6)
+        .listRowBackground(selectedWarning == .diagnostic(warning) ? AppTheme.selectionFill : Color.clear)
     }
 
     @ViewBuilder
     private var skillDetailContent: some View {
-        if let skill = selectedSkill {
+        if let selectedWarning {
+            skillWarningDetail(selectedWarning)
+        } else if let skill = selectedSkill {
+            let warnings = warningsForSkill(skill)
+            if !warnings.isEmpty {
+                skillWarningSummaryCard(warnings: warnings)
+            }
+
             if skill.source.kind == .package {
                 AppCard(title: "Package Skill") {
                     Text("This skill is provided by an installed package. It is not injected unless assigned as Default, assigned to a project, or assigned to an agent.")
@@ -282,6 +334,111 @@ struct SkillsScreen: View {
         }
     }
 
+    @ViewBuilder
+    private func skillWarningDetail(_ selection: SkillWarningSelection) -> some View {
+        switch selection {
+        case let .missing(warning):
+            missingSkillWarningDetail(warning)
+        case let .diagnostic(warning):
+            diagnosticSkillWarningDetail(warning)
+        }
+    }
+
+    private func missingSkillWarningDetail(_ warning: SkillReferenceWarning) -> some View {
+        AppCard(title: "Missing Skill") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("The agent references a skill that is not available to that project at runtime.")
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                AppKeyValueList(rows: [
+                    ("Skill", warning.missingSkill),
+                    ("Agent", warning.agentName),
+                    ("Project", warning.project.repositoryDisplayName),
+                    ("Project Path", warning.project.path)
+                ])
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Resolve by doing one of these:")
+                        .font(.body.weight(.semibold))
+                    Text("Install or import a skill named `\(warning.missingSkill)`, then assign it to the project or make it Default.")
+                    Text("Or remove `\(warning.missingSkill)` from the agent's skill list if the reference is obsolete.")
+                }
+                .foregroundStyle(AppTheme.mutedText)
+                .textSelection(.enabled)
+
+                HStack {
+                    Button("Search Catalog") {
+                        searchText = warning.missingSkill
+                    }
+                    Button("Import Skills…") {
+                        beginSkillImport()
+                    }
+                    if let agentPath = sourcePath(forAgentNamed: warning.agentName, projectPath: warning.project.path) {
+                        Button("Reveal Agent File") {
+                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: agentPath)])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func diagnosticSkillWarningDetail(_ warning: DiagnosticWarning) -> some View {
+        AppCard(title: "Skill Warning") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(warning.message)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let duplicate = duplicateSkillWarningDetails(warning) {
+                    AppKeyValueList(rows: [
+                        ("Skill", duplicate.name),
+                        ("Issue", "Duplicate skill name"),
+                        ("Locations", duplicate.paths.joined(separator: "\n"))
+                    ])
+
+                    Text("Keep one canonical copy of this skill and remove or rename the duplicate. Agent Deck can only pass a skill reliably when the name resolves to one path.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack {
+                        Button("Search Catalog") {
+                            searchText = duplicate.name
+                        }
+                        ForEach(Array(duplicate.paths.enumerated()), id: \.offset) { index, path in
+                            Button("Reveal Copy \(index + 1)") {
+                                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                            }
+                        }
+                    }
+                } else {
+                    Text("Review the referenced file or setting, then fix the malformed or conflicting skill definition.")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+        }
+    }
+
+    private func skillWarningSummaryCard(warnings: [DiagnosticWarning]) -> some View {
+        AppCard(title: "Warnings") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(warnings) { warning in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .frame(width: 18)
+                        Text(warning.message)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var selectedProject: DiscoveredProject? {
         viewModel.selectedDiscoveredProject
     }
@@ -299,6 +456,7 @@ struct SkillsScreen: View {
     }
 
     private var selectedSkill: SkillRecord? {
+        guard selectedWarning == nil else { return nil }
         guard let selectedSkillID else { return managedSkills.first }
         return managedSkills.first { $0.id == selectedSkillID } ?? managedSkills.first
     }
@@ -368,6 +526,7 @@ struct SkillsScreen: View {
     }
 
     private func ensureSelection() {
+        guard selectedWarning == nil else { return }
         guard selectedSkillID == nil || !managedSkills.contains(where: { $0.id == selectedSkillID }) else { return }
         selectedSkillID = managedSkills.first?.id
     }
@@ -375,9 +534,10 @@ struct SkillsScreen: View {
     private func skillListRow(_ skill: SkillRecord, inactive: Bool? = nil) -> some View {
         let isActive = skillHasAnyAssignment(skill)
         let isInactive = inactive ?? !isActive
+        let hasWarnings = !warningsForSkill(skill).isEmpty
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: skillIcon(skill))
-                .foregroundStyle(skillColor(skill))
+            Image(systemName: hasWarnings ? "exclamationmark.triangle.fill" : skillIcon(skill))
+                .foregroundStyle(hasWarnings ? .orange : skillColor(skill))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 Text(skill.name)
@@ -495,6 +655,34 @@ struct SkillsScreen: View {
         viewModel.skillIsEnabledGlobally(skill) ||
         !viewModel.assignedProjects(for: skill).isEmpty ||
         !viewModel.assignedAgents(for: skill).isEmpty
+    }
+
+    private func warningsForSkill(_ skill: SkillRecord) -> [DiagnosticWarning] {
+        viewModel.skillWarnings.filter { warning in
+            warning.id == "duplicate-skill:\(skill.name)" ||
+            warning.id.contains(skill.filePath) ||
+            warning.message.contains("`\(skill.name)`") ||
+            warning.message.contains(skill.filePath)
+        }
+    }
+
+    private func duplicateSkillWarningDetails(_ warning: DiagnosticWarning) -> (name: String, paths: [String])? {
+        guard warning.id.hasPrefix("duplicate-skill:") else { return nil }
+        let name = String(warning.id.dropFirst("duplicate-skill:".count))
+        guard let range = warning.message.range(of: " found at: ") else {
+            return (name, [])
+        }
+        let paths = warning.message[range.upperBound...]
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return (name, paths)
+    }
+
+    private func sourcePath(forAgentNamed agentName: String, projectPath: String) -> String? {
+        viewModel.snapshot.effectiveAgents.first {
+            $0.name == agentName && ($0.projectRoot == projectPath || $0.projectRoot == nil)
+        }?.sourcePath
     }
 
     private func defaultSkillHelpText(for skill: SkillRecord) -> String {

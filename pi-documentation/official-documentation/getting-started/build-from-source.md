@@ -9,7 +9,7 @@ Agent Deck is a macOS SwiftUI application. The repository currently contains an 
 - Git for project discovery/status features
 - optional: GitHub CLI (`gh`) for GitHub authentication workflows
 
-The app can still open without every optional tool, but diagnostics and some screens will report missing dependencies.
+The app can still open without every optional tool, but the Doctor screen and some other screens will report missing dependencies.
 
 ## Clone and open
 

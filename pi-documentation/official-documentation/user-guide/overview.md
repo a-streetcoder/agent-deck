@@ -27,7 +27,7 @@ The app sidebar is organized around these concepts:
 - **Models** — available Pi models and capabilities
 - **Settings** — app settings and selected Pi-related preferences
 - **Environment** — global/project `.env` keys, with secret values hidden by default
-- **Diagnostics** — warnings, missing tools, malformed files, package checks
+- **Doctor** — warnings, missing tools, malformed files, package checks
 
 ### Reference
 

@@ -489,7 +489,7 @@ struct PiDocsScreen: View {
     }
 }
 
-struct DiagnosticsScreen: View {
+struct DoctorScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @State private var setupItems: [SetupCheckItem] = []
     @State private var piRuntimeStatus: PiAgentRuntimeStatus?

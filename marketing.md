@@ -122,7 +122,7 @@ Continue using the existing brand accent colors — they work perfectly with the
 > **Configure without the CLI.**
 > - Manage environment variables across global and project `.env` files
 > - Discover and configure models, disable unwanted ones
-> - Run diagnostics to check CLI health, model availability, and configuration
+> - Run Doctor to check CLI health, model availability, and configuration
 >
 > Pilot turns your terminal workflow into a native macOS experience. Your AI agents, under your command. From your Mac.
 

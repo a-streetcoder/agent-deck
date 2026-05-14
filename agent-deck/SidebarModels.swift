@@ -9,7 +9,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case subagents = "Subagents"
     case models = "Models"
     case environment = "Environment"
-    case diagnostics = "Diagnostics"
+    case doctor = "Doctor"
     case piDocs = "Docs"
     case credits = "Credits"
 
@@ -25,7 +25,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .subagents: return "slider.horizontal.3"
         case .models: return "cpu"
         case .environment: return "key"
-        case .diagnostics: return "stethoscope"
+        case .doctor: return "stethoscope"
         case .piDocs: return "book"
         case .credits: return "info.circle"
         }
@@ -47,7 +47,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .piResources:
             return [.agents, .skills, .prompts]
         case .runtime:
-            return [.models, .environment, .diagnostics]
+            return [.models, .environment, .doctor]
         case .reference:
             return [.piDocs, .credits]
         }
