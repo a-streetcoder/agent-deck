@@ -188,6 +188,7 @@ struct ProjectsScreen: View {
     @State private var debouncedSearchText = ""
     @State private var selectedInstructionProjectPath: String?
     @State private var skillsRecapProject: DiscoveredProject?
+    @State private var projectPendingRemoval: DiscoveredProject?
 
     var body: some View {
         HSplitView {
@@ -221,6 +222,28 @@ struct ProjectsScreen: View {
                 recap: viewModel.skillRecap(for: project)
             )
         }
+        .alert("Remove from Agent Deck?", isPresented: removeProjectAlertBinding, presenting: projectPendingRemoval) { project in
+            Button("Cancel", role: .cancel) {
+                projectPendingRemoval = nil
+            }
+            Button("Remove from List", role: .destructive) {
+                viewModel.removeProjectFromLibrary(project)
+                projectPendingRemoval = nil
+            }
+        } message: { project in
+            Text("Hide \(project.repositoryDisplayName) from the project list? This does not delete files from disk.")
+        }
+    }
+
+    private var removeProjectAlertBinding: Binding<Bool> {
+        Binding(
+            get: { projectPendingRemoval != nil },
+            set: { isPresented in
+                if !isPresented {
+                    projectPendingRemoval = nil
+                }
+            }
+        )
     }
 
     private var projectList: some View {
@@ -402,14 +425,14 @@ struct ProjectsScreen: View {
             .help("Show skills for this project")
 
             Button(role: .destructive) {
-                viewModel.removeProjectFromLibrary(project)
+                projectPendingRemoval = project
             } label: {
-                Image(systemName: "trash")
+                Image(systemName: "eye.slash")
                     .foregroundStyle(.secondary)
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
-            .help("Remove from \(AppBrand.displayName)")
+            .help("Hide from \(AppBrand.displayName)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

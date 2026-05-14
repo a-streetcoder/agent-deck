@@ -4858,13 +4858,18 @@ final class AppViewModel: NSObject, ObservableObject {
         envPersistence.makeDraft(for: record)
     }
 
-    func makeNewEnvDraft(scope: AgentEditingTarget.CustomAgentScope) -> EnvEditorDraft {
-        envPersistence.makeNewDraft(scope: scope, projectRoot: selectedProjectPath)
+    func makeNewEnvDraft(scope: AgentEditingTarget.CustomAgentScope, prefilledKey: String? = nil) -> EnvEditorDraft {
+        envPersistence.makeNewDraft(scope: scope, projectRoot: selectedProjectPath, prefilledKey: prefilledKey)
     }
 
     func saveEnvDraft(_ draft: EnvEditorDraft) throws {
         try envPersistence.save(draft)
         refreshAfterFileScopedChange(sourceKind: draft.scope, filePath: draft.path)
+    }
+
+    func deleteEnvKey(_ record: EnvKeyRecord) throws {
+        try envPersistence.delete(record)
+        refreshAfterFileScopedChange(sourceKind: record.source.kind, filePath: record.source.path)
     }
 
     var userDisableBuiltins: Bool {

@@ -55,8 +55,8 @@ struct ContentView: View {
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
     #if DEBUG
-    /// Flip to `false` when done testing onboarding.
-    private static let forceOnboardingOnLaunch = true
+    /// Flip to `true` when testing onboarding.
+    private static let forceOnboardingOnLaunch = false
     #endif
 
     @State private var isOnboardingPresented: Bool = {
@@ -358,13 +358,28 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .environment {
                 ToolbarItem {
-                    Button {
-                        envDraft = viewModel.makeNewEnvDraft(scope: viewModel.selectedProjectPath == nil ? .global : .project)
-                    } label: {
-                        Label("New Key", systemImage: "plus")
+                    if viewModel.selectedProjectPath == nil {
+                        Button {
+                            envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                        } label: {
+                            Label("New Key", systemImage: "plus")
+                        }
+                        .toolbarNeutralChrome()
+                        .help("Create a global environment key")
+                    } else {
+                        Menu {
+                            Button("Project .pi/.env") {
+                                envDraft = viewModel.makeNewEnvDraft(scope: .project)
+                            }
+                            Button("Global ~/.pi/agent/.env") {
+                                envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                            }
+                        } label: {
+                            Label("New Key", systemImage: "plus")
+                        }
+                        .toolbarNeutralChrome()
+                        .help("Choose where to store the new environment key")
                     }
-                    .toolbarNeutralChrome()
-                    .help("Create a new environment key")
                 }
             }
 
@@ -811,6 +826,10 @@ struct ContentView: View {
                 snapshot: viewModel.snapshot,
                 onEditKey: { record in
                     envDraft = viewModel.makeEnvDraft(for: record)
+                },
+                onDeleteKey: { record in
+                    do { try viewModel.deleteEnvKey(record) }
+                    catch { NSSound.beep() }
                 }
             )
         case .doctor:

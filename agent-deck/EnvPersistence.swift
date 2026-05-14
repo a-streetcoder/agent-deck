@@ -13,7 +13,7 @@ struct EnvPersistence {
         )
     }
 
-    func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?) -> EnvEditorDraft {
+    func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?, prefilledKey: String? = nil) -> EnvEditorDraft {
         let path = switch scope {
         case .library, .global:
             fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env").path
@@ -23,7 +23,7 @@ struct EnvPersistence {
 
         return EnvEditorDraft(
             originalKey: nil,
-            key: "NEW_KEY",
+            key: prefilledKey ?? "NEW_KEY",
             value: "",
             path: path,
             scope: scope == .project ? .project : .global
@@ -82,6 +82,27 @@ struct EnvPersistence {
 
         var text = output.joined(separator: "\n")
         if !text.hasSuffix("\n") { text.append("\n") }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func delete(_ record: EnvKeyRecord) throws {
+        guard isWritableEnvPath(record.source.path) else {
+            throw PersistenceError.invalidWriteTarget(record.source.path)
+        }
+
+        let url = URL(fileURLWithPath: record.source.path)
+        let existingText = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let key = record.key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = existingText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { line in
+                envKey(from: line.trimmingCharacters(in: .whitespaces)) != key
+            }
+
+        var text = output.joined(separator: "\n")
+        if !text.isEmpty, !text.hasSuffix("\n") { text.append("\n") }
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
