@@ -508,6 +508,7 @@ struct DoctorScreen: View {
         AppPage("Doctor", subtitle: "Runtime health, dependencies, and actionable warnings") {
             piAgentSection
             dependenciesSection
+            githubAccessSection
             webAccessSection
             if !snapshot.warnings.isEmpty {
                 warningsSection
@@ -649,7 +650,7 @@ struct DoctorScreen: View {
             .help("Refresh dependencies")
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Required items affect core workflows. Optional items enable integrations.")
+                Text("Core requirements for running local Pi workflows.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
 
@@ -662,29 +663,24 @@ struct DoctorScreen: View {
                     }
                     .padding(.vertical, 8)
                 } else {
-                    dependencyGroup("Required", items: requiredDependencyItems)
-                    if !optionalDependencyItems.isEmpty {
-                        dependencyGroup("Optional", items: optionalDependencyItems)
-                    }
+                    dependencyGroup(nil, items: coreDependencyItems)
                 }
             }
         }
     }
 
-    private var requiredDependencyItems: [SetupCheckItem] {
-        setupItems.filter { $0.status != .warning }
+    private var coreDependencyItems: [SetupCheckItem] {
+        setupItems.filter { ["pi-cli", "pi-models", "project-root"].contains($0.id) }
     }
 
-    private var optionalDependencyItems: [SetupCheckItem] {
-        setupItems.filter { $0.status == .warning }
-    }
-
-    private func dependencyGroup(_ title: String, items: [SetupCheckItem]) -> some View {
+    private func dependencyGroup(_ title: String?, items: [SetupCheckItem]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.mutedText)
-                .padding(.bottom, 4)
+            if let title {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(.bottom, 4)
+            }
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 setupCheckRow(item)
                 if index < items.count - 1 {
@@ -765,6 +761,53 @@ struct DoctorScreen: View {
         async let piRuntime = PiAgentUpdateService().loadStatus()
         setupItems = await setup
         piRuntimeStatus = await piRuntime
+    }
+
+    // MARK: - GitHub Access
+
+    private var githubAccessSection: some View {
+        AppCard(title: "GitHub") {
+            HStack(alignment: .top, spacing: 14) {
+                Image("github")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(viewModel.currentGitHubAccount == nil ? AppTheme.mutedText : .green)
+                    .frame(width: 24, height: 24)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("GitHub CLI")
+                        .font(.body.weight(.semibold))
+                        .fontWidth(.expanded)
+
+                    Text(githubAccessDetail)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if viewModel.currentGitHubAccount == nil {
+                        Button("Connect GitHub") {
+                            viewModel.connectGitHubUsingCLI()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+
+                Spacer(minLength: 8)
+                AppLabelTag(
+                    text: viewModel.currentGitHubAccount == nil ? "Optional" : "Ready",
+                    color: viewModel.currentGitHubAccount == nil ? .secondary : .green
+                )
+            }
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var githubAccessDetail: String {
+        if let account = viewModel.currentGitHubAccount {
+            return "Connected as \(account.login) on \(account.host). Enables issue, comment, commit, and push workflows."
+        }
+        return "Optional. Connect GitHub CLI to enable issue, comment, commit, and push workflows."
     }
 
     // MARK: - Web Access
