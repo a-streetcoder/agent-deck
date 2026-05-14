@@ -5,32 +5,32 @@ private enum WelcomeTourContent {
     static var pages: [TourPage] {
         [
             TourPage(
-                imageName: "agent-deck",
+                imageName: "pop-onb-1",
                 title: "Command Pi from \(AppBrand.displayName)",
                 description: "Run Pi coding sessions from a focused Mac workspace with project context, models, repo activity, and session state in one place."
             ),
             TourPage(
-                imageName: "pi",
+                imageName: "pop-onb-2",
                 title: "Work in a Coding Chat",
                 description: "Use a customizable chat view built for implementation work: full transcripts, tool calls, file previews, attachments, and live controls."
             ),
             TourPage(
-                imageName: "pi",
+                imageName: "pop-onb-3",
                 title: "Orchestrate Subagents",
                 description: "Delegate focused work to custom subagents, run them alone or in parallel, supervise decisions, and keep worktrees isolated."
             ),
             TourPage(
-                imageName: "pi",
+                imageName: "pop-onb-4",
                 title: "Shape Your Agent System",
                 description: "Create, organize, assign, and reuse agents, skills, and prompts so project workflows become clear, portable, and repeatable."
             ),
             TourPage(
-                imageName: "pi",
+                imageName: "pop-onb-5",
                 title: "Manage Project Instructions",
                 description: "Control system guidance, AGENTS.md, CLAUDE.md, and project-scoped instructions from one place instead of hunting through files."
             ),
             TourPage(
-                imageName: "github",
+                imageName: "pop-onb-6",
                 title: "Connect the Wider Workflow",
                 description: "Bring in GitHub, project folders, environment keys, and model setup when you need them. Setup checks confirm the workspace is ready."
             )

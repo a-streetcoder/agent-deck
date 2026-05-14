@@ -54,7 +54,17 @@ struct ContentView: View {
     @State private var piAgentRightPanelCollapsedSidebar = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
-    @State private var isOnboardingPresented = !UserDefaults.standard.bool(forKey: "agentDeckWelcomeTourCompleted.v1")
+    #if DEBUG
+    /// Flip to `false` when done testing onboarding.
+    private static let forceOnboardingOnLaunch = true
+    #endif
+
+    @State private var isOnboardingPresented: Bool = {
+        #if DEBUG
+        if ContentView.forceOnboardingOnLaunch { return true }
+        #endif
+        return !UserDefaults.standard.bool(forKey: "agentDeckWelcomeTourCompleted.v1")
+    }()
 
     var body: some View {
         mainContent
@@ -511,6 +521,12 @@ struct ContentView: View {
     }
 
     private func completeOnboarding() {
+        #if DEBUG
+        if ContentView.forceOnboardingOnLaunch {
+            isOnboardingPresented = false
+            return
+        }
+        #endif
         guard isOnboardingPresented || !UserDefaults.standard.bool(forKey: "agentDeckWelcomeTourCompleted.v1") else {
             return
         }
