@@ -298,6 +298,13 @@ struct SetupChecklistView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let action = item.action, item.status != .passed {
+                    Button(action.buttonTitle) {
+                        perform(action)
+                    }
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                }
             }
 
             Spacer(minLength: 16)
@@ -312,6 +319,14 @@ struct SetupChecklistView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
     }
+
+    private func perform(_ action: SetupCheckAction) {
+        switch action {
+        case .chooseProjectRoot:
+            viewModel.chooseProjectsRootDirectory()
+            Task { await refresh() }
+        }
+    }
 }
 
 struct SetupCheckItem: Identifiable, Hashable {
@@ -320,6 +335,33 @@ struct SetupCheckItem: Identifiable, Hashable {
     let detail: String
     let status: SetupCheckStatus
     let recovery: String?
+    let action: SetupCheckAction?
+
+    init(
+        id: String,
+        title: String,
+        detail: String,
+        status: SetupCheckStatus,
+        recovery: String?,
+        action: SetupCheckAction? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.status = status
+        self.recovery = recovery
+        self.action = action
+    }
+}
+
+enum SetupCheckAction: Hashable {
+    case chooseProjectRoot
+
+    var buttonTitle: String {
+        switch self {
+        case .chooseProjectRoot: "Choose Folder…"
+        }
+    }
 }
 
 enum SetupCheckStatus: Hashable {
@@ -443,7 +485,8 @@ struct SetupDependencyService {
             title: "Projects Folder",
             detail: isDirectory ? path : "Choose a folder \(AppBrand.displayName) can scan for projects.",
             status: isDirectory ? .passed : .failed,
-            recovery: isDirectory ? nil : "Open Settings > Projects and choose an existing projects folder."
+            recovery: nil,
+            action: isDirectory ? nil : .chooseProjectRoot
         )
     }
 

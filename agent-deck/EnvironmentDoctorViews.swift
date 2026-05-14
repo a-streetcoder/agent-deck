@@ -674,6 +674,13 @@ struct DoctorScreen: View {
                         .padding(.vertical, 6)
                         .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
                 }
+
+                if let action = item.action, item.status != .passed {
+                    Button(action.buttonTitle) {
+                        performSetupAction(action)
+                    }
+                    .controlSize(.small)
+                }
             }
 
             Spacer(minLength: 8)
@@ -681,6 +688,14 @@ struct DoctorScreen: View {
             AppLabelTag(text: item.status.label, color: item.status.color)
         }
         .padding(.vertical, 12)
+    }
+
+    private func performSetupAction(_ action: SetupCheckAction) {
+        switch action {
+        case .chooseProjectRoot:
+            viewModel.chooseProjectsRootDirectory()
+            Task { await refreshSetupChecks() }
+        }
     }
 
     @MainActor
