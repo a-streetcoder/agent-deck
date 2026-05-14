@@ -491,12 +491,14 @@ struct PiDocsScreen: View {
 
 struct DoctorScreen: View {
     @ObservedObject var viewModel: AppViewModel
+    @Environment(\.scenePhase) private var scenePhase
     @State private var setupItems: [SetupCheckItem] = []
     @State private var piRuntimeStatus: PiAgentRuntimeStatus?
     @State private var isRefreshingSetup = true
     @State private var webFetchStatus = WebFetchDependencyService().status()
     @State private var isInstallingWebFetchDependencies = false
     @State private var webFetchInstallMessage: String?
+    @State private var isRefreshingPiRuntime = false
 
     private var snapshot: ScanSnapshot {
         viewModel.snapshot
@@ -516,6 +518,23 @@ struct DoctorScreen: View {
             }
             refreshWebFetchStatus()
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-check the Pi CLI version when the app regains focus so that an
+            // in-terminal `pi update pi` is reflected without a manual refresh click.
+            // We only re-run the cheap Pi status fetch here; the broader Setup Checks
+            // still belong to the explicit refresh button to avoid spawning subprocesses
+            // on every focus change.
+            guard newPhase == .active else { return }
+            Task { await refreshPiRuntimeStatus() }
+        }
+    }
+
+    @MainActor
+    private func refreshPiRuntimeStatus() async {
+        guard !isRefreshingPiRuntime else { return }
+        isRefreshingPiRuntime = true
+        defer { isRefreshingPiRuntime = false }
+        piRuntimeStatus = await PiAgentUpdateService().loadStatus()
     }
 
     // MARK: - Pi Agent
