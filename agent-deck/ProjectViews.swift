@@ -470,37 +470,23 @@ struct ProjectsScreen: View {
     @State private var filter: Filter = .enabled
     @State private var searchText = ""
     @State private var debouncedSearchText = ""
-    @State private var selectedInstructionProjectPath: String?
     @State private var agentsRecapProject: DiscoveredProject?
     @State private var skillsRecapProject: DiscoveredProject?
     @State private var projectPendingRemoval: DiscoveredProject?
     @State private var projectDeleteError: String?
 
     var body: some View {
-        HSplitView {
-            ScrollView(showsIndicators: false) {
-                AppCard(title: "Library") {
-                    projectList
-                }
-                .padding(AppTheme.pagePadding)
+        ScrollView(showsIndicators: false) {
+            AppCard(title: "Library") {
+                projectList
             }
-            .frame(minWidth: 460, idealWidth: 540, maxWidth: 700)
-
-            PiSystemInstructionsProjectDetail(
-                project: selectedInstructionProject,
-                includesNativeSubagentCatalog: viewModel.areSubagentsEnabledForNewSessions
-            )
-                .frame(minWidth: 420)
+            .padding(AppTheme.pagePadding)
         }
         .task(id: searchText) {
             let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             debouncedSearchText = trimmed.lowercased()
-        }
-        .onAppear(perform: ensureInstructionSelection)
-        .onChange(of: visibleProjects.map(\.path)) { _, _ in
-            ensureInstructionSelection()
         }
         .sheet(item: $agentsRecapProject) { project in
             ProjectAgentsRecapSheet(
@@ -573,7 +559,7 @@ struct ProjectsScreen: View {
                 .frame(maxWidth: 320)
             }
 
-            Text("Select a project here to inspect and edit its Pi instruction files. This no longer changes the active project used by sessions.")
+            Text("Manage project visibility, favorites, icons, and assigned resource summaries. Use the System Prompt view to inspect and edit Pi instruction files.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -597,24 +583,11 @@ struct ProjectsScreen: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(visibleProjects) { project in
-                        projectRow(project, isInstructionSelected: selectedInstructionPath == project.path)
+                        projectRow(project)
                     }
                 }
             }
         }
-    }
-
-    private var selectedInstructionPath: String? {
-        if let selectedInstructionProjectPath,
-           viewModel.discoveredProjects.contains(where: { $0.path == selectedInstructionProjectPath }) {
-            return selectedInstructionProjectPath
-        }
-        return visibleProjects.first?.path
-    }
-
-    private var selectedInstructionProject: DiscoveredProject? {
-        guard let selectedInstructionPath else { return nil }
-        return viewModel.discoveredProjects.first { $0.path == selectedInstructionPath }
     }
 
     private var isSearchDebouncing: Bool {
@@ -647,22 +620,8 @@ struct ProjectsScreen: View {
         }
     }
 
-    private func ensureInstructionSelection() {
-        let visiblePaths = visibleProjects.map(\.path)
-        guard !visiblePaths.isEmpty else {
-            selectedInstructionProjectPath = nil
-            return
-        }
-
-        if let selectedInstructionProjectPath, visiblePaths.contains(selectedInstructionProjectPath) {
-            return
-        }
-
-        selectedInstructionProjectPath = visiblePaths.first
-    }
-
     @ViewBuilder
-    private func projectRow(_ project: DiscoveredProject, isInstructionSelected: Bool) -> some View {
+    private func projectRow(_ project: DiscoveredProject) -> some View {
         let preference = viewModel.projectPreference(for: project.path)
         let isActiveSessionProject = viewModel.selectedProjectPath == project.path
 
@@ -757,14 +716,10 @@ struct ProjectsScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isInstructionSelected ? AppTheme.selectionFill : AppTheme.contentFill)
-                .stroke(isInstructionSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                .fill(AppTheme.contentFill)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
         .opacity(preference.isEnabled ? 1 : 0.58)
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture {
-            selectedInstructionProjectPath = project.path
-        }
     }
 }
 

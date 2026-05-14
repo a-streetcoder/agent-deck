@@ -87,6 +87,7 @@ struct PiAgentStartupResourcesCard: View {
                     hintChip("⇧/⌘/⌥ ↩", "newline")
                     hintChip("Esc", "stop running turn")
                     hintChip("Esc Esc", "clear input")
+                    hintChip("⌃P/⌃N", "input history")
                     hintChip("/", "commands")
                     hintChip("@", "file suggestions")
                 }

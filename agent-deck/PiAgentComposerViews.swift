@@ -244,6 +244,30 @@ struct PiAgentComposerBox: View {
 
     private var composerActionControls: some View {
         AppControlGroup(spacing: 6) {
+            Button(action: recallPreviousHistoryItem) {
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("p", modifiers: [.control])
+            .help("Previous sent message (⌃P)")
+            .accessibilityLabel("Previous sent message")
+
+            Button(action: recallNextHistoryItem) {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("n", modifiers: [.control])
+            .help("Next sent message (⌃N)")
+            .accessibilityLabel("Next sent message")
+
             Button(action: attachImagesFromOpenPanel) {
                 Image(systemName: "paperclip")
                     .font(.caption.weight(.semibold))
@@ -256,6 +280,16 @@ struct PiAgentComposerBox: View {
             .accessibilityLabel("Attach files")
             .accessibilityHint("Attach images, text files, or local file paths")
         }
+    }
+
+    private func recallPreviousHistoryItem() {
+        guard let value = onHistoryPrevious() else { return }
+        text = value
+    }
+
+    private func recallNextHistoryItem() {
+        guard let value = onHistoryNext() else { return }
+        text = value
     }
 
     private func attachImagesFromOpenPanel() {
@@ -487,10 +521,49 @@ protocol DropSafeNSTextViewKeyHandler: AnyObject {
     func historyNext(in textView: NSTextView) -> Bool
 }
 
+@MainActor
 final class DropSafeNSTextView: NSTextView {
     weak var dropHandler: DropSafeNSTextViewDropHandler?
     weak var keyHandler: DropSafeNSTextViewKeyHandler?
     private var lastEscapeAt: TimeInterval?
+    private nonisolated(unsafe) var localKeyMonitor: Any?
+
+    deinit {
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            if let localKeyMonitor {
+                NSEvent.removeMonitor(localKeyMonitor)
+                self.localKeyMonitor = nil
+            }
+            return
+        }
+        guard localKeyMonitor == nil else { return }
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.window?.firstResponder === self else { return event }
+            let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+            guard modifiers.isEmpty || modifiers == .shift else { return event }
+            let characters = event.charactersIgnoringModifiers ?? ""
+            let isUpArrow = event.keyCode == 126 || characters.unicodeScalars.first?.value == UInt32(NSUpArrowFunctionKey)
+            let isDownArrow = event.keyCode == 125 || characters.unicodeScalars.first?.value == UInt32(NSDownArrowFunctionKey)
+            let isControlP = modifiers == .control && event.keyCode == 35
+            let isControlN = modifiers == .control && event.keyCode == 45
+            if isControlP || (isUpArrow && self.shouldUseHistoryPrevious),
+               self.keyHandler?.historyPrevious(in: self) == true {
+                return nil
+            }
+            if isControlN || (isDownArrow && self.shouldUseHistoryNext),
+               self.keyHandler?.historyNext(in: self) == true {
+                return nil
+            }
+            return event
+        }
+    }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard acceptsDrop(sender.draggingPasteboard) else {
@@ -527,8 +600,13 @@ final class DropSafeNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        let isReturn = event.charactersIgnoringModifiers == "\r" || event.charactersIgnoringModifiers == "\n"
+        let characters = event.charactersIgnoringModifiers ?? ""
+        let isReturn = characters == "\r" || characters == "\n"
+        let isUpArrow = event.keyCode == 126 || characters.unicodeScalars.first?.value == UInt32(NSUpArrowFunctionKey)
+        let isDownArrow = event.keyCode == 125 || characters.unicodeScalars.first?.value == UInt32(NSDownArrowFunctionKey)
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        let isControlP = modifiers == .control && event.keyCode == 35
+        let isControlN = modifiers == .control && event.keyCode == 45
         if isReturn && modifiers.isEmpty {
             keyHandler?.send()
             return
@@ -537,10 +615,10 @@ final class DropSafeNSTextView: NSTextView {
             insertNewlineIgnoringFieldEditor(self)
             return
         }
-        if event.keyCode == 126, shouldUseHistoryPrevious {
+        if isControlP || (isUpArrow && shouldUseHistoryPrevious) {
             if keyHandler?.historyPrevious(in: self) == true { return }
         }
-        if event.keyCode == 125, shouldUseHistoryNext {
+        if isControlN || (isDownArrow && shouldUseHistoryNext) {
             if keyHandler?.historyNext(in: self) == true { return }
         }
         if event.keyCode == 53 {
@@ -571,11 +649,11 @@ final class DropSafeNSTextView: NSTextView {
     }
 
     override func doCommand(by selector: Selector) {
-        if selector == #selector(NSResponder.moveUp(_:)), shouldUseHistoryPrevious,
+        if (selector == #selector(NSResponder.moveUp(_:)) || selector == #selector(NSResponder.moveUpAndModifySelection(_:))), shouldUseHistoryPrevious,
            keyHandler?.historyPrevious(in: self) == true {
             return
         }
-        if selector == #selector(NSResponder.moveDown(_:)), shouldUseHistoryNext,
+        if (selector == #selector(NSResponder.moveDown(_:)) || selector == #selector(NSResponder.moveDownAndModifySelection(_:))), shouldUseHistoryNext,
            keyHandler?.historyNext(in: self) == true {
             return
         }

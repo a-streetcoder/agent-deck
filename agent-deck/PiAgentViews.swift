@@ -1716,6 +1716,20 @@ struct PiAgentScreen: View {
             onHistoryPrevious: composerHistoryPrevious,
             onHistoryNext: composerHistoryNext
         )
+        .onMoveCommand { direction in
+            switch direction {
+            case .up:
+                if let historyText = composerHistoryPrevious() {
+                    composerText = historyText
+                }
+            case .down:
+                if let historyText = composerHistoryNext() {
+                    composerText = historyText
+                }
+            default:
+                break
+            }
+        }
         .popover(
             isPresented: Binding(
                 get: { hasComposerSuggestions },
