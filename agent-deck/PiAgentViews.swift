@@ -304,10 +304,6 @@ private struct PiAgentAppKitTranscriptItem {
     let view: AnyView
 }
 
-private final class PiAgentFlippedDocumentView: NSView {
-    override var isFlipped: Bool { true }
-}
-
 private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     let items: [PiAgentAppKitTranscriptItem]
     let sessionID: UUID?
@@ -332,29 +328,29 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.scrollerStyle = .overlay
 
-        let documentView = PiAgentFlippedDocumentView()
-        documentView.translatesAutoresizingMaskIntoConstraints = false
+        let tableView = NSTableView()
+        tableView.headerView = nil
+        tableView.backgroundColor = .clear
+        tableView.enclosingScrollView?.drawsBackground = false
+        tableView.usesAutomaticRowHeights = true
+        tableView.rowHeight = 120
+        tableView.intercellSpacing = NSSize(width: 0, height: 12)
+        tableView.style = .plain
+        tableView.selectionHighlightStyle = .none
+        tableView.allowsColumnSelection = false
+        tableView.allowsMultipleSelection = false
+        tableView.allowsEmptySelection = true
+        tableView.delegate = context.coordinator
+        tableView.dataSource = context.coordinator
 
-        let stackView = NSStackView()
-        stackView.orientation = .vertical
-        stackView.alignment = .leading
-        stackView.spacing = 12
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        documentView.addSubview(stackView)
+        let column = NSTableColumn(identifier: Coordinator.columnIdentifier)
+        column.resizingMask = .autoresizingMask
+        column.minWidth = 200
+        tableView.addTableColumn(column)
 
-        scrollView.documentView = documentView
-        context.coordinator.stackView = stackView
+        scrollView.documentView = tableView
+        context.coordinator.tableView = tableView
         context.coordinator.scrollView = scrollView
-        context.coordinator.documentView = documentView
-
-        NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-            stackView.topAnchor.constraint(equalTo: documentView.topAnchor),
-            stackView.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
-            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
-        ])
 
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -369,6 +365,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
         context.coordinator.onUserScrolledAwayFromBottom = onUserScrolledAwayFromBottom
+        context.coordinator.updateColumnWidth()
         let wasPinned = context.coordinator.isPinnedToBottom(scrollView)
         context.coordinator.update(items: items)
 
@@ -402,10 +399,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        static let columnIdentifier = NSUserInterfaceItemIdentifier("TranscriptColumn")
+        private static let cellIdentifier = NSUserInterfaceItemIdentifier("TranscriptCell")
+
         weak var scrollView: NSScrollView?
-        weak var stackView: NSStackView?
-        weak var documentView: NSView?
+        weak var tableView: NSTableView?
         var sessionID: UUID?
         var lastRenderRevision = -1
         var lastStreamingRevision = -1
@@ -413,7 +412,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         var lastBottomScrollRequest = -1
         var onPinnedToBottomChange: (Bool) -> Void
         var onUserScrolledAwayFromBottom: () -> Void
-        private var hostedViewsByID: [String: NSHostingView<AnyView>] = [:]
+        private var items: [PiAgentAppKitTranscriptItem] = []
         private var orderedIDs: [String] = []
         private var isProgrammaticScroll = false
         private var lastPinnedState = true
@@ -424,35 +423,44 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         func update(items: [PiAgentAppKitTranscriptItem]) {
-            guard let stackView else { return }
+            guard let tableView else { return }
             let nextIDs = items.map(\.id)
-            if nextIDs != orderedIDs {
-                for view in stackView.arrangedSubviews {
-                    stackView.removeArrangedSubview(view)
-                    view.removeFromSuperview()
-                }
-                var nextHosted: [String: NSHostingView<AnyView>] = [:]
-                for item in items {
-                    let hosted = hostedViewsByID[item.id] ?? NSHostingView(rootView: item.view)
-                    hosted.rootView = item.view
-                    hosted.translatesAutoresizingMaskIntoConstraints = false
-                    hosted.setContentHuggingPriority(.defaultLow, for: .horizontal)
-                    hosted.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-                    stackView.addArrangedSubview(hosted)
-                    hosted.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-                    nextHosted[item.id] = hosted
-                }
-                hostedViewsByID = nextHosted
-                orderedIDs = nextIDs
+            self.items = items
+            if nextIDs == orderedIDs {
+                let visible = tableView.rows(in: tableView.visibleRect)
+                guard visible.location != NSNotFound else { return }
+                tableView.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)), columnIndexes: IndexSet(integer: 0))
             } else {
-                for item in items {
-                    hostedViewsByID[item.id]?.rootView = item.view
-                }
+                orderedIDs = nextIDs
+                tableView.reloadData()
             }
+        }
+
+        func updateColumnWidth() {
+            guard let tableView, let scrollView else { return }
+            let width = max(200, scrollView.contentView.bounds.width)
+            tableView.tableColumns.first?.width = width
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            items.count
+        }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard items.indices.contains(row) else { return nil }
+            let item = items[row]
+            let cell = (tableView.makeView(withIdentifier: Self.cellIdentifier, owner: self) as? TranscriptCellView) ?? TranscriptCellView(identifier: Self.cellIdentifier)
+            cell.host(item.view)
+            return cell
+        }
+
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            false
         }
 
         @objc func boundsDidChange(_ notification: Notification) {
             guard let scrollView else { return }
+            updateColumnWidth()
             let pinned = isPinnedToBottom(scrollView)
             if pinned != lastPinnedState {
                 lastPinnedState = pinned
@@ -471,40 +479,78 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         func scrollToBottom(animated: Bool, settle: Bool) {
-            guard let scrollView else { return }
-            performScrollToBottom(scrollView, animated: animated)
+            guard let tableView else { return }
+            performScrollToBottom(tableView, animated: animated)
             guard settle else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
-                guard let self, let scrollView = self.scrollView else { return }
-                self.performScrollToBottom(scrollView, animated: false)
+                guard let self, let tableView = self.tableView else { return }
+                self.performScrollToBottom(tableView, animated: false)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
-                guard let self, let scrollView = self.scrollView else { return }
-                self.performScrollToBottom(scrollView, animated: false)
+                guard let self, let tableView = self.tableView else { return }
+                self.performScrollToBottom(tableView, animated: false)
             }
         }
 
-        private func performScrollToBottom(_ scrollView: NSScrollView, animated: Bool) {
-            guard let documentView = scrollView.documentView else { return }
-            documentView.layoutSubtreeIfNeeded()
-            let visibleHeight = scrollView.contentView.bounds.height
-            let maxY = max(0, documentView.bounds.height - visibleHeight)
-            let target = NSPoint(x: 0, y: maxY)
+        private func performScrollToBottom(_ tableView: NSTableView, animated: Bool) {
+            guard !items.isEmpty else { return }
+            tableView.layoutSubtreeIfNeeded()
+            let lastRow = items.count - 1
             isProgrammaticScroll = true
-            if animated {
+            if animated, let scrollView {
+                let rect = tableView.rect(ofRow: lastRow)
+                let targetY = max(0, rect.maxY - scrollView.contentView.bounds.height)
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.18
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    scrollView.contentView.animator().setBoundsOrigin(target)
+                    scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: targetY))
                 }
-                isProgrammaticScroll = false
             } else {
-                scrollView.contentView.scroll(to: target)
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-                isProgrammaticScroll = false
+                tableView.scrollRowToVisible(lastRow)
+                if let scrollView, let documentView = scrollView.documentView {
+                    let visibleHeight = scrollView.contentView.bounds.height
+                    let maxY = max(0, documentView.bounds.height - visibleHeight)
+                    scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                }
             }
+            isProgrammaticScroll = false
             lastPinnedState = true
             onPinnedToBottomChange(true)
+        }
+    }
+
+    final class TranscriptCellView: NSTableCellView {
+        private var hostingView: NSHostingView<AnyView>?
+
+        init(identifier: NSUserInterfaceItemIdentifier) {
+            super.init(frame: .zero)
+            self.identifier = identifier
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+        }
+
+        func host(_ view: AnyView) {
+            if let hostingView {
+                hostingView.rootView = view
+                return
+            }
+            let hostingView = NSHostingView(rootView: view)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            hostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            addSubview(hostingView)
+            NSLayoutConstraint.activate([
+                hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                hostingView.topAnchor.constraint(equalTo: topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            self.hostingView = hostingView
         }
     }
 }
@@ -563,7 +609,10 @@ struct PiAgentScreen: View {
     @State private var processingMessageUpdateTask: Task<Void, Never>?
     @State private var transcriptBottomSettleTask: Task<Void, Never>?
 
-    private let recentTranscriptTimelineItemLimit = 10
+    // AppKit-backed scrolling can keep the full visible post-compaction transcript mounted.
+    // Pre-compaction archive hiding still applies, but the former latest-10 SwiftUI safety
+    // window is disabled so long conversations can be stress-tested and reviewed in place.
+    private let recentTranscriptTimelineItemLimit = Int.max
 
     var body: some View {
         HStack(spacing: 0) {

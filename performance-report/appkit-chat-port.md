@@ -7,42 +7,75 @@
 - Header/context: selected session status/kind/date, editable title, last error, startup resources, final system prompt audit card.
 - Transcript normalization: hides raw/noisy events, sanitizes leaked tool-name assistant messages, coalesces compaction/status/tool errors, groups entries into turn threads.
 - Transcript rendering: user questions, steering messages, thinking disclosure, assistant markdown, status/error rows, web activity summary and links, tool activity chips, inline edit/write diff summaries, current plan cards, native subagent cards, pending supervisor request cards, processing indicator.
-- Transcript archives: hides pre-compaction history with Load Earlier/Hide, keeps the newest 10 visible items and exposes older items in a sheet.
+- Transcript archives: pre-compaction history can still be hidden with Load Earlier/Hide, but the former latest-10 visible-turn safety window is removed so users can review the full post-compaction transcript inline.
 - Scrolling UX: initial selected session opens at bottom, new user turn scrolls to bottom, streaming content tracks the bottom while pinned, user scrolling away suppresses streaming auto-scroll for the current turn, explicit send/request scrolls back to bottom, processing indicator participates in bottom scrolling.
 - Composer: draft persistence per session, prompt vs steering mode, stop/send, image/file/folder attachment chips, paste compaction markers, drag/drop and paste, slash-command/skill suggestions, @file suggestions, model/thinking/context footer, create-session-from-composer state, UI request inline notice/sheet.
 - Inspector compact chat: separate compact transcript in the right inspector with composer and Open Full/Stop controls.
 
-## Implemented branch: `app-kit`
+## Implemented branch: `app-kit-hybrid`
 
-`agent-deck/PiAgentViews.swift` now replaces the main transcript `ScrollViewReader` + SwiftUI `ScrollView` + `LazyVStack` with `PiAgentAppKitTranscriptView`, an `NSViewRepresentable` backed by:
+`agent-deck/PiAgentViews.swift` replaces the main transcript `ScrollViewReader` + SwiftUI `ScrollView` + `LazyVStack` with `PiAgentAppKitTranscriptView`, an `NSViewRepresentable` backed by:
 
-- `NSScrollView` for deterministic AppKit scrolling.
-- A flipped document view so top-to-bottom layout remains natural.
-- `NSStackView` for vertical transcript layout.
-- Reused `NSHostingView<AnyView>` per stable transcript item id, so the existing row/card SwiftUI rendering is retained 1:1 while the slow/blank SwiftUI scroll container is removed.
+- `NSScrollView` for deterministic AppKit scrolling and bottom-position detection.
+- `NSTableView` for AppKit row virtualization/reuse.
+- `NSHostingView<AnyView>` inside recycled table cells, preserving the existing SwiftUI transcript cards 1:1.
+- Existing transcript item ids, archive controls, processing rows, subagent cards, markdown cards, tool summaries, and composer interactions.
 
-This preserves the existing transcript information architecture and row rendering while moving the problematic scrolling/layout container to AppKit.
+An earlier AppKit prototype used `NSStackView` and mounted every row. Profiling showed that was not good enough for unlimited transcripts. The final implementation uses `NSTableView` virtualization instead.
 
 ## Documentation/research notes
 
-- Apple `NSScrollView`/`NSTextView`/`NSTableView` documentation was checked via Sosumi. The relevant AppKit primitive here is `NSScrollView`: it exposes direct clip-view bounds control, avoids `ScrollViewReader.scrollTo` identity churn, and gives reliable bottom-position detection.
-- Web research confirmed frequent macOS SwiftUI list/lazy-stack pathologies for large/streaming chat views and common AppKit mitigations: batch/reuse rendered views, use `NSScrollView` directly, and throttle bottom scrolling.
+- Apple `NSScrollView`, `NSTableView`, and related AppKit documentation was checked through Sosumi. The final design uses `NSScrollView` + `NSTableView` because it gives deterministic scroll control plus row reuse.
+- Web research confirmed common SwiftUI LazyVStack/List pathologies for large/streaming chat views on macOS, including delayed/blank row rendering, and supported using AppKit-backed virtualization for deterministic chat/log UIs.
 
-## Validation
+## Stress validation
 
-- Build: `xcodebuildmcp macos build --project-path agent-deck.xcodeproj --scheme agent-deck --configuration Debug` ✅
-- Time Profiler smoke trace: `/tmp/AgentDeck-appkit.trace` recorded for 15s launch with `xcrun xctrace`.
-- Exported samples: `/tmp/agentdeck-appkit-time-sample.xml`.
+Build command passed after the final implementation:
 
-## Performance expectation
+```bash
+xcodebuildmcp macos build --project-path agent-deck.xcodeproj --scheme agent-deck --configuration Debug
+```
 
-This is the highest-impact/lowest-risk AppKit port: it removes the SwiftUI lazy scroll container and its `scrollTo`/blank-row failure mode, but keeps all existing transcript cards, markdown, popovers, native subagent cards, and composer behavior intact. A pure AppKit rewrite of every card would be much larger and high-risk because the current UI contains many custom SwiftUI components and interactions.
+Stress test data was generated against `/Users/andrea/Documents/GitHub/little-lane`, then the user Application Support data was restored from `/tmp/AgentDeck-AppSupport-backup-before-appkit-stress`.
 
-## Follow-up benchmark plan
+### Scenarios exercised
 
-For a strict A/B report, run the same scripted workload on `main` and `app-kit`:
+1. Real chat creation smoke test in the little-lane project composer.
+2. Eight long synthetic little-lane sessions, each with hundreds of transcript entries including user, assistant markdown, thinking, tool calls, web/fetch summaries, status rows, and errors.
+3. Session switching between long sessions while profiling.
+4. Page up/down/home/end scrolling while profiling.
+5. Huge single transcript: 1,200 turns / 2,800 raw entries / full inline transcript, with the latest-10 safety window removed.
+6. Visual screenshots confirmed the transcript opened at the bottom and did not render blank in the tested AppKit builds.
 
-1. Open a long Pi Agent session with streaming active.
-2. Record 60-90s Time Profiler traces while streaming and scrolling.
-3. Compare main-thread samples in SwiftUI layout/rendering, blank-chat incidence, and scroll responsiveness.
-4. If needed, create `app-kit-hybrid` for further row-level changes (for example native AppKit markdown/status rows) only where profiler evidence shows row rendering, not scrolling, is the bottleneck.
+### Time Profiler sample counts
+
+These are exported `time-sample` row counts from equivalent scripted stress runs. Lower is better for CPU sampling over the same capture window.
+
+| Build | Transcript mode | Capture | Samples | Notes |
+|---|---:|---:|---:|---|
+| `main` | latest-10 window | 70s | 2,195 | Existing safety window, not full transcript. |
+| SwiftUI `LazyVStack` with latest-10 removed | full 8-session stress | 70s | 3,075 | Full transcript in SwiftUI. |
+| AppKit `NSStackView` prototype | full 8-session stress | 70s | 8,210 | Rejected: mounted too much. |
+| Final AppKit `NSTableView` | full 8-session stress | 70s | 3,054 | Equivalent to SwiftUI CPU on moderate long sessions, with deterministic AppKit scrolling. |
+| SwiftUI `LazyVStack` with latest-10 removed | huge 1,200-turn transcript | 45s | 1,275 | Full huge transcript. |
+| Final AppKit `NSTableView` | huge 1,200-turn transcript | 45s | 81 | ~94% fewer samples than SwiftUI in the huge-full-transcript stress case. |
+
+Trace artifacts:
+
+- `/tmp/AgentDeck-main-stress.trace`
+- `/tmp/AgentDeck-main-nolimit-stress.trace`
+- `/tmp/AgentDeck-appkit-stress2.trace`
+- `/tmp/AgentDeck-appkit-table-stress.trace`
+- `/tmp/AgentDeck-swiftui-huge.trace`
+- `/tmp/AgentDeck-appkit-huge.trace`
+
+## Conclusion
+
+The final AppKit hybrid is the best-performing and safest implementation tested:
+
+- It preserves the existing row UI/UX by keeping SwiftUI transcript cards.
+- It removes SwiftUI as the scroll container, which is the source of the blank/lazy rendering instability.
+- It uses `NSTableView` row virtualization, so removing the latest-10 transcript limit is viable.
+- It performs dramatically better than full SwiftUI on very large full-transcript workloads.
+
+Recommendation: merge the final `app-kit-hybrid` implementation, not the earlier `app-kit` stack prototype.
