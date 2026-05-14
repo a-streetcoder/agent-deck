@@ -1,11 +1,11 @@
 # Agent Deck Memory
 
-Agent Deck Memory is the bundled memory system for parent Pi Agent sessions and native subagent runs. It is inspired by the Markdown workspace-memory approach used by `pi-memctx`, but it is implemented inside Agent Deck so the app owns storage, review, prompt injection, and UI.
+Agent Deck Memory is the bundled memory system for parent Pi Agent sessions and native subagent runs. It is inspired by the Markdown workspace-memory approach used by `pi-memctx`, but it is implemented inside Agent Deck so the app owns storage, automation, prompt injection, and UI.
 
 ## Goals
 
 - Reduce repeated project rediscovery across sessions.
-- Make useful session and subagent findings durable.
+- Make useful parent-session and subagent findings durable.
 - Keep memory inspectable as Markdown files.
 - Let users turn memory on or off.
 - Show memory activity in the chat transcript.
@@ -19,13 +19,14 @@ The first implementation includes:
 - App-managed Markdown memory files.
 - Global and project-scoped memory records.
 - Manual create, edit, status, archive, reject, and delete flows.
+- Parent and native subagent memory tools for automatic storing and stale marking.
 - Secret scanning before writes.
 - Parent-session memory recall at launch.
-- Native subagent read-only memory recall at launch.
-- Native chat cards for recalled, stored, edited, archived, and blocked memory events.
+- Native subagent memory recall at launch.
+- Native chat cards for recalled, stored, edited, stale, archived, and blocked memory events.
 - Credits for `pi-memctx` and `pi-hermes-memory`.
 
-The first version intentionally does not silently auto-learn from every conversation. Inferred learning and subagent proposal tools should come after the review queue is proven in real use.
+Memory is not learned by scraping every conversation silently. It is automated through explicit Agent Deck tools that the parent agent and native subagents can call when they identify durable knowledge. Agent Deck then classifies scope, scans for secrets, writes the Markdown file, updates the manifest, and records the activity card.
 
 ## Storage
 
@@ -69,6 +70,8 @@ summary: Use isolated Swift module caches for reliable local test runs.
 createdAt: 2026-05-14T12:00:00Z
 updatedAt: 2026-05-14T12:00:00Z
 tags: tests, swift
+sourceAgentName:
+proposalReason: The command was verified while fixing CI.
 ---
 
 # Run Agent Deck tests
@@ -83,8 +86,8 @@ Use isolated module caches when the default Swift cache is unstable.
 - `observation`: durable facts discovered while working.
 - `runbook`: repeatable procedures.
 - `failure`: known failed approaches or recurring traps.
-- `sessionSummary`: compressed session summaries.
-- `subagentFinding`: durable findings from native subagent runs.
+- `sessionSummary`: compressed session summaries. Reserved for future summarization, not used by the automated write tool.
+- `subagentFinding`: durable findings from native subagent runs. Reserved for future specialist views; automated subagent writes default to project memory instead.
 - `preference`: user or project preferences.
 
 ## Statuses
@@ -96,7 +99,32 @@ Use isolated module caches when the default Swift cache is unstable.
 - `archived`: hidden from normal injection.
 - `rejected`: rejected candidate or disabled memory.
 
-Only `active` and `pinned` memories are injected into parent sessions.
+Only `active` and `pinned` memories are injected into parent sessions or subagents.
+
+## Automatic Writes
+
+When memory is enabled, Agent Deck loads a native Pi extension for both the parent session and native subagents. That extension provides:
+
+- `agent_deck_memory_propose`: stores durable memory.
+- `agent_deck_memory_mark_stale`: marks outdated memory stale so it is pruned from future injection.
+
+Despite the historical tool name, `agent_deck_memory_propose` is automatic: it does not create a review-only pending item. Agent Deck accepts the tool request, applies app-side classification and secret scanning, and stores the resulting memory as `active`.
+
+Agents learn about the memory system in two ways:
+
+- Tool registration: the Pi extension exposes the two memory tools with descriptions and prompt snippets.
+- System guidance: Agent Deck appends a small memory policy explaining what to store, what not to store, and when to mark memory stale.
+
+If memory is off, Agent Deck does not load the memory extension and does not append memory guidance or recalled memory. Parent and subagent runs behave as if the memory system is absent.
+
+## Scope Decisions
+
+The app is the final decision maker for memory scope. The agent may pass a scope hint, but Agent Deck classifies again before writing.
+
+- `global`: durable user preferences and cross-project workflow rules, such as communication style or a rule that should apply everywhere.
+- `project`: repository facts, commands, tests, CI, deployment steps, architecture, project decisions, recurring failures, and subagent findings discovered while working in a project.
+
+When a project path is available and the request is ambiguous, Agent Deck defaults to `project`. This prevents a coder agent that works on both iOS and React from polluting global memory with project-specific build commands or framework conventions.
 
 ## Parent Session Recall
 
@@ -124,11 +152,10 @@ Prefer current repository contents over stale memory.
 
 When Agent Deck Memory and subagent memory are enabled, native subagent launches receive scoped project memory through a direct Agent Deck append-prompt argument. The retrieval query is built from the agent name, agent description, and assigned task. Unlike parent launch recall, subagent recall does not re-resolve project/global `APPEND_SYSTEM.md`; it appends only the memory block so enabling memory does not otherwise change child prompt composition.
 
-- Subagents receive scoped read-only memory.
-- Future bridge tools should let subagents propose candidate memories.
-- Proposed candidate memories should go to review before becoming durable.
-
-The first implementation wires read-only subagent recall. Subagent memory proposal tools are a follow-up phase.
+- Subagents receive scoped memory relevant to their assigned task.
+- Subagents can store durable findings, but those findings are project memory by default.
+- Subagents can mark injected memory stale when the repository or user correction proves it wrong.
+- Subagent-specific memory is modeled but not used by the automated write tool; this avoids teaching a reusable `coder` agent project-specific habits globally.
 
 ## Secret Scanning
 
@@ -149,12 +176,12 @@ Memory activity is visible in the Pi Agent transcript:
 - `Memory Recalled`
 - `Memory Stored`
 - `Memory Edited`
-- `Memory Proposed`
 - `Memory Rejected`
 - `Memory Archived`
+- `Memory Marked Stale`
 - `Memory Blocked`
 
-These cards use the same native transcript surface as subagent and status cards, so memory is not invisible prompt machinery.
+These cards use the same native transcript surface as subagent and status cards, so memory is not invisible prompt machinery. Cards show the operation and count, not raw memory IDs. The Memory sidebar is the inspection surface for memory files and metadata.
 
 ## Settings
 
@@ -169,16 +196,16 @@ The first settings live in `AppSettings`:
 
 The Memory sidebar currently exposes the global enabled toggle. More settings should be surfaced in Settings after the initial UX is validated.
 
-## Pruning Plan
+## Pruning
 
-The system should not delete memory automatically. Future pruning should:
+The first pruning mechanism is stale marking:
 
-1. Mark old low-use memories as `stale`.
-2. Exclude stale memories from automatic injection.
-3. Keep stale memories searchable.
-4. Let users bulk archive or delete from the Memory sidebar.
+1. Parent or subagent identifies a memory as wrong, outdated, or contradicted.
+2. The agent calls `agent_deck_memory_mark_stale` with known memory IDs or a query.
+3. Agent Deck finds matching active/pinned memories and changes their status to `stale`.
+4. Stale memories remain inspectable in the sidebar but are no longer injected automatically.
 
-Pinned memories should be exempt from pruning.
+Pinned memories are still inspectable and can be manually changed in the sidebar. The stale tool can mark a pinned memory stale only when the agent explicitly identifies it by ID or query.
 
 ## Credits
 

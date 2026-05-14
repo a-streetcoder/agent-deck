@@ -24,6 +24,10 @@ struct PiNativeSubagentBridgeExtensions {
         try writeExtension(named: "managed-subagent-bridge.ts", content: parentExtensionSource, fileManager: fileManager)
     }
 
+    static func memoryExtensionURL(fileManager: FileManager = .default) throws -> URL {
+        try writeExtension(named: "agent-deck-memory-bridge.ts", content: memoryExtensionSource, fileManager: fileManager)
+    }
+
     static func childExtensionURL(fileManager: FileManager = .default) throws -> URL {
         try writeExtension(named: "contact-supervisor-bridge.ts", content: childExtensionSource, fileManager: fileManager)
     }
@@ -434,6 +438,86 @@ struct PiNativeSubagentBridgeExtensions {
                     });
                     const result = await ctx.ui.editor("AGENT_DECK_BRIDGE answer_supervisor_request", payload);
                     return { content: [{ type: "text", text: result || "Supervisor response routed." }] };
+                }
+            });
+        }
+        """
+
+    private static let memoryExtensionSource = """
+        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+        import { StringEnum } from "@earendil-works/pi-ai";
+        import { Type } from "typebox";
+
+        const MemoryKind = StringEnum(["context", "decision", "observation", "runbook", "failure", "preference"] as const, { description: "Durable memory kind." });
+        const MemoryScope = StringEnum(["global", "project"] as const, { description: "Memory scope. Use project for repo facts; global for user preferences." });
+
+        const MemoryProposalParams = Type.Object({
+            title: Type.String({ description: "Short title for the memory." }),
+            summary: Type.String({ description: "One-sentence summary." }),
+            body: Type.String({ description: "Markdown body with the durable fact, decision, runbook, or failure." }),
+            kind: Type.Optional(MemoryKind),
+            scope: Type.Optional(MemoryScope),
+            tags: Type.Optional(Type.Array(Type.String(), { description: "Short searchable tags." })),
+            reason: Type.Optional(Type.String({ description: "Why this should be remembered." }))
+        }, { additionalProperties: false });
+
+        const MemoryStaleParams = Type.Object({
+            memoryIDs: Type.Optional(Type.Array(Type.String(), { description: "Specific memory ids to mark stale when known." })),
+            query: Type.Optional(Type.String({ description: "Search text for the stale memory when ids are unknown." })),
+            reason: Type.Optional(Type.String({ description: "Why this memory is stale or wrong." }))
+        }, { additionalProperties: false });
+
+        export default function (pi: ExtensionAPI) {
+            pi.registerTool({
+                name: "agent_deck_memory_propose",
+                description: "Store a durable Agent Deck memory. Agent Deck classifies scope, scans for secrets, and stores project facts as project memory and user preferences as global memory.",
+                parameters: MemoryProposalParams,
+                promptSnippet: "agent_deck_memory_propose(title, summary, body, kind?, scope?, tags?, reason?): store durable Agent Deck memory.",
+                promptGuidelines: [
+                    "Use this after discovering durable project knowledge: architecture, commands, CI, deployment, conventions, decisions, recurring failures, or runbooks.",
+                    "Use global scope only for durable user preferences or cross-project workflow rules.",
+                    "Do not store temporary session state, raw logs, credentials, tokens, private keys, customer data, or speculative facts.",
+                    "Subagent findings should normally be stored as project memory, not subagent-specific memory."
+                ],
+                async execute(toolCallId, params, _signal, onUpdate, ctx) {
+                    const payload = JSON.stringify({
+                        kind: "memory_propose",
+                        toolCallId,
+                        title: String((params as any).title ?? ""),
+                        summary: String((params as any).summary ?? ""),
+                        body: String((params as any).body ?? ""),
+                        kindHint: (params as any).kind ? String((params as any).kind) : undefined,
+                        scope: (params as any).scope ? String((params as any).scope) : undefined,
+                        tags: Array.isArray((params as any).tags) ? (params as any).tags.map((item: any) => String(item)) : undefined,
+                        reason: (params as any).reason ? String((params as any).reason) : undefined
+                    });
+                    onUpdate?.({ content: [{ type: "text", text: "Storing Agent Deck memory..." }] });
+                    const result = await ctx.ui.editor("AGENT_DECK_BRIDGE memory_propose", payload);
+                    return { content: [{ type: "text", text: result || "Memory stored." }] };
+                }
+            });
+
+            pi.registerTool({
+                name: "agent_deck_memory_mark_stale",
+                description: "Mark outdated or incorrect Agent Deck memories stale so they are no longer injected automatically.",
+                parameters: MemoryStaleParams,
+                promptSnippet: "agent_deck_memory_mark_stale(memoryIDs?, query?, reason?): mark stale memory so Agent Deck stops injecting it.",
+                promptGuidelines: [
+                    "Use this when retrieved memory conflicts with the current repository or user correction.",
+                    "Prefer memoryIDs when available; otherwise provide a specific query.",
+                    "Do not use this to delete memory. Stale memory remains searchable for audit."
+                ],
+                async execute(toolCallId, params, _signal, onUpdate, ctx) {
+                    const payload = JSON.stringify({
+                        kind: "memory_mark_stale",
+                        toolCallId,
+                        memoryIDs: Array.isArray((params as any).memoryIDs) ? (params as any).memoryIDs.map((item: any) => String(item)) : undefined,
+                        query: (params as any).query ? String((params as any).query) : undefined,
+                        reason: (params as any).reason ? String((params as any).reason) : undefined
+                    });
+                    onUpdate?.({ content: [{ type: "text", text: "Marking Agent Deck memory stale..." }] });
+                    const result = await ctx.ui.editor("AGENT_DECK_BRIDGE memory_mark_stale", payload);
+                    return { content: [{ type: "text", text: result || "Memory marked stale." }] };
                 }
             });
         }

@@ -65,6 +65,8 @@ final class AgentMemoryStore: ObservableObject {
         projectPath: String? = nil,
         sourceSessionID: UUID? = nil,
         sourceRunID: UUID? = nil,
+        sourceAgentName: String? = nil,
+        proposalReason: String? = nil,
         tags: [String] = []
     ) throws -> AgentMemoryRecord {
         if let finding = scanner.findSecret(in: title + "\n" + summary + "\n" + body) {
@@ -84,6 +86,8 @@ final class AgentMemoryStore: ObservableObject {
             projectPath: projectPath,
             sourceSessionID: sourceSessionID,
             sourceRunID: sourceRunID,
+            sourceAgentName: sourceAgentName,
+            proposalReason: proposalReason,
             createdAt: now,
             updatedAt: now,
             lastUsedAt: nil,
@@ -224,6 +228,8 @@ final class AgentMemoryStore: ObservableObject {
         createdAt: \(ISO8601DateFormatter().string(from: record.createdAt))
         updatedAt: \(ISO8601DateFormatter().string(from: record.updatedAt))
         tags: \(record.tags.joined(separator: ", "))
+        sourceAgentName: \(record.sourceAgentName ?? "")
+        proposalReason: \(record.proposalReason ?? "")
         ---
 
         """

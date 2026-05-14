@@ -80,6 +80,8 @@ final class PiAgentRunnerService {
     var parentSkillArgumentsProvider: ((URL) throws -> [String])?
     var parentPromptTemplateArgumentsProvider: ((URL) throws -> [String])?
     var parentMemoryArgumentsProvider: ((PiAgentSessionRecord, URL, String?) throws -> [String])?
+    var onMemoryProposal: ((UUID, AgentMemoryProposalBridgeRequest) -> String)?
+    var onMemoryMarkStale: ((UUID, AgentMemoryStaleBridgeRequest) -> String)?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -339,6 +341,10 @@ final class PiAgentRunnerService {
             }
             if let askURL = try? PiNativeSubagentBridgeExtensions.askUserExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", askURL.path])
+            }
+            if AppSettingsStore.shared.settings.agentMemoryEnabled,
+               let memoryURL = try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() {
+                extraArguments.append(contentsOf: ["--extension", memoryURL.path])
             }
             if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", fastURL.path])
@@ -1238,6 +1244,10 @@ final class PiAgentRunnerService {
                 handleSystemPromptAuditBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "ask_user":
                 handleNativeAskUserBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "memory_propose":
+                handleMemoryProposalBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "memory_mark_stale":
+                handleMemoryMarkStaleBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             default:
                 clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) does not support bridge request \(bridgeName).")
                 store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Unsupported bridge request \(bridgeName).", rawJSON: rawLine))
@@ -1272,6 +1282,30 @@ final class PiAgentRunnerService {
         } else if method != "setTitle" && method != "setStatus" && method != "setWidget" && method != "set_editor_text" {
             store.append(.init(sessionID: sessionID, role: .status, title: "Pi UI · \(method)", text: title, rawJSON: rawLine))
         }
+    }
+
+    private func handleMemoryMarkStaleBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let data = payload.data(using: .utf8),
+              let request = try? JSONDecoder().decode(AgentMemoryStaleBridgeRequest.self, from: data) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the stale memory request.")
+            store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Could not parse stale memory request.", rawJSON: rawLine))
+            return
+        }
+        let result = onMemoryMarkStale?(sessionID, request) ?? "\(AppBrand.displayName) memory is not available."
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
+    }
+
+    private func handleMemoryProposalBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let data = payload.data(using: .utf8),
+              let request = try? JSONDecoder().decode(AgentMemoryProposalBridgeRequest.self, from: data) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the memory proposal.")
+            store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Could not parse memory proposal.", rawJSON: rawLine))
+            return
+        }
+        let result = onMemoryProposal?(sessionID, request) ?? "\(AppBrand.displayName) memory is not available."
+        clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
     private func handleManagedSubagentBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {

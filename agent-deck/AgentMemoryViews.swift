@@ -360,10 +360,9 @@ struct PiAgentMemoryActivityCard: View {
                     Text(event.summary)
                         .foregroundStyle(AppTheme.mutedText)
                     if !event.memoryIDs.isEmpty {
-                        Text(event.memoryIDs.prefix(4).joined(separator: ", "))
-                            .font(.caption.monospaced())
+                        Text("\(event.memoryIDs.count) memor\(event.memoryIDs.count == 1 ? "y" : "ies")")
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(AppTheme.mutedText)
-                            .textSelection(.enabled)
                     }
                 }
                 Spacer(minLength: 0)

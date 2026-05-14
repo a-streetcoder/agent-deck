@@ -81,6 +81,8 @@ struct AgentMemoryRecord: Identifiable, Codable, Hashable {
     var projectPath: String?
     var sourceSessionID: UUID?
     var sourceRunID: UUID?
+    var sourceAgentName: String?
+    var proposalReason: String?
     var createdAt: Date
     var updatedAt: Date
     var lastUsedAt: Date?
@@ -108,6 +110,7 @@ enum AgentMemoryEventKind: String, Codable, Hashable {
     case proposed
     case rejected
     case archived
+    case stale
     case blocked
 
     var displayTitle: String {
@@ -118,6 +121,7 @@ enum AgentMemoryEventKind: String, Codable, Hashable {
         case .proposed: return "Memory Proposed"
         case .rejected: return "Memory Rejected"
         case .archived: return "Memory Archived"
+        case .stale: return "Memory Marked Stale"
         case .blocked: return "Memory Blocked"
         }
     }
@@ -130,6 +134,7 @@ enum AgentMemoryEventKind: String, Codable, Hashable {
         case .proposed: return "text.badge.plus"
         case .rejected: return "xmark.circle"
         case .archived: return "archivebox"
+        case .stale: return "clock.badge.exclamationmark"
         case .blocked: return "exclamationmark.shield"
         }
     }
@@ -144,4 +149,30 @@ struct AgentMemoryTranscriptEvent: Codable, Hashable {
     var summary: String
 
     static let rawType = "agent_deck_memory_event"
+}
+
+struct AgentMemoryProposalBridgeRequest: Codable, Hashable {
+    var title: String
+    var summary: String
+    var body: String
+    var kind: AgentMemoryKind?
+    var scope: AgentMemoryScope?
+    var tags: [String]?
+    var reason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case summary
+        case body
+        case kind = "kindHint"
+        case scope
+        case tags
+        case reason
+    }
+}
+
+struct AgentMemoryStaleBridgeRequest: Codable, Hashable {
+    var memoryIDs: [String]?
+    var query: String?
+    var reason: String?
 }

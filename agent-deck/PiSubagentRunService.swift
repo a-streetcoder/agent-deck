@@ -15,6 +15,8 @@ final class PiSubagentRunService {
     private var streamFlushTasksByRunID: [UUID: Task<Void, Never>] = [:]
     private let fileManager = FileManager.default
     var childMemoryArgumentsProvider: ((PiAgentSessionRecord, EffectiveAgentRecord, String) throws -> [String])?
+    var onMemoryProposal: ((UUID, UUID, String?, AgentMemoryProposalBridgeRequest) -> String)?
+    var onMemoryMarkStale: ((UUID, UUID, String?, AgentMemoryStaleBridgeRequest) -> String)?
 
     init(store: PiAgentSessionStore) {
         self.store = store
@@ -76,6 +78,10 @@ final class PiSubagentRunService {
             includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) && WebFetchDependencyService().status().isInstalled
         ))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
+        if AppSettingsStore.shared.settings.agentMemoryEnabled,
+           let memoryURL = try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() {
+            extraArguments.append(contentsOf: ["--extension", memoryURL.path])
+        }
         if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
             if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", webURL.path])
@@ -1036,6 +1042,14 @@ final class PiSubagentRunService {
             handleSystemPromptAuditBridgeRequest(event, requestID: requestID, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
             return
         }
+        if title == "AGENT_DECK_BRIDGE memory_propose", let requestID = event.id {
+            handleMemoryProposalBridgeRequest(event, requestID: requestID, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
+            return
+        }
+        if title == "AGENT_DECK_BRIDGE memory_mark_stale", let requestID = event.id {
+            handleMemoryMarkStaleBridgeRequest(event, requestID: requestID, rawLine: rawLine, runID: runID, parentSessionID: parentSessionID)
+            return
+        }
         guard title == "AGENT_DECK_BRIDGE contact_supervisor", let requestID = event.id else {
             store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .status, title: title, text: event.message?.compactDescription ?? "Extension UI request", rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
             return
@@ -1081,6 +1095,32 @@ final class PiSubagentRunService {
             store.append(.init(sessionID: parentSessionID, role: .status, title: requestTitle, text: message))
             clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "Acknowledged.")
         }
+    }
+
+    private func handleMemoryMarkStaleBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, runID: UUID, parentSessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let data = payload.data(using: .utf8),
+              let request = try? JSONDecoder().decode(AgentMemoryStaleBridgeRequest.self, from: data) else {
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the stale memory request.")
+            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Could not parse stale memory request.", rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+            return
+        }
+        let agentName = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.agentName
+        let result = onMemoryMarkStale?(parentSessionID, runID, agentName, request) ?? "\(AppBrand.displayName) memory is not available."
+        clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: result)
+    }
+
+    private func handleMemoryProposalBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, runID: UUID, parentSessionID: UUID) {
+        guard let payload = bridgePayload(from: event),
+              let data = payload.data(using: .utf8),
+              let request = try? JSONDecoder().decode(AgentMemoryProposalBridgeRequest.self, from: data) else {
+            clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the memory proposal.")
+            store.appendSubagentTranscript(.init(sessionID: parentSessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Could not parse memory proposal.", rawJSON: rawLine), runID: runID, parentSessionID: parentSessionID)
+            return
+        }
+        let agentName = store.subagentRuns(for: parentSessionID).first(where: { $0.id == runID })?.agentName
+        let result = onMemoryProposal?(parentSessionID, runID, agentName, request) ?? "\(AppBrand.displayName) memory is not available."
+        clientsByRunID[runID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
     private func bridgePayload(from event: PiAgentRPCEvent) -> String? {

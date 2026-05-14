@@ -51,6 +51,51 @@ final class AgentMemoryStoreTests: XCTestCase {
         XCTAssertNotNil(store.records.first?.lastUsedAt)
     }
 
+    func testStaleMemoryIsNotRetrieved() throws {
+        let store = AgentMemoryStore(rootURL: try temporaryDirectory())
+        let record = try store.createMemory(
+            kind: .context,
+            scope: .project,
+            status: .active,
+            title: "Build command",
+            summary: "Use npm test.",
+            body: "The project uses npm test.",
+            projectPath: "/tmp/project"
+        )
+
+        XCTAssertNotNil(store.retrieve(projectPath: "/tmp/project", query: "npm test"))
+        store.setStatus(id: record.id, status: .stale)
+        XCTAssertNil(store.retrieve(projectPath: "/tmp/project", query: "npm test"))
+    }
+
+    func testSourceMetadataPersists() throws {
+        let root = try temporaryDirectory()
+        let store = AgentMemoryStore(rootURL: root)
+        let sessionID = UUID()
+        let runID = UUID()
+
+        let record = try store.createMemory(
+            kind: .observation,
+            scope: .project,
+            status: .active,
+            title: "Repo layout",
+            summary: "Sources live in app folder.",
+            body: "The main app sources live under agent-deck/.",
+            projectPath: "/tmp/project",
+            sourceSessionID: sessionID,
+            sourceRunID: runID,
+            sourceAgentName: "coder",
+            proposalReason: "Discovered during implementation."
+        )
+
+        let reloaded = AgentMemoryStore(rootURL: root)
+        XCTAssertEqual(reloaded.records.first?.id, record.id)
+        XCTAssertEqual(reloaded.records.first?.sourceSessionID, sessionID)
+        XCTAssertEqual(reloaded.records.first?.sourceRunID, runID)
+        XCTAssertEqual(reloaded.records.first?.sourceAgentName, "coder")
+        XCTAssertEqual(reloaded.records.first?.proposalReason, "Discovered during implementation.")
+    }
+
     func testSecretScannerBlocksSensitiveMemory() throws {
         let store = AgentMemoryStore(rootURL: try temporaryDirectory())
 
