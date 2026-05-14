@@ -545,7 +545,7 @@ struct DoctorScreen: View {
             refreshWebFetchStatus()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            // Re-check the Pi CLI version when the app regains focus so that an
+            // Re-check the Pi version when the app regains focus so that an
             // in-terminal `pi update pi` is reflected without a manual refresh click.
             // We only re-run the cheap Pi status fetch here; the broader Setup Checks
             // still belong to the explicit refresh button to avoid spawning subprocesses
@@ -594,7 +594,7 @@ struct DoctorScreen: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("Pi CLI")
+                        Text("Pi")
                             .font(.title3.weight(.semibold))
                             .fontWidth(.expanded)
                         AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
@@ -624,7 +624,7 @@ struct DoctorScreen: View {
                         HStack(spacing: 10) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Checking Pi CLI...")
+                            Text("Checking Pi...")
                                 .foregroundStyle(AppTheme.mutedText)
                         }
                     }

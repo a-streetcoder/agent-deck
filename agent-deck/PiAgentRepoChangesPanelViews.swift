@@ -50,8 +50,10 @@ struct PiAgentRepoChangesPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .task { preparePanel() }
-        .onChange(of: selectedSection) { _, _ in preparePanel() }
+        .task { await preparePanel() }
+        .onChange(of: selectedSection) { _, _ in
+            Task { await preparePanel() }
+        }
     }
 
     @ViewBuilder
@@ -213,15 +215,12 @@ struct PiAgentRepoChangesPanel: View {
         }
     }
 
-    private func preparePanel() {
+    private func preparePanel() async {
+        await Task.yield()
         viewModel.prepareRepoChangesForSelectedPiAgentSession()
         if selectedSection == .issues {
-            Task {
-                await viewModel.prepareGitHubScreen()
-                await MainActor.run {
-                    viewModel.refreshProjectBoard(force: false)
-                }
-            }
+            await viewModel.prepareGitHubScreen()
+            viewModel.refreshProjectBoard(force: false)
         }
     }
 
@@ -262,7 +261,7 @@ struct PiAgentRepoChangesPanel: View {
     }
 
     private func changesContent(_ snapshot: RepositoryChangesSnapshot) -> some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 12) {
                 changesListControls(snapshot)
 

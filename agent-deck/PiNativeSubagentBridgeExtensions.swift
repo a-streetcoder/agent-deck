@@ -448,15 +448,13 @@ struct PiNativeSubagentBridgeExtensions {
         import { StringEnum } from "@earendil-works/pi-ai";
         import { Type } from "typebox";
 
-        const MemoryKind = StringEnum(["context", "decision", "observation", "runbook", "failure", "preference"] as const, { description: "Durable memory kind." });
-        const MemoryScope = StringEnum(["global", "project"] as const, { description: "Memory scope. Use project for repo facts; global for user preferences." });
+        const MemoryKind = StringEnum(["context", "decision", "runbook", "failure", "preference"] as const, { description: "Durable project memory kind." });
 
-        const MemoryProposalParams = Type.Object({
+        const MemoryWriteParams = Type.Object({
             title: Type.String({ description: "Short title for the memory." }),
             summary: Type.String({ description: "One-sentence summary." }),
             body: Type.String({ description: "Markdown body with the durable fact, decision, runbook, or failure." }),
             kind: Type.Optional(MemoryKind),
-            scope: Type.Optional(MemoryScope),
             tags: Type.Optional(Type.Array(Type.String(), { description: "Short searchable tags." })),
             reason: Type.Optional(Type.String({ description: "Why this should be remembered." }))
         }, { additionalProperties: false });
@@ -469,30 +467,28 @@ struct PiNativeSubagentBridgeExtensions {
 
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
-                name: "agent_deck_memory_propose",
-                description: "Store a durable Agent Deck memory. Agent Deck classifies scope, scans for secrets, and stores project facts as project memory and user preferences as global memory.",
-                parameters: MemoryProposalParams,
-                promptSnippet: "agent_deck_memory_propose(title, summary, body, kind?, scope?, tags?, reason?): store durable Agent Deck memory.",
+                name: "agent_deck_memory_write",
+                description: "Store durable Agent Deck project memory. Agent Deck scans for secrets and writes to the current project's memory store.",
+                parameters: MemoryWriteParams,
+                promptSnippet: "agent_deck_memory_write(title, summary, body, kind?, tags?, reason?): store durable Agent Deck project memory.",
                 promptGuidelines: [
-                    "Use this after discovering durable project knowledge: architecture, commands, CI, deployment, conventions, decisions, recurring failures, or runbooks.",
-                    "Use global scope only for durable user preferences or cross-project workflow rules.",
+                    "Use this after discovering durable project knowledge: architecture, important files, commands, CI, deployment, conventions, decisions, recurring failures, runbooks, or project-specific preferences.",
                     "Do not store temporary session state, raw logs, credentials, tokens, private keys, customer data, or speculative facts.",
-                    "Subagent findings should normally be stored as project memory, not subagent-specific memory."
+                    "Subagent findings should be stored as normal project memory."
                 ],
                 async execute(toolCallId, params, _signal, onUpdate, ctx) {
                     const payload = JSON.stringify({
-                        kind: "memory_propose",
+                        kind: "memory_write",
                         toolCallId,
                         title: String((params as any).title ?? ""),
                         summary: String((params as any).summary ?? ""),
                         body: String((params as any).body ?? ""),
                         kindHint: (params as any).kind ? String((params as any).kind) : undefined,
-                        scope: (params as any).scope ? String((params as any).scope) : undefined,
                         tags: Array.isArray((params as any).tags) ? (params as any).tags.map((item: any) => String(item)) : undefined,
                         reason: (params as any).reason ? String((params as any).reason) : undefined
                     });
-                    onUpdate?.({ content: [{ type: "text", text: "Storing Agent Deck memory..." }] });
-                    const result = await ctx.ui.editor("AGENT_DECK_BRIDGE memory_propose", payload);
+                    onUpdate?.({ content: [{ type: "text", text: "Writing Agent Deck memory..." }] });
+                    const result = await ctx.ui.editor("AGENT_DECK_BRIDGE memory_write", payload);
                     return { content: [{ type: "text", text: result || "Memory stored." }] };
                 }
             });

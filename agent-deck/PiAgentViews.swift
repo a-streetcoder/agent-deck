@@ -692,10 +692,8 @@ struct PiAgentScreen: View {
     @State private var stabilizedProcessingMessage: String?
     @State private var processingMessageUpdateTask: Task<Void, Never>?
 
-    // AppKit-backed scrolling can keep the full visible post-compaction transcript mounted.
-    // Pre-compaction archive hiding still applies, but the former latest-10 SwiftUI safety
-    // window is disabled so long conversations can be stress-tested and reviewed in place.
-    private let recentTranscriptTimelineItemLimit = Int.max
+    // Keep long sessions cheap to relayout when side panels open; older visible items remain accessible separately.
+    private let recentTranscriptTimelineItemLimit = 50
 
     var body: some View {
         HStack(spacing: 0) {

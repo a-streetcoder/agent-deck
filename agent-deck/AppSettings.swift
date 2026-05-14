@@ -53,7 +53,6 @@ struct AppSettings: Codable, Hashable {
     var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
     var agentMemoryEnabled: Bool = false
-    var agentMemoryProjectEnabledByDefault: Bool = true
     var agentMemorySubagentsEnabled: Bool = true
     var agentMemoryShowTranscriptCards: Bool = true
     var agentMemoryInjectionCharacterBudget: Int = 6_000
@@ -90,7 +89,6 @@ struct AppSettings: Codable, Hashable {
         case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
         case agentMemoryEnabled
-        case agentMemoryProjectEnabledByDefault
         case agentMemorySubagentsEnabled
         case agentMemoryShowTranscriptCards
         case agentMemoryInjectionCharacterBudget
@@ -133,7 +131,6 @@ struct AppSettings: Codable, Hashable {
         defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         agentMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryEnabled) ?? false
-        agentMemoryProjectEnabledByDefault = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryProjectEnabledByDefault) ?? true
         agentMemorySubagentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemorySubagentsEnabled) ?? true
         agentMemoryShowTranscriptCards = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryShowTranscriptCards) ?? true
         agentMemoryInjectionCharacterBudget = max(try container.decodeIfPresent(Int.self, forKey: .agentMemoryInjectionCharacterBudget) ?? 6_000, 1_000)

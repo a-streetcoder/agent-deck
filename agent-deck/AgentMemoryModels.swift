@@ -1,31 +1,18 @@
 import Foundation
 
 enum AgentMemoryScope: String, Codable, CaseIterable, Identifiable {
-    case global
     case project
-    case session
-    case subagent
 
     var id: String { rawValue }
 
-    var displayName: String {
-        switch self {
-        case .global: return "Global"
-        case .project: return "Project"
-        case .session: return "Session"
-        case .subagent: return "Subagent"
-        }
-    }
+    var displayName: String { "Project" }
 }
 
 enum AgentMemoryKind: String, Codable, CaseIterable, Identifiable {
     case context
     case decision
-    case observation
     case runbook
     case failure
-    case sessionSummary
-    case subagentFinding
     case preference
 
     var id: String { rawValue }
@@ -34,34 +21,37 @@ enum AgentMemoryKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .context: return "Context"
         case .decision: return "Decision"
-        case .observation: return "Observation"
         case .runbook: return "Runbook"
         case .failure: return "Failure"
-        case .sessionSummary: return "Session Summary"
-        case .subagentFinding: return "Subagent Finding"
         case .preference: return "Preference"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .context: return "Durable facts about project structure, architecture, conventions, dependencies, or important files."
+        case .decision: return "A choice that was made for the project, plus the rationale behind it."
+        case .runbook: return "A repeatable procedure for doing project work, such as testing, releasing, deploying, debugging, or validating."
+        case .failure: return "A known failed approach, recurring trap, bug pattern, or correction that should prevent repeated mistakes."
+        case .preference: return "A project-specific user or team preference about style, tooling, commands, or workflow."
         }
     }
 }
 
 enum AgentMemoryStatus: String, Codable, CaseIterable, Identifiable {
-    case pending
     case active
     case pinned
     case stale
     case archived
-    case rejected
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .pending: return "Pending"
         case .active: return "Active"
         case .pinned: return "Pinned"
         case .stale: return "Stale"
         case .archived: return "Archived"
-        case .rejected: return "Rejected"
         }
     }
 
@@ -82,14 +72,13 @@ struct AgentMemoryRecord: Identifiable, Codable, Hashable {
     var sourceSessionID: UUID?
     var sourceRunID: UUID?
     var sourceAgentName: String?
-    var proposalReason: String?
+    var writeReason: String?
     var createdAt: Date
     var updatedAt: Date
     var lastUsedAt: Date?
     var useCount: Int
     var tags: [String]
 
-    var isPending: Bool { status == .pending }
     var isInjectable: Bool { status.isInjectable }
 }
 
@@ -107,8 +96,6 @@ enum AgentMemoryEventKind: String, Codable, Hashable {
     case recalled
     case stored
     case edited
-    case proposed
-    case rejected
     case archived
     case stale
     case blocked
@@ -118,8 +105,6 @@ enum AgentMemoryEventKind: String, Codable, Hashable {
         case .recalled: return "Memory Recalled"
         case .stored: return "Memory Stored"
         case .edited: return "Memory Edited"
-        case .proposed: return "Memory Proposed"
-        case .rejected: return "Memory Rejected"
         case .archived: return "Memory Archived"
         case .stale: return "Memory Marked Stale"
         case .blocked: return "Memory Blocked"
@@ -131,8 +116,6 @@ enum AgentMemoryEventKind: String, Codable, Hashable {
         case .recalled: return "brain"
         case .stored: return "tray.and.arrow.down"
         case .edited: return "pencil"
-        case .proposed: return "text.badge.plus"
-        case .rejected: return "xmark.circle"
         case .archived: return "archivebox"
         case .stale: return "clock.badge.exclamationmark"
         case .blocked: return "exclamationmark.shield"
@@ -151,12 +134,11 @@ struct AgentMemoryTranscriptEvent: Codable, Hashable {
     static let rawType = "agent_deck_memory_event"
 }
 
-struct AgentMemoryProposalBridgeRequest: Codable, Hashable {
+struct AgentMemoryWriteBridgeRequest: Codable, Hashable {
     var title: String
     var summary: String
     var body: String
     var kind: AgentMemoryKind?
-    var scope: AgentMemoryScope?
     var tags: [String]?
     var reason: String?
 
@@ -165,7 +147,6 @@ struct AgentMemoryProposalBridgeRequest: Codable, Hashable {
         case summary
         case body
         case kind = "kindHint"
-        case scope
         case tags
         case reason
     }

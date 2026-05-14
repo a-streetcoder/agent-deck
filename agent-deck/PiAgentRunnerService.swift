@@ -80,7 +80,7 @@ final class PiAgentRunnerService {
     var parentSkillArgumentsProvider: ((URL) throws -> [String])?
     var parentPromptTemplateArgumentsProvider: ((URL) throws -> [String])?
     var parentMemoryArgumentsProvider: ((PiAgentSessionRecord, URL, String?) throws -> [String])?
-    var onMemoryProposal: ((UUID, AgentMemoryProposalBridgeRequest) -> String)?
+    var onMemoryWrite: ((UUID, AgentMemoryWriteBridgeRequest) -> String)?
     var onMemoryMarkStale: ((UUID, AgentMemoryStaleBridgeRequest) -> String)?
 
     init(store: PiAgentSessionStore) {
@@ -1244,8 +1244,8 @@ final class PiAgentRunnerService {
                 handleSystemPromptAuditBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "ask_user":
                 handleNativeAskUserBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
-            case "memory_propose":
-                handleMemoryProposalBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
+            case "memory_write":
+                handleMemoryWriteBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             case "memory_mark_stale":
                 handleMemoryMarkStaleBridgeRequest(event, requestID: requestID, rawLine: rawLine, sessionID: sessionID)
             default:
@@ -1296,15 +1296,15 @@ final class PiAgentRunnerService {
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 
-    private func handleMemoryProposalBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
+    private func handleMemoryWriteBridgeRequest(_ event: PiAgentRPCEvent, requestID: String, rawLine: String, sessionID: UUID) {
         guard let payload = bridgePayload(from: event),
               let data = payload.data(using: .utf8),
-              let request = try? JSONDecoder().decode(AgentMemoryProposalBridgeRequest.self, from: data) else {
-            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the memory proposal.")
-            store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Could not parse memory proposal.", rawJSON: rawLine))
+              let request = try? JSONDecoder().decode(AgentMemoryWriteBridgeRequest.self, from: data) else {
+            clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: "\(AppBrand.displayName) could not parse the memory write request.")
+            store.append(.init(sessionID: sessionID, role: .error, title: "\(AppBrand.displayName) Bridge Error", text: "Could not parse memory write request.", rawJSON: rawLine))
             return
         }
-        let result = onMemoryProposal?(sessionID, request) ?? "\(AppBrand.displayName) memory is not available."
+        let result = onMemoryWrite?(sessionID, request) ?? "\(AppBrand.displayName) memory is not available."
         clientsBySessionID[sessionID]?.respondToExtensionUI(id: requestID, value: result)
     }
 

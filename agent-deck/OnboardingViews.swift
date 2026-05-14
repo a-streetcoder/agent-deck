@@ -409,7 +409,7 @@ struct SetupDependencyService {
             let result = try await commandRunner.run("pi", arguments: ["--help"], timeout: 6)
             return SetupCheckItem(
                 id: "pi-cli",
-                title: "Pi CLI",
+                title: "Pi",
                 detail: result.exitCode == 0
                     ? "Pi is installed and available to \(AppBrand.displayName)."
                     : "`pi --help` exited with code \(result.exitCode).",
@@ -419,7 +419,7 @@ struct SetupDependencyService {
         } catch {
             return SetupCheckItem(
                 id: "pi-cli",
-                title: "Pi CLI",
+                title: "Pi",
                 detail: "Install Pi and make sure `pi` is available from your login shell.",
                 status: .failed,
                 recovery: "Install Pi, then verify `pi --help` works in Terminal."

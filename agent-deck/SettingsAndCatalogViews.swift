@@ -35,6 +35,9 @@ struct ModelsScreen: View {
                 }
             }
         }
+        .onAppear {
+            viewModel.ensureAvailableModelsLoaded()
+        }
     }
 
     private func providerSection(_ group: (provider: String, models: [AvailableModel])) -> some View {

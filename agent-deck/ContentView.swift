@@ -25,6 +25,12 @@ private extension View {
             .foregroundStyle(.primary)
             .tint(.primary)
     }
+
+    func toolbarPrimaryActionChrome() -> some View {
+        symbolRenderingMode(.monochrome)
+            .foregroundStyle(AppTheme.brandAccent)
+            .tint(AppTheme.brandAccent)
+    }
 }
 
 struct ContentView: View {
@@ -158,13 +164,9 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 320)
         } detail: {
             detailSplitView
-            .inspector(isPresented: Binding(
-                get: { viewModel.isPiAgentInspectorPresented && viewModel.selectedSidebarItem != .agent },
-                set: { viewModel.isPiAgentInspectorPresented = $0 }
-            )) {
-                PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
-                    .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
-            }
+                .inspector(isPresented: detailInspectorIsPresented) {
+                    detailInspectorContent
+                }
         }
         .frame(minWidth: 1180, minHeight: 700)
         .navigationTitle(toolbarTitle)
@@ -239,25 +241,25 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .projects {
                 ToolbarItemGroup {
-                    Group {
-                        Button("Enable All") {
-                            showingEnableAllProjectsAlert = true
-                        }
-                        .help("Enable all discovered projects")
-
-                        Button("Disable All") {
-                            showingDisableAllProjectsAlert = true
-                        }
-                        .help("Disable all discovered projects")
-
-                        Button {
-                            viewModel.chooseProjectRoot()
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .help("Add project manually")
+                    Button("Enable All") {
+                        showingEnableAllProjectsAlert = true
                     }
                     .toolbarNeutralChrome()
+                    .help("Enable all discovered projects")
+
+                    Button("Disable All") {
+                        showingDisableAllProjectsAlert = true
+                    }
+                    .toolbarNeutralChrome()
+                    .help("Disable all discovered projects")
+
+                    Button {
+                        viewModel.chooseProjectRoot()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help("Add project manually")
                 }
             }
 
@@ -269,6 +271,7 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: "cpu")
                         }
+                        .toolbarNeutralChrome()
                         .help("Quick edit agent models and thinking")
                         .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
 
@@ -286,9 +289,9 @@ struct ContentView: View {
                         } label: {
                             Label("New", systemImage: "plus")
                         }
+                        .toolbarPrimaryActionChrome()
                         .help("Create a library agent, then choose global or project visibility")
                     }
-                    .toolbarNeutralChrome()
                 }
 
                 if let agent = viewModel.selectedAgent {
@@ -364,7 +367,7 @@ struct ContentView: View {
                         } label: {
                             Label("New Key", systemImage: "plus")
                         }
-                        .toolbarNeutralChrome()
+                        .toolbarPrimaryActionChrome()
                         .help("Create a global environment key")
                     } else {
                         Menu {
@@ -377,7 +380,7 @@ struct ContentView: View {
                         } label: {
                             Label("New Key", systemImage: "plus")
                         }
-                        .toolbarNeutralChrome()
+                        .toolbarPrimaryActionChrome()
                         .help("Choose where to store the new environment key")
                     }
                 }
@@ -391,7 +394,7 @@ struct ContentView: View {
                     } label: {
                         Label("New", systemImage: "plus")
                     }
-                    .toolbarNeutralChrome()
+                    .toolbarPrimaryActionChrome()
                     .help("Create a new library prompt template")
 
                     if let prompt = viewModel.selectedPromptTemplate {
@@ -436,7 +439,7 @@ struct ContentView: View {
                         }
                         .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
                     }
-                    .toolbarNeutralChrome()
+                    .toolbarPrimaryActionChrome()
                 }
             }
 
@@ -560,20 +563,37 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var detailSplitContent: some View {
-        if viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented {
-            HStack(spacing: 0) {
-                detailView
-                    .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+        detailView
+            .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
+    }
 
-                Divider()
-                PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
-                    .frame(width: 400)
+    private var detailInspectorIsPresented: Binding<Bool> {
+        Binding(
+            get: {
+                if viewModel.selectedSidebarItem == .agent {
+                    return isPiAgentRepoChangesPresented
+                }
+                return viewModel.isPiAgentInspectorPresented
+            },
+            set: { isPresented in
+                if viewModel.selectedSidebarItem == .agent {
+                    isPiAgentRepoChangesPresented = isPresented
+                } else {
+                    viewModel.isPiAgentInspectorPresented = isPresented
+                }
             }
+        )
+    }
+
+    @ViewBuilder
+    private var detailInspectorContent: some View {
+        if viewModel.selectedSidebarItem == .agent {
+            PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
+                .inspectorColumnWidth(min: 360, ideal: 400, max: 560)
         } else {
-            detailView
-                .frame(minWidth: viewModel.selectedSidebarItem == .agent ? 560 : 500, maxWidth: .infinity, maxHeight: .infinity)
+            PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+                .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
         }
     }
 
@@ -690,9 +710,6 @@ struct ContentView: View {
         commandContext.showPiAgentRepoChanges = {
             viewModel.openPiAgentScreen()
             isPiAgentRepoChangesPresented.toggle()
-            if isPiAgentRepoChangesPresented {
-                viewModel.prepareRepoChangesForSelectedPiAgentSession()
-            }
         }
         commandContext.togglePiAgentInspector = {
             if viewModel.selectedSidebarItem != .agent {

@@ -92,9 +92,6 @@ struct PiAgentGitHubToolbarButton: View {
     var body: some View {
         Button {
             isRepoChangesPresented.toggle()
-            if isRepoChangesPresented {
-                viewModel.prepareRepoChangesForSelectedPiAgentSession()
-            }
         } label: {
             Image("github")
                 .resizable()

@@ -483,6 +483,9 @@ private struct AutomationsSettingsTab: View {
                 }
             }
         }
+        .onAppear {
+            viewModel.ensureAvailableModelsLoaded()
+        }
     }
 
     private var autoGenerateSessionTitlesBinding: Binding<Bool> {

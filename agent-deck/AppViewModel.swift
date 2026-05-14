@@ -80,7 +80,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubProjectBoard: GitHubBoardSnapshot?
     @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
     @Published var githubRepositoryChangesProjectPath: String?
-    @Published private var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
+    private var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
     @Published var githubSelectedChangePaths: Set<String> = []
     @Published var githubSelectedDiffFilePath: String?
     @Published var githubSelectedDiffKind: GitDiffKind?
@@ -181,7 +181,8 @@ final class AppViewModel: NSObject, ObservableObject {
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         configurePiAgentTranscriptMemory()
-        refresh(includeModels: true, scanAllProjects: true)
+        refreshAvailableModels()
+        refresh(includeModels: false, scanAllProjects: true)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
         }
@@ -219,8 +220,8 @@ final class AppViewModel: NSObject, ObservableObject {
         piAgentRunner.parentMemoryArgumentsProvider = { [weak self] session, projectURL, initialPrompt in
             self?.parentMemoryArguments(for: session, projectURL: projectURL, initialPrompt: initialPrompt) ?? []
         }
-        piAgentRunner.onMemoryProposal = { [weak self] sessionID, request in
-            self?.handleParentMemoryProposal(sessionID: sessionID, request: request) ?? "\(AppBrand.displayName) memory is not available."
+        piAgentRunner.onMemoryWrite = { [weak self] sessionID, request in
+            self?.handleParentMemoryWrite(sessionID: sessionID, request: request) ?? "\(AppBrand.displayName) memory is not available."
         }
         piAgentRunner.onMemoryMarkStale = { [weak self] sessionID, request in
             self?.handleParentMemoryMarkStale(sessionID: sessionID, request: request) ?? "\(AppBrand.displayName) memory is not available."
@@ -228,8 +229,8 @@ final class AppViewModel: NSObject, ObservableObject {
         nativeSubagentRunner.childMemoryArgumentsProvider = { [weak self] parentSession, agent, task in
             self?.childMemoryArguments(for: parentSession, agent: agent, task: task) ?? []
         }
-        nativeSubagentRunner.onMemoryProposal = { [weak self] parentSessionID, runID, agentName, request in
-            self?.handleSubagentMemoryProposal(parentSessionID: parentSessionID, runID: runID, agentName: agentName, request: request) ?? "\(AppBrand.displayName) memory is not available."
+        nativeSubagentRunner.onMemoryWrite = { [weak self] parentSessionID, runID, agentName, request in
+            self?.handleSubagentMemoryWrite(parentSessionID: parentSessionID, runID: runID, agentName: agentName, request: request) ?? "\(AppBrand.displayName) memory is not available."
         }
         nativeSubagentRunner.onMemoryMarkStale = { [weak self] parentSessionID, runID, agentName, request in
             self?.handleSubagentMemoryMarkStale(parentSessionID: parentSessionID, runID: runID, agentName: agentName, request: request) ?? "\(AppBrand.displayName) memory is not available."
@@ -1583,7 +1584,7 @@ final class AppViewModel: NSObject, ObservableObject {
         elif [ -x /usr/local/bin/pi ]; then
           /usr/local/bin/pi update pi
         else
-          echo "Pi CLI not found. Install pi or add it to PATH."
+          echo "Pi not found. Install pi or add it to PATH."
         fi
         echo ""
         echo "Press any key to close."
@@ -1645,7 +1646,7 @@ final class AppViewModel: NSObject, ObservableObject {
         elif [ -x /usr/local/bin/pi ]; then
           exec /usr/local/bin/pi --session \(shellQuoted(sessionReference))
         else
-          echo "Pi CLI not found. Install pi or add it to PATH."
+          echo "Pi not found. Install pi or add it to PATH."
           echo ""
           echo "Command: pi --session \(shellQuoted(sessionReference))"
           read -k 1 "?Press any key to close."
@@ -3153,7 +3154,6 @@ final class AppViewModel: NSObject, ObservableObject {
         do {
             let record = try agentMemoryStore.createMemory(
                 kind: kind,
-                scope: selectedProjectPath == nil ? .global : .project,
                 status: .active,
                 title: title,
                 summary: summary,
@@ -3181,7 +3181,16 @@ final class AppViewModel: NSObject, ObservableObject {
     func setAgentMemoryStatus(_ id: String, status: AgentMemoryStatus) {
         agentMemoryStore.setStatus(id: id, status: status)
         if let record = agentMemoryStore.records.first(where: { $0.id == id }) {
-            appendMemoryEvent(status == .archived ? .archived : .edited, records: [record], summary: "Set memory status to \(status.displayName): \(record.title).")
+            let eventKind: AgentMemoryEventKind
+            switch status {
+            case .archived:
+                eventKind = .archived
+            case .stale:
+                eventKind = .stale
+            default:
+                eventKind = .edited
+            }
+            appendMemoryEvent(eventKind, records: [record], summary: "Set memory status to \(status.displayName): \(record.title).")
         }
     }
 
@@ -3325,49 +3334,47 @@ final class AppViewModel: NSObject, ObservableObject {
     private func agentMemoryGuidancePrompt(projectPath: String?, isSubagent: Bool = false) -> String {
         """
         <agent-deck-memory-policy>
-        Agent Deck Memory is enabled. Use `agent_deck_memory_propose` when you discover durable knowledge worth remembering.
-        Store project knowledge as project memory: repo architecture, commands, tests, CI, deployment, conventions, decisions, recurring failures, and runbooks.
-        Store global memory only for user preferences or cross-project workflow rules.
-        Do not propose temporary task state, speculative facts, raw logs, customer data, API keys, tokens, passwords, or private keys.
+        Agent Deck Memory is enabled. Use `agent_deck_memory_write` when you discover durable project knowledge worth remembering.
+        Memory is project-only. Store project architecture, important files, commands, tests, CI, deployment, conventions, decisions, recurring failures, runbooks, and project-specific preferences.
+        Do not write temporary task state, speculative facts, raw logs, customer data, API keys, tokens, passwords, or private keys.
         Use `agent_deck_memory_mark_stale` when recalled memory is outdated, wrong, or contradicted by the current repository or user correction.
-        \(isSubagent ? "As a subagent, store durable findings as project memory by default; do not create subagent-specific memory." : "")
-        Agent Deck classifies, scans, and stores memory automatically. Stale memory is removed from future automatic injection.
-        Current project memory scope: \(projectPath ?? "none").
+        \(isSubagent ? "As a subagent, write durable findings as normal project memory." : "")
+        Agent Deck scans and stores memory automatically. Stale memory is removed from future automatic injection.
+        Current project memory scope: \(projectPath ?? "none; memory writes will be rejected").
         </agent-deck-memory-policy>
         """
     }
 
-    private func handleParentMemoryProposal(sessionID: UUID, request: AgentMemoryProposalBridgeRequest) -> String {
+    private func handleParentMemoryWrite(sessionID: UUID, request: AgentMemoryWriteBridgeRequest) -> String {
         guard appSettings.agentMemoryEnabled else { return "\(AppBrand.displayName) memory is disabled." }
         let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID })
         return createAutomaticMemory(request, sourceSessionID: sessionID, sourceRunID: nil, sourceAgentName: nil, fallbackProjectPath: session?.projectPath)
     }
 
-    private func handleSubagentMemoryProposal(parentSessionID: UUID, runID: UUID, agentName: String?, request: AgentMemoryProposalBridgeRequest) -> String {
+    private func handleSubagentMemoryWrite(parentSessionID: UUID, runID: UUID, agentName: String?, request: AgentMemoryWriteBridgeRequest) -> String {
         guard appSettings.agentMemoryEnabled else { return "\(AppBrand.displayName) memory is disabled." }
         let session = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID })
         return createAutomaticMemory(request, sourceSessionID: parentSessionID, sourceRunID: runID, sourceAgentName: agentName, fallbackProjectPath: session?.projectPath)
     }
 
-    private func createAutomaticMemory(_ request: AgentMemoryProposalBridgeRequest, sourceSessionID: UUID, sourceRunID: UUID?, sourceAgentName: String?, fallbackProjectPath: String?) -> String {
-        let classification = classifyMemoryProposal(request, fallbackProjectPath: fallbackProjectPath, sourceAgentName: sourceAgentName)
+    private func createAutomaticMemory(_ request: AgentMemoryWriteBridgeRequest, sourceSessionID: UUID, sourceRunID: UUID?, sourceAgentName: String?, fallbackProjectPath: String?) -> String {
+        let classification = classifyMemoryWrite(request, fallbackProjectPath: fallbackProjectPath, sourceAgentName: sourceAgentName)
         do {
             let record = try agentMemoryStore.createMemory(
                 kind: request.kind ?? classification.kind,
-                scope: classification.scope,
                 status: .active,
                 title: request.title,
                 summary: request.summary,
                 body: request.body,
-                projectPath: classification.scope == .project ? classification.projectPath : nil,
+                projectPath: classification.projectPath,
                 sourceSessionID: sourceSessionID,
                 sourceRunID: sourceRunID,
                 sourceAgentName: sourceAgentName,
-                proposalReason: request.reason,
+                writeReason: request.reason,
                 tags: request.tags ?? []
             )
-            appendMemoryEvent(.stored, records: [record], summary: "Stored \(record.scope.displayName.lowercased()) \(record.kind.displayName.lowercased()) memory: \(record.title).", sessionID: sourceSessionID)
-            return "Memory stored as \(record.scope.displayName) / \(record.kind.displayName): \(record.title)."
+            appendMemoryEvent(.stored, records: [record], summary: "Stored \(record.kind.displayName.lowercased()) memory: \(record.title).", sessionID: sourceSessionID)
+            return "Memory stored as \(record.kind.displayName): \(record.title)."
         } catch {
             appendMemoryBlockedEvent(error.localizedDescription, sessionID: sourceSessionID)
             return error.localizedDescription
@@ -3390,7 +3397,7 @@ final class AppViewModel: NSObject, ObservableObject {
         var matchedRecords: [AgentMemoryRecord] = []
         let requestedIDs = Set((request.memoryIDs ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
         if !requestedIDs.isEmpty {
-            matchedRecords.append(contentsOf: agentMemoryStore.records.filter { requestedIDs.contains($0.id) && $0.isInjectable })
+            matchedRecords.append(contentsOf: agentMemoryStore.records(projectPath: fallbackProjectPath).filter { requestedIDs.contains($0.id) && $0.isInjectable })
         }
         if matchedRecords.isEmpty, let query = request.query?.trimmingCharacters(in: .whitespacesAndNewlines), !query.isEmpty {
             matchedRecords = agentMemoryStore.retrieve(projectPath: fallbackProjectPath, query: query, maxItems: 5)?.records ?? []
@@ -3408,22 +3415,10 @@ final class AppViewModel: NSObject, ObservableObject {
         return "Marked \(uniqueRecords.count) Agent Deck memor\(uniqueRecords.count == 1 ? "y" : "ies") stale."
     }
 
-    private func classifyMemoryProposal(_ request: AgentMemoryProposalBridgeRequest, fallbackProjectPath: String?, sourceAgentName: String?) -> (scope: AgentMemoryScope, kind: AgentMemoryKind, projectPath: String?) {
+    private func classifyMemoryWrite(_ request: AgentMemoryWriteBridgeRequest, fallbackProjectPath: String?, sourceAgentName: String?) -> (kind: AgentMemoryKind, projectPath: String?) {
         let text = [request.title, request.summary, request.body, request.reason ?? "", sourceAgentName ?? ""].joined(separator: "\n").lowercased()
-        let requestedScope = request.scope
         let kind = request.kind ?? inferredMemoryKind(from: text)
-        let globalHints = ["prefer", "always ask", "my preference", "i prefer", "communication style", "before pushing", "across projects"]
-        let projectHints = ["repo", "project", "file", "directory", "package", "xcode", "swift", "react", "pnpm", "npm", "test", "ci", "deploy", "build", "architecture", "command"]
-        let looksProjectSpecific = projectHints.contains(where: { text.contains($0) })
-        let looksGlobal = globalHints.contains(where: { text.contains($0) })
-        guard fallbackProjectPath != nil else { return (.global, kind, nil) }
-        if requestedScope == .project || (requestedScope == .global && looksProjectSpecific) {
-            return (.project, kind, fallbackProjectPath)
-        }
-        if requestedScope == .global || (looksGlobal && !looksProjectSpecific) {
-            return (.global, kind, nil)
-        }
-        return (.project, kind, fallbackProjectPath)
+        return (kind, fallbackProjectPath)
     }
 
     private func inferredMemoryKind(from text: String) -> AgentMemoryKind {
@@ -3432,7 +3427,7 @@ final class AppViewModel: NSObject, ObservableObject {
         if text.contains("failed") || text.contains("failure") || text.contains("do not") || text.contains("does not work") { return .failure }
         if text.contains("prefer") || text.contains("always ask") || text.contains("style") { return .preference }
         if text.contains("architecture") || text.contains("structure") || text.contains("uses") { return .context }
-        return .observation
+        return .context
     }
 
     private func appendMemoryEvent(_ kind: AgentMemoryEventKind, records: [AgentMemoryRecord], summary: String, sessionID explicitSessionID: UUID? = nil) {
@@ -5025,6 +5020,10 @@ final class AppViewModel: NSObject, ObservableObject {
         refreshAvailableModels()
     }
 
+    func ensureAvailableModelsLoaded() {
+        ensurePiAgentModelCatalogLoaded()
+    }
+
     private func refreshAvailableModels() {
         guard !isRefreshingModels else { return }
         isRefreshingModels = true
@@ -5037,12 +5036,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func ensurePiAgentModelCatalogLoaded() {
         guard availableModels.isEmpty else { return }
-
-        Task.detached(priority: .utility) { [weak self] in
-            let models = await PiModelDiscoveryService().loadAvailableModels()
-            guard !models.isEmpty else { return }
-            await self?.applyAvailableModelsRefresh(models, markRefreshComplete: false)
-        }
+        refreshAvailableModels()
     }
 
     private func applyAvailableModelsRefresh(_ models: [AvailableModel], markRefreshComplete: Bool) {

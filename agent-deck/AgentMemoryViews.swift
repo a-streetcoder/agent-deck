@@ -10,9 +10,22 @@ struct MemoryScreen: View {
     @State private var isNewMemoryPresented = false
 
     var body: some View {
-        AppPage("Memory", subtitle: "Review project and global memories used by Agent Deck") {
-            heroCard
+        AppPage("Memory", subtitle: "Review project memories used by Agent Deck") {
+            overviewCard
             libraryCard
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isNewMemoryPresented = true
+                } label: {
+                    Label("New Memory", systemImage: "plus")
+                }
+                .symbolRenderingMode(.monochrome)
+                .tint(AppTheme.brandAccent)
+                .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
+                .disabled(viewModel.selectedProjectPath == nil)
+            }
         }
         .sheet(isPresented: $isNewMemoryPresented) {
             MemoryEditorSheet(
@@ -20,7 +33,7 @@ struct MemoryScreen: View {
                 initialTitle: "",
                 initialSummary: "",
                 initialBody: "",
-                initialKind: .observation,
+                initialKind: .context,
                 initialTags: "",
                 onSave: { title, summary, body, kind, tags in
                     viewModel.createAgentMemory(title: title, summary: summary, body: body, kind: kind, tags: tags)
@@ -52,61 +65,35 @@ struct MemoryScreen: View {
     }
 
     private var activeCount: Int { currentRecords.filter(\.isInjectable).count }
-    private var pendingCount: Int { currentRecords.filter { $0.status == .pending }.count }
+    private var pinnedCount: Int { currentRecords.filter { $0.status == .pinned }.count }
     private var staleCount: Int { currentRecords.filter { $0.status == .stale }.count }
 
     private var projectLabel: String {
-        viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "All projects"
+        viewModel.selectedProjectPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "No project selected"
     }
 
-    private var heroCard: some View {
-        AppCard {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 18) {
-                    ZStack {
-                        Circle()
-                            .fill(AppTheme.brandAccent.opacity(0.14))
-                        Image(systemName: "brain.head.profile")
-                            .font(.system(size: 32, weight: .semibold))
-                            .foregroundStyle(AppTheme.brandAccent)
-                    }
-                    .frame(width: 64, height: 64)
+    private var overviewCard: some View {
+        AppCard(title: "Project Memory", trailing: {
+            Toggle("Memory", isOn: Binding(
+                get: { viewModel.appSettings.agentMemoryEnabled },
+                set: { viewModel.setAgentMemoryEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+        }) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Durable project context that agents can recall: architecture notes, decisions, preferences, runbooks, and recurring failures.")
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 8) {
-                            Text("Agent Memory")
-                                .font(.title2.weight(.bold))
-                                .fontWidth(.expanded)
-                            AppLabelTag(text: viewModel.appSettings.agentMemoryEnabled ? "Enabled" : "Paused", color: viewModel.appSettings.agentMemoryEnabled ? .green : .orange)
-                        }
-                        Text("Curate the durable context agents can recall: decisions, preferences, runbooks, failures, and discoveries. Pending memories stay out of prompts until you approve them.")
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    MemoryOverviewPill(text: viewModel.appSettings.agentMemoryEnabled ? "Enabled" : "Paused", systemImage: SidebarItem.memory.systemImage, color: viewModel.appSettings.agentMemoryEnabled ? .green : .orange)
+                    MemoryOverviewPill(text: projectLabel, systemImage: "folder", color: .blue)
+                    MemoryOverviewPill(text: "\(activeCount) injectable", systemImage: "bolt.fill", color: AppTheme.brandAccent)
+                    MemoryOverviewPill(text: "\(pinnedCount) pinned", systemImage: "pin.fill", color: .purple)
+                    if staleCount > 0 {
+                        MemoryOverviewPill(text: "\(staleCount) stale", systemImage: "clock.badge.exclamationmark", color: .yellow)
                     }
-
                     Spacer(minLength: 0)
-
-                    VStack(alignment: .trailing, spacing: 10) {
-                        Toggle("Memory", isOn: Binding(
-                            get: { viewModel.appSettings.agentMemoryEnabled },
-                            set: { viewModel.setAgentMemoryEnabled($0) }
-                        ))
-                        .toggleStyle(.switch)
-
-                        Button {
-                            isNewMemoryPresented = true
-                        } label: {
-                            Label("New Memory", systemImage: "plus")
-                        }
-                        .buttonStyle(AppPrimaryButtonStyle())
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    MemoryMetricTile(title: "Injectable", value: "\(activeCount)", systemImage: "bolt.fill", color: AppTheme.brandAccent)
-                    MemoryMetricTile(title: "Pending Review", value: "\(pendingCount)", systemImage: "text.badge.plus", color: .orange)
-                    MemoryMetricTile(title: "Needs Refresh", value: "\(staleCount)", systemImage: "clock.badge.exclamationmark", color: .yellow)
-                    MemoryMetricTile(title: "Scope", value: projectLabel, systemImage: "folder", color: .blue)
                 }
             }
         }
@@ -122,7 +109,7 @@ struct MemoryScreen: View {
                 filterBar
 
                 if currentRecords.isEmpty {
-                    ContentUnavailableView("No Memories Yet", systemImage: "brain", description: Text("Create a memory manually or let agents propose memories from sessions."))
+                    ContentUnavailableView("No Memories Yet", systemImage: "brain", description: Text(viewModel.selectedProjectPath == nil ? "Select a project to inspect its memory." : "Create a memory manually or let agents write durable project memories from sessions."))
                         .frame(maxWidth: .infinity, minHeight: 360)
                 } else if filteredRecords.isEmpty {
                     ContentUnavailableView("No Matching Memories", systemImage: "line.3.horizontal.decrease.circle", description: Text("Try clearing search or changing the filters."))
@@ -144,54 +131,42 @@ struct MemoryScreen: View {
     }
 
     private var filterBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                TextField("Search titles, summaries, tags, paths", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                Button("Clear") {
-                    searchText = ""
-                    selectedStatus = nil
-                    selectedKind = nil
-                }
-                .disabled(searchText.isEmpty && selectedStatus == nil && selectedKind == nil)
-            }
+        HStack(spacing: 10) {
+            TextField("Search memories", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 220)
 
-            HStack(spacing: 8) {
-                Picker("Status", selection: Binding(
-                    get: { selectedStatus?.rawValue ?? "all" },
-                    set: { selectedStatus = $0 == "all" ? nil : AgentMemoryStatus(rawValue: $0) }
-                )) {
-                    Text("All Statuses").tag("all")
-                    ForEach(AgentMemoryStatus.allCases) { status in
-                        Text(status.displayName).tag(status.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 170)
-
-                Picker("Type", selection: Binding(
-                    get: { selectedKind?.rawValue ?? "all" },
-                    set: { selectedKind = $0 == "all" ? nil : AgentMemoryKind(rawValue: $0) }
-                )) {
-                    Text("All Types").tag("all")
-                    ForEach(AgentMemoryKind.allCases) { kind in
-                        Text(kind.displayName).tag(kind.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 210)
-
-                Spacer()
-
-                if pendingCount > 0 {
-                    Label("\(pendingCount) pending approval", systemImage: "exclamationmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
+            Picker("Status", selection: Binding(
+                get: { selectedStatus?.rawValue ?? "all" },
+                set: { selectedStatus = $0 == "all" ? nil : AgentMemoryStatus(rawValue: $0) }
+            )) {
+                Text("All Statuses").tag("all")
+                ForEach(AgentMemoryStatus.allCases) { status in
+                    Text(status.displayName).tag(status.rawValue)
                 }
             }
+            .labelsHidden()
+            .frame(width: 150)
+
+            Picker("Type", selection: Binding(
+                get: { selectedKind?.rawValue ?? "all" },
+                set: { selectedKind = $0 == "all" ? nil : AgentMemoryKind(rawValue: $0) }
+            )) {
+                Text("All Types").tag("all")
+                ForEach(AgentMemoryKind.allCases) { kind in
+                    Text(kind.displayName).tag(kind.rawValue)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 170)
+
+            Button("Clear") {
+                searchText = ""
+                selectedStatus = nil
+                selectedKind = nil
+            }
+            .disabled(searchText.isEmpty && selectedStatus == nil && selectedKind == nil)
         }
-        .padding(12)
-        .appControlSurface(cornerRadius: 12)
     }
 
     private var memoryList: some View {
@@ -209,33 +184,19 @@ struct MemoryScreen: View {
     }
 }
 
-private struct MemoryMetricTile: View {
-    let title: String
-    let value: String
+private struct MemoryOverviewPill: View {
+    let text: String
     let systemImage: String
     let color: Color
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(color)
-                .frame(width: 28, height: 28)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value)
-                    .font(.headline.weight(.bold))
-                    .fontWidth(.expanded)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appContentSurface(cornerRadius: 12)
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.12), in: Capsule(style: .continuous))
     }
 }
 
@@ -360,11 +321,10 @@ private struct MemoryDetailView: View {
                 Spacer(minLength: 0)
 
                 Menu {
-                    Button("Approve") { viewModel.setAgentMemoryStatus(record.id, status: .active) }
+                    Button("Mark Active") { viewModel.setAgentMemoryStatus(record.id, status: .active) }
                     Button("Pin") { viewModel.setAgentMemoryStatus(record.id, status: .pinned) }
                     Button("Mark Stale") { viewModel.setAgentMemoryStatus(record.id, status: .stale) }
                     Button("Archive") { viewModel.setAgentMemoryStatus(record.id, status: .archived) }
-                    Button("Reject") { viewModel.setAgentMemoryStatus(record.id, status: .rejected) }
                     Divider()
                     Button("Delete", role: .destructive) { viewModel.deleteAgentMemory(record.id) }
                 } label: {
@@ -598,11 +558,8 @@ private extension AgentMemoryKind {
         switch self {
         case .context: return "doc.text.magnifyingglass"
         case .decision: return "checkmark.seal"
-        case .observation: return "eye"
         case .runbook: return "list.bullet.rectangle"
         case .failure: return "exclamationmark.triangle"
-        case .sessionSummary: return "text.alignleft"
-        case .subagentFinding: return "person.2.wave.2"
         case .preference: return "slider.horizontal.3"
         }
     }
@@ -611,10 +568,7 @@ private extension AgentMemoryKind {
 private extension AgentMemoryScope {
     var systemImage: String {
         switch self {
-        case .global: return "globe"
         case .project: return "folder"
-        case .session: return "bubble.left.and.bubble.right"
-        case .subagent: return "person.2"
         }
     }
 }
@@ -622,23 +576,19 @@ private extension AgentMemoryScope {
 private extension AgentMemoryStatus {
     var tint: Color {
         switch self {
-        case .pending: return .orange
         case .active: return .green
         case .pinned: return AppTheme.brandAccent
         case .stale: return .yellow
         case .archived: return .secondary
-        case .rejected: return .red
         }
     }
 
     var systemImage: String {
         switch self {
-        case .pending: return "hourglass"
         case .active: return "checkmark.circle.fill"
         case .pinned: return "pin.fill"
         case .stale: return "clock.badge.exclamationmark"
         case .archived: return "archivebox.fill"
-        case .rejected: return "xmark.circle.fill"
         }
     }
 }
