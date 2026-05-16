@@ -5,8 +5,8 @@ struct ModelsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        AppPage("Models", subtitle: "Available models from `pi --list-models`") {
-            if viewModel.availableModels.isEmpty {
+        AppPage("Models", subtitle: "Available Pi models and local automation models") {
+            if displayModels.isEmpty {
                 AppCard(title: "Catalog") {
                     HStack {
                         Text("No models loaded yet. Use Refresh to query Pi.")
@@ -19,7 +19,7 @@ struct ModelsScreen: View {
                 }
             } else {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Pi’s model catalog, grouped by provider. Disable models to hide them from \(AppBrand.displayName) model pickers.")
+                    Text("Pi’s model catalog, grouped by provider. Apple Foundation Model is local and can be used for Automations in Settings.")
                         .foregroundStyle(AppTheme.mutedText)
                     Spacer()
                     Button("Refresh") {
@@ -28,7 +28,9 @@ struct ModelsScreen: View {
                 }
 
                 VStack(alignment: .leading, spacing: 20) {
-                    defaultSelectionSection
+                    if !viewModel.availableModels.isEmpty {
+                        defaultSelectionSection
+                    }
                     ForEach(groupedModels, id: \.provider) { group in
                         providerSection(group)
                     }
@@ -140,7 +142,7 @@ struct ModelsScreen: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 8) {
-                    Text(model.model)
+                    Text(model.modelDisplayName)
                         .font(.headline)
                         .fontWidth(.expanded)
                         .foregroundStyle(isEnabled ? .primary : AppTheme.mutedText)
@@ -155,6 +157,10 @@ struct ModelsScreen: View {
 
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 8) {
+                    if FoundationModelAutomationService.isFoundationModel(model) {
+                        AppLabelTag(text: "Local", color: .green)
+                        AppLabelTag(text: "Automation Only", color: AppTheme.brandAccent)
+                    }
                     AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
                     AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
                     if PiNativeSubagentBridgeExtensions.isOpenAIFastEligibleModel(provider: model.provider, modelID: model.model) {
@@ -194,12 +200,25 @@ struct ModelsScreen: View {
         .animation(.snappy(duration: 0.18), value: isFastEnabled)
     }
 
+    private var displayModels: [AvailableModel] {
+        var models = viewModel.availableModels
+        if let foundationModel = viewModel.foundationAutomationModel,
+           !models.contains(where: { $0.identifier == foundationModel.identifier }) {
+            models.insert(foundationModel, at: 0)
+        }
+        return models
+    }
+
     private var groupedModels: [(provider: String, models: [AvailableModel])] {
-        Dictionary(grouping: viewModel.availableModels, by: \.provider)
+        Dictionary(grouping: displayModels, by: \.provider)
             .map { provider, models in
                 (provider, models.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending })
             }
-            .sorted { $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending }
+            .sorted { lhs, rhs in
+                if lhs.provider == FoundationModelAutomationService.provider { return true }
+                if rhs.provider == FoundationModelAutomationService.provider { return false }
+                return lhs.provider.localizedCaseInsensitiveCompare(rhs.provider) == .orderedAscending
+            }
     }
 }
 

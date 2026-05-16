@@ -108,6 +108,19 @@ final class AppViewModel: NSObject, ObservableObject {
     var enabledAvailableModels: [AvailableModel] {
         availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
     }
+
+    var foundationAutomationModel: AvailableModel? {
+        FoundationModelAutomationService.availableModel()
+    }
+
+    var automationAvailableModels: [AvailableModel] {
+        var models = enabledAvailableModels
+        if let foundationAutomationModel,
+           !models.contains(where: { $0.identifier == foundationAutomationModel.identifier }) {
+            models.insert(foundationAutomationModel, at: 0)
+        }
+        return models
+    }
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
@@ -3236,6 +3249,11 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func setPiAgentGitAutomationEnabled(_ isEnabled: Bool) {
         guard appSettingsController.setPiAgentGitAutomationEnabled(isEnabled) else { return }
+        if isEnabled,
+           appSettingsController.piAgentCommitMessageModelIdentifier == nil,
+           foundationAutomationModel != nil {
+            _ = appSettingsController.setPiAgentCommitMessageModelIdentifier(FoundationModelAutomationService.identifier)
+        }
         syncAppSettings()
     }
 
@@ -3272,16 +3290,16 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func piAgentTitleGenerationModel() -> AvailableModel? {
         if let identifier = appSettings.piAgentTitleGenerationModelIdentifier,
-           let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) {
+           let selected = automationAvailableModels.first(where: { $0.identifier == identifier }) {
             return selected
         }
-        return defaultPiAgentModel() ?? enabledAvailableModels.first
+        return foundationAutomationModel ?? defaultPiAgentModel() ?? enabledAvailableModels.first
     }
 
     func piAgentCommitMessageModel() -> AvailableModel? {
         guard appSettings.piAgentGitAutomationEnabled,
               let identifier = appSettings.piAgentCommitMessageModelIdentifier,
-              let selected = enabledAvailableModels.first(where: { $0.identifier == identifier }) else { return nil }
+              let selected = automationAvailableModels.first(where: { $0.identifier == identifier }) else { return nil }
         return selected
     }
 

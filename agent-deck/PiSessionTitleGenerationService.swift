@@ -99,6 +99,31 @@ final class PiSessionTitleGenerationService {
         environment: [String: String],
         completion: @escaping (Result<String, Error>) -> Void
     ) {
+        if FoundationModelAutomationService.isFoundationModel(model) {
+            Task { [systemPrompt, userPrompt] in
+                do {
+                    let rawTitle = try await FoundationModelAutomationService.generateOneShot(
+                        prompt: userPrompt,
+                        systemPrompt: systemPrompt,
+                        temperature: 0.2,
+                        maxTokens: 80
+                    )
+                    guard !rawTitle.isEmpty else {
+                        completion(.failure(FoundationModelAutomationError.emptyResponse))
+                        return
+                    }
+                    guard let title = Self.sanitizedTitle(rawTitle) else {
+                        completion(.failure(GenerationError.invalidResponse))
+                        return
+                    }
+                    completion(.success(title))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+            return
+        }
+
         let runID = UUID()
         do {
             let client = try PiRPCClient(

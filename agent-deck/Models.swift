@@ -237,6 +237,14 @@ nonisolated struct AvailableModel: Identifiable, Hashable, Sendable {
     var summary: String {
         "\(identifier) · ctx \(contextWindow) · out \(maxOutput)"
     }
+
+    var displayName: String {
+        identifier == "apple/foundation" ? "Apple Foundation Model" : identifier
+    }
+
+    var modelDisplayName: String {
+        identifier == "apple/foundation" ? "Foundation" : model
+    }
 }
 
 nonisolated struct ScanSnapshot: Hashable, Sendable {

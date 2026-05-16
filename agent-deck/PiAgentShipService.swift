@@ -55,6 +55,23 @@ final class PiAgentShipService {
         environment: [String: String],
         completion: @escaping (Result<CommitMessage, Error>) -> Void
     ) {
+        if FoundationModelAutomationService.isFoundationModel(model) {
+            Task { [status, diff] in
+                do {
+                    let text = try await FoundationModelAutomationService.generateOneShot(
+                        prompt: foundationPrompt(status: status, diff: diff),
+                        systemPrompt: Self.commitMessageSystemPrompt,
+                        temperature: 0.2,
+                        maxTokens: 320
+                    )
+                    completion(parseCommitMessage(text))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+            return
+        }
+
         let runID = UUID()
         do {
             let client = try PiRPCClient(
@@ -166,6 +183,18 @@ final class PiAgentShipService {
 
         Staged diff/stat:
         \(String(diff.prefix(12000)))
+        """
+    }
+
+    private func foundationPrompt(status: String, diff: String) -> String {
+        """
+        Generate a git commit message for these staged changes.
+
+        Git status:
+        \(status)
+
+        Staged diff/stat:
+        \(String(diff.prefix(6000)))
         """
     }
 

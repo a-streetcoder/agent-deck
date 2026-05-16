@@ -433,11 +433,11 @@ private struct AutomationsSettingsTab: View {
                 SettingsPickerRow(
                     title: "Title model:",
                     selection: titleGenerationModelBinding,
-                    note: "Choose a cheap, fast text model. Title generation always requests thinking off."
+                    note: "Choose a cheap, fast text model. Apple Foundation Model runs locally and bypasses the hidden Pi helper."
                 ) {
                     Text("Default model").tag("")
-                    ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
-                        Text(model.identifier).tag(model.identifier)
+                    ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
+                        Text(model.displayName).tag(model.identifier)
                     }
                 }
             }
@@ -461,15 +461,15 @@ private struct AutomationsSettingsTab: View {
                 SettingsPickerRow(
                     title: "Commit model:",
                     selection: commitMessageModelBinding,
-                    note: "Required. Commit actions use a hidden no-thinking helper session to generate the commit title and description."
+                    note: "Required. Apple Foundation Model runs locally; other models use a hidden no-thinking Pi helper session."
                 ) {
                     Text("Choose model…").tag("")
-                    ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
-                        Text(model.identifier).tag(model.identifier)
+                    ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
+                        Text(model.displayName).tag(model.identifier)
                     }
                 }
 
-                if viewModel.enabledAvailableModels.isEmpty {
+                if viewModel.automationAvailableModels.isEmpty {
                     HStack(spacing: 8) {
                         Label("No enabled models available", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)

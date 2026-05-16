@@ -1,6 +1,15 @@
 import SwiftUI
 
 nonisolated enum ProviderLogo {
+    static func systemSymbolName(for provider: String) -> String? {
+        switch provider.lowercased() {
+        case "apple":
+            return "apple.logo"
+        default:
+            return nil
+        }
+    }
+
     static func assetName(for provider: String) -> String? {
         switch provider.lowercased() {
         case "anthropic":
@@ -36,7 +45,13 @@ struct ProviderLogoImage: View {
     var size: CGFloat = 16
 
     var body: some View {
-        if let assetName = ProviderLogo.assetName(for: provider) {
+        if let symbolName = ProviderLogo.systemSymbolName(for: provider) {
+            Image(systemName: symbolName)
+                .symbolRenderingMode(.monochrome)
+                .imageScale(.large)
+                .frame(width: size, height: size, alignment: .center)
+                .accessibilityHidden(true)
+        } else if let assetName = ProviderLogo.assetName(for: provider) {
             Image(assetName)
                 .resizable()
                 .scaledToFit()
@@ -52,9 +67,29 @@ struct ProviderLabel: View {
     var spacing: CGFloat = 6
 
     var body: some View {
-        HStack(spacing: spacing) {
+        Label {
+            Text(displayName)
+        } icon: {
             ProviderLogoImage(provider: provider, size: logoSize)
-            Text(provider)
+        }
+        .labelStyle(ProviderInlineLabelStyle(spacing: spacing))
+    }
+
+    private var displayName: String {
+        provider.lowercased() == "apple" ? "Apple" : provider
+    }
+}
+
+private struct ProviderInlineLabelStyle: LabelStyle {
+    let spacing: CGFloat
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: spacing) {
+            configuration.icon
+                .alignmentGuide(.firstTextBaseline) { dimensions in
+                    dimensions[VerticalAlignment.center]
+                }
+            configuration.title
         }
     }
 }
