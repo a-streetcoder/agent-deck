@@ -186,7 +186,11 @@ struct PiAgentComposerBox: View {
                     if let metricsSession {
                         PiAgentRuntimeFooter(
                             session: metricsSession,
+                            memoryEnabled: viewModel.appSettings.agentMemoryEnabled,
                             openAIFastStatus: openAIFastStatus(for: metricsSession),
+                            onToggleMemory: {
+                                viewModel.setAgentMemoryEnabled(!viewModel.appSettings.agentMemoryEnabled)
+                            },
                             onToggleSubagents: {
                                 viewModel.setSubagentsEnabledForSelectedSession(!metricsSession.subagentsEnabled)
                             },
@@ -1843,7 +1847,9 @@ struct PiAgentShortcutChip: View {
 
 struct PiAgentRuntimeFooter: View {
     let session: PiAgentSessionRecord
+    let memoryEnabled: Bool
     let openAIFastStatus: Bool?
+    let onToggleMemory: () -> Void
     let onToggleSubagents: () -> Void
     let onToggleOpenAIFast: (() -> Void)?
 
@@ -1855,6 +1861,11 @@ struct PiAgentRuntimeFooter: View {
             if let cost = session.cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
             }
+            metricButton(
+                "memory: \(memoryEnabled ? "on" : "off")",
+                icon: SidebarItem.memory.systemImage,
+                action: onToggleMemory
+            )
             metricButton(
                 "subagents: \(session.subagentsEnabled ? "on" : "off")",
                 icon: "rectangle.connected.to.line.below",
@@ -1872,6 +1883,7 @@ struct PiAgentRuntimeFooter: View {
         .font(.caption)
         .foregroundStyle(AppTheme.mutedText)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.snappy(duration: 0.18), value: memoryEnabled)
         .animation(.snappy(duration: 0.18), value: session.subagentsEnabled)
         .animation(.snappy(duration: 0.18), value: openAIFastStatus)
     }
