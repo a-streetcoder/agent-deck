@@ -537,6 +537,7 @@ struct DoctorScreen: View {
             if !snapshot.warnings.isEmpty {
                 warningsSection
             }
+            foundationModelSection
         }
         .task {
             if setupItems.isEmpty {
@@ -670,6 +671,58 @@ struct DoctorScreen: View {
             rows.append(("Command", "pi update pi"))
         }
         return rows
+    }
+
+    // MARK: - Foundation Models
+
+    private var foundationModelSection: some View {
+        let isAvailable = FoundationModelAutomationService.isAvailable()
+        return AppCard(title: "Apple Foundation Model") {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: isAvailable ? "checkmark.circle.fill" : "circle.dashed")
+                    .font(.title3)
+                    .foregroundStyle(isAvailable ? .green : .secondary)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "apple.logo")
+                            .imageScale(.medium)
+                        Text("Foundation Models")
+                            .font(.body.weight(.semibold))
+                            .fontWidth(.expanded)
+                    }
+
+                    Text(isAvailable ? foundationModelReadyDetail : foundationModelUnavailableDetail)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    AppKeyValueList(rows: foundationModelRows(isAvailable: isAvailable))
+                }
+
+                Spacer(minLength: 8)
+                AppLabelTag(text: isAvailable ? "Ready" : "Unavailable", color: isAvailable ? .green : .secondary)
+            }
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var foundationModelReadyDetail: String {
+        "Available for local automation tasks. Session titles and commit messages can use Apple Foundation Model in Settings → Automations without starting a hidden Pi helper or using paid API tokens."
+    }
+
+    private var foundationModelUnavailableDetail: String {
+        "Not currently available to Agent Deck. Apple Foundation Models require Apple Intelligence to be available and enabled on this Mac. Pi chat models are unaffected."
+    }
+
+    private func foundationModelRows(isAvailable: Bool) -> [(String, String)] {
+        [
+            ("Model", "apple/foundation"),
+            ("Scope", "Automations only"),
+            ("Runtime", isAvailable ? "Local on-device" : "Unavailable"),
+            ("Context", "Small window; Agent Deck bounds automation prompts")
+        ]
     }
 
     // MARK: - Dependencies
