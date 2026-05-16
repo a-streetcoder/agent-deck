@@ -442,6 +442,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let scrollView = self.scrollView else { return }
+                    self.updateColumnWidthIfNeeded()
                     if !self.isProgrammaticScroll {
                         self.pendingScrollWork?.cancel()
                     }
@@ -595,11 +596,17 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         private func noteRowsChanged(_ rows: IndexSet) {
-            guard let tableView, !rows.isEmpty else { return }
+            guard let tableView, let scrollView, !rows.isEmpty else { return }
+            let validRows = IndexSet(rows.filter { $0 >= 0 && $0 < tableView.numberOfRows })
+            guard !validRows.isEmpty else { return }
+            let wasPinned = isPinnedToBottom(scrollView)
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
-            tableView.noteHeightOfRows(withIndexesChanged: rows)
+            tableView.noteHeightOfRows(withIndexesChanged: validRows)
             NSAnimationContext.endGrouping()
+            if wasPinned {
+                scrollToBottom(settle: false)
+            }
         }
 
         private func handleScrollAfterUpdate(isSessionSwitch: Bool, explicitScroll: Bool, wasPinned: Bool) {
@@ -617,6 +624,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingScrollWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self, let scrollView = self.scrollView else { return }
+                self.pendingScrollWork = nil
                 self.performScrollToBottom(scrollView)
                 guard settle else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -654,10 +662,24 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            TranscriptTableRowView()
+        }
+
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < orderedIDs.count else { return estimatedRowHeight }
             return heightByID[orderedIDs[row]] ?? estimatedRowHeight
         }
+    }
+
+    final class TranscriptTableRowView: NSTableRowView {
+        override var isEmphasized: Bool {
+            get { false }
+            set { }
+        }
+
+        override func drawSelection(in dirtyRect: NSRect) { }
+        override func drawBackground(in dirtyRect: NSRect) { }
     }
 
     final class TranscriptTableCellView: NSTableCellView {
