@@ -482,6 +482,27 @@ private struct AutomationsSettingsTab: View {
                     .padding(.leading, SettingsLayout.labelWidth + 16)
                 }
             }
+
+            SettingsSection {
+                SettingsToggleRow(
+                    title: "Agent avatars:",
+                    label: "Generate Image Playground prompts with AI",
+                    note: "Off by default. When enabled, Agent Deck uses the agent frontmatter to draft a short Image Playground prompt before opening the image generator. When disabled, Image Playground opens for manual prompting.",
+                    isOn: agentAvatarPromptAutomationBinding
+                )
+
+                SettingsPickerRow(
+                    title: "Prompt model:",
+                    selection: agentAvatarPromptModelBinding,
+                    note: agentAvatarPromptModelNote
+                ) {
+                    Text("Default model").tag("")
+                    ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
+                        Text(model.displayName).tag(model.identifier)
+                    }
+                }
+                .disabled(!viewModel.appSettings.autoGenerateAgentAvatarPrompts)
+            }
         }
         .onAppear {
             viewModel.ensureAvailableModelsLoaded()
@@ -528,6 +549,28 @@ private struct AutomationsSettingsTab: View {
             get: { viewModel.appSettings.piAgentCommitMessageModelIdentifier ?? "" },
             set: { viewModel.setPiAgentCommitMessageModelIdentifier($0) }
         )
+    }
+
+    private var agentAvatarPromptAutomationBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.autoGenerateAgentAvatarPrompts },
+            set: { viewModel.setAutoGenerateAgentAvatarPrompts($0) }
+        )
+    }
+
+    private var agentAvatarPromptModelBinding: Binding<String> {
+        Binding(
+            get: { viewModel.appSettings.agentAvatarPromptModelIdentifier ?? "" },
+            set: { viewModel.setAgentAvatarPromptModelIdentifier($0) }
+        )
+    }
+
+    private var agentAvatarPromptModelNote: String {
+        let identifier = viewModel.appSettings.agentAvatarPromptModelIdentifier ?? viewModel.agentAvatarPromptGenerationModel()?.identifier
+        if identifier == FoundationModelAutomationService.identifier {
+            return "Apple Foundation Model runs locally. Other models use a hidden no-thinking Pi helper session."
+        }
+        return "Uses the selected model in a hidden no-thinking Pi helper session to draft the Image Playground prompt."
     }
 }
 

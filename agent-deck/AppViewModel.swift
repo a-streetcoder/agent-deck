@@ -127,6 +127,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private(set) var piAgentPendingComposerText: String?
     let piAgentSessionStore = PiAgentSessionStore()
     let agentMemoryStore = AgentMemoryStore()
+    let agentImageStore = AgentImageStore()
 
     private let agentPersistence = AgentPersistence()
     private let envPersistence = EnvPersistence()
@@ -135,6 +136,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private let gitHubAuthService: GitHubAuthService = GitHubCLIAuthService()
     private let gitRepositoryService = GitRepositoryService()
     private let shipService = PiAgentShipService()
+    private let agentAvatarPromptService = AgentAvatarPromptGenerationService()
     private let subagentWorktreeService = PiSubagentWorktreeService()
     private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
@@ -3267,6 +3269,21 @@ final class AppViewModel: NSObject, ObservableObject {
         syncAppSettings()
     }
 
+    func setAutoGenerateAgentAvatarPrompts(_ isEnabled: Bool) {
+        guard appSettingsController.setAutoGenerateAgentAvatarPrompts(isEnabled) else { return }
+        if isEnabled,
+           appSettingsController.agentAvatarPromptModelIdentifier == nil,
+           foundationAutomationModel != nil {
+            _ = appSettingsController.setAgentAvatarPromptModelIdentifier(FoundationModelAutomationService.identifier)
+        }
+        syncAppSettings()
+    }
+
+    func setAgentAvatarPromptModelIdentifier(_ identifier: String?) {
+        guard appSettingsController.setAgentAvatarPromptModelIdentifier(identifier) else { return }
+        syncAppSettings()
+    }
+
     func isInjectedCommandEnabled(_ command: PiInjectedCommand) -> Bool {
         PiInjectedCommandCatalog.isEnabled(command, settings: appSettings)
     }
@@ -3301,6 +3318,24 @@ final class AppViewModel: NSObject, ObservableObject {
               let identifier = appSettings.piAgentCommitMessageModelIdentifier,
               let selected = automationAvailableModels.first(where: { $0.identifier == identifier }) else { return nil }
         return selected
+    }
+
+    func agentAvatarPromptGenerationModel() -> AvailableModel? {
+        if let identifier = appSettings.agentAvatarPromptModelIdentifier,
+           let selected = automationAvailableModels.first(where: { $0.identifier == identifier }) {
+            return selected
+        }
+        return foundationAutomationModel ?? defaultPiAgentModel() ?? enabledAvailableModels.first
+    }
+
+    func generateAgentAvatarPrompt(for agent: EffectiveAgentRecord) async throws -> String {
+        guard let model = agentAvatarPromptGenerationModel() else {
+            throw PiAgentShipService.ShipError.noModel
+        }
+        let projectPath = agent.projectRoot ?? selectedProjectPath ?? appSettings.projectsRootPath
+        let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
+        let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
+        return try await agentAvatarPromptService.generatePrompt(for: agent, model: model, projectURL: projectURL, environment: environment)
     }
 
     private func syncAppSettings() {

@@ -41,18 +41,13 @@ enum FoundationModelAutomationService {
         maxTokens: Int = 256
     ) async throws -> String {
         #if canImport(FoundationModels)
-        let session = LanguageModelSession()
-        let combinedPrompt = """
-        \(systemPrompt)
-
-        \(prompt)
-        """
+        let session = LanguageModelSession(instructions: systemPrompt)
         let options = GenerationOptions(
             sampling: nil,
             temperature: temperature,
             maximumResponseTokens: maxTokens
         )
-        let response = try await session.respond(to: combinedPrompt, options: options)
+        let response = try await session.respond(to: prompt, options: options)
         return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
         #else
         throw FoundationModelAutomationError.notAvailable

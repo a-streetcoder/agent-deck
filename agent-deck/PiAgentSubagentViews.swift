@@ -143,6 +143,7 @@ struct PiNativeSubagentRunCard: View {
     let onOpenGraph: () -> Void
     let onOpenChildTranscript: (UUID) -> Void
     let onStopChild: (UUID) -> Void
+    @ObservedObject var imageStore: AgentImageStore
     @State private var isDetailsPresented = false
     @State private var promptPopover: PromptPopover?
     @State private var childDetails: PiSubagentChildRecord?
@@ -195,7 +196,7 @@ struct PiNativeSubagentRunCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            PiSubagentActivityGlyph(color: statusColor, isActive: effectiveStatus.isActive)
+            PiSubagentActivityGlyph(color: statusColor, isActive: effectiveStatus.isActive, imageURL: imageStore.imageURL(for: run.agentName))
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Text(run.agentName)
@@ -481,7 +482,7 @@ struct PiNativeSubagentRunCard: View {
     private func parallelChildHeader(_ child: PiSubagentChildRecord) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                PiSubagentActivityGlyph(color: color(for: child.status), isActive: child.status.isActive)
+                PiSubagentActivityGlyph(color: color(for: child.status), isActive: child.status.isActive, imageURL: imageStore.imageURL(for: child.agentName))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
                         Text(child.agentName)
@@ -756,6 +757,7 @@ struct PiSubagentActivityGlyph: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let color: Color
     let isActive: Bool
+    var imageURL: URL? = nil
 
     var body: some View {
         ZStack {
@@ -775,12 +777,23 @@ struct PiSubagentActivityGlyph: View {
                 }
             }
 
-            Image(systemName: "rectangle.connected.to.line.below")
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(color)
-                .transaction { transaction in
-                    transaction.animation = nil
-                }
+            if let nsImage = AgentImageLoader.image(at: imageURL) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
+            } else {
+                Image(systemName: "rectangle.connected.to.line.below")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(color)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
+            }
         }
         .frame(width: 34, height: 34)
         .accessibilityHidden(true)

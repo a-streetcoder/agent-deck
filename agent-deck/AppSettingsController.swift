@@ -163,6 +163,14 @@ final class AppSettingsController {
         settings.piAgentCommitMessageModelIdentifier
     }
 
+    var shouldAutoGenerateAgentAvatarPrompts: Bool {
+        settings.autoGenerateAgentAvatarPrompts
+    }
+
+    var agentAvatarPromptModelIdentifier: String? {
+        settings.agentAvatarPromptModelIdentifier
+    }
+
     @discardableResult
     func setAppearanceMode(_ mode: AppAppearanceMode) -> Bool {
         guard settings.appearanceMode != mode else { return false }
@@ -515,6 +523,24 @@ final class AppSettingsController {
         let stored = trimmed?.isEmpty == false ? trimmed : nil
         guard settings.piAgentCommitMessageModelIdentifier != stored else { return false }
         settings.piAgentCommitMessageModelIdentifier = stored
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAutoGenerateAgentAvatarPrompts(_ isEnabled: Bool) -> Bool {
+        guard settings.autoGenerateAgentAvatarPrompts != isEnabled else { return false }
+        settings.autoGenerateAgentAvatarPrompts = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func setAgentAvatarPromptModelIdentifier(_ identifier: String?) -> Bool {
+        let trimmed = identifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = trimmed?.isEmpty == false ? trimmed : nil
+        guard settings.agentAvatarPromptModelIdentifier != stored else { return false }
+        settings.agentAvatarPromptModelIdentifier = stored
         persist()
         return true
     }

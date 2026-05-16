@@ -1904,7 +1904,8 @@ struct PiAgentScreen: View {
             onReveal: { revealSubagentRun(run) },
             onOpenGraph: { selectedSubagentGraphRunID = run.id },
             onOpenChildTranscript: { selectedSubagentTranscriptRunID = $0 },
-            onStopChild: { viewModel.stopNativeSubagent(runID: $0, parentSessionID: run.parentSessionID) }
+            onStopChild: { viewModel.stopNativeSubagent(runID: $0, parentSessionID: run.parentSessionID) },
+            imageStore: viewModel.agentImageStore
         )
     }
 

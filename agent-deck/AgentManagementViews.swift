@@ -1,4 +1,5 @@
 import AppKit
+import ImagePlayground
 import SwiftUI
 
 struct AgentsScreen: View {
@@ -45,7 +46,10 @@ struct AgentsScreen: View {
                     canRenameAgent: { viewModel.canRenameAgent($0) },
                     renamePreview: { agent, name in viewModel.renamePreview(for: agent, to: name) },
                     renameAgent: { agent, name in try viewModel.renameAgent(agent, to: name) },
-                    projects: viewModel.enabledProjects
+                    projects: viewModel.enabledProjects,
+                    imageStore: viewModel.agentImageStore,
+                    autoGenerateAvatarPrompts: viewModel.appSettings.autoGenerateAgentAvatarPrompts,
+                    generateAvatarPrompt: { try await viewModel.generateAgentAvatarPrompt(for: $0) }
                 )
             } else {
                 ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
@@ -63,6 +67,47 @@ struct AgentsScreen: View {
                 )
                 .frame(width: 400)
             }
+        }
+    }
+}
+
+struct AgentAvatarView: View {
+    let imageURL: URL?
+    let fallbackSystemImage: String
+    let color: Color
+    var size: CGFloat = 32
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.10))
+            Circle()
+                .stroke(color.opacity(0.18), lineWidth: 1)
+
+            if let nsImage = AgentImageLoader.image(at: imageURL) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                Image(systemName: fallbackSystemImage)
+                    .font(fallbackFont)
+                    .foregroundStyle(color)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private var fallbackFont: Font {
+        switch size {
+        case ..<30:
+            return .caption.weight(.medium)
+        case ..<44:
+            return .title3.weight(.medium)
+        default:
+            return .title.weight(.medium)
         }
     }
 }
@@ -124,6 +169,8 @@ private struct AgentLibraryPane: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var warningPopoverAgentID: String?
+
+    private var imageStore: AgentImageStore { viewModel.agentImageStore }
 
     var body: some View {
         List(selection: $viewModel.selectedAgentID) {
@@ -257,9 +304,12 @@ private struct AgentLibraryPane: View {
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
 
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon(for: agent))
-                .foregroundStyle(color(for: agent))
-                .frame(width: 18)
+            AgentAvatarView(
+                imageURL: imageStore.imageURL(for: agent.name),
+                fallbackSystemImage: icon(for: agent),
+                color: color(for: agent),
+                size: 24
+            )
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -424,12 +474,20 @@ private struct AgentDetailView: View {
     let renamePreview: (EffectiveAgentRecord, String) -> ResourceRenamePreview
     let renameAgent: (EffectiveAgentRecord, String) throws -> Void
     let projects: [DiscoveredProject]
+    @ObservedObject var imageStore: AgentImageStore
+    let autoGenerateAvatarPrompts: Bool
+    let generateAvatarPrompt: (EffectiveAgentRecord) async throws -> String
+    @Environment(\.supportsImagePlayground) private var supportsImagePlayground
     @State private var selectedTab: DetailTab = .summary
     @State private var inlineDraft: AgentEditorDraft?
     @State private var baselineInlineDraft: AgentEditorDraft?
     @State private var inlineSaveMessage: String?
     @State private var pendingSaveConfirmation: SaveConfirmation?
     @State private var agentPendingRename: EffectiveAgentRecord?
+    @State private var isImagePlaygroundPresented = false
+    @State private var imagePlaygroundPrompt = ""
+    @State private var isGeneratingAvatarPrompt = false
+    @State private var avatarMessage: String?
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
@@ -498,6 +556,117 @@ private struct AgentDetailView: View {
                 secondaryButton: .cancel()
             )
         }
+        .imagePlaygroundSheet(
+            isPresented: $isImagePlaygroundPresented,
+            concept: imagePlaygroundPrompt,
+            sourceImage: nil,
+            onCompletion: { url in
+                do {
+                    try imageStore.assignGeneratedImage(from: url, to: agent.name)
+                    avatarMessage = "Updated avatar for \(agent.name)."
+                } catch {
+                    avatarMessage = error.localizedDescription
+                }
+            },
+            onCancellation: { }
+        )
+        .imagePlaygroundGenerationStyle(.illustration, in: [.illustration])
+        .imagePlaygroundPersonalizationPolicy(.disabled)
+    }
+
+    private var agentAvatarEditor: some View {
+        HStack(alignment: .center, spacing: 14) {
+            AgentAvatarView(
+                imageURL: imageStore.imageURL(for: agent.name),
+                fallbackSystemImage: "rectangle.connected.to.line.below",
+                color: AppTheme.assistantAccent,
+                size: 52
+            )
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Agent Avatar")
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+                Text("Generate an app-only avatar with Image Playground.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let avatarMessage {
+                    Text(avatarMessage)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 8) {
+                if imageStore.imageURL(for: agent.name) != nil {
+                    Button("Remove") {
+                        do {
+                            try imageStore.removeImage(for: agent.name)
+                            avatarMessage = "Removed avatar for \(agent.name)."
+                        } catch {
+                            avatarMessage = error.localizedDescription
+                        }
+                    }
+                    .controlSize(.small)
+                }
+                Button {
+                    prepareImagePlaygroundPromptAndPresent()
+                } label: {
+                    if isGeneratingAvatarPrompt {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text("Generate")
+                    }
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+                .disabled(!supportsImagePlayground || isGeneratingAvatarPrompt)
+                .help(supportsImagePlayground ? "Generate an avatar with Image Playground" : "Image Playground is not available on this Mac")
+            }
+        }
+        .padding(.bottom, 12)
+    }
+
+    private func prepareImagePlaygroundPromptAndPresent() {
+        guard supportsImagePlayground else { return }
+        avatarMessage = nil
+        guard shouldAutoGenerateAvatarPrompt else {
+            Task { @MainActor in
+                await presentImagePlayground(with: "")
+            }
+            return
+        }
+
+        isGeneratingAvatarPrompt = true
+        Task { @MainActor in
+            let prompt: String
+            do {
+                prompt = try await generatedAvatarPrompt()
+            } catch {
+                prompt = ""
+                avatarMessage = "Could not generate a prompt. You can write one manually in Image Playground."
+            }
+            isGeneratingAvatarPrompt = false
+            await presentImagePlayground(with: prompt)
+        }
+    }
+
+    private func presentImagePlayground(with prompt: String) async {
+        imagePlaygroundPrompt = prompt
+        await Task.yield()
+        isImagePlaygroundPresented = true
+    }
+
+    private var shouldAutoGenerateAvatarPrompt: Bool {
+        autoGenerateAvatarPrompts
+    }
+
+    private func generatedAvatarPrompt() async throws -> String {
+        try await generateAvatarPrompt(agent)
     }
 
     private var summaryTab: some View {
@@ -521,6 +690,8 @@ private struct AgentDetailView: View {
                     }
                 }
             }) {
+                agentAvatarEditor
+
                 if isEditing, let draft = inlineDraft {
                     VStack(alignment: .leading, spacing: 18) {
                         HStack(spacing: 10) {

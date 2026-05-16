@@ -9,7 +9,8 @@ struct PiAgentGitActionsToolbarGroup: View {
     var body: some View {
         ControlGroup {
             Button { commitTapped() } label: {
-                Label("Commit", systemImage: "checkmark.seal")
+                Image(systemName: "checkmark.seal")
+                    .frame(width: 32, height: 20)
                     .opacity(viewModel.piAgentGitAutomationAction == .commit ? 0 : 1)
                     .overlay {
                         if viewModel.piAgentGitAutomationAction == .commit {
@@ -18,6 +19,7 @@ struct PiAgentGitActionsToolbarGroup: View {
                         }
                     }
             }
+            .accessibilityLabel("Commit")
             .disabled(!viewModel.canCommitSelectedPiAgentSession)
             .help("Stage all changes and create a commit with an AI-generated title and description")
             .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
@@ -28,7 +30,8 @@ struct PiAgentGitActionsToolbarGroup: View {
             }
 
             Button { viewModel.pushSelectedPiAgentSession() } label: {
-                Label("Push", systemImage: "arrow.up.circle")
+                Image(systemName: "arrow.up.circle")
+                    .frame(width: 32, height: 20)
                     .opacity(viewModel.piAgentGitAutomationAction == .push ? 0 : 1)
                     .overlay {
                         if viewModel.piAgentGitAutomationAction == .push {
@@ -37,11 +40,13 @@ struct PiAgentGitActionsToolbarGroup: View {
                         }
                     }
             }
+            .accessibilityLabel("Push")
             .disabled(!viewModel.canPushSelectedPiAgentSession)
             .help("Push committed changes on the selected session's current branch")
 
             Button { commitAndPushTapped() } label: {
-                Label("Commit & Push", systemImage: "shippingbox.and.arrow.backward")
+                Image(systemName: "shippingbox.and.arrow.backward")
+                    .frame(width: 32, height: 20)
                     .opacity(viewModel.piAgentGitAutomationAction == .commitAndPush ? 0 : 1)
                     .overlay {
                         if viewModel.piAgentGitAutomationAction == .commitAndPush {
@@ -50,6 +55,7 @@ struct PiAgentGitActionsToolbarGroup: View {
                         }
                     }
             }
+            .accessibilityLabel("Commit & Push")
             .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
             .help("Stage all changes, commit, and push the selected session's current branch")
             .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
