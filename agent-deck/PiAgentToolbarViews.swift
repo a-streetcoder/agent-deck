@@ -10,7 +10,7 @@ struct PiAgentGitActionsToolbarGroup: View {
         ControlGroup {
             Button { commitTapped() } label: {
                 Image(systemName: "checkmark.seal")
-                    .frame(width: 32, height: 20)
+                    .appToolbarIconFrame()
                     .opacity(viewModel.piAgentGitAutomationAction == .commit ? 0 : 1)
                     .overlay {
                         if viewModel.piAgentGitAutomationAction == .commit {
@@ -31,7 +31,7 @@ struct PiAgentGitActionsToolbarGroup: View {
 
             Button { viewModel.pushSelectedPiAgentSession() } label: {
                 Image(systemName: "arrow.up.circle")
-                    .frame(width: 32, height: 20)
+                    .appToolbarIconFrame()
                     .opacity(viewModel.piAgentGitAutomationAction == .push ? 0 : 1)
                     .overlay {
                         if viewModel.piAgentGitAutomationAction == .push {
@@ -46,7 +46,7 @@ struct PiAgentGitActionsToolbarGroup: View {
 
             Button { commitAndPushTapped() } label: {
                 Image(systemName: "shippingbox.and.arrow.backward")
-                    .frame(width: 32, height: 20)
+                    .appToolbarIconFrame()
                     .opacity(viewModel.piAgentGitAutomationAction == .commitAndPush ? 0 : 1)
                     .overlay {
                         if viewModel.piAgentGitAutomationAction == .commitAndPush {
@@ -103,7 +103,8 @@ struct PiAgentGitHubToolbarButton: View {
                 .resizable()
                 .renderingMode(.template)
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 16, height: 16)
+                .frame(width: AppTheme.toolbarAssetIconSize.width, height: AppTheme.toolbarAssetIconSize.height)
+                .appToolbarIconFrame()
         }
         .help("Show GitHub panel")
         .accessibilityLabel("Show GitHub panel")
@@ -154,8 +155,10 @@ struct PiAgentOpenTerminalToolbarButton: View {
                 viewModel.openSelectedPiAgentSessionInTerminal()
             }
         } label: {
-            Label("Resume in Terminal", systemImage: "terminal")
+            Image(systemName: "terminal")
+                .appToolbarIconFrame()
         }
+        .accessibilityLabel("Resume in Terminal")
         .symbolRenderingMode(.monochrome)
         .foregroundStyle(.primary)
         .tint(.primary)

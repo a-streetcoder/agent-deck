@@ -7,6 +7,8 @@ enum AppTheme {
     static let cardPadding: CGFloat = 18
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
+    static let toolbarIconFrame = CGSize(width: 32, height: 20)
+    static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
 
     static let brandAccent = Color("AccentColor")
     static let brandAccentBright = adaptiveColor(light: RGB(44, 205, 199), dark: RGB(96, 232, 224))
@@ -249,6 +251,10 @@ extension View {
 
     func appControlSurface(cornerRadius: CGFloat = 12) -> some View {
         modifier(AppControlSurface(cornerRadius: cornerRadius))
+    }
+
+    func appToolbarIconFrame() -> some View {
+        frame(width: AppTheme.toolbarIconFrame.width, height: AppTheme.toolbarIconFrame.height)
     }
 
     func appResourceListStyle() -> some View {
