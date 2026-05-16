@@ -7,7 +7,7 @@ enum AppTheme {
     static let cardPadding: CGFloat = 18
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
-    static let toolbarIconFrame = CGSize(width: 32, height: 20)
+    static let toolbarIconFrame = CGSize(width: 26, height: 20)
     static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
 
     static let brandAccent = Color("AccentColor")
