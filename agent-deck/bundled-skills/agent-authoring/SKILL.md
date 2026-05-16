@@ -19,6 +19,7 @@ whenToUse: Use for the precise delegation condition that should make the parent 
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
+defaultExpectedOutcome: reportOnly
 skills: agent-authoring
 ---
 
@@ -49,10 +50,11 @@ When creating an agent, decide:
 2. Role: explorer, planner, coder, reviewer, tester, docs writer, release helper, etc.
 3. Routing: write `whenToUse` as one concise sentence that tells the parent exactly when to delegate to this agent; keep it distinct from the human-facing `description`.
 4. Tool boundary: prefer `read`, `grep`, `find`, `ls`; add `bash`, `edit`, `write` only when needed.
-5. Supervisor behavior: include `contact_supervisor` only when the child should ask for decisions or meaningful blockers.
-6. Continuation behavior: native subagents start fresh by default; the parent can explicitly continue a prior Subagent ID for direct follow-ups.
-7. Skills: assign explicit skill names in `skills:`. Agent Deck passes them through Pi native `--skill` injection. Do not use `inheritSkills`.
-8. Validation: specify what files, commands, or evidence the agent should inspect before completion.
+5. Default outcome: set `defaultExpectedOutcome` to `reportOnly`, `editFilesInWorktree`, `writeProjectFile`, or `directProjectWrites`. Use `directProjectWrites` only for trusted implementation agents with `edit`/`write`; use `reportOnly` for explorer/planner/reviewer agents.
+6. Supervisor behavior: include `contact_supervisor` only when the child should ask for decisions or meaningful blockers.
+7. Continuation behavior: native subagents start fresh by default; the parent can explicitly continue a prior Subagent ID for direct follow-ups.
+8. Skills: assign explicit skill names in `skills:`. Agent Deck passes them through Pi native `--skill` injection. Do not use `inheritSkills`.
+9. Validation: specify what files, commands, or evidence the agent should inspect before completion.
 
 ## Scope rules
 
@@ -86,5 +88,7 @@ If the agent has `contact_supervisor`, Agent Deck injects the generic supervisor
 ## Good defaults
 
 - `systemPromptMode: replace` for focused specialists.
+- `defaultExpectedOutcome: reportOnly` for research, planning, review, and advisory agents.
+- `defaultExpectedOutcome: directProjectWrites` for approved implementation agents that include `edit`/`write`.
 - Native delegated runs use normal project context-file discovery; do not add context-inheritance frontmatter.
 - Read-only tools for explorer/planner/reviewer; add write tools only for implementation agents.

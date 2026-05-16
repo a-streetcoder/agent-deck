@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "agent-avatar-explorer.heic",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

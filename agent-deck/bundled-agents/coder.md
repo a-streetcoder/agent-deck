@@ -1,10 +1,11 @@
 ---
 name: coder
 description: Coding agent for approved, scoped implementation changes
-whenToUse: Use for approved, bounded implementation after the parent has a clear plan or scope; prefer for non-trivial code edits over doing implementation in the parent session.
+whenToUse: Use by default for approved code changes, including frontend, backend, tests, refactors, and bug fixes; parent-session edits should be limited to trivial low-risk one-off changes.
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
 thinking: high
 systemPromptMode: replace
+defaultExpectedOutcome: directProjectWrites
 defaultReads: plan.md, context.md
 defaultProgress: true
 ---

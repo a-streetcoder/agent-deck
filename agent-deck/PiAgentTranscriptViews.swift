@@ -2213,15 +2213,15 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var headerColor: Color {
-        entry.role == .user ? AppTheme.brandAccent : .primary
+        entry.role == .assistant ? AppTheme.brandAccent : .primary
     }
 
     private var backgroundStyle: AnyShapeStyle {
         switch entry.role {
         case .user:
-            return AnyShapeStyle((style == .question ? AppTheme.brandAccent.opacity(0.10) : AppTheme.brandAccent.opacity(0.08)).gradient)
-        case .assistant:
             return AnyShapeStyle(AppTheme.assistantAccent.opacity(0.06).gradient)
+        case .assistant:
+            return AnyShapeStyle((style == .question ? AppTheme.brandAccent.opacity(0.10) : AppTheme.brandAccent.opacity(0.08)).gradient)
         case .thinking:
             return AnyShapeStyle(Color.indigo.opacity(0.07).gradient)
         case .tool:
@@ -2239,8 +2239,8 @@ struct PiAgentTranscriptCard: View {
 
     private var strokeColor: Color {
         switch entry.role {
-        case .user: return AppTheme.brandAccent.opacity(0.2)
-        case .assistant: return AppTheme.assistantAccent.opacity(0.18)
+        case .user: return AppTheme.assistantAccent.opacity(0.18)
+        case .assistant: return AppTheme.brandAccent.opacity(0.2)
         case .thinking: return Color.indigo.opacity(0.18)
         case .tool: return Color.orange.opacity(0.2)
         case .error: return Color.red.opacity(0.22)
@@ -2265,8 +2265,8 @@ struct PiAgentTranscriptCard: View {
 
     private var color: Color {
         switch entry.role {
-        case .user: return AppTheme.brandAccent
-        case .assistant: return AppTheme.assistantAccent
+        case .user: return AppTheme.assistantAccent
+        case .assistant: return AppTheme.brandAccent
         case .thinking: return .indigo
         case .tool: return .orange
         case .status: return .secondary

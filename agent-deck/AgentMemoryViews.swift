@@ -169,17 +169,54 @@ struct MemoryScreen: View {
     }
 
     private var memoryList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(filteredRecords) { record in
-                    MemoryRecordRow(record: record, isSelected: record.id == selectedRecord?.id) {
-                        selectedRecordID = record.id
+        List {
+            ForEach(filteredRecords) { record in
+                MemoryRecordRow(record: record, isSelected: record.id == selectedRecord?.id) {
+                    selectedRecordID = record.id
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        deleteMemory(record)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .contextMenu {
+                    Button { viewModel.setAgentMemoryStatus(record.id, status: .active) } label: {
+                        Label("Mark Active", systemImage: AgentMemoryStatus.active.systemImage)
+                    }
+                    Button { viewModel.setAgentMemoryStatus(record.id, status: .pinned) } label: {
+                        Label("Pin", systemImage: AgentMemoryStatus.pinned.systemImage)
+                    }
+                    Button { viewModel.setAgentMemoryStatus(record.id, status: .stale) } label: {
+                        Label("Mark Stale", systemImage: AgentMemoryStatus.stale.systemImage)
+                    }
+                    Button { viewModel.setAgentMemoryStatus(record.id, status: .archived) } label: {
+                        Label("Archive", systemImage: AgentMemoryStatus.archived.systemImage)
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        deleteMemory(record)
+                    } label: {
+                        Label("Delete Memory", systemImage: "trash")
                     }
                 }
             }
-            .padding(.vertical, 2)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .frame(minWidth: 310, idealWidth: 360, maxWidth: 440, minHeight: 430)
+    }
+
+    private func deleteMemory(_ record: AgentMemoryRecord) {
+        if selectedRecordID == record.id {
+            selectedRecordID = nil
+        }
+        viewModel.deleteAgentMemory(record.id)
     }
 }
 
@@ -203,7 +240,7 @@ private struct MemoryInfoPopover: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 infoRow("What is stored", "Project-scoped, durable facts: architecture notes, decisions, preferences, runbooks, and recurring failures.")
-                infoRow("When agents see it", "Active and pinned memories can be injected into Pi sessions when they are relevant to the task. Stale and archived memories are not injected automatically.")
+                infoRow("When agents see it", "Active and pinned memories are eligible to be included in Pi sessions when relevant to the task. Stale and archived memories are not included automatically.")
                 infoRow("Current project", projectName)
             }
 
@@ -212,7 +249,7 @@ private struct MemoryInfoPopover: View {
             HStack(spacing: 10) {
                 stat("Status", enabled ? "Enabled" : "Paused", color: enabled ? .green : .orange)
                 stat("Memories", "\(recordCount)", color: AppTheme.brandAccent)
-                stat("Injectable", "\(injectableCount)", color: .green)
+                stat("Eligible", "\(injectableCount)", color: .green)
                 stat("Stale", "\(staleCount)", color: .yellow)
             }
         }

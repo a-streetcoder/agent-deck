@@ -1,6 +1,7 @@
 import AppKit
 import ImagePlayground
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
@@ -12,10 +13,17 @@ struct AgentsScreen: View {
     var body: some View {
         HStack(spacing: 0) {
             HSplitView {
-                AgentLibraryPane(viewModel: viewModel, searchText: $searchText)
-                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+                if viewModel.hasCompletedInitialRefresh {
+                    AgentLibraryPane(viewModel: viewModel, searchText: $searchText)
+                        .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+                } else {
+                    AppLoadingView("Loading agents…")
+                        .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+                }
 
-            if let agent = viewModel.selectedAgent {
+            if !viewModel.hasCompletedInitialRefresh {
+                AppLoadingView("Loading agent details…")
+            } else if let agent = viewModel.selectedAgent {
                 AgentDetailView(
                     agent: agent,
                     stateBadge: viewModel.builtinStateBadge(for: agent),
@@ -71,11 +79,23 @@ struct AgentsScreen: View {
     }
 }
 
+private enum AgentAvatarImageGenerationError: LocalizedError {
+    case emptyResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyResponse:
+            return "Image Playground did not return an image."
+        }
+    }
+}
+
 struct AgentAvatarView: View {
     let imageURL: URL?
     let fallbackSystemImage: String
     let color: Color
     var size: CGFloat = 32
+    var bundledImageName: String?
 
     var body: some View {
         ZStack {
@@ -84,7 +104,7 @@ struct AgentAvatarView: View {
             Circle()
                 .stroke(color.opacity(0.18), lineWidth: 1)
 
-            if let nsImage = AgentImageLoader.image(at: imageURL) {
+            if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFill()
@@ -108,6 +128,71 @@ struct AgentAvatarView: View {
             return .title3.weight(.medium)
         default:
             return .title.weight(.medium)
+        }
+    }
+}
+
+private struct AgentAvatarPreviewSheet: View {
+    let agentName: String
+    let imageURL: URL?
+    let bundledImageName: String?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 320, height: 320)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(AppTheme.hairlineStroke, lineWidth: 1)
+                        )
+                } else {
+                    ContentUnavailableView("No Avatar", systemImage: "photo")
+                        .frame(width: 320, height: 320)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(24)
+            .navigationTitle("Avatar")
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(agentName)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .lineLimit(1)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    doneButton
+                }
+            }
+        }
+        .frame(width: 400, height: 430)
+    }
+
+    @ViewBuilder
+    private var doneButton: some View {
+        let button = Button { dismiss() } label: {
+            Image(systemName: "checkmark")
+                .font(.headline.weight(.semibold))
+                .frame(width: 34, height: 28)
+        }
+        .buttonStyle(.borderless)
+        .keyboardShortcut(.defaultAction)
+        .help("Done")
+
+        if #available(macOS 26.0, *) {
+            button
+                .foregroundStyle(AppTheme.brandAccent)
+                .glassEffect(.regular, in: Capsule(style: .continuous))
+        } else {
+            button
+                .foregroundStyle(AppTheme.brandAccent)
+                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
         }
     }
 }
@@ -288,6 +373,16 @@ private struct AgentLibraryPane: View {
         filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
     }
 
+    private func bundledAvatarName(for agent: EffectiveAgentRecord) -> String? {
+        guard agent.builtin != nil else { return nil }
+        switch agent.name {
+        case "coder", "explorer", "planner", "reviewer":
+            return "agent-avatar-\(agent.name)"
+        default:
+            return nil
+        }
+    }
+
     private var filteredAgents: [EffectiveAgentRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return viewModel.filteredAgents }
@@ -308,7 +403,8 @@ private struct AgentLibraryPane: View {
                 imageURL: imageStore.imageURL(for: agent.name),
                 fallbackSystemImage: icon(for: agent),
                 color: color(for: agent),
-                size: 24
+                size: 24,
+                bundledImageName: bundledAvatarName(for: agent)
             )
 
             VStack(alignment: .leading, spacing: 6) {
@@ -484,9 +580,9 @@ private struct AgentDetailView: View {
     @State private var inlineSaveMessage: String?
     @State private var pendingSaveConfirmation: SaveConfirmation?
     @State private var agentPendingRename: EffectiveAgentRecord?
-    @State private var isImagePlaygroundPresented = false
-    @State private var imagePlaygroundPrompt = ""
     @State private var isGeneratingAvatarPrompt = false
+    @State private var isAvatarImporterPresented = false
+    @State private var isAvatarPreviewPresented = false
     @State private var avatarMessage: String?
 
     var body: some View {
@@ -556,76 +652,84 @@ private struct AgentDetailView: View {
                 secondaryButton: .cancel()
             )
         }
-        .imagePlaygroundSheet(
-            isPresented: $isImagePlaygroundPresented,
-            concept: imagePlaygroundPrompt,
-            sourceImage: nil,
-            onCompletion: { url in
-                do {
-                    try imageStore.assignGeneratedImage(from: url, to: agent.name)
-                    avatarMessage = "Updated avatar for \(agent.name)."
-                } catch {
-                    avatarMessage = error.localizedDescription
-                }
-            },
-            onCancellation: { }
-        )
-        .imagePlaygroundGenerationStyle(.illustration, in: [.illustration])
-        .imagePlaygroundPersonalizationPolicy(.disabled)
+        .fileImporter(isPresented: $isAvatarImporterPresented, allowedContentTypes: [.image]) { result in
+            handleAvatarImport(result)
+        }
+        .sheet(isPresented: $isAvatarPreviewPresented) {
+            AgentAvatarPreviewSheet(agentName: agent.name, imageURL: imageStore.imageURL(for: agent.name), bundledImageName: bundledAvatarName)
+        }
     }
 
     private var agentAvatarEditor: some View {
         HStack(alignment: .center, spacing: 14) {
-            AgentAvatarView(
-                imageURL: imageStore.imageURL(for: agent.name),
-                fallbackSystemImage: "rectangle.connected.to.line.below",
-                color: AppTheme.assistantAccent,
-                size: 52
-            )
+            Button {
+                if hasPreviewableAvatar {
+                    isAvatarPreviewPresented = true
+                }
+            } label: {
+                AgentAvatarView(
+                    imageURL: imageStore.imageURL(for: agent.name),
+                    fallbackSystemImage: "rectangle.connected.to.line.below",
+                    color: AppTheme.assistantAccent,
+                    size: 52,
+                    bundledImageName: bundledAvatarName
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(!hasPreviewableAvatar)
+            .help(hasPreviewableAvatar ? "Preview avatar" : "No avatar to preview")
 
             VStack(alignment: .leading, spacing: 5) {
                 Text("Agent Avatar")
                     .font(.body.weight(.semibold))
                     .fontWidth(.expanded)
-                Text("Generate an app-only avatar with Image Playground.")
+                Text(isReadOnlyBuiltinAvatar ? "Bundled avatar included with Agent Deck." : "Generate an app-only avatar with Image Playground or import your own image.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
                 if let avatarMessage {
                     Text(avatarMessage)
                         .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
+                        .foregroundStyle(.red)
                 }
             }
 
             Spacer(minLength: 8)
 
             HStack(spacing: 8) {
-                if imageStore.imageURL(for: agent.name) != nil {
-                    Button("Remove") {
-                        do {
-                            try imageStore.removeImage(for: agent.name)
-                            avatarMessage = "Removed avatar for \(agent.name)."
-                        } catch {
-                            avatarMessage = error.localizedDescription
+                if !isReadOnlyBuiltinAvatar {
+                    if imageStore.imageURL(for: agent.name) != nil {
+                        Button("Remove") {
+                            do {
+                                try imageStore.removeImage(for: agent.name)
+                                avatarMessage = nil
+                            } catch {
+                                avatarMessage = error.localizedDescription
+                            }
+                        }
+                        .controlSize(.small)
+                    } else {
+                        Button("Import…") {
+                            isAvatarImporterPresented = true
+                        }
+                        .controlSize(.small)
+                    }
+
+                    Button {
+                        prepareImagePlaygroundPromptAndPresent()
+                    } label: {
+                        if isGeneratingAvatarPrompt {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text("Generate")
                         }
                     }
                     .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!supportsImagePlayground || isGeneratingAvatarPrompt)
+                    .help(supportsImagePlayground ? "Generate an avatar with Image Playground" : "Image Playground is not available on this Mac")
                 }
-                Button {
-                    prepareImagePlaygroundPromptAndPresent()
-                } label: {
-                    if isGeneratingAvatarPrompt {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Text("Generate")
-                    }
-                }
-                .controlSize(.small)
-                .buttonStyle(.borderedProminent)
-                .disabled(!supportsImagePlayground || isGeneratingAvatarPrompt)
-                .help(supportsImagePlayground ? "Generate an avatar with Image Playground" : "Image Playground is not available on this Mac")
             }
         }
         .padding(.bottom, 12)
@@ -634,39 +738,91 @@ private struct AgentDetailView: View {
     private func prepareImagePlaygroundPromptAndPresent() {
         guard supportsImagePlayground else { return }
         avatarMessage = nil
-        guard shouldAutoGenerateAvatarPrompt else {
-            Task { @MainActor in
-                await presentImagePlayground(with: "")
-            }
-            return
-        }
-
         isGeneratingAvatarPrompt = true
         Task { @MainActor in
-            let prompt: String
+            defer { isGeneratingAvatarPrompt = false }
             do {
-                prompt = try await generatedAvatarPrompt()
+                let prompt = shouldAutoGenerateAvatarPrompt ? try await generatedAvatarPrompt() : fallbackAvatarPrompt
+                do {
+                    try await generateAvatarImage(with: prompt)
+                } catch {
+                    try await generateAvatarImage(with: safeFallbackAvatarPrompt)
+                }
+                avatarMessage = nil
             } catch {
-                prompt = ""
-                avatarMessage = "Could not generate a prompt. You can write one manually in Image Playground."
+                avatarMessage = "Could not generate an avatar: \(error.localizedDescription)"
             }
-            isGeneratingAvatarPrompt = false
-            await presentImagePlayground(with: prompt)
         }
-    }
-
-    private func presentImagePlayground(with prompt: String) async {
-        imagePlaygroundPrompt = prompt
-        await Task.yield()
-        isImagePlaygroundPresented = true
     }
 
     private var shouldAutoGenerateAvatarPrompt: Bool {
         autoGenerateAvatarPrompts
     }
 
+    private var isReadOnlyBuiltinAvatar: Bool {
+        isPlainBuiltin && bundledAvatarName != nil
+    }
+
+    private var bundledAvatarName: String? {
+        guard isPlainBuiltin else { return nil }
+        switch agent.name {
+        case "coder", "explorer", "planner", "reviewer":
+            return "agent-avatar-\(agent.name)"
+        default:
+            return nil
+        }
+    }
+
+    private var hasPreviewableAvatar: Bool {
+        imageStore.imageURL(for: agent.name) != nil || bundledAvatarName != nil
+    }
+
     private func generatedAvatarPrompt() async throws -> String {
         try await generateAvatarPrompt(agent)
+    }
+
+    private var fallbackAvatarPrompt: String {
+        let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let focus = description.isEmpty ? "software development assistant" : description
+        return "\(focus), abstract software development symbol, code brackets and connected nodes, colorful rounded app icon illustration, simple gradient background, high contrast"
+    }
+
+    private var safeFallbackAvatarPrompt: String {
+        "abstract software development symbol, code brackets, connected nodes, colorful rounded app icon illustration, simple gradient background, high contrast"
+    }
+
+    private func generateAvatarImage(with prompt: String) async throws {
+        let creator = try await ImageCreator()
+        let concepts: [ImagePlaygroundConcept] = [.text(prompt)]
+
+        if #available(macOS 26.4, *) {
+            var options = ImagePlaygroundOptions()
+            options.personalization = .disabled
+            for try await image in creator.images(for: concepts, style: .illustration, options: options, limit: 1) {
+                try imageStore.assignGeneratedImage(image.cgImage, to: agent.name)
+                return
+            }
+        } else {
+            for try await image in creator.images(for: concepts, style: .illustration, limit: 1) {
+                try imageStore.assignGeneratedImage(image.cgImage, to: agent.name)
+                return
+            }
+        }
+        throw AgentAvatarImageGenerationError.emptyResponse
+    }
+
+    private func handleAvatarImport(_ result: Result<URL, Error>) {
+        do {
+            let url = try result.get()
+            let shouldStopAccessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if shouldStopAccessing { url.stopAccessingSecurityScopedResource() }
+            }
+            try imageStore.assignGeneratedImage(from: url, to: agent.name)
+            avatarMessage = nil
+        } catch {
+            avatarMessage = "Could not import avatar: \(error.localizedDescription)"
+        }
     }
 
     private var summaryTab: some View {
@@ -777,6 +933,17 @@ private struct AgentDetailView: View {
                             }
 
                             if case .custom = draft.target {
+                                configEditorRow("Default Outcome") {
+                                    Picker("Default Outcome", selection: inlineDefaultExpectedOutcomeBinding()) {
+                                        Text("Unspecified").tag(PiSubagentExpectedOutcome?.none)
+                                        ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
+                                            Text(outcome.displayName).tag(Optional(outcome))
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .frame(maxWidth: 220, alignment: .leading)
+                                }
+
                                 configEditorRow("Progress") {
                                     Toggle("Default progress", isOn: inlineOptionalBoolBinding(for: \.defaultProgress))
                                         .toggleStyle(.switch)
@@ -829,6 +996,7 @@ private struct AgentDetailView: View {
                         readOnlyFieldRow("Prompt Mode", value: agent.resolved.systemPromptMode ?? "—")
                         readOnlyFieldRow("Disabled", value: display(agent.resolved.disabled))
                         readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
+                        readOnlyFieldRow("Default Outcome", value: agent.resolved.defaultExpectedOutcome?.displayName ?? "—")
                         readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
                         readOnlyFieldRow("Default Progress", value: display(agent.resolved.defaultProgress))
                         readOnlyFieldRow("Interactive", value: display(agent.resolved.interactive))
@@ -999,6 +1167,7 @@ private struct AgentDetailView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             readOnlyFieldRow("Extensions", value: extensionsSummary)
                             readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
+                            readOnlyFieldRow("Default Outcome", value: agent.resolved.defaultExpectedOutcome?.displayName ?? "—")
                             readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—", isLast: true)
                         }
 
@@ -1385,6 +1554,7 @@ private struct AgentDetailView: View {
         if let tools = agent.resolved.tools { values["tools"] = tools + (agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" } }
         if let extensions = agent.resolved.extensions { values["extensions"] = extensions }
         if let output = agent.resolved.output { values["output"] = output }
+        if let defaultExpectedOutcome = agent.resolved.defaultExpectedOutcome { values["defaultExpectedOutcome"] = defaultExpectedOutcome.rawValue }
         if let reads = agent.resolved.defaultReads { values["defaultReads"] = reads }
         if let defaultProgress = agent.resolved.defaultProgress { values["defaultProgress"] = defaultProgress }
         if let interactive = agent.resolved.interactive { values["interactive"] = interactive }
@@ -1661,6 +1831,7 @@ private struct AgentDetailView: View {
         add("Extensions", (beforeConfig.extensions ?? []).nonEmptyJoined, (afterConfig.extensions ?? []).nonEmptyJoined)
         add("Skills", beforeConfig.skills.nonEmptyJoined, afterConfig.skills.nonEmptyJoined)
         add("Output", beforeConfig.output ?? "—", afterConfig.output ?? "—")
+        add("Default Outcome", beforeConfig.defaultExpectedOutcome?.displayName ?? "—", afterConfig.defaultExpectedOutcome?.displayName ?? "—")
         add("Default Reads", (beforeConfig.defaultReads ?? []).nonEmptyJoined, (afterConfig.defaultReads ?? []).nonEmptyJoined)
         add("Default Progress", display(beforeConfig.defaultProgress), display(afterConfig.defaultProgress))
         add("Interactive", display(beforeConfig.interactive), display(afterConfig.interactive))
@@ -1730,6 +1901,13 @@ private struct AgentDetailView: View {
         Binding(
             get: { inlineDraft?.config[keyPath: keyPath] ?? "" },
             set: { inlineDraft?.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private func inlineDefaultExpectedOutcomeBinding() -> Binding<PiSubagentExpectedOutcome?> {
+        Binding(
+            get: { inlineDraft?.config.defaultExpectedOutcome },
+            set: { inlineDraft?.config.defaultExpectedOutcome = $0 }
         )
     }
 

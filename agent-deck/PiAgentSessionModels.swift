@@ -270,15 +270,15 @@ struct PiSubagentGraphEdgeRecord: Identifiable, Codable, Hashable {
     var toChildID: UUID
 }
 
-enum PiSubagentExpectedOutcome: String, Codable, Hashable, CaseIterable, Identifiable {
+enum PiSubagentExpectedOutcome: String, Codable, Hashable, CaseIterable, Identifiable, Sendable {
     case reportOnly
     case editFilesInWorktree
     case writeProjectFile
     case directProjectWrites
 
-    var id: String { rawValue }
+    nonisolated var id: String { rawValue }
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .reportOnly: return "Report only"
         case .editFilesInWorktree: return "Edit files in worktree"

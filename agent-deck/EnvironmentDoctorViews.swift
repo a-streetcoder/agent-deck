@@ -673,7 +673,7 @@ struct DoctorScreen: View {
         return rows
     }
 
-    // MARK: - Foundation Models
+    // MARK: - Foundation Model
 
     private var foundationModelSection: some View {
         let isAvailable = FoundationModelAutomationService.isAvailable()
@@ -688,7 +688,7 @@ struct DoctorScreen: View {
                     HStack(spacing: 8) {
                         Image(systemName: "apple.logo")
                             .imageScale(.medium)
-                        Text("Foundation Models")
+                        Text("Foundation Model")
                             .font(.body.weight(.semibold))
                             .fontWidth(.expanded)
                     }
@@ -713,7 +713,7 @@ struct DoctorScreen: View {
     }
 
     private var foundationModelUnavailableDetail: String {
-        "Not currently available to Agent Deck. Apple Foundation Models require Apple Intelligence to be available and enabled on this Mac. Pi chat models are unaffected."
+        "Not currently available to Agent Deck. Apple Foundation Model require Apple Intelligence to be available and enabled on this Mac. Pi chat models are unaffected."
     }
 
     private func foundationModelRows(isAvailable: Bool) -> [(String, String)] {

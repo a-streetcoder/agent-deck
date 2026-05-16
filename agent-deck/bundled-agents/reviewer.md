@@ -5,6 +5,7 @@ whenToUse: Use after meaningful edits, before finalizing risky changes, or when 
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
+defaultExpectedOutcome: reportOnly
 defaultReads: plan.md, progress.md
 ---
 

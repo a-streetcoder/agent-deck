@@ -36,7 +36,22 @@ final class AgentImageStore: ObservableObject {
             try fileManager.removeItem(at: destination)
         }
         try fileManager.copyItem(at: sourceURL, to: destination)
+        try assignImageFile(named: fileName, to: agentName)
+    }
 
+    func assignGeneratedImage(_ cgImage: CGImage, to agentName: String) throws {
+        try fileManager.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
+        let fileName = "\(UUID().uuidString).png"
+        let destination = imagesDirectory.appendingPathComponent(fileName)
+        let bitmap = NSBitmapImageRep(cgImage: cgImage)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try data.write(to: destination, options: .atomic)
+        try assignImageFile(named: fileName, to: agentName)
+    }
+
+    private func assignImageFile(named fileName: String, to agentName: String) throws {
         let key = Self.key(forAgentName: agentName)
         if let oldFileName = assignments[key], oldFileName != fileName {
             try? fileManager.removeItem(at: imagesDirectory.appendingPathComponent(oldFileName))
@@ -83,8 +98,9 @@ private extension JSONEncoder {
 }
 
 struct AgentImageLoader {
-    static func image(at url: URL?) -> NSImage? {
-        guard let url else { return nil }
-        return NSImage(contentsOf: url)
+    static func image(at url: URL?, bundledImageName: String? = nil) -> NSImage? {
+        if let url, let image = NSImage(contentsOf: url) { return image }
+        if let bundledImageName { return NSImage(named: bundledImageName) }
+        return nil
     }
 }

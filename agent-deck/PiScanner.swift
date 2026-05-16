@@ -160,7 +160,7 @@ nonisolated struct PiScanner {
                     filePath: url.path,
                     rawFrontmatter: document.frontmatter,
                     promptBody: document.body,
-                    parsed: AgentConfig(name: name, description: config.description, whenToUse: config.whenToUse, model: config.model, fallbackModels: config.fallbackModels, thinking: config.thinking, systemPromptMode: config.systemPromptMode, inheritSkills: config.inheritSkills, disabled: config.disabled, tools: config.tools, mcpDirectTools: config.mcpDirectTools, extensions: config.extensions, skills: config.skills, output: config.output, defaultReads: config.defaultReads, defaultProgress: config.defaultProgress, interactive: config.interactive, maxSubagentDepth: config.maxSubagentDepth, systemPrompt: config.systemPrompt, unknownFields: config.unknownFields)
+                    parsed: AgentConfig(name: name, description: config.description, whenToUse: config.whenToUse, model: config.model, fallbackModels: config.fallbackModels, thinking: config.thinking, systemPromptMode: config.systemPromptMode, inheritSkills: config.inheritSkills, disabled: config.disabled, tools: config.tools, mcpDirectTools: config.mcpDirectTools, extensions: config.extensions, skills: config.skills, output: config.output, defaultExpectedOutcome: config.defaultExpectedOutcome, defaultReads: config.defaultReads, defaultProgress: config.defaultProgress, interactive: config.interactive, maxSubagentDepth: config.maxSubagentDepth, systemPrompt: config.systemPrompt, unknownFields: config.unknownFields)
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -736,6 +736,9 @@ nonisolated struct PiScanner {
             case "skills":
                 if rawValue as? Bool == false { result.skills = [] }
                 else if let values = splitJSONArray(rawValue) { result.skills = values }
+            case "defaultExpectedOutcome":
+                if let value = rawValue as? String { result.defaultExpectedOutcome = parseExpectedOutcome(value) }
+                else if rawValue as? Bool == false { result.defaultExpectedOutcome = nil }
             case "tools":
                 if rawValue as? Bool == false {
                     result.tools = nil
@@ -871,6 +874,7 @@ nonisolated struct PiScanner {
             extensions: frontmatter.keys.contains("extensions") ? splitList(pop("extensions")) : nil,
             skills: optionalList(skillValue) ?? [],
             output: pop("output"),
+            defaultExpectedOutcome: parseExpectedOutcome(pop("defaultExpectedOutcome")),
             defaultReads: optionalList(pop("defaultReads")),
             defaultProgress: parseBool(pop("defaultProgress")) ?? false,
             interactive: parseBool(pop("interactive")) ?? false,
@@ -878,6 +882,15 @@ nonisolated struct PiScanner {
             systemPrompt: body,
             unknownFields: unknownFields
         )
+    }
+
+    private func parseExpectedOutcome(_ value: String?) -> PiSubagentExpectedOutcome? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !normalized.isEmpty else { return nil }
+        return PiSubagentExpectedOutcome.allCases.first { outcome in
+            outcome.rawValue.lowercased() == normalized ||
+            outcome.displayName.lowercased() == normalized ||
+            outcome.displayName.replacingOccurrences(of: " ", with: "").lowercased() == normalized
+        }
     }
 
     private func parseMarkdownDocument(_ text: String) -> (frontmatter: [String: String], body: String) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
@@ -163,6 +164,15 @@ struct AgentDeckCommands: Commands {
     var body: some Commands {
         SidebarCommands()
         InspectorCommands()
+
+        CommandGroup(replacing: .appInfo) {
+            Button("About \(AppBrand.displayNameWithStatus)") {
+                NSApp.orderFrontStandardAboutPanel(options: [
+                    .applicationName: AppBrand.displayNameWithStatus,
+                    .applicationVersion: AppBrand.marketingVersionWithStatus
+                ])
+            }
+        }
 
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {

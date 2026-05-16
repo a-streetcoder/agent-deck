@@ -247,9 +247,10 @@ final class PiSessionTitleGenerationService {
     - 3 to 7 words
     - Title Case
     - No quotes
-    - No markdown
+    - Plain text only
+    - No markdown formatting, bullets, code fences, heading markers, or emphasis
     - No trailing punctuation
-    - Return only the title
+    - Return only the title text
     """
 
     private static let titleUpdateSystemPrompt = """
@@ -258,7 +259,7 @@ final class PiSessionTitleGenerationService {
     Requirements:
     - If the current title still fits, return exactly: KEEP
     - If the title should change, return only the new title
-    - New titles must be 3 to 7 words, Title Case, no quotes, no markdown, no trailing punctuation
+    - New titles must be 3 to 7 words, Title Case, no quotes, plain text only, no markdown formatting, bullets, code fences, heading markers, or emphasis, no trailing punctuation
     - Prefer the concrete product/code outcome over process wording
     - Do not change titles for minor follow-ups, progress updates, or implementation details
     """

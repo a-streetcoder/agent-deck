@@ -5,6 +5,7 @@ whenToUse: Use for quick reconnaissance when relevant files, architecture, data 
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: low
 systemPromptMode: replace
+defaultExpectedOutcome: reportOnly
 defaultProgress: true
 ---
 

@@ -169,6 +169,9 @@ nonisolated enum PiAgentLaunchResolver {
                 if let value = rawValue as? Bool { result.inheritSkills = value }
             case "disabled":
                 if let value = rawValue as? Bool { result.disabled = value }
+            case "defaultExpectedOutcome":
+                if let value = rawValue as? String { result.defaultExpectedOutcome = parseExpectedOutcome(value) }
+                else if rawValue as? Bool == false { result.defaultExpectedOutcome = nil }
             case "skills":
                 if rawValue as? Bool == false { result.skills = [] }
                 else if let values = splitJSONArray(rawValue) { result.skills = values }
@@ -191,6 +194,15 @@ nonisolated enum PiAgentLaunchResolver {
             }
         }
         return result
+    }
+
+    private static func parseExpectedOutcome(_ value: String?) -> PiSubagentExpectedOutcome? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !normalized.isEmpty else { return nil }
+        return PiSubagentExpectedOutcome.allCases.first { outcome in
+            outcome.rawValue.lowercased() == normalized ||
+            outcome.displayName.lowercased() == normalized ||
+            outcome.displayName.replacingOccurrences(of: " ", with: "").lowercased() == normalized
+        }
     }
 
     private static func splitToolList(_ value: String?) -> (tools: [String]?, mcpDirectTools: [String]?) {

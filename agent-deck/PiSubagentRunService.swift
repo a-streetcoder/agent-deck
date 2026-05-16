@@ -71,16 +71,17 @@ final class PiSubagentRunService {
                 bridgeWarnings.append("contact_supervisor was requested, but \(AppBrand.displayName) could not write the child bridge extension.")
             }
         }
+        let memoryExtensionURL = AppSettingsStore.shared.settings.agentMemoryEnabled ? try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() : nil
         extraArguments.append(contentsOf: toolArguments(
             for: agent,
             includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty,
             includeExaTools: PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
-            includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) && WebFetchDependencyService().status().isInstalled
+            includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) && WebFetchDependencyService().status().isInstalled,
+            includeMemoryTools: memoryExtensionURL != nil
         ))
         extraArguments.append(contentsOf: extensionArguments(for: agent))
-        if AppSettingsStore.shared.settings.agentMemoryEnabled,
-           let memoryURL = try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() {
-            extraArguments.append(contentsOf: ["--extension", memoryURL.path])
+        if let memoryExtensionURL {
+            extraArguments.append(contentsOf: ["--extension", memoryExtensionURL.path])
         }
         if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
             if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
@@ -111,7 +112,7 @@ final class PiSubagentRunService {
         let modelSelection = PiSubagentLaunchPlanner.modelSelection(for: agent, parentSession: parentSession)
         let modelArgument = modelSelection.modelArgument
         let modelDisplayName = modelSelection.displayName
-        let tools = (agent.resolved.tools ?? []).filter { $0 != "contact_supervisor" || bridgeWarnings.isEmpty }
+        let tools = displayTools(for: agent, includeSupervisorTool: bridgeWarnings.isEmpty, includeMemoryTools: memoryExtensionURL != nil)
         let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
         try childInput(agent: agent, task: trimmedTask, readFirstPaths: resolvedReadFirstPaths).write(
             to: artifactDirectory.appendingPathComponent("input.md"),
@@ -864,17 +865,41 @@ final class PiSubagentRunService {
         return ["--system-prompt", prompt, "--append-system-prompt", ""]
     }
 
-    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool, includeExaTools: Bool, includeFallbackWebFetchTool: Bool) -> [String] {
+    private func toolArguments(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool, includeExaTools: Bool, includeFallbackWebFetchTool: Bool, includeMemoryTools: Bool) -> [String] {
         guard let tools = agent.resolved.tools else { return [] }
-        let supportedTools = tools.filter { tool in
+        let supportedTools = resolvedTools(
+            from: tools,
+            includeSupervisorTool: includeSupervisorTool,
+            includeExaTools: includeExaTools,
+            includeFallbackWebFetchTool: includeFallbackWebFetchTool,
+            includeMemoryTools: includeMemoryTools
+        )
+        guard !supportedTools.isEmpty else { return ["--no-tools"] }
+        return ["--tools", supportedTools.joined(separator: ",")]
+    }
+
+    private func displayTools(for agent: EffectiveAgentRecord, includeSupervisorTool: Bool, includeMemoryTools: Bool) -> [String] {
+        resolvedTools(
+            from: agent.resolved.tools ?? [],
+            includeSupervisorTool: includeSupervisorTool,
+            includeExaTools: true,
+            includeFallbackWebFetchTool: true,
+            includeMemoryTools: includeMemoryTools
+        )
+    }
+
+    private func resolvedTools(from tools: [String], includeSupervisorTool: Bool, includeExaTools: Bool, includeFallbackWebFetchTool: Bool, includeMemoryTools: Bool) -> [String] {
+        var result = tools.filter { tool in
             let normalized = tool.lowercased()
             if normalized == "contact_supervisor" { return includeSupervisorTool }
             if PiNativeSubagentBridgeExtensions.exaToolNames.contains(normalized) { return includeExaTools }
             if normalized == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName { return includeFallbackWebFetchTool }
             return true
         }
-        guard !supportedTools.isEmpty else { return ["--no-tools"] }
-        return ["--tools", supportedTools.joined(separator: ",")]
+        if includeMemoryTools {
+            result.append(contentsOf: PiNativeSubagentBridgeExtensions.memoryToolNames)
+        }
+        return distinctPreservingOrder(result)
     }
 
     private func extensionArguments(for agent: EffectiveAgentRecord) -> [String] {
@@ -925,7 +950,7 @@ final class PiSubagentRunService {
     private func initialTaskPrompt(agent: EffectiveAgentRecord, task: String, artifactDirectory: URL, expectedOutcome: PiSubagentExpectedOutcome, requestedOutputPath: String?, allowOverwrite: Bool, useWorktreeIsolation: Bool, readFirstPaths: [String], isContinuation: Bool) -> String {
         var lines: [String] = []
         if isContinuation {
-            lines.append("Delegated continuation: this resumes your existing child session. Prior child messages are available as context, but the task below is the only active assignment.")
+            lines.append("Delegated continuation: this resumes your existing child session. Prior child messages are available as context, but the task below is the only active assignment. The expected outcome below supersedes any previous expected outcome from earlier assignments in this child session.")
         } else {
             lines.append("Delegated assignment: the task below is the only active assignment for this fresh child session. Do not call `managed_subagent` or continue a previous parent tool request.")
         }

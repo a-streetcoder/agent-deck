@@ -5,6 +5,7 @@ whenToUse: Use for non-trivial multi-step work that needs an implementation plan
 tools: read, grep, find, ls, bash, contact_supervisor
 thinking: high
 systemPromptMode: replace
+defaultExpectedOutcome: reportOnly
 defaultReads: context.md
 ---
 

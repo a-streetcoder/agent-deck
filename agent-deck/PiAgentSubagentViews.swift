@@ -271,8 +271,9 @@ struct PiNativeSubagentRunCard: View {
             .controlSize(.small)
         if run.status.isActive {
             Button("Stop", action: onStop)
-                .buttonStyle(PiSubagentStopButtonStyle())
+                .buttonStyle(.bordered)
                 .controlSize(.small)
+                .tint(.red)
         }
     }
 
@@ -475,7 +476,7 @@ struct PiNativeSubagentRunCard: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .appContentSurface(cornerRadius: 14)
     }
 
@@ -546,8 +547,9 @@ struct PiNativeSubagentRunCard: View {
                     Button("Stop") {
                         onStopChild(executionRunID)
                     }
-                    .buttonStyle(PiSubagentStopButtonStyle())
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .tint(.red)
                     .fixedSize(horizontal: true, vertical: false)
                 }
             }
@@ -718,25 +720,6 @@ struct PiNativeSubagentRunCard: View {
         case .stopped, .disconnected:
             return .secondary
         }
-    }
-}
-
-private struct PiSubagentStopButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.red)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.red.opacity(configuration.isPressed ? 0.18 : 0.12))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.red.opacity(configuration.isPressed ? 0.42 : 0.28), lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.82 : 1)
     }
 }
 
@@ -1065,6 +1048,7 @@ struct PiNativeSubagentRunSheet: View {
         let tools: [String]
         let skills: [String]
         let output: String?
+        let defaultExpectedOutcome: PiSubagentExpectedOutcome?
 
         init(agent: EffectiveAgentRecord) {
             description = agent.resolved.description
@@ -1073,6 +1057,7 @@ struct PiNativeSubagentRunSheet: View {
             tools = agent.resolved.tools ?? []
             skills = agent.resolved.skills
             output = agent.resolved.output
+            defaultExpectedOutcome = agent.resolved.defaultExpectedOutcome
         }
     }
 
@@ -1132,6 +1117,7 @@ struct PiNativeSubagentRunSheet: View {
                         subagentInfoLine("Assigned Skills", selectedInfo.skills.isEmpty ? "None" : selectedInfo.skills.joined(separator: ", "))
                         subagentInfoLine("Tools", selectedInfo.tools.isEmpty ? "Default" : selectedInfo.tools.joined(separator: ", "))
                         subagentInfoLine("Output", selectedInfo.output ?? "App artifact")
+                        subagentInfoLine("Default Outcome", selectedInfo.defaultExpectedOutcome?.displayName ?? "Report only")
                     }
                     if selectedInfo.output != nil {
                         Label("Native runs save the final response to app artifacts by default. Project-file output should be explicit in the task.", systemImage: "exclamationmark.triangle")
@@ -1262,6 +1248,7 @@ struct PiNativeSubagentRunSheet: View {
         .onAppear {
             if selectedAgentName.isEmpty {
                 selectedAgentName = agentNames.first ?? ""
+                applySelectedAgentDefaultOutcome()
             }
         }
         .onChange(of: useWorktreeIsolation) { _, enabled in
@@ -1269,6 +1256,7 @@ struct PiNativeSubagentRunSheet: View {
             syncOutcomeSafetyDefaults()
         }
         .onChange(of: expectedOutcome) { _, _ in syncOutcomeSafetyDefaults() }
+        .onChange(of: selectedAgentName) { _, _ in applySelectedAgentDefaultOutcome() }
     }
 
     private var readFirstSuggestionToken: (query: String, range: Range<String.Index>)? {
@@ -1348,6 +1336,11 @@ struct PiNativeSubagentRunSheet: View {
         case .directProjectWrites:
             return allowDirectProjectWrites ? nil : "Direct project writes require explicit approval."
         }
+    }
+
+    private func applySelectedAgentDefaultOutcome() {
+        expectedOutcome = selectedInfo?.defaultExpectedOutcome ?? .reportOnly
+        syncOutcomeSafetyDefaults()
     }
 
     private func syncOutcomeSafetyDefaults() {

@@ -8,10 +8,17 @@ struct PromptsScreen: View {
 
     var body: some View {
         HSplitView {
-            promptLibraryPane
-                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            if viewModel.hasCompletedInitialRefresh {
+                promptLibraryPane
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            } else {
+                AppLoadingView("Loading prompts…")
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            }
 
-            if let prompt = viewModel.selectedPromptTemplate {
+            if !viewModel.hasCompletedInitialRefresh {
+                AppLoadingView("Loading prompt details…")
+            } else if let prompt = viewModel.selectedPromptTemplate {
                 promptDetail(prompt)
             } else {
                 ContentUnavailableView("No Prompt Selected", systemImage: "doc.text")
@@ -28,8 +35,11 @@ struct PromptsScreen: View {
             )
         }
         .onAppear {
-            if viewModel.selectedPromptTemplate == nil {
-                viewModel.selectedCommandItemID = viewModel.allVisiblePromptTemplateRecords.first?.id
+            Task { @MainActor in
+                await Task.yield()
+                if viewModel.selectedPromptTemplate == nil {
+                    viewModel.selectedCommandItemID = viewModel.allVisiblePromptTemplateRecords.first?.id
+                }
             }
         }
     }

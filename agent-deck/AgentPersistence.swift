@@ -108,6 +108,9 @@ struct AgentPersistence {
                 if let value = rawValue as? Bool { result.inheritSkills = value }
             case "disabled":
                 if let value = rawValue as? Bool { result.disabled = value }
+            case "defaultExpectedOutcome":
+                if let value = rawValue as? String { result.defaultExpectedOutcome = parseExpectedOutcome(value) }
+                else if rawValue as? Bool == false { result.defaultExpectedOutcome = nil }
             case "skills":
                 if rawValue as? Bool == false { result.skills = [] }
                 else if let values = splitJSONArray(rawValue) { result.skills = values }
@@ -176,6 +179,7 @@ struct AgentPersistence {
         let basePromptMode = base.systemPromptMode ?? defaultSystemPromptMode(name: base.name)
         if editedPromptMode != basePromptMode { values["systemPromptMode"] = editedPromptMode }
         if edited.disabled != base.disabled { values["disabled"] = edited.disabled ?? false }
+        if edited.defaultExpectedOutcome != base.defaultExpectedOutcome { values["defaultExpectedOutcome"] = edited.defaultExpectedOutcome?.rawValue ?? false }
         if !arraysEqual(edited.skills, base.skills) { values["skills"] = edited.skills.isEmpty ? false : edited.skills }
         let editedToolList = joinedTools(from: edited)
         let baseToolList = joinedTools(from: base)
@@ -243,6 +247,15 @@ struct AgentPersistence {
         try writeJSON(root, to: path)
     }
 
+    private func parseExpectedOutcome(_ value: String?) -> PiSubagentExpectedOutcome? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !normalized.isEmpty else { return nil }
+        return PiSubagentExpectedOutcome.allCases.first { outcome in
+            outcome.rawValue.lowercased() == normalized ||
+            outcome.displayName.lowercased() == normalized ||
+            outcome.displayName.replacingOccurrences(of: " ", with: "").lowercased() == normalized
+        }
+    }
+
     private func splitToolList(_ value: String?) -> (tools: [String]?, mcpDirectTools: [String]?) {
         let items = splitList(value)
         var tools: [String] = []
@@ -285,6 +298,7 @@ struct AgentPersistence {
         if let skills = joinComma(config.skills) { lines.append("skills: \(skills)") }
         if let extensions = config.extensions { lines.append("extensions: \(joinComma(extensions) ?? "")") }
         if let output = config.output { lines.append("output: \(output)") }
+        if let defaultExpectedOutcome = config.defaultExpectedOutcome { lines.append("defaultExpectedOutcome: \(defaultExpectedOutcome.rawValue)") }
         if let defaultReads = joinComma(config.defaultReads) { lines.append("defaultReads: \(defaultReads)") }
         if let defaultProgress = config.defaultProgress, defaultProgress { lines.append("defaultProgress: true") }
         if let interactive = config.interactive, interactive { lines.append("interactive: true") }

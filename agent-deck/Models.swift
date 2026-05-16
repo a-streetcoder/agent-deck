@@ -33,6 +33,7 @@ nonisolated struct AgentConfig: Hashable, Sendable {
     var extensions: [String]?
     var skills: [String]
     var output: String?
+    var defaultExpectedOutcome: PiSubagentExpectedOutcome?
     var defaultReads: [String]?
     var defaultProgress: Bool?
     var interactive: Bool?
@@ -55,6 +56,7 @@ nonisolated struct AgentConfig: Hashable, Sendable {
         extensions: nil,
         skills: [],
         output: nil,
+        defaultExpectedOutcome: nil,
         defaultReads: nil,
         defaultProgress: nil,
         interactive: nil,

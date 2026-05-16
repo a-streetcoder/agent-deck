@@ -82,19 +82,28 @@ struct SkillsScreen: View {
 
     var body: some View {
         HSplitView {
-            skillLibraryContent
-                .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            if viewModel.hasCompletedInitialRefresh {
+                skillLibraryContent
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            } else {
+                AppLoadingView("Loading skills…")
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            }
 
-            AppPage(
-                selectedWarning?.title ?? selectedSkill?.name ?? "Skill Details",
-                subtitle: selectedWarning?.subtitle ?? selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }
-            ) {
-                skillDetailContent
+            if viewModel.hasCompletedInitialRefresh {
+                AppPage(
+                    selectedWarning?.title ?? selectedSkill?.name ?? "Skill Details",
+                    subtitle: selectedWarning?.subtitle ?? selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }
+                ) {
+                    skillDetailContent
+                }
+            } else {
+                AppLoadingView("Loading skill details…")
             }
         }
-        .onAppear { synchronizeSelectionFromViewModel() }
-        .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in synchronizeSelectionFromViewModel() }
-        .onChange(of: viewModel.selectedSkillID) { _, _ in synchronizeSelectionFromViewModel() }
+        .onAppear { scheduleSelectionSynchronization() }
+        .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: viewModel.selectedSkillID) { _, _ in scheduleSelectionSynchronization() }
         .onChange(of: selectedSkillID) { _, id in
             guard viewModel.selectedSkillID != id else { return }
             if id != nil {
@@ -503,6 +512,13 @@ struct SkillsScreen: View {
             get: { selectedSkillID },
             set: { selectedSkillID = $0 }
         )
+    }
+
+    private func scheduleSelectionSynchronization() {
+        Task { @MainActor in
+            await Task.yield()
+            synchronizeSelectionFromViewModel()
+        }
     }
 
     private func synchronizeSelectionFromViewModel() {

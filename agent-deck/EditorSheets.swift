@@ -214,6 +214,12 @@ struct AgentEditorSheet: View {
                             Section("Files") {
                                 TextField("Extensions", text: listBinding(for: \ .extensions))
                                 TextField("Output", text: binding(for: \ .output))
+                                Picker("Default Outcome", selection: defaultExpectedOutcomeBinding()) {
+                                    Text("Unspecified").tag(PiSubagentExpectedOutcome?.none)
+                                    ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
+                                        Text(outcome.displayName).tag(Optional(outcome))
+                                    }
+                                }
                                 TextField("Default Reads", text: listBinding(for: \ .defaultReads))
                                 Toggle("Default Progress", isOn: optionalBoolBinding(for: \ .defaultProgress))
                                 Toggle("Interactive", isOn: optionalBoolBinding(for: \ .interactive))
@@ -498,6 +504,13 @@ struct AgentEditorSheet: View {
         Binding(
             get: { draft.config[keyPath: keyPath] ?? fallback },
             set: { draft.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private func defaultExpectedOutcomeBinding() -> Binding<PiSubagentExpectedOutcome?> {
+        Binding(
+            get: { draft.config.defaultExpectedOutcome },
+            set: { draft.config.defaultExpectedOutcome = $0 }
         )
     }
 

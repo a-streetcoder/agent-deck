@@ -109,6 +109,15 @@ struct ContentView: View {
                     Text("\(AppBrand.displayName)")
                         .font(AppFonts.kemcoPixelBold(size: 18))
                         .foregroundStyle(.primary)
+
+                    Text(AppBrand.betaBadgeText.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .fontWidth(.expanded)
+                        .foregroundStyle(AppTheme.brandAccent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(AppTheme.brandAccent.opacity(0.12), in: Capsule(style: .continuous))
+                        .accessibilityLabel(AppBrand.betaBadgeText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)

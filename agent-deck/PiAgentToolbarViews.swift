@@ -9,15 +9,10 @@ struct PiAgentGitActionsToolbarGroup: View {
     var body: some View {
         ControlGroup {
             Button { commitTapped() } label: {
-                Image(systemName: "checkmark.seal")
-                    .appToolbarIconFrame()
-                    .opacity(viewModel.piAgentGitAutomationAction == .commit ? 0 : 1)
-                    .overlay {
-                        if viewModel.piAgentGitAutomationAction == .commit {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .symbolEffect(.rotate, options: .repeating)
-                        }
-                    }
+                PiAgentGitActionToolbarIcon(
+                    systemName: "checkmark.seal",
+                    isRunning: viewModel.piAgentGitAutomationAction == .commit
+                )
             }
             .accessibilityLabel("Commit")
             .disabled(!viewModel.canCommitSelectedPiAgentSession)
@@ -30,30 +25,20 @@ struct PiAgentGitActionsToolbarGroup: View {
             }
 
             Button { viewModel.pushSelectedPiAgentSession() } label: {
-                Image(systemName: "arrow.up.circle")
-                    .appToolbarIconFrame()
-                    .opacity(viewModel.piAgentGitAutomationAction == .push ? 0 : 1)
-                    .overlay {
-                        if viewModel.piAgentGitAutomationAction == .push {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .symbolEffect(.rotate, options: .repeating)
-                        }
-                    }
+                PiAgentGitActionToolbarIcon(
+                    systemName: "arrow.up.circle",
+                    isRunning: viewModel.piAgentGitAutomationAction == .push
+                )
             }
             .accessibilityLabel("Push")
             .disabled(!viewModel.canPushSelectedPiAgentSession)
             .help("Push committed changes on the selected session's current branch")
 
             Button { commitAndPushTapped() } label: {
-                Image(systemName: "shippingbox.and.arrow.backward")
-                    .appToolbarIconFrame()
-                    .opacity(viewModel.piAgentGitAutomationAction == .commitAndPush ? 0 : 1)
-                    .overlay {
-                        if viewModel.piAgentGitAutomationAction == .commitAndPush {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .symbolEffect(.rotate, options: .repeating)
-                        }
-                    }
+                PiAgentGitActionToolbarIcon(
+                    systemName: "arrow.up.doc",
+                    isRunning: viewModel.piAgentGitAutomationAction == .commitAndPush
+                )
             }
             .accessibilityLabel("Commit & Push")
             .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
@@ -88,6 +73,24 @@ struct PiAgentGitActionsToolbarGroup: View {
         } else {
             viewModel.commitAndPushSelectedPiAgentSession()
         }
+    }
+}
+
+private struct PiAgentGitActionToolbarIcon: View {
+    let systemName: String
+    let isRunning: Bool
+
+    var body: some View {
+        ZStack {
+            Image(systemName: systemName)
+                .opacity(isRunning ? 0 : 1)
+
+            if isRunning {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .symbolEffect(.rotate, options: .repeating)
+            }
+        }
+        .appToolbarIconFrame()
     }
 }
 
@@ -155,7 +158,8 @@ struct PiAgentOpenTerminalToolbarButton: View {
                 viewModel.openSelectedPiAgentSessionInTerminal()
             }
         } label: {
-            Image(systemName: "terminal")
+            Label("Resume in Terminal", systemImage: "terminal")
+                .labelStyle(.iconOnly)
                 .appToolbarIconFrame()
         }
         .accessibilityLabel("Resume in Terminal")

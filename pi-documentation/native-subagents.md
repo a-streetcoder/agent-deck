@@ -29,6 +29,8 @@ Agent Deck includes a small native starter pack in the app bundle. These are glo
 
 The bundled agents use Agent Deck-native jargon and `contact_supervisor(kind, message, title?)` instead of package-specific coordination wording.
 
+Parent sessions are orchestration-first: they should delegate implementation/code edits to `coder` or another suitable engineer agent by default, reserving parent-session edits for trivial low-risk one-off changes.
+
 ## Run model
 
 Every native run has:
@@ -52,11 +54,11 @@ The Run Subagent sheet makes the expected result explicit:
 | Write/update project file | Child writes one explicit project-relative path, usually in a worktree. Existing files require overwrite approval. |
 | Direct project writes | Child may edit the main checkout only after explicit approval. |
 
-Agent `output` frontmatter such as `plan.md` is advisory only. Agent Deck does not automatically write it into the project. To produce a project file, the caller must choose the write/update outcome and provide a project-relative path.
+Agent `defaultExpectedOutcome` frontmatter sets the default for manual and parent-managed runs. Callers can override it for a specific run. Agent `output` frontmatter such as `plan.md` is advisory only; Agent Deck does not automatically write it into the project. To produce a project file, the caller must choose or default to a writing outcome and provide any required project-relative path.
 
 ## Read-first files
 
-Callers can pass files the child should read first. Manual runs expose a “Files to read first” field; `managed_subagent` accepts an optional `reads` array and an optional `continueSubagentID` for direct follow-ups.
+Callers can pass files the child should read first. Manual runs expose a “Files to read first” field; `managed_subagent` accepts an optional `reads` array and an optional `continueSubagentID` for direct follow-ups. Parent-managed runs use the selected agent's `defaultExpectedOutcome`; use `reportOnly` agents for advisory work and `directProjectWrites` only for trusted implementation agents.
 
 Rules:
 

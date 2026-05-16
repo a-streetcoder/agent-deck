@@ -3,6 +3,7 @@ import Foundation
 struct PiNativeSubagentBridgeExtensions {
     nonisolated static let exaToolNames: Set<String> = ["web_search", "fetch_content", "get_search_content"]
     nonisolated static let fallbackWebFetchToolName = "web_fetch"
+    nonisolated static let memoryToolNames: [String] = ["agent_deck_memory_write", "agent_deck_memory_mark_stale"]
 
     static func isExaConfigured(environment: [String: String]) -> Bool {
         environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -323,6 +324,7 @@ struct PiNativeSubagentBridgeExtensions {
                 promptSnippet: "managed_subagent(agent, task, continueSubagentID?): delegate to a \(AppBrand.displayName) native subagent. Omit continueSubagentID to start fresh; provide it for a direct follow-up.",
                 promptGuidelines: [
                     "Use managed_subagent for separable specialist work; keep tasks narrow and include expected output.",
+                    "When delegating approved implementation to coder, expect direct project edits; use explorer, planner, or reviewer for report-only work.",
                     "Native subagents start fresh by default; use continueSubagentID only for direct follow-ups to an existing child session.",
                     "If starting fresh for follow-up work, pass a compact continuity packet instead of assuming prior child memory."
                 ],

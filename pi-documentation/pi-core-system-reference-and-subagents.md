@@ -16,6 +16,7 @@ This is a concise reference for how Agent Deck relates to normal Pi sessions and
    - Launch app-owned child Pi RPC sessions for bounded work.
    - Persist run records, transcripts, artifacts, supervisor requests, graph metadata, and optional worktrees.
    - Use app-generated bridge tools such as `managed_subagent`, `managed_chain`, `managed_parallel`, and `contact_supervisor`.
+   - Keep parent sessions orchestration-first by delegating implementation/code edits to `coder` or another suitable engineer agent by default.
 
 ## Normal Pi sessions
 
@@ -79,12 +80,13 @@ Agent Deck native agents are markdown files with YAML frontmatter. Important fie
 - `extensions`
 - `skills`
 - `output`
+- `defaultExpectedOutcome`
 - `defaultReads`
 - `defaultProgress`
 - `interactive`
 - `maxSubagentDepth`
 
-`output` is advisory for native runs. Project writes require an explicit expected outcome selected by the caller.
+`output` is advisory for native runs. `defaultExpectedOutcome` declares the agent's default run policy (`reportOnly`, `editFilesInWorktree`, `writeProjectFile`, or `directProjectWrites`); callers can still override it for a specific run.
 
 ## Expected outcomes
 

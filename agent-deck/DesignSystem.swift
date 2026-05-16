@@ -21,6 +21,7 @@ enum AppTheme {
     static let contentFill = Color(nsColor: .controlBackgroundColor)
     static let textContentFill = Color(nsColor: .textBackgroundColor)
     static let contentStroke = Color(nsColor: .separatorColor).opacity(0.55)
+    static let hairlineStroke = Color(nsColor: .separatorColor).opacity(0.38)
     static let contentSubtleFill = Color(nsColor: .controlColor).opacity(0.62)
     static let selectionFill = Color.primary.opacity(0.055)
     static let selectionStroke = brandAccent.opacity(0.24)
@@ -56,6 +57,25 @@ enum AppTheme {
     static let cardStroke = contentStroke
     @available(*, deprecated, message: "Use contentSubtleFill or semantic surface helpers based on role.")
     static let subtleFill = contentSubtleFill
+}
+
+struct AppLoadingView: View {
+    let title: String
+
+    init(_ title: String = "Loading…") {
+        self.title = title
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 }
 
 struct AppContentSurface: ViewModifier {

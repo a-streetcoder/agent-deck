@@ -433,7 +433,7 @@ private struct AutomationsSettingsTab: View {
                 SettingsPickerRow(
                     title: "Title model:",
                     selection: titleGenerationModelBinding,
-                    note: "Choose a cheap, fast text model. Apple Foundation Model runs locally and bypasses the hidden Pi helper."
+                    note: "Choose a cheap, fast text model."
                 ) {
                     Text("Default model").tag("")
                     ForEach(viewModel.automationAvailableModels, id: \.identifier) { model in
@@ -487,7 +487,7 @@ private struct AutomationsSettingsTab: View {
                 SettingsToggleRow(
                     title: "Agent avatars:",
                     label: "Generate Image Playground prompts with AI",
-                    note: "Off by default. When enabled, Agent Deck uses the agent frontmatter to draft a short Image Playground prompt before opening the image generator. When disabled, Image Playground opens for manual prompting.",
+                    note: "Off by default. When enabled, Agent Deck uses the agent frontmatter to draft a short prompt before generating an avatar with Image Playground. When disabled, it uses a simple fallback prompt.",
                     isOn: agentAvatarPromptAutomationBinding
                 )
 
@@ -570,7 +570,7 @@ private struct AutomationsSettingsTab: View {
         if identifier == FoundationModelAutomationService.identifier {
             return "Apple Foundation Model runs locally. Other models use a hidden no-thinking Pi helper session."
         }
-        return "Uses the selected model in a hidden no-thinking Pi helper session to draft the Image Playground prompt."
+        return "Uses the selected model in a hidden no-thinking Pi helper session to draft the avatar prompt."
     }
 }
 
