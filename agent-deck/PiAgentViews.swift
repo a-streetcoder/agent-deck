@@ -311,6 +311,10 @@ private struct PiAgentAppKitTranscriptItem {
     }
 }
 
+private enum PiAgentTranscriptTableSection: Hashable {
+    case main
+}
+
 private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     let items: [PiAgentAppKitTranscriptItem]
     let sessionID: UUID?
@@ -325,6 +329,24 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        let tableView = NSTableView()
+        tableView.headerView = nil
+        tableView.backgroundColor = .clear
+        tableView.gridStyleMask = []
+        tableView.selectionHighlightStyle = .none
+        tableView.allowsColumnSelection = false
+        tableView.allowsMultipleSelection = false
+        tableView.allowsEmptySelection = true
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.intercellSpacing = NSSize(width: 0, height: 12)
+        tableView.rowHeight = 120
+        tableView.usesAutomaticRowHeights = false
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("TranscriptColumn"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
@@ -332,362 +354,350 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.scrollerStyle = .overlay
-
-        let documentView = TranscriptDocumentView()
-        documentView.wantsLayer = true
-        documentView.layer?.backgroundColor = NSColor.clear.cgColor
-
-        scrollView.documentView = documentView
-        context.coordinator.documentView = documentView
-        context.coordinator.scrollView = scrollView
-
-        NotificationCenter.default.addObserver(
-            context.coordinator,
-            selector: #selector(Coordinator.boundsDidChange(_:)),
-            name: NSView.boundsDidChangeNotification,
-            object: scrollView.contentView
-        )
+        scrollView.documentView = tableView
         scrollView.contentView.postsBoundsChangedNotifications = true
+
+        context.coordinator.scrollView = scrollView
+        context.coordinator.tableView = tableView
+        context.coordinator.setupDataSource(for: tableView)
+        context.coordinator.setupScrollObservation(scrollView)
+        context.coordinator.updateColumnWidthIfNeeded()
+        context.coordinator.apply(
+            items: items,
+            sessionID: sessionID,
+            renderRevision: renderRevision,
+            streamingRevision: streamingRevision,
+            autoScrollTurnRevision: autoScrollTurnRevision,
+            bottomScrollRequest: bottomScrollRequest
+        )
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.onPinnedToBottomChange = onPinnedToBottomChange
-        let wasPinned = context.coordinator.isPinnedToBottom(scrollView)
-        let isSessionSwitch = context.coordinator.sessionID != sessionID
-        let isStructuralUpdate = context.coordinator.lastRenderRevision != renderRevision
-        context.coordinator.update(
+        let coordinator = context.coordinator
+        coordinator.onPinnedToBottomChange = onPinnedToBottomChange
+        coordinator.updateColumnWidthIfNeeded()
+        coordinator.apply(
             items: items,
-            forceRemeasureVisibleRows: isSessionSwitch || isStructuralUpdate
+            sessionID: sessionID,
+            renderRevision: renderRevision,
+            streamingRevision: streamingRevision,
+            autoScrollTurnRevision: autoScrollTurnRevision,
+            bottomScrollRequest: bottomScrollRequest
         )
-        context.coordinator.updatePinnedState(scrollView)
-
-        if isSessionSwitch {
-            context.coordinator.sessionID = sessionID
-            context.coordinator.lastRenderRevision = renderRevision
-            context.coordinator.lastStreamingRevision = streamingRevision
-            context.coordinator.lastAutoScrollTurnRevision = autoScrollTurnRevision
-            context.coordinator.lastBottomScrollRequest = bottomScrollRequest
-            context.coordinator.scrollToBottom(settle: true, forceRemeasure: true)
-            return
-        }
-
-        if context.coordinator.lastAutoScrollTurnRevision != autoScrollTurnRevision || context.coordinator.lastBottomScrollRequest != bottomScrollRequest {
-            context.coordinator.lastAutoScrollTurnRevision = autoScrollTurnRevision
-            context.coordinator.lastBottomScrollRequest = bottomScrollRequest
-            context.coordinator.scrollToBottom(settle: true, forceRemeasure: true)
-        } else if context.coordinator.lastRenderRevision != renderRevision {
-            context.coordinator.lastRenderRevision = renderRevision
-            guard wasPinned else { return }
-            context.coordinator.scrollToBottom(settle: true, forceRemeasure: true)
-        } else if context.coordinator.lastStreamingRevision != streamingRevision {
-            context.coordinator.lastStreamingRevision = streamingRevision
-            guard wasPinned else { return }
-            context.coordinator.scrollToBottom(settle: false, forceRemeasure: false)
-        }
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        NotificationCenter.default.removeObserver(coordinator)
+        coordinator.invalidate()
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, NSTableViewDelegate {
         weak var scrollView: NSScrollView?
-        weak var documentView: TranscriptDocumentView?
+        weak var tableView: NSTableView?
+        private var dataSource: NSTableViewDiffableDataSource<PiAgentTranscriptTableSection, String>?
+
         var sessionID: UUID?
         var lastRenderRevision = -1
         var lastStreamingRevision = -1
         var lastAutoScrollTurnRevision = -1
         var lastBottomScrollRequest = -1
         var onPinnedToBottomChange: (Bool) -> Void
+
         private var items: [PiAgentAppKitTranscriptItem] = []
+        private var itemByID: [String: PiAgentAppKitTranscriptItem] = [:]
         private var orderedIDs: [String] = []
-        private var heightByID: [String: CGFloat] = [:]
-        private var originYByID: [String: CGFloat] = [:]
         private var contentRevisionByID: [String: Int] = [:]
-        private var hostedViewsByID: [String: TranscriptHostingView] = [:]
-        private var dirtyIDs: Set<String> = []
-        private var isProgrammaticScroll = false
-        private var isLayingOutVisibleRows = false
-        private var pendingScrollWorkItem: DispatchWorkItem?
-        private var settleGeneration = 0
+        private var heightByID: [String: CGFloat] = [:]
+        private var pendingHeightRows = IndexSet()
+        private var pendingHeightWork: DispatchWorkItem?
+        private var pendingScrollWork: DispatchWorkItem?
+        private var boundsObserver: NSObjectProtocol?
         private var lastPinnedState = true
+        private var isProgrammaticScroll = false
         private var contentWidth: CGFloat = 0
-        private var contentHeight: CGFloat = 0
         private let estimatedRowHeight: CGFloat = 120
-        private let rowSpacing: CGFloat = 12
-        private let realizationBuffer: CGFloat = 900
 
         init(onPinnedToBottomChange: @escaping (Bool) -> Void) {
             self.onPinnedToBottomChange = onPinnedToBottomChange
         }
 
-        func update(items: [PiAgentAppKitTranscriptItem], forceRemeasureVisibleRows: Bool) {
-            guard let documentView else { return }
+        func setupDataSource(for tableView: NSTableView) {
+            dataSource = NSTableViewDiffableDataSource<PiAgentTranscriptTableSection, String>(tableView: tableView) { [weak self] tableView, _, row, id in
+                guard let self, let item = self.itemByID[id] else { return NSView() }
+                let cell = (tableView.makeView(withIdentifier: TranscriptTableCellView.reuseIdentifier, owner: nil) as? TranscriptTableCellView)
+                    ?? TranscriptTableCellView(frame: .zero)
+                cell.identifier = TranscriptTableCellView.reuseIdentifier
+                self.configure(cell, with: item, row: row)
+                return cell
+            }
+            tableView.delegate = self
+        }
+
+        func setupScrollObservation(_ scrollView: NSScrollView) {
+            boundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let scrollView = self.scrollView else { return }
+                    if !self.isProgrammaticScroll {
+                        self.pendingScrollWork?.cancel()
+                    }
+                    self.publishPinnedState(self.isPinnedToBottom(scrollView))
+                }
+            }
+        }
+
+        func invalidate() {
+            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+            pendingHeightWork?.cancel()
+            pendingScrollWork?.cancel()
+        }
+
+        func apply(
+            items: [PiAgentAppKitTranscriptItem],
+            sessionID: UUID?,
+            renderRevision: Int,
+            streamingRevision: Int,
+            autoScrollTurnRevision: Int,
+            bottomScrollRequest: Int
+        ) {
+            guard let tableView, let scrollView else { return }
+            let wasPinned = isPinnedToBottom(scrollView)
+            let isSessionSwitch = self.sessionID != sessionID
+            let structuralUpdate = lastRenderRevision != renderRevision
+            let streamingUpdate = lastStreamingRevision != streamingRevision
+            let explicitScroll = lastAutoScrollTurnRevision != autoScrollTurnRevision || lastBottomScrollRequest != bottomScrollRequest
+
+            self.items = items
+            itemByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
             let nextIDs = items.map(\.id)
             let nextRevisions = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.contentRevision) })
-            self.items = items
-            if nextIDs == orderedIDs {
-                if forceRemeasureVisibleRows {
-                    dirtyIDs.formUnion(nextIDs)
-                } else {
-                    dirtyIDs.formUnion(nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] })
+            let idsChanged = nextIDs != orderedIDs
+
+            if isSessionSwitch || idsChanged {
+                if isSessionSwitch {
+                    heightByID.removeAll()
                 }
-                contentRevisionByID = nextRevisions
-                layoutVisibleRows(forceRemeasure: forceRemeasureVisibleRows)
-            } else {
-                let nextIDSet = Set(nextIDs)
-                let removedIDs = Set(orderedIDs).subtracting(nextIDSet)
+                let removedIDs = Set(orderedIDs).subtracting(nextIDs)
                 for id in removedIDs {
                     heightByID[id] = nil
-                    originYByID[id] = nil
                     contentRevisionByID[id] = nil
-                    dirtyIDs.remove(id)
-                    if let hostedView = hostedViewsByID.removeValue(forKey: id) {
-                        hostedView.removeFromSuperview()
-                    }
                 }
                 orderedIDs = nextIDs
                 contentRevisionByID = nextRevisions
-                dirtyIDs.formUnion(nextIDs)
-                recomputeLayout()
-                resizeDocumentView(documentView)
-                layoutVisibleRows(forceRemeasure: true)
+                applySnapshot(ids: nextIDs) { [weak self] in
+                    guard let self else { return }
+                    self.reconfigureVisibleRows(forceRemeasure: true)
+                    self.handleScrollAfterUpdate(isSessionSwitch: isSessionSwitch, explicitScroll: explicitScroll, wasPinned: wasPinned)
+                }
+            } else {
+                let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
+                contentRevisionByID = nextRevisions
+                if structuralUpdate || !changedIDs.isEmpty {
+                    invalidateHeights(for: changedIDs.isEmpty ? nextIDs : changedIDs)
+                    reconfigureRows(withIDs: changedIDs.isEmpty ? nextIDs : changedIDs)
+                } else if streamingUpdate {
+                    reconfigureRows(withIDs: changedIDs)
+                }
+                handleScrollAfterUpdate(isSessionSwitch: false, explicitScroll: explicitScroll, wasPinned: wasPinned)
             }
+
+            self.sessionID = sessionID
+            lastRenderRevision = renderRevision
+            lastStreamingRevision = streamingRevision
+            lastAutoScrollTurnRevision = autoScrollTurnRevision
+            lastBottomScrollRequest = bottomScrollRequest
+            tableView.sizeLastColumnToFit()
         }
 
-        @discardableResult
-        private func updateContentWidthIfNeeded(_ scrollView: NSScrollView) -> Bool {
+        private func applySnapshot(ids: [String], completion: @escaping () -> Void) {
+            var snapshot = NSDiffableDataSourceSnapshot<PiAgentTranscriptTableSection, String>()
+            snapshot.appendSections([.main])
+            snapshot.appendItems(ids, toSection: .main)
+            dataSource?.apply(snapshot, animatingDifferences: false, completion: completion)
+        }
+
+        func updateColumnWidthIfNeeded() {
+            guard let scrollView, let tableView else { return }
             let width = max(200, scrollView.contentView.bounds.width)
-            guard abs(width - contentWidth) > 0.5 else { return false }
+            guard abs(width - contentWidth) > 0.5 else { return }
             contentWidth = width
-            dirtyIDs.formUnion(items.map(\.id))
-            recomputeLayout()
-            if let documentView {
-                resizeDocumentView(documentView)
-            }
-            return true
+            tableView.tableColumns.first?.width = width
+            heightByID.removeAll()
+            reconfigureVisibleRows(forceRemeasure: true)
         }
 
-        @objc func boundsDidChange(_ notification: Notification) {
+        private func reconfigureRows(withIDs ids: [String]) {
+            guard let tableView, !ids.isEmpty else { return }
+            var rows = IndexSet()
+            for id in ids {
+                guard let row = orderedIDs.firstIndex(of: id),
+                      let item = itemByID[id],
+                      let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
+                configure(cell, with: item, row: row)
+                rows.insert(row)
+            }
+            if !rows.isEmpty { noteRowsChanged(rows) }
+        }
+
+        private func reconfigureVisibleRows(forceRemeasure: Bool) {
+            guard let tableView else { return }
+            let visible = tableView.rows(in: tableView.visibleRect)
+            guard visible.length > 0 else { return }
+            var rows = IndexSet()
+            for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
+                let id = orderedIDs[row]
+                guard let item = itemByID[id],
+                      let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
+                if forceRemeasure { heightByID[id] = nil }
+                configure(cell, with: item, row: row)
+                rows.insert(row)
+            }
+            if forceRemeasure, !rows.isEmpty { noteRowsChanged(rows) }
+        }
+
+        private func invalidateHeights(for ids: [String]) {
+            for id in ids { heightByID[id] = nil }
+        }
+
+        private func configure(_ cell: TranscriptTableCellView, with item: PiAgentAppKitTranscriptItem, row: Int) {
+            let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
+            cell.configure(item: item, width: width)
+            measure(cell, itemID: item.id, row: row, width: width)
+        }
+
+        private func measure(_ cell: TranscriptTableCellView, itemID: String, row: Int, width: CGFloat) {
+            let measured = cell.measuredHeight(width: width)
+            guard measured.isFinite, measured > 0 else { return }
+            let height = ceil(measured)
+            let old = heightByID[itemID]
+            heightByID[itemID] = height
+            if abs((old ?? estimatedRowHeight) - height) > 0.5 {
+                scheduleRowsChanged(IndexSet(integer: row))
+            }
+        }
+
+        private func scheduleRowsChanged(_ rows: IndexSet) {
+            pendingHeightRows.formUnion(rows)
+            guard pendingHeightWork == nil else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let rows = self.pendingHeightRows
+                self.pendingHeightRows.removeAll()
+                self.pendingHeightWork = nil
+                self.noteRowsChanged(rows)
+            }
+            pendingHeightWork = work
+            DispatchQueue.main.async(execute: work)
+        }
+
+        private func noteRowsChanged(_ rows: IndexSet) {
+            guard let tableView, !rows.isEmpty else { return }
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            tableView.noteHeightOfRows(withIndexesChanged: rows)
+            NSAnimationContext.endGrouping()
+        }
+
+        private func handleScrollAfterUpdate(isSessionSwitch: Bool, explicitScroll: Bool, wasPinned: Bool) {
             guard let scrollView else { return }
-            layoutVisibleRows(forceRemeasure: false)
-            let pinned = isPinnedToBottom(scrollView)
-            if !pinned, !isProgrammaticScroll {
-                cancelPendingScrolls()
+            if isSessionSwitch || explicitScroll {
+                scrollToBottom(settle: true)
+            } else if wasPinned {
+                scrollToBottom(settle: false)
+            } else {
+                publishPinnedState(isPinnedToBottom(scrollView))
             }
-            publishPinnedState(pinned)
         }
 
-        func updatePinnedState(_ scrollView: NSScrollView) {
-            publishPinnedState(isPinnedToBottom(scrollView))
-        }
-
-        func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
-            guard let documentView = scrollView.documentView else { return true }
-            let visible = scrollView.contentView.bounds
-            let maxY = max(0, documentView.bounds.height - visible.height)
-            return maxY - visible.origin.y < 80
-        }
-
-        func scrollToBottom(settle: Bool, forceRemeasure: Bool) {
-            pendingScrollWorkItem?.cancel()
-            settleGeneration &+= 1
-            let generation = settleGeneration
-            let workItem = DispatchWorkItem { [weak self] in
+        private func scrollToBottom(settle: Bool) {
+            pendingScrollWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
                 guard let self, let scrollView = self.scrollView else { return }
-                self.layoutVisibleRows(forceRemeasure: forceRemeasure)
                 self.performScrollToBottom(scrollView)
                 guard settle else { return }
-                self.scheduleSettleScroll(after: 0.04, generation: generation)
-                self.scheduleSettleScroll(after: 0.14, generation: generation)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    guard let self, let scrollView = self.scrollView else { return }
+                    self.reconfigureVisibleRows(forceRemeasure: true)
+                    self.performScrollToBottom(scrollView)
+                }
             }
-            pendingScrollWorkItem = workItem
-            DispatchQueue.main.async(execute: workItem)
-        }
-
-        private func scheduleSettleScroll(after delay: TimeInterval, generation: Int) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self,
-                      generation == self.settleGeneration,
-                      let scrollView = self.scrollView else { return }
-                self.layoutVisibleRows(forceRemeasure: true)
-                self.performScrollToBottom(scrollView)
-            }
-        }
-
-        private func cancelPendingScrolls() {
-            pendingScrollWorkItem?.cancel()
-            pendingScrollWorkItem = nil
-            settleGeneration &+= 1
+            pendingScrollWork = work
+            DispatchQueue.main.async(execute: work)
         }
 
         private func performScrollToBottom(_ scrollView: NSScrollView) {
-            guard !items.isEmpty else { return }
             guard let documentView = scrollView.documentView else { return }
             documentView.layoutSubtreeIfNeeded()
-            let visibleHeight = scrollView.contentView.bounds.height
-            let maxY = max(0, documentView.bounds.height - visibleHeight)
+            let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
             isProgrammaticScroll = true
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
-            finishProgrammaticScroll()
+            isProgrammaticScroll = false
             publishPinnedState(true)
         }
 
-        private func finishProgrammaticScroll() {
-            isProgrammaticScroll = false
+        private func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
+            guard let documentView = scrollView.documentView else { return true }
+            let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
+            return maxY - scrollView.contentView.bounds.origin.y < 80
         }
 
         private func publishPinnedState(_ pinned: Bool) {
             guard pinned != lastPinnedState else { return }
             lastPinnedState = pinned
-            DispatchQueue.main.async { [weak self] in
-                self?.onPinnedToBottomChange(pinned)
-            }
+            DispatchQueue.main.async { [weak self] in self?.onPinnedToBottomChange(pinned) }
         }
 
-        private func recomputeLayout() {
-            var cursor: CGFloat = 0
-            originYByID.removeAll(keepingCapacity: true)
-            for item in items {
-                originYByID[item.id] = cursor
-                cursor += heightByID[item.id] ?? estimatedRowHeight
-                cursor += rowSpacing
-            }
-            contentHeight = max(1, cursor - rowSpacing)
-        }
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 
-        private func resizeDocumentView(_ documentView: NSView) {
-            let nextFrame = CGRect(x: 0, y: 0, width: contentWidth, height: contentHeight)
-            if documentView.frame != nextFrame {
-                documentView.frame = nextFrame
-            }
-        }
-
-        private func layoutVisibleRows(forceRemeasure: Bool) {
-            guard let scrollView, let documentView, !isLayingOutVisibleRows else { return }
-            isLayingOutVisibleRows = true
-            defer { isLayingOutVisibleRows = false }
-            let wasPinnedBeforeLayout = isPinnedToBottom(scrollView)
-            let widthChanged = updateContentWidthIfNeeded(scrollView)
-            recomputeLayout()
-            resizeDocumentView(documentView)
-            if wasPinnedBeforeLayout && widthChanged {
-                performScrollToBottom(scrollView)
-            }
-
-            let visibleRect = scrollView.contentView.bounds.insetBy(dx: 0, dy: -realizationBuffer)
-            let visibleBounds = scrollView.contentView.bounds
-            var visibleIDs = Set<String>()
-            var didChangeHeight = false
-            var originAdjustment: CGFloat = 0
-
-            for item in items {
-                let y = originYByID[item.id] ?? 0
-                let height = heightByID[item.id] ?? estimatedRowHeight
-                let rowFrame = CGRect(x: 0, y: y, width: contentWidth, height: height)
-                guard rowFrame.intersects(visibleRect) else { continue }
-                visibleIDs.insert(item.id)
-                let hostedView = hostedView(for: item, in: documentView)
-                if forceRemeasure || dirtyIDs.contains(item.id) || heightByID[item.id] == nil {
-                    let measuredHeight = measure(hostedView, item: item)
-                    dirtyIDs.remove(item.id)
-                    heightByID[item.id] = measuredHeight
-                    if abs(measuredHeight - height) > 0.5 {
-                        didChangeHeight = true
-                        if rowFrame.maxY < visibleBounds.minY {
-                            originAdjustment += measuredHeight - height
-                        }
-                    }
-                }
-            }
-
-            if didChangeHeight {
-                recomputeLayout()
-                resizeDocumentView(documentView)
-                if wasPinnedBeforeLayout {
-                    performScrollToBottom(scrollView)
-                } else if abs(originAdjustment) > 0.5 {
-                    let maxY = max(0, contentHeight - scrollView.contentView.bounds.height)
-                    let adjustedY = min(max(0, visibleBounds.origin.y + originAdjustment), maxY)
-                    scrollView.contentView.scroll(to: NSPoint(x: 0, y: adjustedY))
-                    scrollView.reflectScrolledClipView(scrollView.contentView)
-                }
-            }
-
-            for item in items where visibleIDs.contains(item.id) {
-                guard let hostedView = hostedViewsByID[item.id] else { continue }
-                let y = originYByID[item.id] ?? 0
-                let height = heightByID[item.id] ?? estimatedRowHeight
-                let nextFrame = CGRect(x: 0, y: y, width: contentWidth, height: height)
-                if hostedView.frame != nextFrame {
-                    hostedView.frame = nextFrame
-                }
-            }
-
-            let hostedIDsToRemove = hostedViewsByID.keys.filter { !visibleIDs.contains($0) }
-            for id in hostedIDsToRemove {
-                hostedViewsByID[id]?.removeFromSuperview()
-                hostedViewsByID[id] = nil
-            }
-        }
-
-        private func hostedView(for item: PiAgentAppKitTranscriptItem, in documentView: NSView) -> TranscriptHostingView {
-            if let hostedView = hostedViewsByID[item.id] {
-                return hostedView
-            }
-            let hostingView = TranscriptHostingView(rootView: sizedView(for: item))
-            hostingView.translatesAutoresizingMaskIntoConstraints = true
-            hostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            hostingView.onIntrinsicContentSizeInvalidated = { [weak self, weak hostingView] in
-                DispatchQueue.main.async { [weak self, weak hostingView] in
-                    guard let self,
-                          !self.isLayingOutVisibleRows,
-                          let hostingView,
-                          let id = self.hostedViewsByID.first(where: { $0.value === hostingView })?.key else { return }
-                    self.dirtyIDs.insert(id)
-                    self.layoutVisibleRows(forceRemeasure: false)
-                }
-            }
-            documentView.addSubview(hostingView)
-            hostedViewsByID[item.id] = hostingView
-            return hostingView
-        }
-
-        private func sizedView(for item: PiAgentAppKitTranscriptItem) -> AnyView {
-            AnyView(item.view.frame(width: contentWidth, alignment: .topLeading))
-        }
-
-        private func measure(_ hostedView: TranscriptHostingView, item: PiAgentAppKitTranscriptItem) -> CGFloat {
-            hostedView.suppressesIntrinsicInvalidationCallback = true
-            defer { hostedView.suppressesIntrinsicInvalidationCallback = false }
-            hostedView.rootView = sizedView(for: item)
-            hostedView.frame = CGRect(x: 0, y: 0, width: contentWidth, height: heightByID[item.id] ?? estimatedRowHeight)
-            hostedView.invalidateIntrinsicContentSize()
-            hostedView.layoutSubtreeIfNeeded()
-            let fittingHeight = hostedView.fittingSize.height
-            guard fittingHeight.isFinite, fittingHeight > 0 else {
-                return heightByID[item.id] ?? estimatedRowHeight
-            }
-            return ceil(fittingHeight)
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            guard row < orderedIDs.count else { return estimatedRowHeight }
+            return heightByID[orderedIDs[row]] ?? estimatedRowHeight
         }
     }
 
-    final class TranscriptDocumentView: NSView {
-        override var isFlipped: Bool { true }
-    }
+    final class TranscriptTableCellView: NSTableCellView {
+        static let reuseIdentifier = NSUserInterfaceItemIdentifier("PiAgentTranscriptTableCell")
+        private var hostingView: NSHostingView<AnyView>?
 
-    final class TranscriptHostingView: NSHostingView<AnyView> {
-        var onIntrinsicContentSizeInvalidated: (() -> Void)?
-        var suppressesIntrinsicInvalidationCallback = false
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
 
-        override func invalidateIntrinsicContentSize() {
-            super.invalidateIntrinsicContentSize()
-            guard !suppressesIntrinsicInvalidationCallback else { return }
-            onIntrinsicContentSizeInvalidated?()
+        required init?(coder: NSCoder) { fatalError() }
+
+        func configure(item: PiAgentAppKitTranscriptItem, width: CGFloat) {
+            let root = AnyView(item.view.frame(width: width, alignment: .topLeading))
+            if let hostingView {
+                hostingView.rootView = root
+            } else {
+                let hostingView = NSHostingView(rootView: root)
+                hostingView.translatesAutoresizingMaskIntoConstraints = false
+                hostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                addSubview(hostingView)
+                NSLayoutConstraint.activate([
+                    hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                    hostingView.topAnchor.constraint(equalTo: topAnchor),
+                    hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+                ])
+                self.hostingView = hostingView
+            }
+        }
+
+        func measuredHeight(width: CGFloat) -> CGFloat {
+            guard let hostingView else { return 0 }
+            hostingView.frame = CGRect(x: 0, y: 0, width: width, height: max(bounds.height, 1))
+            hostingView.invalidateIntrinsicContentSize()
+            hostingView.layoutSubtreeIfNeeded()
+            return hostingView.fittingSize.height
         }
     }
 }
