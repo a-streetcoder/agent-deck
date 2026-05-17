@@ -1062,13 +1062,26 @@ final class PiAgentRunnerService {
 
     private func scheduleStreamingFlush(sessionID: UUID) {
         guard streamFlushTasksBySessionID[sessionID] == nil else { return }
+        let delay = streamingFlushDelay(for: sessionID)
         streamFlushTasksBySessionID[sessionID] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 80_000_000)
+            try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.streamFlushTasksBySessionID[sessionID] = nil
                 self?.flushStreamingEntries(sessionID: sessionID)
             }
+        }
+    }
+
+    private func streamingFlushDelay(for sessionID: UUID) -> UInt64 {
+        let characterCount = (assistantTextBySessionID[sessionID]?.count ?? 0) + (thinkingTextBySessionID[sessionID]?.count ?? 0)
+        switch characterCount {
+        case 0..<1_000:
+            return 60_000_000
+        case 1_000..<4_000:
+            return 80_000_000
+        default:
+            return 120_000_000
         }
     }
 

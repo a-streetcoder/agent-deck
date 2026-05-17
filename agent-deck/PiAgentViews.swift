@@ -626,8 +626,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func configure(_ cell: TranscriptTableCellView, with item: PiAgentAppKitTranscriptItem, row: Int) {
             let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
-            cell.configure(item: item, width: width)
-            measure(cell, itemID: item.id, row: row, width: width)
+            let changed = cell.configure(item: item, width: width)
+            // Measuring an NSHostingView forces a SwiftUI layout pass. Skip it when
+            // cell content and width are unchanged; the cached row height remains valid.
+            if changed || heightByID[item.id] == nil {
+                measure(cell, itemID: item.id, row: row, width: width)
+            }
         }
 
         private func measure(_ cell: TranscriptTableCellView, itemID: String, row: Int, width: CGFloat) {
@@ -819,9 +823,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError() }
 
-        func configure(item: PiAgentAppKitTranscriptItem, width: CGFloat) {
+        @discardableResult
+        func configure(item: PiAgentAppKitTranscriptItem, width: CGFloat) -> Bool {
             let widthChanged = abs(configuredWidth - width) > 0.5
-            guard configuredItemID != item.id || configuredRevision != item.contentRevision || widthChanged else { return }
+            guard configuredItemID != item.id || configuredRevision != item.contentRevision || widthChanged else { return false }
             configuredItemID = item.id
             configuredRevision = item.contentRevision
             configuredWidth = width
@@ -843,6 +848,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 ])
                 self.hostingView = hostingView
             }
+            return true
         }
 
         func measuredHeight(width: CGFloat) -> CGFloat {

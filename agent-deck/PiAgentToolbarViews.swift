@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
 
+private extension View {
+    /// Keeps every Pi Agent toolbar icon on the same cell footprint so
+    /// ControlGroup spacing doesn't vary by symbol intrinsic size.
+    func piAgentToolbarIconSlot() -> some View {
+        frame(width: 28, height: 22)
+    }
+}
+
 struct PiAgentCommitToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
     @State private var isConfirmationPresented = false
@@ -9,7 +17,7 @@ struct PiAgentCommitToolbarButton: View {
         Button { commitTapped() } label: {
             Label("Commit", systemImage: iconName)
                 .labelStyle(.iconOnly)
-                .appToolbarIconFrame()
+                .piAgentToolbarIconSlot()
                 .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .commit)
         }
         .accessibilityLabel("Commit")
@@ -24,7 +32,7 @@ struct PiAgentCommitToolbarButton: View {
     }
 
     private var iconName: String {
-        viewModel.piAgentGitAutomationAction == .commit ? "arrow.triangle.2.circlepath" : "checkmark.seal"
+        viewModel.piAgentGitAutomationAction == .commit ? "arrow.triangle.2.circlepath" : "checkmark"
     }
 
     private func commitTapped() {
@@ -43,7 +51,7 @@ struct PiAgentPushToolbarButton: View {
         Button { viewModel.pushSelectedPiAgentSession() } label: {
             Label("Push", systemImage: iconName)
                 .labelStyle(.iconOnly)
-                .appToolbarIconFrame()
+                .piAgentToolbarIconSlot()
                 .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .push)
         }
         .accessibilityLabel("Push")
@@ -52,7 +60,7 @@ struct PiAgentPushToolbarButton: View {
     }
 
     private var iconName: String {
-        viewModel.piAgentGitAutomationAction == .push ? "arrow.triangle.2.circlepath" : "arrow.up.circle"
+        viewModel.piAgentGitAutomationAction == .push ? "arrow.triangle.2.circlepath" : "arrow.up"
     }
 }
 
@@ -64,7 +72,7 @@ struct PiAgentCommitAndPushToolbarButton: View {
         Button { commitAndPushTapped() } label: {
             Label("Commit & Push", systemImage: iconName)
                 .labelStyle(.iconOnly)
-                .appToolbarIconFrame()
+                .piAgentToolbarIconSlot()
                 .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
         }
         .accessibilityLabel("Commit & Push")
@@ -105,17 +113,14 @@ struct PiAgentGitHubToolbarButton: View {
         Button {
             isRepoChangesPresented.toggle()
         } label: {
-            Label {
-                Text("Show GitHub panel")
-            } icon: {
+            ZStack {
                 Image("github")
                     .resizable()
                     .renderingMode(.template)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: AppTheme.toolbarAssetIconSize.width, height: AppTheme.toolbarAssetIconSize.height)
             }
-            .labelStyle(.iconOnly)
-            .appToolbarIconFrame()
+            .piAgentToolbarIconSlot()
         }
         .help("Show GitHub panel")
         .accessibilityLabel("Show GitHub panel")
@@ -166,9 +171,10 @@ struct PiAgentOpenTerminalToolbarButton: View {
                 viewModel.openSelectedPiAgentSessionInTerminal()
             }
         } label: {
-            Label("Resume in Terminal", systemImage: "terminal")
-                .labelStyle(.iconOnly)
-                .appToolbarIconFrame()
+            ZStack {
+                Image(systemName: "terminal")
+            }
+            .piAgentToolbarIconSlot()
         }
         .accessibilityLabel("Resume in Terminal")
         .symbolRenderingMode(.monochrome)

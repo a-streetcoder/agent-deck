@@ -489,6 +489,7 @@ struct ContentView: View {
                         } label: {
                             Label("Git Actions", systemImage: "checkmark")
                         }
+                        .toolbarNeutralChrome()
                     }
                     ToolbarSpacer(.fixed, placement: .primaryAction)
                 }
@@ -507,6 +508,7 @@ struct ContentView: View {
                     } label: {
                         Label("External Tools", systemImage: "terminal")
                     }
+                    .toolbarNeutralChrome()
                 }
             }
         }

@@ -166,9 +166,9 @@ struct AgentDeckCommands: Commands {
         InspectorCommands()
 
         CommandGroup(replacing: .appInfo) {
-            Button("About \(AppBrand.displayNameWithStatus)") {
+            Button("About \(AppBrand.displayName)") {
                 NSApp.orderFrontStandardAboutPanel(options: [
-                    .applicationName: AppBrand.displayNameWithStatus,
+                    .applicationName: AppBrand.displayName,
                     .applicationVersion: AppBrand.marketingVersionWithStatus
                 ])
             }

@@ -14,10 +14,6 @@ enum AppBrand {
         return "Agent Deck"
     }
 
-    nonisolated static var displayNameWithStatus: String {
-        "\(displayName) \(betaBadgeText)"
-    }
-
     nonisolated static var marketingVersionWithStatus: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let trimmedVersion = version?.trimmingCharacters(in: .whitespacesAndNewlines)
