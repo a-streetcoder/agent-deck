@@ -482,10 +482,13 @@ struct ContentView: View {
                 if viewModel.shouldShowPiAgentGitActions {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
                     ToolbarItem(placement: .primaryAction) {
-                        PiAgentGitActionsToolbarGroup(viewModel: viewModel)
-                        .symbolRenderingMode(.monochrome)
-                        .foregroundStyle(.primary)
-                        .tint(.primary)
+                        ControlGroup {
+                            PiAgentCommitToolbarButton(viewModel: viewModel)
+                            PiAgentPushToolbarButton(viewModel: viewModel)
+                            PiAgentCommitAndPushToolbarButton(viewModel: viewModel)
+                        } label: {
+                            Label("Git Actions", systemImage: "checkmark")
+                        }
                     }
                     ToolbarSpacer(.fixed, placement: .primaryAction)
                 }
@@ -501,10 +504,9 @@ struct ContentView: View {
                             viewModel: viewModel,
                             store: viewModel.piAgentSessionStore
                         )
+                    } label: {
+                        Label("External Tools", systemImage: "terminal")
                     }
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.primary)
-                    .tint(.primary)
                 }
             }
         }

@@ -356,6 +356,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         scrollView.scrollerStyle = .overlay
         scrollView.documentView = tableView
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.postsFrameChangedNotifications = true
 
         context.coordinator.scrollView = scrollView
         context.coordinator.tableView = tableView
@@ -414,9 +415,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var pendingHeightWork: DispatchWorkItem?
         private var pendingScrollWork: DispatchWorkItem?
         private var pendingSettleScrollWork: DispatchWorkItem?
+        private var pendingRemeasureWork: DispatchWorkItem?
         private var pendingScrollSettle = false
         private var pendingWidthWork: DispatchWorkItem?
         private var boundsObserver: NSObjectProtocol?
+        private var frameObserver: NSObjectProtocol?
         private var lastPinnedState = true
         private var isProgrammaticScroll = false
         private var contentWidth: CGFloat = 0
@@ -452,7 +455,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let scrollView = self.scrollView else { return }
-                    self.updateColumnWidthIfNeeded()
                     if !self.isProgrammaticScroll {
                         self.pendingScrollWork?.cancel()
                         self.pendingScrollWork = nil
@@ -463,13 +465,25 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     self.publishPinnedState(self.isPinnedToBottom(scrollView))
                 }
             }
+
+            frameObserver = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateColumnWidthIfNeeded()
+                }
+            }
         }
 
         func invalidate() {
             if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+            if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
             pendingHeightWork?.cancel()
             pendingScrollWork?.cancel()
             pendingSettleScrollWork?.cancel()
+            pendingRemeasureWork?.cancel()
             pendingWidthWork?.cancel()
         }
 
@@ -517,6 +531,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     self.reconfigureVisibleRows(forceRemeasure: true)
                     self.restoreScrollAnchorIfNeeded(anchor)
                     self.handleScrollAfterUpdate(isSessionSwitch: isSessionSwitch, explicitScroll: explicitScroll, wasPinned: wasPinned)
+                    self.scheduleVisibleRemeasure()
                 }
             } else {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
@@ -573,6 +588,20 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 rows.insert(row)
             }
             if !rows.isEmpty { scheduleHeightChanged(forRows: rows) }
+        }
+
+        private func scheduleVisibleRemeasure() {
+            pendingRemeasureWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingRemeasureWork = nil
+                self.reconfigureVisibleRows(forceRemeasure: true)
+                if let scrollView = self.scrollView, self.isPinnedToBottom(scrollView) {
+                    self.performScrollToBottom(scrollView)
+                }
+            }
+            pendingRemeasureWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: work)
         }
 
         private func reconfigureVisibleRows(forceRemeasure: Bool) {
@@ -778,6 +807,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     final class TranscriptTableCellView: NSTableCellView {
         static let reuseIdentifier = NSUserInterfaceItemIdentifier("PiAgentTranscriptTableCell")
         private var hostingView: NSHostingView<AnyView>?
+        private var configuredItemID: String?
+        private var configuredRevision: Int?
+        private var configuredWidth: CGFloat = 0
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -788,6 +820,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         required init?(coder: NSCoder) { fatalError() }
 
         func configure(item: PiAgentAppKitTranscriptItem, width: CGFloat) {
+            let widthChanged = abs(configuredWidth - width) > 0.5
+            guard configuredItemID != item.id || configuredRevision != item.contentRevision || widthChanged else { return }
+            configuredItemID = item.id
+            configuredRevision = item.contentRevision
+            configuredWidth = width
+
             let root = AnyView(item.view.frame(width: width, alignment: .topLeading))
             if let hostingView {
                 hostingView.rootView = root

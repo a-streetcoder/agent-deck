@@ -17,7 +17,8 @@ struct MarkdownTextView: View {
     let source: String
 
     var body: some View {
-        let document = MarkdownRenderCache.document(for: source)
+        let displaySource = StreamingMarkdownBalancer.balance(source)
+        let document = MarkdownRenderCache.document(for: displaySource)
 
         VStack(alignment: .leading, spacing: document.frontmatter == nil ? 8 : 12) {
             if let frontmatter = document.frontmatter, !frontmatter.isEmpty {
@@ -150,6 +151,98 @@ private enum MarkdownInlineRenderCache {
 private struct CachedMarkdownDocument: Sendable {
     let frontmatter: String?
     let blocks: [MarkdownBlock]
+}
+
+private enum StreamingMarkdownBalancer {
+    static func balance(_ text: String) -> String {
+        let parts = text.components(separatedBy: "```")
+        guard parts.count > 1 || !text.isEmpty else { return text }
+        let endsInsideOpenFence = parts.count % 2 == 0
+        let lastOutsideIndex = endsInsideOpenFence ? nil : parts.count - 1
+
+        var rebuilt = ""
+        for (index, part) in parts.enumerated() {
+            if index > 0 { rebuilt += "```" }
+            rebuilt += index == lastOutsideIndex ? balanceTrailingParagraph(part) : part
+        }
+        return rebuilt
+    }
+
+    private static func balanceTrailingParagraph(_ segment: String) -> String {
+        guard let range = segment.range(of: "\n\n", options: .backwards) else {
+            return balanceParagraph(segment)
+        }
+        return String(segment[..<range.upperBound]) + balanceParagraph(String(segment[range.upperBound...]))
+    }
+
+    private static func balanceParagraph(_ paragraph: String) -> String {
+        var body = stripIncompleteTrailingListMarkerLine(paragraph)
+        let trailingWhitespace = trailingWhitespace(in: body)
+        body.removeLast(trailingWhitespace.count)
+        body = stripFreshlyOpenedTrailingMarker(body)
+        body = stripIncompleteTrailingListMarkerLine(body)
+        if body.filter({ $0 == "`" }).count % 2 == 1 { body += "`" }
+        if doubleAsteriskCount(in: body) % 2 == 1 { body += "**" }
+        return body + String(trailingWhitespace)
+    }
+
+    private static func trailingWhitespace(in source: String) -> Substring {
+        var start = source.endIndex
+        while start > source.startIndex {
+            let previous = source.index(before: start)
+            guard source[previous] == " " || source[previous] == "\t" || source[previous] == "\n" else { break }
+            start = previous
+        }
+        return source[start..<source.endIndex]
+    }
+
+    private static func stripIncompleteTrailingListMarkerLine(_ source: String) -> String {
+        var end = source.endIndex
+        while end > source.startIndex {
+            let previous = source.index(before: end)
+            guard source[previous].isWhitespace else { break }
+            end = previous
+        }
+        guard end > source.startIndex else { return source }
+        let lineStart = source.range(of: "\n", options: .backwards, range: source.startIndex..<end)?.upperBound ?? source.startIndex
+        let marker = source[lineStart..<end].trimmingCharacters(in: .whitespaces)
+        guard marker == "-" || marker == "*" || marker == "+" || isOrderedListMarker(marker) else { return source }
+        let dropFrom = lineStart > source.startIndex ? source.index(before: lineStart) : source.startIndex
+        return String(source[..<dropFrom])
+    }
+
+    private static func isOrderedListMarker(_ marker: String) -> Bool {
+        guard marker.count >= 2, let last = marker.last, last == "." || last == ")" else { return false }
+        return marker.dropLast().allSatisfy(\.isNumber)
+    }
+
+    private static func stripFreshlyOpenedTrailingMarker(_ source: String) -> String {
+        guard let last = source.last, last == "*" || last == "`" else { return source }
+        var start = source.endIndex
+        var cursor = source.endIndex
+        while cursor > source.startIndex {
+            let previous = source.index(before: cursor)
+            guard source[previous] == last else { break }
+            start = previous
+            cursor = previous
+        }
+        let length = source.distance(from: start, to: source.endIndex)
+        guard length == 1 || length == 2 else { return source }
+        if start == source.startIndex || source[source.index(before: start)].isWhitespace {
+            return String(source[..<start])
+        }
+        return source
+    }
+
+    private static func doubleAsteriskCount(in source: String) -> Int {
+        var count = 0
+        var cursor = source.startIndex
+        while let range = source.range(of: "**", range: cursor..<source.endIndex) {
+            count += 1
+            cursor = range.upperBound
+        }
+        return count
+    }
 }
 
 @MainActor

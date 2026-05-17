@@ -1,97 +1,100 @@
 import AppKit
 import SwiftUI
 
-struct PiAgentGitActionsToolbarGroup: View {
+struct PiAgentCommitToolbarButton: View {
     @ObservedObject var viewModel: AppViewModel
-    @State private var isCommitConfirmationPresented = false
-    @State private var isCommitAndPushConfirmationPresented = false
+    @State private var isConfirmationPresented = false
 
     var body: some View {
-        ControlGroup {
-            Button { commitTapped() } label: {
-                PiAgentGitActionToolbarIcon(
-                    systemName: "checkmark.seal",
-                    isRunning: viewModel.piAgentGitAutomationAction == .commit
-                )
-            }
-            .accessibilityLabel("Commit")
-            .disabled(!viewModel.canCommitSelectedPiAgentSession)
-            .help("Stage all changes and create a commit with an AI-generated title and description")
-            .alert("Commit all changes?", isPresented: $isCommitConfirmationPresented) {
-                Button("Commit All Changes") { viewModel.commitSelectedPiAgentSession() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(alertMessage(for: .commit))
-            }
-
-            Button { viewModel.pushSelectedPiAgentSession() } label: {
-                PiAgentGitActionToolbarIcon(
-                    systemName: "arrow.up.circle",
-                    isRunning: viewModel.piAgentGitAutomationAction == .push
-                )
-            }
-            .accessibilityLabel("Push")
-            .disabled(!viewModel.canPushSelectedPiAgentSession)
-            .help("Push committed changes on the selected session's current branch")
-
-            Button { commitAndPushTapped() } label: {
-                PiAgentGitActionToolbarIcon(
-                    systemName: "arrow.up.doc",
-                    isRunning: viewModel.piAgentGitAutomationAction == .commitAndPush
-                )
-            }
-            .accessibilityLabel("Commit & Push")
-            .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
-            .help("Stage all changes, commit, and push the selected session's current branch")
-            .alert("Commit and push all changes?", isPresented: $isCommitAndPushConfirmationPresented) {
-                Button("Commit & Push All Changes") { viewModel.commitAndPushSelectedPiAgentSession() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(alertMessage(for: .commitAndPush))
-            }
-
+        Button { commitTapped() } label: {
+            Label("Commit", systemImage: iconName)
+                .labelStyle(.iconOnly)
+                .appToolbarIconFrame()
+                .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .commit)
+        }
+        .accessibilityLabel("Commit")
+        .disabled(!viewModel.canCommitSelectedPiAgentSession)
+        .help("Stage all changes and create a commit with an AI-generated title and description")
+        .alert("Commit all changes?", isPresented: $isConfirmationPresented) {
+            Button("Commit All Changes") { viewModel.commitSelectedPiAgentSession() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(piAgentGitAlertMessage(for: .commit, viewModel: viewModel))
         }
     }
 
-    private func alertMessage(for action: PiAgentGitAction) -> String {
-        guard let session = viewModel.piAgentSessionStore.selectedSession else { return action.alertMessage }
-        let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
-        return "Repository: \(repoName)\n\n\(action.alertMessage)"
+    private var iconName: String {
+        viewModel.piAgentGitAutomationAction == .commit ? "arrow.triangle.2.circlepath" : "checkmark.seal"
     }
 
     private func commitTapped() {
         if viewModel.appSettings.piAgentGitAutomationRequiresConfirmation {
-            isCommitConfirmationPresented = true
+            isConfirmationPresented = true
         } else {
             viewModel.commitSelectedPiAgentSession()
         }
     }
+}
+
+struct PiAgentPushToolbarButton: View {
+    @ObservedObject var viewModel: AppViewModel
+
+    var body: some View {
+        Button { viewModel.pushSelectedPiAgentSession() } label: {
+            Label("Push", systemImage: iconName)
+                .labelStyle(.iconOnly)
+                .appToolbarIconFrame()
+                .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .push)
+        }
+        .accessibilityLabel("Push")
+        .disabled(!viewModel.canPushSelectedPiAgentSession)
+        .help("Push committed changes on the selected session's current branch")
+    }
+
+    private var iconName: String {
+        viewModel.piAgentGitAutomationAction == .push ? "arrow.triangle.2.circlepath" : "arrow.up.circle"
+    }
+}
+
+struct PiAgentCommitAndPushToolbarButton: View {
+    @ObservedObject var viewModel: AppViewModel
+    @State private var isConfirmationPresented = false
+
+    var body: some View {
+        Button { commitAndPushTapped() } label: {
+            Label("Commit & Push", systemImage: iconName)
+                .labelStyle(.iconOnly)
+                .appToolbarIconFrame()
+                .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
+        }
+        .accessibilityLabel("Commit & Push")
+        .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
+        .help("Stage all changes, commit, and push the selected session's current branch")
+        .alert("Commit and push all changes?", isPresented: $isConfirmationPresented) {
+            Button("Commit & Push All Changes") { viewModel.commitAndPushSelectedPiAgentSession() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(piAgentGitAlertMessage(for: .commitAndPush, viewModel: viewModel))
+        }
+    }
+
+    private var iconName: String {
+        viewModel.piAgentGitAutomationAction == .commitAndPush ? "arrow.triangle.2.circlepath" : "arrow.up.doc"
+    }
 
     private func commitAndPushTapped() {
         if viewModel.appSettings.piAgentGitAutomationRequiresConfirmation {
-            isCommitAndPushConfirmationPresented = true
+            isConfirmationPresented = true
         } else {
             viewModel.commitAndPushSelectedPiAgentSession()
         }
     }
 }
 
-private struct PiAgentGitActionToolbarIcon: View {
-    let systemName: String
-    let isRunning: Bool
-
-    var body: some View {
-        ZStack {
-            Image(systemName: systemName)
-                .opacity(isRunning ? 0 : 1)
-
-            if isRunning {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .symbolEffect(.rotate, options: .repeating)
-            }
-        }
-        .appToolbarIconFrame()
-    }
+private func piAgentGitAlertMessage(for action: PiAgentGitAction, viewModel: AppViewModel) -> String {
+    guard let session = viewModel.piAgentSessionStore.selectedSession else { return action.alertMessage }
+    let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
+    return "Repository: \(repoName)\n\n\(action.alertMessage)"
 }
 
 struct PiAgentGitHubToolbarButton: View {
@@ -102,12 +105,17 @@ struct PiAgentGitHubToolbarButton: View {
         Button {
             isRepoChangesPresented.toggle()
         } label: {
-            Image("github")
-                .resizable()
-                .renderingMode(.template)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: AppTheme.toolbarAssetIconSize.width, height: AppTheme.toolbarAssetIconSize.height)
-                .appToolbarIconFrame()
+            Label {
+                Text("Show GitHub panel")
+            } icon: {
+                Image("github")
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: AppTheme.toolbarAssetIconSize.width, height: AppTheme.toolbarAssetIconSize.height)
+            }
+            .labelStyle(.iconOnly)
+            .appToolbarIconFrame()
         }
         .help("Show GitHub panel")
         .accessibilityLabel("Show GitHub panel")
