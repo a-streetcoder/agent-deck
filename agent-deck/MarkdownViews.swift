@@ -111,6 +111,334 @@ struct MarkdownTextView: View {
     }
 }
 
+private struct NativeMarkdownTextView: NSViewRepresentable {
+    let document: CachedMarkdownDocument
+    @Binding var measuredHeight: CGFloat
+
+    func makeNSView(context: Context) -> NativeMarkdownTextContainer {
+        let view = NativeMarkdownTextContainer()
+        view.onHeightChange = { height in
+            if abs(measuredHeight - height) > 0.5 {
+                measuredHeight = height
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NativeMarkdownTextContainer, context: Context) {
+        nsView.onHeightChange = { height in
+            if abs(measuredHeight - height) > 0.5 {
+                measuredHeight = height
+            }
+        }
+        nsView.configure(document: document)
+    }
+
+    static func dismantleNSView(_ nsView: NativeMarkdownTextContainer, coordinator: ()) {
+        nsView.dismantle()
+    }
+}
+
+private final class NativeMarkdownTextContainer: NSView {
+    private let stackView = NSStackView()
+    private var lastDocument: CachedMarkdownDocument?
+    private var widthConstraint: NSLayoutConstraint?
+    private var pendingHeightMeasurement = false
+    private var isDismantled = false
+    private var lastMeasuredWidth: CGFloat = 0
+    private var lastMeasuredHeight: CGFloat = 0
+    var onHeightChange: ((CGFloat) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        setupStackView()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+
+    private func setupStackView() {
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.orientation = .vertical
+        stackView.alignment = .width
+        stackView.distribution = .gravityAreas
+        stackView.spacing = 8
+        addSubview(stackView)
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    func configure(document: CachedMarkdownDocument) {
+        isDismantled = false
+        if document != lastDocument {
+            lastDocument = document
+            rebuild(document: document)
+        }
+        scheduleHeightMeasurement()
+    }
+
+    func dismantle() {
+        isDismantled = true
+        onHeightChange = nil
+    }
+
+    override func layout() {
+        super.layout()
+        scheduleHeightMeasurement()
+    }
+
+    private func rebuild(document: CachedMarkdownDocument) {
+        stackView.arrangedSubviews.forEach { view in
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        stackView.spacing = document.frontmatter == nil ? 8 : 12
+
+        if let frontmatter = document.frontmatter, !frontmatter.isEmpty {
+            let frontmatterView = Self.paddedTextBlock(
+                frontmatter,
+                font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+                color: .secondaryLabelColor,
+                fill: NSColor.controlColor.withAlphaComponent(0.62),
+                cornerRadius: 6,
+                padding: NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+            )
+            stackView.addArrangedSubview(frontmatterView)
+        }
+
+        for block in document.blocks {
+            stackView.addArrangedSubview(Self.view(for: block))
+        }
+    }
+
+    private func scheduleHeightMeasurement() {
+        guard !isDismantled else { return }
+        guard !pendingHeightMeasurement else { return }
+        pendingHeightMeasurement = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingHeightMeasurement = false
+            guard !self.isDismantled else { return }
+            self.measureHeight()
+        }
+    }
+
+    private func measureHeight() {
+        guard !isDismantled else { return }
+        guard bounds.width > 0.5 else { return }
+        let width = bounds.width.rounded(.up)
+        if let widthConstraint {
+            widthConstraint.constant = width
+        } else {
+            let constraint = stackView.widthAnchor.constraint(equalToConstant: width)
+            constraint.priority = .required
+            constraint.isActive = true
+            widthConstraint = constraint
+        }
+
+        guard abs(lastMeasuredWidth - width) > 0.5 || lastDocument != nil else { return }
+        let height = ceil(stackView.fittingSize.height)
+        guard abs(lastMeasuredHeight - height) > 0.5 || abs(lastMeasuredWidth - width) > 0.5 else { return }
+        lastMeasuredWidth = width
+        lastMeasuredHeight = height
+        onHeightChange?(max(1, height))
+    }
+
+    private static func view(for block: MarkdownBlock) -> NSView {
+        switch block.kind {
+        case let .heading(level, text):
+            let font: NSFont = level <= 1 ? .systemFont(ofSize: 20, weight: .bold) : .systemFont(ofSize: 13, weight: .semibold)
+            let view = textView(text, font: font, color: .labelColor)
+            view.setContentHuggingPriority(.required, for: .vertical)
+            return paddedBlock(view, padding: NSEdgeInsets(top: level <= 2 ? 4 : 2, left: 0, bottom: 0, right: 0))
+        case let .paragraph(text):
+            return textView(text, font: .systemFont(ofSize: NSFont.systemFontSize), color: .labelColor)
+        case let .bullet(text, indentLevel):
+            return listRow(marker: bulletMarker(for: indentLevel), text: text, indentLevel: indentLevel, markerWidth: 18)
+        case let .numbered(number, text, indentLevel):
+            return listRow(marker: "\(number).", text: text, indentLevel: indentLevel, markerWidth: 22)
+        case let .quote(text):
+            return quoteBlock(text)
+        case let .code(text):
+            return paddedTextBlock(
+                text,
+                font: .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                color: .labelColor,
+                fill: NSColor.controlColor.withAlphaComponent(0.62),
+                cornerRadius: 10,
+                padding: NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+            )
+        }
+    }
+
+    private static func listRow(marker: String, text: String, indentLevel: Int, markerWidth: CGFloat) -> NSView {
+        let row = NSStackView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 0, left: CGFloat(max(indentLevel, 0)) * 22, bottom: 0, right: 0)
+
+        let markerView = NSTextField(labelWithString: marker)
+        markerView.translatesAutoresizingMaskIntoConstraints = false
+        markerView.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        markerView.textColor = .secondaryLabelColor
+        markerView.alignment = .right
+        markerView.setContentHuggingPriority(.required, for: .horizontal)
+        markerView.widthAnchor.constraint(greaterThanOrEqualToConstant: markerWidth).isActive = true
+
+        let body = textView(text, font: .systemFont(ofSize: NSFont.systemFontSize), color: .labelColor)
+        row.addArrangedSubview(markerView)
+        row.addArrangedSubview(body)
+        body.widthAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
+        return row
+    }
+
+    private static func quoteBlock(_ text: String) -> NSView {
+        let row = NSStackView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 9
+
+        let bar = NSView()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
+        bar.layer?.cornerRadius = 1
+        bar.widthAnchor.constraint(equalToConstant: 3).isActive = true
+
+        let body = textView(text, font: .systemFont(ofSize: NSFont.systemFontSize), color: .secondaryLabelColor)
+        row.addArrangedSubview(bar)
+        row.addArrangedSubview(body)
+        return row
+    }
+
+    private static func paddedTextBlock(_ source: String, font: NSFont, color: NSColor, fill: NSColor, cornerRadius: CGFloat, padding: NSEdgeInsets) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.wantsLayer = true
+        container.layer?.backgroundColor = fill.cgColor
+        container.layer?.cornerRadius = cornerRadius
+        container.layer?.masksToBounds = true
+
+        let text = textView(source, font: font, color: color, parseInlineMarkdown: false)
+        container.addSubview(text)
+        NSLayoutConstraint.activate([
+            text.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: padding.left),
+            text.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -padding.right),
+            text.topAnchor.constraint(equalTo: container.topAnchor, constant: padding.top),
+            text.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -padding.bottom)
+        ])
+        return container
+    }
+
+    private static func paddedBlock(_ view: NSView, padding: NSEdgeInsets) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: padding.left),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -padding.right),
+            view.topAnchor.constraint(equalTo: container.topAnchor, constant: padding.top),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -padding.bottom)
+        ])
+        return container
+    }
+
+    private static func textView(_ source: String, font: NSFont, color: NSColor, parseInlineMarkdown: Bool = true) -> NSTextView {
+        let textView = AutoSizingMarkdownTextView(frame: .zero)
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.allowsUndo = false
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.textStorage?.setAttributedString(attributedString(source, font: font, color: color, parseInlineMarkdown: parseInlineMarkdown))
+        return textView
+    }
+
+    private static func attributedString(_ source: String, font: NSFont, color: NSColor, parseInlineMarkdown: Bool) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+        guard parseInlineMarkdown,
+              let attributed = try? AttributedString(
+                markdown: source,
+                options: AttributedString.MarkdownParsingOptions(
+                    interpretedSyntax: .inlineOnlyPreservingWhitespace,
+                    failurePolicy: .returnPartiallyParsedIfPossible
+                )
+              ) else {
+            return NSAttributedString(string: source, attributes: base)
+        }
+
+        let mutable = NSMutableAttributedString(attributedString: NSAttributedString(attributed))
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
+        mutable.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
+        applyBaseFont(font, preservingInlineTraitsIn: mutable)
+        return mutable
+    }
+
+    private static func applyBaseFont(_ baseFont: NSFont, preservingInlineTraitsIn attributed: NSMutableAttributedString) {
+        let manager = NSFontManager.shared
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
+            var replacement = baseFont
+            if let current = value as? NSFont {
+                let traits = manager.traits(of: current)
+                if traits.contains(.boldFontMask) {
+                    replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
+                }
+                if traits.contains(.italicFontMask) {
+                    replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
+                }
+            }
+            attributed.addAttribute(.font, value: replacement, range: range)
+        }
+    }
+
+    private static func bulletMarker(for level: Int) -> String {
+        switch max(level, 0) % 3 {
+        case 1: return "◦"
+        case 2: return "▪"
+        default: return "•"
+        }
+    }
+}
+
+private final class AutoSizingMarkdownTextView: NSTextView {
+    override var intrinsicContentSize: NSSize {
+        guard let layoutManager, let textContainer else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: 1)
+        }
+        let width = max(bounds.width, textContainer.containerSize.width, 1)
+        textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let height = ceil(layoutManager.usedRect(for: textContainer).height) + textContainerInset.height * 2 + 1
+        return NSSize(width: NSView.noIntrinsicMetric, height: max(1, height))
+    }
+
+    override func layout() {
+        super.layout()
+        invalidateIntrinsicContentSize()
+    }
+}
+
 @MainActor
 private enum MarkdownInlineRenderCache {
     private static var cache: [String: AttributedString] = [:]
@@ -148,7 +476,7 @@ private enum MarkdownInlineRenderCache {
     }
 }
 
-private struct CachedMarkdownDocument: Sendable {
+private struct CachedMarkdownDocument: Sendable, Equatable {
     let frontmatter: String?
     let blocks: [MarkdownBlock]
 }
@@ -589,7 +917,8 @@ private struct MarkdownWebView: NSViewRepresentable {
             guard abs(sanitizedHeight - lastReportedHeight) > 0.5 else { return }
             lastReportedHeight = sanitizedHeight
 
-            Task { @MainActor in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) { [weak self] in
+                guard let self else { return }
                 guard abs(self.contentHeight.wrappedValue - sanitizedHeight) > 0.5 else { return }
                 self.contentHeight.wrappedValue = sanitizedHeight
             }

@@ -12,11 +12,8 @@ struct MemoryScreen: View {
 
     var body: some View {
         AppPage("Memory", subtitle: "Review project memories used by Agent Deck") {
-            overviewCard
-            libraryCard
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            HStack {
+                Spacer()
                 Button {
                     isInfoPresented.toggle()
                 } label: {
@@ -32,20 +29,19 @@ struct MemoryScreen: View {
                     )
                 }
                 .help("Explain Agent Deck memory")
-            }
 
-            ToolbarItem(placement: .primaryAction) {
                 Button {
                     isNewMemoryPresented = true
                 } label: {
                     Label("New Memory", systemImage: "plus")
                 }
-                .symbolRenderingMode(.monochrome)
-                .foregroundStyle(AppTheme.brandAccent)
-                .tint(AppTheme.brandAccent)
+                .buttonStyle(.borderedProminent)
                 .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
                 .disabled(viewModel.selectedProjectPath == nil)
             }
+
+            overviewCard
+            libraryCard
         }
         .sheet(isPresented: $isNewMemoryPresented) {
             MemoryEditorSheet(

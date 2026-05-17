@@ -760,7 +760,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func performScrollToBottom(_ scrollView: NSScrollView) {
             guard let documentView = scrollView.documentView else { return }
-            documentView.layoutSubtreeIfNeeded()
             let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
             let clipView = scrollView.contentView
             guard abs(clipView.bounds.origin.y - maxY) > 1 else {
@@ -783,7 +782,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private func publishPinnedState(_ pinned: Bool) {
             guard pinned != lastPinnedState else { return }
             lastPinnedState = pinned
-            DispatchQueue.main.async { [weak self] in self?.onPinnedToBottomChange(pinned) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) { [weak self] in
+                self?.onPinnedToBottomChange(pinned)
+            }
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
@@ -855,7 +856,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard let hostingView else { return 0 }
             hostingView.frame = CGRect(x: 0, y: 0, width: width, height: max(bounds.height, 1))
             hostingView.invalidateIntrinsicContentSize()
-            hostingView.layoutSubtreeIfNeeded()
             return hostingView.fittingSize.height
         }
     }
@@ -1026,19 +1026,6 @@ struct PiAgentScreen: View {
         } message: {
             Text(deleteSessionsAlertMessage)
         }
-        .toolbar {
-            if !scopedSessions.isEmpty {
-                ToolbarItem(placement: .navigation) {
-                    Button(role: .destructive) {
-                        requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true)
-                    } label: {
-                        Image(systemName: "eraser")
-                    }
-                    .help(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
-                    .accessibilityLabel(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
-                }
-            }
-        }
     }
 
     private var piAgentNewSessionProjects: [DiscoveredProject] {
@@ -1146,6 +1133,20 @@ struct PiAgentScreen: View {
                         .buttonStyle(.plain)
                         .help("Delete selected sessions")
                         .accessibilityLabel("Delete selected sessions")
+                    }
+                    if !scopedSessions.isEmpty {
+                        Button(role: .destructive) {
+                            requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true)
+                        } label: {
+                            Image(systemName: "eraser")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(Color.red.opacity(0.10)))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.red)
+                        .help(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
+                        .accessibilityLabel(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
                     }
                     if viewModel.selectedDiscoveredProject == nil {
                         PiAgentAddSessionMenuButton(
@@ -1457,12 +1458,57 @@ struct PiAgentScreen: View {
         hasher.combine(contextRevision)
         switch item.kind {
         case let .thread(thread):
-            hasher.combine(thread)
-            hasher.combine(snapshot.planEventsByThreadID[thread.id] ?? [])
+            // Keep revision calculation cheap during streaming. Hashing the whole
+            // thread recursively hashes the full growing assistant text every flush;
+            // a stable structural signature plus text length/timestamp is enough to
+            // invalidate the row for append-only transcript updates.
+            hashThreadRevision(thread, into: &hasher)
+            for event in snapshot.planEventsByThreadID[thread.id] ?? [] {
+                hashPlanEventRevision(event, into: &hasher)
+            }
         case let .plan(event):
-            hasher.combine(event)
+            hashPlanEventRevision(event, into: &hasher)
         }
         return hasher.finalize()
+    }
+
+    private func hashThreadRevision(_ thread: PiAgentTranscriptThread, into hasher: inout Hasher) {
+        hasher.combine(thread.id)
+        hashEntryRevision(thread.question, into: &hasher)
+        thread.steeringMessages.forEach { hashEntryRevision($0, into: &hasher) }
+        hashEntryRevision(thread.thinking, into: &hasher)
+        thread.assistantMessages.forEach { hashEntryRevision($0, into: &hasher) }
+        thread.activities.forEach { activity in
+            hasher.combine(activity.id)
+            hasher.combine(activity.entries.count)
+            hashEntryRevision(activity.representativeEntry, into: &hasher)
+        }
+        thread.statuses.forEach { hashEntryRevision($0, into: &hasher) }
+        thread.errors.forEach { hashEntryRevision($0, into: &hasher) }
+    }
+
+    private func hashEntryRevision(_ entry: PiAgentTranscriptEntry?, into hasher: inout Hasher) {
+        guard let entry else { return }
+        hasher.combine(entry.id)
+        hasher.combine(entry.role)
+        hasher.combine(entry.title)
+        hasher.combine(entry.text.count)
+        hasher.combine(entry.rawJSON?.count ?? 0)
+        hasher.combine(entry.timestamp)
+    }
+
+    private func hashPlanEventRevision(_ event: PiSessionPlanEventRecord, into hasher: inout Hasher) {
+        hasher.combine(event.id)
+        hasher.combine(event.planID)
+        hasher.combine(event.kind)
+        hasher.combine(event.timestamp)
+        hasher.combine(event.items.count)
+        for item in event.items {
+            hasher.combine(item.id)
+            hasher.combine(item.title.count)
+            hasher.combine(item.status)
+            hasher.combine(item.updatedAt)
+        }
     }
 
     private var loadingTranscriptCard: some View {

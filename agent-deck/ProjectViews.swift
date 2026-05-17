@@ -248,6 +248,16 @@ private struct PiGlobalSystemInstructionsDetail: View {
                             .appControlSurface(cornerRadius: 10)
                     }
 
+                    HStack {
+                        Spacer()
+                        Button {
+                            isPreviewPresented = true
+                        } label: {
+                            Label("Preview", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .help("Preview the global instruction pieces from the current editor contents")
+                    }
+
                     scopeCard
 
                     instructionSection(
@@ -275,16 +285,6 @@ private struct PiGlobalSystemInstructionsDetail: View {
             }
             .task {
                 loadFiles()
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isPreviewPresented = true
-                } label: {
-                    Label("Preview", systemImage: "doc.text.magnifyingglass")
-                }
-                .help("Preview the global instruction pieces from the current editor contents")
             }
         }
         .onDisappear {
@@ -743,6 +743,26 @@ private struct PiSystemInstructionsProjectDetail: View {
             if let project {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                        HStack {
+                            Spacer()
+                            Button {
+                                isInfoPresented.toggle()
+                            } label: {
+                                Label("Info", systemImage: "info.circle")
+                            }
+                            .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                                PiSystemInstructionsInfoPopover()
+                            }
+                            .help("Explain Pi prompt assembly")
+
+                            Button {
+                                isPreviewPresented = true
+                            } label: {
+                                Label("Preview", systemImage: "doc.text.magnifyingglass")
+                            }
+                            .help("Preview the effective prompt from the current editor contents")
+                        }
+
                         if let statusMessage {
                             Text(statusMessage)
                                 .font(.caption)
@@ -785,29 +805,6 @@ private struct PiSystemInstructionsProjectDetail: View {
                     description: Text("Choose a project on the left to inspect its customizable Pi instruction components.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isInfoPresented.toggle()
-                } label: {
-                    Label("Info", systemImage: "info.circle")
-                }
-                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                    PiSystemInstructionsInfoPopover()
-                }
-                .help("Explain Pi prompt assembly")
-            }
-
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isPreviewPresented = true
-                } label: {
-                    Label("Preview", systemImage: "doc.text.magnifyingglass")
-                }
-                .disabled(project == nil)
-                .help("Preview the effective prompt from the current editor contents")
             }
         }
         .onDisappear {

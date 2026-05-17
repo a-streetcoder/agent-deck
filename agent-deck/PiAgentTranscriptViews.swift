@@ -2196,7 +2196,7 @@ struct PiAgentTranscriptCard: View {
         if entry.title == "Steering" { return "Steering" }
         switch entry.role {
         case .user: return "You"
-        case .assistant: return "Pi"
+        case .assistant: return "Coding Agent"
         case .tool: return toolHeaderTitle
         default: return entry.title
         }

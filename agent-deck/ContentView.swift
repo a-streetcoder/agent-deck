@@ -261,18 +261,6 @@ struct ContentView: View {
                     .help("Refresh project discovery")
                     .disabled(viewModel.isRefreshingProjects)
 
-                    Button("Enable All") {
-                        showingEnableAllProjectsAlert = true
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Enable all discovered projects")
-
-                    Button("Disable All") {
-                        showingDisableAllProjectsAlert = true
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Disable all discovered projects")
-
                     Button {
                         viewModel.chooseProjectRoot()
                     } label: {

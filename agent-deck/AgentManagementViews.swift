@@ -159,6 +159,7 @@ private struct AgentAvatarPreviewSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(24)
             .navigationTitle("Avatar")
+            // Modal avatar editor title chrome remains SwiftUI; it is not part of the main window toolbar.
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text(agentName)
@@ -2052,9 +2053,9 @@ struct SubagentsInfoPopover: View {
                 .font(.headline)
                 .fontWidth(.expanded)
             VStack(alignment: .leading, spacing: 10) {
-                infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until linked.")
-                infoRow("Global", "Agent links are created in the standard global agent locations (~/.agents when present, otherwise ~/.pi/agent/agents).")
-                infoRow("Project", "Project links are created in PROJECT/.pi/agents.")
+                infoRow("Agent Library", "Central storage in ~/.pi/agent/agent-library/agents. Pi does not load these until assigned.")
+                infoRow("Default", "Default agents are passed to every parent Pi Agent session.")
+                infoRow("Project", "Project assignments are passed only to parent sessions for that project.")
                 infoRow("Builtins", "\(AppBrand.displayName) bundled builtins stay read-only. Customize them with settings overrides or replacement files.")
             }
         }

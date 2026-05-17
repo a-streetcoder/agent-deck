@@ -4277,9 +4277,6 @@ final class AppViewModel: NSObject, ObservableObject {
             throw ResourceRenameError.duplicateName(newName)
         }
         let sourceURL = URL(fileURLWithPath: record.filePath).standardizedFileURL
-        if (try? sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-            throw ResourceRenameError.unsupportedResource("Symlinked agents cannot be renamed safely in app. Rename the real agent file instead.")
-        }
         let destinationURL = sourceURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
         try ensureRenameDestinationAvailable(destinationURL, sourceURL: sourceURL)
     }
@@ -4300,7 +4297,6 @@ final class AppViewModel: NSObject, ObservableObject {
             ? oldTargetURL.deletingLastPathComponent().appendingPathComponent(newName, isDirectory: true)
             : oldTargetURL.deletingLastPathComponent().appendingPathComponent("\(newName).md")
         try ensureRenameDestinationAvailable(newTargetURL, sourceURL: oldTargetURL)
-        try validateCustomAgentSkillReferenceWriteTargets(for: skill.name)
     }
 
     private func validatePromptRename(_ prompt: PromptTemplateRecord, to newName: String) throws {
@@ -4380,9 +4376,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private func replaceSkillReferencesInCustomAgents(from oldName: String, to newName: String) throws {
         var seenWriteTargets = Set<String>()
         for record in allAgentRecordsForReferenceUpdates() where record.parsed.skills.contains(oldName) && record.source.kind != .builtin && record.source.kind != .package {
-            guard let writeURL = customAgentWriteURL(for: record) else {
-                throw ResourceRenameError.unsupportedResource("Agent `\(record.name)` is symlinked. Rename or edit that agent manually before renaming this skill.")
-            }
+            let writeURL = customAgentWriteURL(for: record)
             guard seenWriteTargets.insert(writeURL.path).inserted else { continue }
             var config = record.parsed
             config.skills = config.skills.map { $0 == oldName ? newName : $0 }
@@ -4391,18 +4385,8 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func validateCustomAgentSkillReferenceWriteTargets(for skillName: String) throws {
-        for record in allAgentRecordsForReferenceUpdates() where record.parsed.skills.contains(skillName) && record.source.kind != .builtin && record.source.kind != .package {
-            guard customAgentWriteURL(for: record) != nil else {
-                throw ResourceRenameError.unsupportedResource("Agent `\(record.name)` is symlinked. Rename or edit that agent manually before renaming this skill.")
-            }
-        }
-    }
-
-    private func customAgentWriteURL(for record: AgentRecord) -> URL? {
-        let sourceURL = URL(fileURLWithPath: record.filePath).standardizedFileURL
-        guard (try? sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return nil }
-        return sourceURL
+    private func customAgentWriteURL(for record: AgentRecord) -> URL {
+        URL(fileURLWithPath: record.filePath).standardizedFileURL
     }
 
     private func replaceSkillReferencesInBuiltinOverrides(from oldName: String, to newName: String) throws {

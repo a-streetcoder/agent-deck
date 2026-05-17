@@ -977,6 +977,7 @@ struct SkillsScreen: View {
                     chooseDifferentImportFolder()
                 }
             }
+            // Modal sheet confirmation/cancellation chrome remains SwiftUI; the AppKit migration owns only the main window toolbar.
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
