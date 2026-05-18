@@ -19,7 +19,9 @@ private extension View {
             }
         }
     }
+}
 
+extension View {
     func toolbarNeutralChrome() -> some View {
         symbolRenderingMode(.monochrome)
             .foregroundStyle(.primary)
@@ -49,7 +51,6 @@ struct ContentView: View {
     @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
     @State private var isSubagentsInfoPresented = false
-    @State private var isSubagentsRecapPresented = false
     @State private var showingEnableAllProjectsAlert = false
     @State private var showingDisableAllProjectsAlert = false
     @State private var showingPiAgentDeleteAlert = false
@@ -347,14 +348,6 @@ struct ContentView: View {
                 ToolbarItem(placement: .primaryAction) {
                     ControlGroup {
                         Button {
-                            isSubagentsRecapPresented.toggle()
-                        } label: {
-                            Label("Project Recap", systemImage: "sidebar.right")
-                        }
-                        .help("Show subagents available for the selected project")
-                        .disabled(viewModel.selectedProjectPath == nil)
-
-                        Button {
                             isSubagentsInfoPresented.toggle()
                         } label: {
                             Label("Info", systemImage: "info.circle")
@@ -455,20 +448,23 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isPiAgentTranscriptOptionsPresented.toggle()
-                    } label: {
-                        Label("Transcript Display", systemImage: "eye")
-                    }
-                    .help("Choose what appears in the agent transcript")
-                    .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-                        PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+                    ControlGroup {
+                        Button {
+                            isPiAgentTranscriptOptionsPresented.toggle()
+                        } label: {
+                            Label("Transcript Display", systemImage: "eye")
+                        }
+                        .help("Choose what appears in the agent transcript")
+                        .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                            PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+                        }
                     }
                     .toolbarNeutralChrome()
                 }
 
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+
                 if viewModel.shouldShowPiAgentGitActions {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
                     ToolbarItem(placement: .primaryAction) {
                         ControlGroup {
                             PiAgentCommitToolbarButton(viewModel: viewModel)
@@ -834,7 +830,6 @@ struct ContentView: View {
                 viewModel: viewModel,
                 editCommand: agentDetailEditCommand,
                 isEditing: $agentDetailIsEditing,
-                isRecapPresented: $isSubagentsRecapPresented,
                 searchText: $agentSearchText
             )
         case .skills:

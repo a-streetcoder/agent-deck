@@ -7,7 +7,6 @@ struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     let editCommand: Int
     @Binding var isEditing: Bool
-    @Binding var isRecapPresented: Bool
     @Binding var searchText: String
 
     var body: some View {
@@ -65,16 +64,6 @@ struct AgentsScreen: View {
             }
         }
 
-            if isRecapPresented, let project = viewModel.selectedDiscoveredProject {
-                Divider()
-                SubagentsProjectRecapPanel(
-                    project: project,
-                    snapshot: viewModel.startupSnapshot(forProjectPath: project.path),
-                    libraryAgents: viewModel.snapshot.libraryAgents,
-                    onClose: { isRecapPresented = false }
-                )
-                .frame(width: 400)
-            }
         }
     }
 }

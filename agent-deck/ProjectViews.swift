@@ -248,15 +248,7 @@ private struct PiGlobalSystemInstructionsDetail: View {
                             .appControlSurface(cornerRadius: 10)
                     }
 
-                    HStack {
-                        Spacer()
-                        Button {
-                            isPreviewPresented = true
-                        } label: {
-                            Label("Preview", systemImage: "doc.text.magnifyingglass")
-                        }
-                        .help("Preview the global instruction pieces from the current editor contents")
-                    }
+
 
                     scopeCard
 
@@ -285,6 +277,28 @@ private struct PiGlobalSystemInstructionsDetail: View {
             }
             .task {
                 loadFiles()
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    isInfoPresented.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                    PiSystemInstructionsInfoPopover()
+                }
+                .toolbarNeutralChrome()
+                .help("Explain Pi instruction assembly")
+
+                Button {
+                    isPreviewPresented = true
+                } label: {
+                    Image(systemName: "doc.text.magnifyingglass")
+                }
+                .toolbarPrimaryActionChrome()
+                .help("Preview the global instruction pieces from the current editor contents")
             }
         }
         .onDisappear {
@@ -329,17 +343,6 @@ private struct PiGlobalSystemInstructionsDetail: View {
             }
 
             Spacer()
-
-            Button {
-                isInfoPresented.toggle()
-            } label: {
-                Label("Info", systemImage: "info.circle")
-                    .labelStyle(.iconOnly)
-            }
-            .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                PiSystemInstructionsInfoPopover()
-            }
-            .help("Explain Pi instruction assembly")
 
         }
     }
@@ -491,7 +494,8 @@ struct ProjectsScreen: View {
         .sheet(item: $agentsRecapProject) { project in
             ProjectAgentsRecapSheet(
                 project: project,
-                recap: viewModel.agentRecap(for: project)
+                recap: viewModel.agentRecap(for: project),
+                imageStore: viewModel.agentImageStore
             )
         }
         .sheet(item: $skillsRecapProject) { project in
@@ -684,7 +688,7 @@ struct ProjectsScreen: View {
             Button {
                 agentsRecapProject = project
             } label: {
-                Image(systemName: "sparkles.rectangle.stack")
+                Image(systemName: "rectangle.connected.to.line.below")
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(width: 20, height: 20)
             }
@@ -743,26 +747,6 @@ private struct PiSystemInstructionsProjectDetail: View {
             if let project {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                        HStack {
-                            Spacer()
-                            Button {
-                                isInfoPresented.toggle()
-                            } label: {
-                                Label("Info", systemImage: "info.circle")
-                            }
-                            .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                                PiSystemInstructionsInfoPopover()
-                            }
-                            .help("Explain Pi prompt assembly")
-
-                            Button {
-                                isPreviewPresented = true
-                            } label: {
-                                Label("Preview", systemImage: "doc.text.magnifyingglass")
-                            }
-                            .help("Preview the effective prompt from the current editor contents")
-                        }
-
                         if let statusMessage {
                             Text(statusMessage)
                                 .font(.caption)
@@ -805,6 +789,28 @@ private struct PiSystemInstructionsProjectDetail: View {
                     description: Text("Choose a project on the left to inspect its customizable Pi instruction components.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    isInfoPresented.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                    PiSystemInstructionsInfoPopover()
+                }
+                .toolbarNeutralChrome()
+                .help("Explain Pi prompt assembly")
+
+                Button {
+                    isPreviewPresented = true
+                } label: {
+                    Image(systemName: "doc.text.magnifyingglass")
+                }
+                .toolbarPrimaryActionChrome()
+                .help("Preview the effective prompt from the current editor contents")
             }
         }
         .onDisappear {
@@ -1188,6 +1194,7 @@ private struct PiSystemPromptPreviewSheet: View {
 private struct ProjectAgentsRecapSheet: View {
     let project: DiscoveredProject
     let recap: ProjectAgentRecap
+    @ObservedObject var imageStore: AgentImageStore
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1218,27 +1225,20 @@ private struct ProjectAgentsRecapSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("These are the native agents Agent Deck makes available for this project after default assignments, project assignments, and builtin overrides are resolved.")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .fixedSize(horizontal: false, vertical: true)
-
                     if hasResolvedAgents {
                         if !recap.defaultAgents.isEmpty {
                             agentRecapSection(title: "Default", agents: recap.defaultAgents, color: .blue)
                         }
-
                         if !recap.projectAgents.isEmpty {
                             agentRecapSection(title: "Project", agents: recap.projectAgents, color: .green)
                         }
-
                         if !recap.otherEffectiveAgents.isEmpty {
-                            agentRecapSection(title: "Built-in & Overrides", agents: recap.otherEffectiveAgents, color: AppTheme.assistantAccent)
+                            agentRecapSection(title: "Effective", agents: recap.otherEffectiveAgents, color: AppTheme.assistantAccent)
                         }
                     } else {
                         ContentUnavailableView(
                             "No Agents",
-                            systemImage: "sparkles.rectangle.stack",
+                            systemImage: "rectangle.connected.to.line.below",
                             description: Text("No project agent catalog has been loaded for this project yet.")
                         )
                         .frame(maxWidth: .infinity)
@@ -1267,15 +1267,20 @@ private struct ProjectAgentsRecapSheet: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(agents) { agent in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: agent.resolved.disabled == true ? "nosign" : "sparkles.rectangle.stack")
-                            .foregroundStyle(agent.resolved.disabled == true ? .red : color)
-                            .frame(width: 18)
+                    HStack(alignment: .center, spacing: 10) {
+                        AgentAvatarView(
+                            imageURL: imageStore.imageURL(for: agent.name),
+                            fallbackSystemImage: "rectangle.connected.to.line.below",
+                            color: agent.resolved.disabled == true ? .red : color,
+                            size: 28,
+                            bundledImageName: bundledAvatarName(for: agent)
+                        )
 
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
                                 Text(agent.name)
                                     .font(.subheadline.weight(.semibold))
+                                    .strikethrough(agent.resolved.disabled == true, color: AppTheme.mutedText)
                                 Text(agent.resolutionKind.rawValue)
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(color)
@@ -1298,6 +1303,16 @@ private struct ProjectAgentsRecapSheet: View {
                     .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
+        }
+    }
+
+    private func bundledAvatarName(for agent: EffectiveAgentRecord) -> String? {
+        guard agent.builtin != nil else { return nil }
+        switch agent.name {
+        case "coder", "explorer", "planner", "reviewer":
+            return "agent-avatar-\(agent.name)"
+        default:
+            return nil
         }
     }
 

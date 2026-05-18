@@ -12,12 +12,16 @@ struct MemoryScreen: View {
 
     var body: some View {
         AppPage("Memory", subtitle: "Review project memories used by Agent Deck") {
-            HStack {
-                Spacer()
+
+            overviewCard
+            libraryCard
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     isInfoPresented.toggle()
                 } label: {
-                    Label("Memory Info", systemImage: "info.circle")
+                    Image(systemName: "info.circle")
                 }
                 .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
                     MemoryInfoPopover(
@@ -28,20 +32,18 @@ struct MemoryScreen: View {
                         staleCount: currentRecords.filter { $0.status == .stale }.count
                     )
                 }
+                .toolbarNeutralChrome()
                 .help("Explain Agent Deck memory")
 
                 Button {
                     isNewMemoryPresented = true
                 } label: {
-                    Label("New Memory", systemImage: "plus")
+                    Image(systemName: "plus")
                 }
-                .buttonStyle(.borderedProminent)
+                .toolbarPrimaryActionChrome()
                 .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
                 .disabled(viewModel.selectedProjectPath == nil)
             }
-
-            overviewCard
-            libraryCard
         }
         .sheet(isPresented: $isNewMemoryPresented) {
             MemoryEditorSheet(

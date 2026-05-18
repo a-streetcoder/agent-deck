@@ -105,6 +105,13 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubLastStatusCheckAt: Date?
     @Published var appSettings: AppSettings = AppSettings()
     @Published private(set) var hasCompletedInitialRefresh = false
+    @Published private(set) var cachedHasAgentWarnings = false
+    @Published private(set) var cachedHasSkillWarnings = false
+    @Published private(set) var cachedHasPromptWarnings = false
+    @Published private(set) var cachedSkillWarnings: [DiagnosticWarning] = []
+    @Published private(set) var cachedPromptWarnings: [DiagnosticWarning] = []
+    @Published private(set) var cachedSkillReferenceWarnings: [SkillReferenceWarning] = []
+    @Published private(set) var cachedSkillVisibilityIssuesByAgentID: [String: [AgentSkillVisibilityIssue]] = [:]
     var enabledAvailableModels: [AvailableModel] {
         availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
     }
@@ -402,6 +409,7 @@ final class AppViewModel: NSObject, ObservableObject {
             refreshAvailableModels()
         }
 
+        rebuildWarningCaches()
         hasCompletedInitialRefresh = true
     }
 
@@ -3939,54 +3947,27 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var hasAgentWarnings: Bool {
-        filteredAgents.contains { agent in
-            !warnings(for: agent).isEmpty || !explicitSkillVisibilityIssues(for: agent).isEmpty
-        }
+        cachedHasAgentWarnings
     }
 
     var hasSkillWarnings: Bool {
-        !skillReferenceWarnings.isEmpty || !skillWarnings.isEmpty
+        cachedHasSkillWarnings
     }
 
     var hasPromptWarnings: Bool {
-        !promptWarnings.isEmpty
+        cachedHasPromptWarnings
     }
 
     var skillWarnings: [DiagnosticWarning] {
-        let baseWarnings = snapshot.warnings.filter { warning in
-            warning.id.hasPrefix("malformed-skill:") || warning.message.localizedCaseInsensitiveContains("skill")
-        }
-        let collisionWarnings = PiSkillLaunchResolver.collisions(in: allVisibleSkillRecords).map { collision in
-            let paths = collision.skills.map(\.filePath).joined(separator: ", ")
-            return DiagnosticWarning(id: "duplicate-skill:\(collision.name)", message: "Duplicate skill name `\(collision.name)` found at: \(paths)")
-        }
-        return baseWarnings + collisionWarnings
+        cachedSkillWarnings
     }
 
     var promptWarnings: [DiagnosticWarning] {
-        let baseWarnings = snapshot.warnings.filter { warning in
-            warning.id.hasPrefix("duplicate-prompt:")
-        }
-        let collisionWarnings = PiPromptTemplateLaunchResolver.collisions(in: allVisiblePromptTemplateRecords).map { collision in
-            let paths = collision.prompts.map(\.filePath).joined(separator: ", ")
-            return DiagnosticWarning(id: "duplicate-prompt-template:\(collision.name)", message: "Duplicate prompt template name `/\(collision.name)` found at: \(paths)")
-        }
-        return baseWarnings + collisionWarnings
+        cachedPromptWarnings
     }
 
     var skillReferenceWarnings: [SkillReferenceWarning] {
-        filteredAgents.flatMap { agent in
-            explicitSkillVisibilityIssues(for: agent).flatMap { issue in
-                issue.missingSkills.map { missingSkill in
-                    SkillReferenceWarning(agentName: agent.name, project: issue.project, missingSkill: missingSkill)
-                }
-            }
-        }
-        .sorted {
-            if $0.missingSkill != $1.missingSkill { return $0.missingSkill < $1.missingSkill }
-            if $0.agentName != $1.agentName { return $0.agentName < $1.agentName }
-            return $0.project.name < $1.project.name
-        }
+        cachedSkillReferenceWarnings
     }
 
     func piAgentSessionProjectContext() -> DiscoveredProject {
@@ -4565,6 +4546,9 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func explicitSkillVisibilityIssues(for agent: EffectiveAgentRecord) -> [AgentSkillVisibilityIssue] {
+        if let cached = cachedSkillVisibilityIssuesByAgentID[agent.id] {
+            return cached
+        }
         guard !agent.resolved.skills.isEmpty else { return [] }
         let explicitSkills = agent.resolved.skills
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -4587,6 +4571,87 @@ final class AppViewModel: NSObject, ObservableObject {
         let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths).scan(projectRoot: project.url)
         let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
         return matches.count == 1
+    }
+
+    private func rebuildWarningCaches() {
+        let skillWarnings = buildSkillWarnings()
+        let promptWarnings = buildPromptWarnings()
+        let visibilityIssuesByAgentID = buildSkillVisibilityIssuesByAgentID()
+        let agentNamesByID = Dictionary(uniqueKeysWithValues: filteredAgents.map { ($0.id, $0.name) })
+        let skillReferenceWarnings: [SkillReferenceWarning] = visibilityIssuesByAgentID
+            .flatMap { pair -> [SkillReferenceWarning] in
+                guard let agentName = agentNamesByID[pair.key] else { return [] }
+                return pair.value.flatMap { issue in
+                    issue.missingSkills.map { missingSkill in
+                        SkillReferenceWarning(agentName: agentName, project: issue.project, missingSkill: missingSkill)
+                    }
+                }
+            }
+            .sorted(by: {
+                if $0.missingSkill != $1.missingSkill { return $0.missingSkill < $1.missingSkill }
+                if $0.agentName != $1.agentName { return $0.agentName < $1.agentName }
+                return $0.project.name < $1.project.name
+            })
+
+        cachedSkillWarnings = skillWarnings
+        cachedPromptWarnings = promptWarnings
+        cachedSkillVisibilityIssuesByAgentID = visibilityIssuesByAgentID
+        cachedSkillReferenceWarnings = skillReferenceWarnings
+        cachedHasSkillWarnings = !skillReferenceWarnings.isEmpty || !skillWarnings.isEmpty
+        cachedHasPromptWarnings = !promptWarnings.isEmpty
+        cachedHasAgentWarnings = filteredAgents.contains { agent in
+            !warnings(for: agent).isEmpty || !(visibilityIssuesByAgentID[agent.id] ?? []).isEmpty
+        }
+    }
+
+    private func buildSkillWarnings() -> [DiagnosticWarning] {
+        let baseWarnings = snapshot.warnings.filter { warning in
+            warning.id.hasPrefix("malformed-skill:") || warning.message.localizedCaseInsensitiveContains("skill")
+        }
+        let collisionWarnings = PiSkillLaunchResolver.collisions(in: allVisibleSkillRecords).map { collision in
+            let paths = collision.skills.map(\.filePath).joined(separator: ", ")
+            return DiagnosticWarning(id: "duplicate-skill:\(collision.name)", message: "Duplicate skill name `\(collision.name)` found at: \(paths)")
+        }
+        return baseWarnings + collisionWarnings
+    }
+
+    private func buildPromptWarnings() -> [DiagnosticWarning] {
+        let baseWarnings = snapshot.warnings.filter { warning in
+            warning.id.hasPrefix("duplicate-prompt:")
+        }
+        let collisionWarnings = PiPromptTemplateLaunchResolver.collisions(in: allVisiblePromptTemplateRecords).map { collision in
+            let paths = collision.prompts.map(\.filePath).joined(separator: ", ")
+            return DiagnosticWarning(id: "duplicate-prompt-template:\(collision.name)", message: "Duplicate prompt template name `/\(collision.name)` found at: \(paths)")
+        }
+        return baseWarnings + collisionWarnings
+    }
+
+    private func buildSkillVisibilityIssuesByAgentID() -> [String: [AgentSkillVisibilityIssue]] {
+        var issuesByAgentID: [String: [AgentSkillVisibilityIssue]] = [:]
+        for agent in filteredAgents {
+            guard !agent.resolved.skills.isEmpty else { continue }
+            let explicitSkills = agent.resolved.skills
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !explicitSkills.isEmpty else { continue }
+
+            let managedRecord = snapshot.libraryAgents.first { $0.name == agent.name }
+                ?? agent.globalCustom
+                ?? agent.projectCustom
+            guard let managedRecord else { continue }
+
+            let issues: [AgentSkillVisibilityIssue] = assignedProjects(for: managedRecord).compactMap { project in
+                guard let projectSnapshot = allProjectSnapshots[project.path] else { return nil }
+                let visibleSkillNames = Set(PiSkillLaunchResolver.catalog(from: projectSnapshot).map(\.name))
+                let missingSkills = explicitSkills.filter { !visibleSkillNames.contains($0) }
+                guard !missingSkills.isEmpty else { return nil }
+                return AgentSkillVisibilityIssue(project: project, missingSkills: missingSkills)
+            }
+            if !issues.isEmpty {
+                issuesByAgentID[agent.id] = issues
+            }
+        }
+        return issuesByAgentID
     }
 
     func agentIsEnabledGlobally(_ agent: AgentRecord) -> Bool {

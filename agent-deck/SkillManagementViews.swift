@@ -632,25 +632,66 @@ struct SkillsScreen: View {
     }
 
     private func agentAssignmentList(for skill: SkillRecord) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let activeAgents = viewModel.snapshot.effectiveAgents
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let activeAgentIDs = Set(activeAgents.map(\.id))
+        let inactiveAgents = viewModel.allDisplayAgents
+            .filter { !activeAgentIDs.contains($0.id) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Assign this skill only to the selected native subagents when they run. Parent Pi Agent sessions do not receive it from this setting.")
                 .foregroundStyle(AppTheme.mutedText)
 
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(viewModel.snapshot.effectiveAgents) { agent in
-                    AgentAssignmentToggleRow(
-                        agent: agent,
-                        isOn: Binding(
-                            get: { viewModel.skill(skill, isAssignedTo: agent) },
-                            set: { enabled in
-                                do { try viewModel.setSkill(skill, enabled: enabled, for: agent) }
-                                catch { presentSkillActionError(error, skill: skill, action: enabled ? "assign this skill to agent" : "remove this skill from agent") }
-                            }
-                        )
-                    )
+            VStack(alignment: .leading, spacing: 14) {
+                agentAssignmentSection(
+                    title: "Active",
+                    agents: activeAgents,
+                    skill: skill,
+                    emptyText: "No active subagents."
+                )
 
-                    if agent.id != viewModel.snapshot.effectiveAgents.last?.id {
-                        Divider()
+                if !inactiveAgents.isEmpty {
+                    agentAssignmentSection(
+                        title: "Inactive",
+                        agents: inactiveAgents,
+                        skill: skill,
+                        emptyText: "No inactive subagents."
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func agentAssignmentSection(title: String, agents: [EffectiveAgentRecord], skill: SkillRecord, emptyText: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .fontWidth(.expanded)
+
+            if agents.isEmpty {
+                nativeEmptyRow(emptyText)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(agents) { agent in
+                        AgentAssignmentToggleRow(
+                            agent: agent,
+                            imageURL: viewModel.agentImageStore.imageURL(for: agent.name),
+                            bundledImageName: bundledAvatarName(for: agent),
+                            isInactive: title == "Inactive",
+                            isOn: Binding(
+                                get: { viewModel.skill(skill, isAssignedTo: agent) },
+                                set: { enabled in
+                                    do { try viewModel.setSkill(skill, enabled: enabled, for: agent) }
+                                    catch { presentSkillActionError(error, skill: skill, action: enabled ? "assign this skill to agent" : "remove this skill from agent") }
+                                }
+                            )
+                        )
+
+                        if agent.id != agents.last?.id {
+                            Divider()
+                        }
                     }
                 }
             }
@@ -1073,10 +1114,23 @@ struct SkillsScreen: View {
         \(error.localizedDescription)
         """
     }
+
+    private func bundledAvatarName(for agent: EffectiveAgentRecord) -> String? {
+        guard agent.builtin != nil else { return nil }
+        switch agent.name {
+        case "coder", "explorer", "planner", "reviewer":
+            return "agent-avatar-\(agent.name)"
+        default:
+            return nil
+        }
+    }
 }
 
 private struct AgentAssignmentToggleRow: View {
     let agent: EffectiveAgentRecord
+    let imageURL: URL?
+    let bundledImageName: String?
+    let isInactive: Bool
     @Binding var isOn: Bool
 
     var body: some View {
@@ -1094,9 +1148,18 @@ private struct AgentAssignmentToggleRow: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(isOn ? AppTheme.accentSelectionStroke : AppTheme.contentStroke, lineWidth: 1)
                     }
-                Image(systemName: SidebarItem.agents.systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isOn ? AppTheme.accentForeground : AppTheme.mutedText)
+
+                if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 30, height: 30)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                } else {
+                    Image(systemName: SidebarItem.agents.systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isOn ? AppTheme.accentForeground : AppTheme.mutedText)
+                }
             }
             .frame(width: 30, height: 30)
 
@@ -1114,6 +1177,8 @@ private struct AgentAssignmentToggleRow: View {
         }
         .frame(minHeight: 46, alignment: .center)
         .padding(.vertical, 8)
+        .opacity(isInactive ? 0.62 : 1)
+        .saturation(isInactive ? 0.25 : 1)
         .contentShape(Rectangle())
         .onTapGesture {
             isOn.toggle()
