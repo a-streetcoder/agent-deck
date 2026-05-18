@@ -10,7 +10,6 @@ enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
     case showRepoChanges
     case toggleInspector
     case resumeInTerminal
-    case editAgent
     case refreshGitHub
     case commitChanges
     case pushBranch
@@ -59,8 +58,7 @@ extension AgentDeckShortcutSection {
             .init(.resumeInTerminal, "Resume in Terminal", key: "t", modifiers: [.command, .option], description: "Resume the selected session in your configured terminal.")
         ]),
         AgentDeckShortcutSection(title: "Agents", items: [
-            .init(.newAgent, "New Agent", key: "n", modifiers: [.command, .shift], description: "Create a new custom agent."),
-            .init(.editAgent, "Edit Agent", key: "e", modifiers: [.command, .option], description: "Edit the selected agent.")
+            .init(.newAgent, "New Agent", key: "n", modifiers: [.command, .shift], description: "Create a new custom agent.")
         ]),
         AgentDeckShortcutSection(title: "App", items: [
             .init(.refresh, "Refresh", key: "r", modifiers: [.command], description: "Refresh projects, agents, prompts, and GitHub data.")
@@ -116,7 +114,6 @@ final class AgentDeckCommandContext {
     var canRevealPromptFile = false
     var canOpenSelectedAgentFile = false
     var canRevealSelectedAgentFile = false
-    var canEditSelectedAgent = false
     var canToggleSelectedAgentDisabled = false
     var selectedAgentIsDisabled = false
 
@@ -142,7 +139,6 @@ final class AgentDeckCommandContext {
     var revealPromptFile: () -> Void = {}
     var openSelectedAgentFile: () -> Void = {}
     var revealSelectedAgentFile: () -> Void = {}
-    var editSelectedAgent: () -> Void = {}
     var toggleSelectedAgentDisabled: () -> Void = {}
 }
 
@@ -237,12 +233,6 @@ struct AgentDeckCommands: Commands {
             .disabled(context?.canOpenPiAgentInTerminal != true)
 
             Divider()
-
-            Button("Edit Agent") {
-                context?.editSelectedAgent()
-            }
-            .agentDeckShortcut(.editAgent)
-            .disabled(context?.canEditSelectedAgent != true)
 
             Button("Open Agent File") {
                 context?.openSelectedAgentFile()

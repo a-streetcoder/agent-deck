@@ -26,6 +26,11 @@ final class PiAgentSessionStore: ObservableObject {
     private let transcriptRevisionCoalesceNanoseconds: UInt64 = 66_000_000
     private let defaultSaveDebounceNanoseconds: UInt64 = 450_000_000
     private let structuralSaveDebounceNanoseconds: UInt64 = 50_000_000
+    // Coalesces transcript file writes so per-token / per-tool-update streaming doesn't
+    // re-encode and rewrite the entire transcript file dozens of times per second.
+    // The debounce is shorter than the user-visible save indicator and long enough to
+    // amortize one write per ~10 streaming flushes.
+    private let transcriptPersistDebounceNanoseconds: UInt64 = 750_000_000
     private let fileURL: URL
     private let transcriptsDirectoryURL: URL
     private let transcriptManifestURL: URL
@@ -34,6 +39,12 @@ final class PiAgentSessionStore: ObservableObject {
     private var saveSequence = 0
     private var pendingTranscriptRevisionSessionIDs: Set<UUID> = []
     private var pendingTranscriptRevisionTask: Task<Void, Never>?
+    // Snapshot of entries captured when persistTranscript was last called for a session.
+    // Captured at call time (not flush time) so eviction of in-memory transcripts can't
+    // race with the debounce and produce an empty on-disk transcript.
+    private var pendingPersistTranscriptSnapshots: [UUID: [PiAgentTranscriptEntry]] = [:]
+    private var pendingPersistSubagentTranscriptSnapshots: [UUID: [PiAgentTranscriptEntry]] = [:]
+    private var pendingPersistTranscriptTask: Task<Void, Never>?
     private var lazyTranscriptLoadingEnabled = true
     private var transcriptCacheLimit = 10
     private var persistedTranscriptSessionIDs: Set<UUID> = []
@@ -429,6 +440,9 @@ final class PiAgentSessionStore: ObservableObject {
     func flushPendingSave() {
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
+        // Drain any debounced transcript writes before the index/manifest save, so all
+        // on-disk pieces reflect the same in-memory state at quit time.
+        flushPendingPersistTranscripts(synchronous: true)
         saveNow()
     }
 
@@ -594,6 +608,7 @@ final class PiAgentSessionStore: ObservableObject {
             cancelTranscriptLoadTask(for: sessionID)
             transcriptsBySessionID[sessionID] = nil
             persistedTranscriptSessionIDs.remove(sessionID)
+            pendingPersistTranscriptSnapshots[sessionID] = nil
             loadedTranscriptSessionOrder.removeAll { $0 == sessionID }
             deleteTranscriptFile(sessionID)
             transcriptRevisionsBySessionID[sessionID] = nil
@@ -602,6 +617,7 @@ final class PiAgentSessionStore: ObservableObject {
                 cancelSubagentTranscriptLoadTask(for: runID)
                 subagentTranscriptsByRunID[runID] = nil
                 persistedSubagentTranscriptRunIDs.remove(runID)
+                pendingPersistSubagentTranscriptSnapshots[runID] = nil
                 loadedSubagentTranscriptOrder.removeAll { $0 == runID }
                 deleteSubagentTranscriptFile(runID)
             }
@@ -975,20 +991,60 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     private func persistTranscript(_ sessionID: UUID) {
-        guard let entries = transcriptsBySessionID[sessionID] else { return }
         persistedTranscriptSessionIDs.insert(sessionID)
-        let url = parentTranscriptURL(sessionID)
-        saveQueue.async {
-            try? Self.writeParentTranscript(PersistedTranscript(sessionID: sessionID, entries: entries), to: url)
-        }
+        // Snapshot entries at call time so later eviction of the in-memory transcript
+        // can't drop our write. Repeated calls overwrite the snapshot with the latest
+        // entries; the flush always writes the freshest snapshot per session.
+        pendingPersistTranscriptSnapshots[sessionID] = transcriptsBySessionID[sessionID] ?? []
+        schedulePendingPersistTranscriptFlush()
     }
 
     private func persistSubagentTranscript(_ runID: UUID) {
-        guard let entries = subagentTranscriptsByRunID[runID] else { return }
         persistedSubagentTranscriptRunIDs.insert(runID)
-        let url = subagentTranscriptURL(runID)
-        saveQueue.async {
-            try? Self.writeSubagentTranscript(PersistedSubagentTranscript(runID: runID, entries: entries), to: url)
+        pendingPersistSubagentTranscriptSnapshots[runID] = subagentTranscriptsByRunID[runID] ?? []
+        schedulePendingPersistTranscriptFlush()
+    }
+
+    private func schedulePendingPersistTranscriptFlush() {
+        guard pendingPersistTranscriptTask == nil else { return }
+        pendingPersistTranscriptTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: self?.transcriptPersistDebounceNanoseconds ?? 750_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.flushPendingPersistTranscripts(synchronous: false)
+            }
+        }
+    }
+
+    private func flushPendingPersistTranscripts(synchronous: Bool) {
+        pendingPersistTranscriptTask?.cancel()
+        pendingPersistTranscriptTask = nil
+        let parentSnapshots = pendingPersistTranscriptSnapshots
+        let subagentSnapshots = pendingPersistSubagentTranscriptSnapshots
+        pendingPersistTranscriptSnapshots.removeAll()
+        pendingPersistSubagentTranscriptSnapshots.removeAll()
+        if parentSnapshots.isEmpty && subagentSnapshots.isEmpty { return }
+
+        let parents = parentSnapshots.map { (id, entries) in
+            (parentTranscriptURL(id), PersistedTranscript(sessionID: id, entries: entries))
+        }
+        let subagents = subagentSnapshots.map { (id, entries) in
+            (subagentTranscriptURL(id), PersistedSubagentTranscript(runID: id, entries: entries))
+        }
+
+        let work: @Sendable () -> Void = {
+            for (url, payload) in parents {
+                try? Self.writeParentTranscript(payload, to: url)
+            }
+            for (url, payload) in subagents {
+                try? Self.writeSubagentTranscript(payload, to: url)
+            }
+        }
+
+        if synchronous {
+            saveQueue.sync(execute: work)
+        } else {
+            saveQueue.async(execute: work)
         }
     }
 

@@ -47,8 +47,6 @@ struct ContentView: View {
     @State private var skillSearchText = ""
     @State private var promptSearchText = ""
     @State private var piAgentSessionSearchText = ""
-    @State private var agentDetailEditCommand = 0
-    @State private var agentDetailIsEditing = false
     @State private var isSkillsInfoPresented = false
     @State private var isSubagentsInfoPresented = false
     @State private var showingEnableAllProjectsAlert = false
@@ -318,14 +316,6 @@ struct ContentView: View {
                             }
                             .help("Create a global replacement for this builtin agent")
                             .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
-
-                            Button {
-                                agentDetailEditCommand += 1
-                            } label: {
-                                Label(agentDetailIsEditing ? "Done" : "Edit", systemImage: agentDetailIsEditing ? "checkmark" : "pencil")
-                            }
-                            .help(agentDetailIsEditing ? "Finish editing selected agent" : "Edit selected agent")
-
                         }
                         .toolbarNeutralChrome()
                     }
@@ -669,7 +659,7 @@ struct ContentView: View {
         let selectedAgentPath = selectedAgentFilePath
         let promptsAreVisible = viewModel.selectedSidebarItem == .prompts
 
-        var ctx = AgentDeckCommandContext()
+        let ctx = AgentDeckCommandContext()
 
         ctx.canCreatePiAgentSession = true
         ctx.canCreateAgent = true
@@ -690,7 +680,6 @@ struct ContentView: View {
         ctx.canRevealPromptFile = promptsAreVisible && selectedPrompt != nil
         ctx.canOpenSelectedAgentFile = selectedAgentPath != nil
         ctx.canRevealSelectedAgentFile = selectedAgentPath != nil
-        ctx.canEditSelectedAgent = selectedAgent != nil
         ctx.canToggleSelectedAgentDisabled = selectedAgent != nil
         ctx.selectedAgentIsDisabled = selectedAgent?.resolved.disabled == true
 
@@ -740,10 +729,6 @@ struct ContentView: View {
         }
         ctx.openSelectedAgentFile = { openSelectedAgentFile() }
         ctx.revealSelectedAgentFile = { revealSelectedAgentFile() }
-        ctx.editSelectedAgent = {
-            guard selectedAgent != nil else { return }
-            agentDetailEditCommand += 1
-        }
         ctx.toggleSelectedAgentDisabled = {
             setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
         }
@@ -816,8 +801,6 @@ struct ContentView: View {
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,
-                editCommand: agentDetailEditCommand,
-                isEditing: $agentDetailIsEditing,
                 searchText: $agentSearchText
             )
         case .skills:

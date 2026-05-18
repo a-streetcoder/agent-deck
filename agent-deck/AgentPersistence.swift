@@ -14,8 +14,9 @@ struct AgentPersistence {
         }
 
         if let globalCustom = agent.globalCustom {
+            let scope: AgentEditingTarget.CustomAgentScope = globalCustom.source.kind == .library ? .library : .global
             return AgentEditorDraft(
-                target: .custom(scope: .global),
+                target: .custom(scope: scope),
                 originalName: agent.name,
                 config: globalCustom.parsed,
                 sourcePath: globalCustom.filePath

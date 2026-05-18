@@ -72,6 +72,19 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
     private var lastRevision = -1
     private var lastThreadSignature: [UUID] = []
     private var lastAutoScrollTurnEntryID: UUID?
+    // Per-thread cached content revision keyed by a cheap signature (counts + last-entry
+    // text length). Repeat lookups during the same body re-evaluation, or across unrelated
+    // body re-evaluations (composer typing etc.), skip the full O(entries) walk.
+    private var threadRevisionCache: [UUID: (signature: Int, revision: Int)] = [:]
+
+    func cachedThreadRevision(for threadID: UUID, signature: Int, compute: () -> Int) -> Int {
+        if let cached = threadRevisionCache[threadID], cached.signature == signature {
+            return cached.revision
+        }
+        let revision = compute()
+        threadRevisionCache[threadID] = (signature, revision)
+        return revision
+    }
 
     func scheduleUpdate(sessionID: UUID?, revision: Int, rawEntries: [PiAgentTranscriptEntry]) {
         guard let sessionID else {
@@ -83,11 +96,15 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
             lastRevision = -1
             lastThreadSignature = []
             lastAutoScrollTurnEntryID = nil
+            threadRevisionCache.removeAll()
             renderRevision += 1
             return
         }
         guard sessionID != lastSessionID || revision != lastRevision else { return }
         let isSessionSwitch = sessionID != lastSessionID
+        if isSessionSwitch {
+            threadRevisionCache.removeAll()
+        }
         lastSessionID = sessionID
         lastRevision = revision
         updateTask?.cancel()
@@ -115,6 +132,10 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         let structurallyChanged = signature != lastThreadSignature
         let latestUserEntryID = normalized.last(where: { $0.role == .user })?.id
         let userTurnAdvanced = latestUserEntryID != nil && latestUserEntryID != lastAutoScrollTurnEntryID
+        if structurallyChanged {
+            let nextThreadIDs = Set(signature)
+            threadRevisionCache = threadRevisionCache.filter { nextThreadIDs.contains($0.key) }
+        }
         entries = normalized
         threads = nextThreads
         lastThreadID = nextThreads.last?.id
@@ -425,6 +446,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var contentWidth: CGFloat = 0
         private let estimatedRowHeight: CGFloat = 120
         private let heightChangeEpsilon: CGFloat = 1
+        // Offscreen cell reused to pre-measure rows that aren't yet realized by the table.
+        // Lets us seed heightByID before applySnapshot so the table lays out with correct
+        // row heights from the first frame, eliminating the scroll-target-too-short bug
+        // that crops the last assistant message during streaming.
+        private var measurementCell: TranscriptTableCellView?
 
         private struct ScrollAnchor {
             let id: String
@@ -517,21 +543,30 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     pendingHeightWork?.cancel()
                     pendingHeightWork = nil
                 }
-                let removedIDs = Set(orderedIDs).subtracting(nextIDs)
+                let previousIDs = Set(orderedIDs)
+                let removedIDs = previousIDs.subtracting(nextIDs)
                 for id in removedIDs {
                     heightByID[id] = nil
                     lastNotedHeightByID[id] = nil
                     contentRevisionByID[id] = nil
                     pendingHeightIDs.remove(id)
                 }
+                let addedIDs = nextIDs.filter { heightByID[$0] == nil }
                 orderedIDs = nextIDs
                 contentRevisionByID = nextRevisions
+                // Pre-measure newly-added rows (including those below the visible viewport)
+                // so the table's row-height delegate returns correct heights as soon as the
+                // snapshot is applied. Without this, new bottom rows render at the 120pt
+                // estimate, the documentView ends up too short, and scrollToBottom clips them.
+                preMeasureRows(forIDs: addedIDs)
                 applySnapshot(ids: nextIDs) { [weak self] in
                     guard let self else { return }
-                    self.reconfigureVisibleRows(forceRemeasure: true)
+                    self.reconfigureVisibleRows(forceRemeasure: isSessionSwitch)
                     self.restoreScrollAnchorIfNeeded(anchor)
                     self.handleScrollAfterUpdate(isSessionSwitch: isSessionSwitch, explicitScroll: explicitScroll, wasPinned: wasPinned)
-                    self.scheduleVisibleRemeasure()
+                    if isSessionSwitch {
+                        self.scheduleVisibleRemeasure()
+                    }
                 }
             } else {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
@@ -580,14 +615,40 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private func reconfigureRows(withIDs ids: [String]) {
             guard let tableView, !ids.isEmpty else { return }
             var rows = IndexSet()
+            var offscreenIDs: [String] = []
             for id in ids {
-                guard let row = orderedIDs.firstIndex(of: id),
-                      let item = itemByID[id],
-                      let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
-                configure(cell, with: item, row: row)
-                rows.insert(row)
+                guard let row = orderedIDs.firstIndex(of: id), let item = itemByID[id] else { continue }
+                if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView {
+                    configure(cell, with: item, row: row)
+                    rows.insert(row)
+                } else {
+                    // Cell isn't realized (row is off-screen). invalidateHeights wiped its
+                    // cached height, so without a fallback measurement the row would render
+                    // at the 120pt estimate the next time it scrolls into view — causing the
+                    // same scroll-target-too-short cropping we fixed for new rows.
+                    offscreenIDs.append(id)
+                }
             }
-            if !rows.isEmpty { scheduleHeightChanged(forRows: rows) }
+            if !offscreenIDs.isEmpty {
+                preMeasureRows(forIDs: offscreenIDs)
+                for id in offscreenIDs {
+                    if let row = orderedIDs.firstIndex(of: id) { rows.insert(row) }
+                }
+            }
+            // Apply height changes synchronously instead of via the 25ms debounce. During
+            // streaming we want the row to grow in the same frame the cell's content
+            // updates — otherwise the cell renders new content into a still-old (shorter)
+            // row for ~25ms and clips the bottom of the message. Also force the table to
+            // re-tile so the row's frame actually picks up the new height before the
+            // hostingView's SwiftUI content draws.
+            if !rows.isEmpty {
+                var changedIDs = Set<String>()
+                for row in rows where row < orderedIDs.count {
+                    changedIDs.insert(orderedIDs[row])
+                }
+                applyHeightChanges(forIDs: changedIDs)
+                tableView.layoutSubtreeIfNeeded()
+            }
         }
 
         private func scheduleVisibleRemeasure() {
@@ -622,6 +683,27 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func invalidateHeights(for ids: [String]) {
             for id in ids { heightByID[id] = nil }
+        }
+
+        // Pre-measures rows that aren't realized by the table yet (off-screen new appends).
+        // Uses a single reusable offscreen cell so we avoid allocating one NSHostingView per row.
+        // The cell isn't added to any view hierarchy; NSHostingView.fittingSize still triggers
+        // a SwiftUI layout pass and returns a correct fitting height without window attachment.
+        private func preMeasureRows(forIDs ids: [String]) {
+            guard !ids.isEmpty else { return }
+            let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
+            guard width > 1 else { return }
+            let cell = measurementCell ?? TranscriptTableCellView(frame: .zero)
+            measurementCell = cell
+            for id in ids {
+                guard let item = itemByID[id] else { continue }
+                cell.configure(item: item, width: width)
+                let measured = cell.measuredHeight(width: width)
+                guard measured.isFinite, measured > 0 else { continue }
+                let height = ceil(measured)
+                heightByID[id] = height
+                lastNotedHeightByID[id] = height
+            }
         }
 
         private func configure(_ cell: TranscriptTableCellView, with item: PiAgentAppKitTranscriptItem, row: Int) {
@@ -677,7 +759,19 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         private func noteHeightsChanged(forIDs ids: Set<String>) {
-            guard let tableView, let scrollView, !ids.isEmpty else { return }
+            guard let scrollView else { return }
+            let wasPinned = isPinnedToBottom(scrollView)
+            applyHeightChanges(forIDs: ids)
+            if wasPinned {
+                scrollToBottom(settle: false)
+            }
+        }
+
+        // Apply queued row-height changes to the table without scrolling. Extracted from
+        // noteHeightsChanged so performScrollToBottom can flush pending height work
+        // synchronously and read accurate documentView bounds.
+        private func applyHeightChanges(forIDs ids: Set<String>) {
+            guard let tableView, !ids.isEmpty else { return }
             var rows = IndexSet()
             for id in ids {
                 guard let row = orderedIDs.firstIndex(of: id), row < tableView.numberOfRows else { continue }
@@ -689,14 +783,19 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 rows.insert(row)
             }
             guard !rows.isEmpty else { return }
-            let wasPinned = isPinnedToBottom(scrollView)
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             tableView.noteHeightOfRows(withIndexesChanged: rows)
             NSAnimationContext.endGrouping()
-            if wasPinned {
-                scrollToBottom(settle: false)
-            }
+        }
+
+        private func flushPendingHeightWorkSynchronously() {
+            guard let work = pendingHeightWork else { return }
+            work.cancel()
+            pendingHeightWork = nil
+            let ids = pendingHeightIDs
+            pendingHeightIDs.removeAll()
+            applyHeightChanges(forIDs: ids)
         }
 
         private func captureScrollAnchor() -> ScrollAnchor? {
@@ -748,7 +847,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let settleWork = DispatchWorkItem { [weak self] in
                     guard let self, let scrollView = self.scrollView else { return }
                     self.pendingSettleScrollWork = nil
-                    self.reconfigureVisibleRows(forceRemeasure: true)
+                    // Don't force a re-measure here — pre-measurement and the synchronous
+                    // height-work flush inside performScrollToBottom mean heights are already
+                    // accurate. Re-measuring would risk a small secondary scroll jump.
                     self.performScrollToBottom(scrollView)
                 }
                 self.pendingSettleScrollWork = settleWork
@@ -760,6 +861,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func performScrollToBottom(_ scrollView: NSScrollView) {
             guard let documentView = scrollView.documentView else { return }
+            // Flush any debounced height work and force a layout pass so the documentView's
+            // bounds reflect current row heights. Without this, the math below uses stale
+            // heights and ends up scrolling short of the true bottom — which crops the last
+            // assistant message during streaming.
+            flushPendingHeightWorkSynchronously()
+            documentView.layoutSubtreeIfNeeded()
             let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
             let clipView = scrollView.contentView
             guard abs(clipView.bounds.origin.y - maxY) > 1 else {
@@ -1454,22 +1561,66 @@ struct PiAgentScreen: View {
         snapshot: PiAgentTranscriptTimelineSnapshot,
         contextRevision: Int
     ) -> Int {
-        var hasher = Hasher()
-        hasher.combine(contextRevision)
         switch item.kind {
         case let .thread(thread):
-            // Keep revision calculation cheap during streaming. Hashing the whole
-            // thread recursively hashes the full growing assistant text every flush;
-            // a stable structural signature plus text length/timestamp is enough to
-            // invalidate the row for append-only transcript updates.
-            hashThreadRevision(thread, into: &hasher)
-            for event in snapshot.planEventsByThreadID[thread.id] ?? [] {
-                hashPlanEventRevision(event, into: &hasher)
+            let planEvents = snapshot.planEventsByThreadID[thread.id] ?? []
+            let signature = cheapThreadSignature(thread, contextRevision: contextRevision, planEvents: planEvents)
+            return transcriptCache.cachedThreadRevision(for: thread.id, signature: signature) {
+                var hasher = Hasher()
+                hasher.combine(contextRevision)
+                hashThreadRevision(thread, into: &hasher)
+                for event in planEvents {
+                    hashPlanEventRevision(event, into: &hasher)
+                }
+                return hasher.finalize()
             }
         case let .plan(event):
+            var hasher = Hasher()
+            hasher.combine(contextRevision)
             hashPlanEventRevision(event, into: &hasher)
+            return hasher.finalize()
         }
+    }
+
+    // Cache key for a thread's content revision. Hashes only (id, text.count) per entry —
+    // about 3× cheaper than the full revision hash. Covers any mutation upsert/updateEntry
+    // can make to a known entry, not just append-only streaming growth, so reusing the
+    // cached full hash is safe whenever this signature is unchanged.
+    private func cheapThreadSignature(
+        _ thread: PiAgentTranscriptThread,
+        contextRevision: Int,
+        planEvents: [PiSessionPlanEventRecord]
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(contextRevision)
+        hasher.combine(thread.id)
+        inlineEntrySignature(thread.question, into: &hasher)
+        hasher.combine(thread.steeringMessages.count)
+        for entry in thread.steeringMessages { inlineEntrySignature(entry, into: &hasher) }
+        inlineEntrySignature(thread.thinking, into: &hasher)
+        hasher.combine(thread.assistantMessages.count)
+        for entry in thread.assistantMessages { inlineEntrySignature(entry, into: &hasher) }
+        hasher.combine(thread.activities.count)
+        for activity in thread.activities {
+            hasher.combine(activity.id)
+            hasher.combine(activity.entries.count)
+            inlineEntrySignature(activity.representativeEntry, into: &hasher)
+        }
+        hasher.combine(thread.statuses.count)
+        for entry in thread.statuses { inlineEntrySignature(entry, into: &hasher) }
+        hasher.combine(thread.errors.count)
+        for entry in thread.errors { inlineEntrySignature(entry, into: &hasher) }
+        hasher.combine(planEvents.count)
+        for event in planEvents { hasher.combine(event.id) }
         return hasher.finalize()
+    }
+
+    private func inlineEntrySignature(_ entry: PiAgentTranscriptEntry?, into hasher: inout Hasher) {
+        guard let entry else { return }
+        hasher.combine(entry.id)
+        hasher.combine(entry.role)
+        hasher.combine(entry.text.count)
+        hasher.combine(entry.rawJSON?.count ?? 0)
     }
 
     private func hashThreadRevision(_ thread: PiAgentTranscriptThread, into hasher: inout Hasher) {

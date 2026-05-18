@@ -5,65 +5,70 @@ import UniformTypeIdentifiers
 
 struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
-    let editCommand: Int
-    @Binding var isEditing: Bool
     @Binding var searchText: String
+    @State private var agentBeingEdited: EffectiveAgentRecord?
 
     var body: some View {
         HStack(spacing: 0) {
             HSplitView {
                 if viewModel.hasCompletedInitialRefresh {
-                    AgentLibraryPane(viewModel: viewModel, searchText: $searchText)
-                        .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+                    AgentLibraryPane(
+                        viewModel: viewModel,
+                        searchText: $searchText,
+                        onEditAgent: { agent in agentBeingEdited = agent }
+                    )
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                 } else {
                     AppLoadingView("Loading agents…")
                         .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                 }
 
-            if !viewModel.hasCompletedInitialRefresh {
-                AppLoadingView("Loading agent details…")
-            } else if let agent = viewModel.selectedAgent {
-                AgentDetailView(
-                    agent: agent,
-                    stateBadge: viewModel.builtinStateBadge(for: agent),
-                    availableModels: viewModel.enabledAvailableModels,
-                    availableTools: viewModel.availableToolNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
-                    availableSkills: viewModel.availableSkillNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
-                    availableExtensions: viewModel.availableExtensionNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
-                    makeDraft: { scope in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: scope ?? .global) },
-                    editCommand: editCommand,
-                    isEditing: $isEditing,
-                    onSaveDraft: { draft in try viewModel.saveAgentDraft(draft, for: agent) },
-                    onSetBuiltinDisabled: { scope, isDisabled in
-                        viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
-                    },
-                    managedAgent: libraryManagedAgentRecord(for: agent, libraryAgents: viewModel.snapshot.libraryAgents),
-                    isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
-                    assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
-                    skillVisibilityIssues: { viewModel.explicitSkillVisibilityIssues(for: $0) },
-                    setAgentGlobal: { record, enabled in
-                        if enabled { try viewModel.enableAgentGlobally(record) } else { try viewModel.disableAgentGlobally(record) }
-                    },
-                    setAgentForProject: { record, project, enabled in
-                        try viewModel.setAgent(record, enabled: enabled, for: project)
-                    },
-                    moveAgentToLibrary: { record in
-                        try viewModel.moveAgentToLibrary(record)
-                    },
-                    canRenameAgent: { viewModel.canRenameAgent($0) },
-                    renamePreview: { agent, name in viewModel.renamePreview(for: agent, to: name) },
-                    renameAgent: { agent, name in try viewModel.renameAgent(agent, to: name) },
-                    projects: viewModel.enabledProjects,
-                    imageStore: viewModel.agentImageStore,
-                    autoGenerateAvatarPrompts: viewModel.appSettings.autoGenerateAgentAvatarPrompts,
-                    generateAvatarPrompt: { try await viewModel.generateAgentAvatarPrompt(for: $0) }
-                )
-            } else {
-                ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if !viewModel.hasCompletedInitialRefresh {
+                    AppLoadingView("Loading agent details…")
+                } else if let agent = viewModel.selectedAgent {
+                    AgentDetailView(
+                        agent: agent,
+                        stateBadge: viewModel.builtinStateBadge(for: agent),
+                        onSetBuiltinDisabled: { scope, isDisabled in
+                            viewModel.setBuiltinDisabled(isDisabled, for: agent, scope: scope)
+                        },
+                        managedAgent: libraryManagedAgentRecord(for: agent, libraryAgents: viewModel.snapshot.libraryAgents),
+                        isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
+                        assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
+                        skillVisibilityIssues: { viewModel.explicitSkillVisibilityIssues(for: $0) },
+                        setAgentGlobal: { record, enabled in
+                            if enabled { try viewModel.enableAgentGlobally(record) } else { try viewModel.disableAgentGlobally(record) }
+                        },
+                        setAgentForProject: { record, project, enabled in
+                            try viewModel.setAgent(record, enabled: enabled, for: project)
+                        },
+                        moveAgentToLibrary: { record in
+                            try viewModel.moveAgentToLibrary(record)
+                        },
+                        canRenameAgent: { viewModel.canRenameAgent($0) },
+                        renamePreview: { agent, name in viewModel.renamePreview(for: agent, to: name) },
+                        renameAgent: { agent, name in try viewModel.renameAgent(agent, to: name) },
+                        projects: viewModel.enabledProjects,
+                        imageStore: viewModel.agentImageStore,
+                        autoGenerateAvatarPrompts: viewModel.appSettings.autoGenerateAgentAvatarPrompts,
+                        generateAvatarPrompt: { try await viewModel.generateAgentAvatarPrompt(for: $0) }
+                    )
+                } else {
+                    ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
-
+        .sheet(item: $agentBeingEdited) { agent in
+            AgentEditSheet(
+                agent: agent,
+                availableModels: viewModel.enabledAvailableModels,
+                availableTools: viewModel.availableToolNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
+                availableSkills: viewModel.availableSkillNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
+                availableExtensions: viewModel.availableExtensionNames(for: viewModel.makeAgentDraft(for: agent)?.target ?? .custom(scope: .global)),
+                makeDraft: { scope in viewModel.makeAgentDraft(for: agent, preferredOverrideScope: scope ?? .global) },
+                onSave: { draft in try viewModel.saveAgentDraft(draft, for: agent) }
+            )
         }
     }
 }
@@ -243,7 +248,9 @@ private struct AgentWarningPopover: View {
 private struct AgentLibraryPane: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String
+    let onEditAgent: (EffectiveAgentRecord) -> Void
     @State private var warningPopoverAgentID: String?
+    @State private var hoveredAgentID: String?
 
     private var imageStore: AgentImageStore { viewModel.agentImageStore }
 
@@ -433,6 +440,24 @@ private struct AgentLibraryPane: View {
 
                 capabilityStrip(for: agent)
             }
+
+            Spacer(minLength: 0)
+
+            if hoveredAgentID == agent.id {
+                Button {
+                    onEditAgent(agent)
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .help("Edit agent")
+            }
+        }
+        .onHover { hovering in
+            hoveredAgentID = hovering ? agent.id : nil
         }
         .padding(.vertical, 6)
         .opacity(isMuted ? 0.62 : 1)
@@ -550,6 +575,16 @@ private struct AgentLibraryPane: View {
         }
         return !viewModel.agentIsEnabledGlobally(record) && viewModel.assignedProjects(for: record).isEmpty
     }
+
+    private func openFile(_ path: String?) {
+        guard let path else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    private func revealInFinder(_ path: String?) {
+        guard let path else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
 }
 
 private func libraryManagedAgentRecord(for agent: EffectiveAgentRecord, libraryAgents: [AgentRecord]) -> AgentRecord? {
@@ -567,6 +602,8 @@ private func rowIndicator(_ symbol: String, color: Color) -> some View {
         .foregroundStyle(color)
 }
 
+// MARK: - AgentDetailView (read-only)
+
 private struct AgentDetailView: View {
     enum DetailTab: String, CaseIterable, Identifiable {
         case summary = "Summary"
@@ -580,14 +617,6 @@ private struct AgentDetailView: View {
 
     let agent: EffectiveAgentRecord
     let stateBadge: (text: String, color: Color)?
-    let availableModels: [AvailableModel]
-    let availableTools: [String]
-    let availableSkills: [String]
-    let availableExtensions: [String]
-    let makeDraft: (AgentEditingTarget.OverrideScope?) -> AgentEditorDraft?
-    let editCommand: Int
-    @Binding var isEditing: Bool
-    let onSaveDraft: (AgentEditorDraft) throws -> Void
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
     let managedAgent: AgentRecord?
     let isAgentGlobal: (AgentRecord) -> Bool
@@ -605,10 +634,6 @@ private struct AgentDetailView: View {
     let generateAvatarPrompt: (EffectiveAgentRecord) async throws -> String
     @Environment(\.supportsImagePlayground) private var supportsImagePlayground
     @State private var selectedTab: DetailTab = .summary
-    @State private var inlineDraft: AgentEditorDraft?
-    @State private var baselineInlineDraft: AgentEditorDraft?
-    @State private var inlineSaveMessage: String?
-    @State private var pendingSaveConfirmation: SaveConfirmation?
     @State private var agentPendingRename: EffectiveAgentRecord?
     @State private var isGeneratingAvatarPrompt = false
     @State private var isAvatarImporterPresented = false
@@ -653,16 +678,6 @@ private struct AgentDetailView: View {
                 advancedTab
             }
         }
-        .task(id: agent.id) {
-            isEditing = false
-            reloadInlineDraft()
-        }
-        .onChange(of: editCommand) { _, _ in
-            Task { @MainActor in
-                await Task.yield()
-                toggleEditMode()
-            }
-        }
         .sheet(item: $agentPendingRename) { renameAgentRecord in
             RenameResourceSheet(
                 title: "Rename Agent",
@@ -672,16 +687,6 @@ private struct AgentDetailView: View {
                 onRename: { try renameAgent(renameAgentRecord, $0) }
             )
         }
-        .alert(item: $pendingSaveConfirmation) { confirmation in
-            Alert(
-                title: Text("Save changes?"),
-                message: Text(confirmation.summary),
-                primaryButton: .default(Text("Save")) {
-                    performConfirmedSave(exitEditMode: confirmation.exitEditMode)
-                },
-                secondaryButton: .cancel()
-            )
-        }
         .fileImporter(isPresented: $isAvatarImporterPresented, allowedContentTypes: [.image]) { result in
             handleAvatarImport(result)
         }
@@ -689,6 +694,8 @@ private struct AgentDetailView: View {
             AgentAvatarPreviewSheet(agentName: agent.name, imageURL: imageStore.imageURL(for: agent.name), bundledImageName: bundledAvatarName)
         }
     }
+
+    // MARK: Avatar
 
     private var agentAvatarEditor: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -855,182 +862,32 @@ private struct AgentDetailView: View {
         }
     }
 
+    // MARK: Tabs
+
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Configuration", trailing: {
-                if isEditing {
-                    HStack(spacing: 10) {
-                        if inlineHasChanges {
-                            Button("Discard") {
-                                discardInlineChanges(exitEditMode: true)
-                            }
-                            .controlSize(.small)
-                        }
-
-                        Button("Save Changes") {
-                            requestSaveInlineDraft(exitEditMode: true)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!inlineHasChanges || inlineDraft == nil)
-                    }
-                }
-            }) {
+            AppCard(title: "Configuration") {
                 agentAvatarEditor
 
-                if isEditing, let draft = inlineDraft {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack(spacing: 10) {
-                            AppLabelTag(text: agent.resolutionKind.rawValue, color: AppTheme.assistantAccent)
-                            Text(configurationFootnote)
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.mutedText)
-                        }
-
-                        settingsSection("Model & Prompt") {
-                            configEditorRow("When to Use") {
-                                TextField("Use when…", text: inlineOptionalStringBinding(for: \.whenToUse))
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 640)
-                                Text("Concise routing guidance injected into parent sessions when subagents are enabled.")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                            }
-
-                            configEditorRow("Model") {
-                                Picker("Model", selection: inlineModelSelectionBinding) {
-                                    Text("Use Pi Default Model").tag("")
-                                    ForEach(availableModels, id: \.identifier) { model in
-                                        Text(model.identifier).tag(model.identifier)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(maxWidth: 360, alignment: .leading)
-
-                                Text(selectedInlineModelSummary)
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                            }
-
-                            configEditorRow("Thinking") {
-                                Picker("Thinking", selection: inlineThinkingSelectionBinding) {
-                                    ForEach(inlineAvailableThinkingLevels, id: \.self) { level in
-                                        Text(level).tag(level)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(maxWidth: 180, alignment: .leading)
-
-                                Text("Only values supported by the selected model are shown.")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                            }
-
-                            configEditorRow("Prompt Mode") {
-                                Picker("Prompt Mode", selection: inlinePromptModeBinding) {
-                                    Text("Replace").tag("replace")
-                                    Text("Append").tag("append")
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: 260, alignment: .leading)
-                            }
-
-                            configEditorRow("Fallback Models") {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Menu("Add Fallback Model") {
-                                        if !availableModels.isEmpty {
-                                            Button("Use None") {
-                                                inlineDraft?.config.fallbackModels = []
-                                            }
-                                            Divider()
-                                        }
-                                        ForEach(availableModels, id: \.identifier) { model in
-                                            Button(model.identifier) {
-                                                addInlineFallbackModel(model.identifier)
-                                            }
-                                        }
-                                    }
-
-                                    inlineTokenList(draft.config.fallbackModels, remove: removeInlineFallbackModel)
-                                }
-                            }
-                        }
-
-                        settingsSection("Behavior") {
-                            configEditorRow("Availability") {
-                                Toggle("Disabled", isOn: inlineOptionalBoolBinding(for: \.disabled))
-                                    .toggleStyle(.switch)
-                            }
-
-                            if case .custom = draft.target {
-                                configEditorRow("Default Outcome") {
-                                    Picker("Default Outcome", selection: inlineDefaultExpectedOutcomeBinding()) {
-                                        Text("Unspecified").tag(PiSubagentExpectedOutcome?.none)
-                                        ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
-                                            Text(outcome.displayName).tag(Optional(outcome))
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    .frame(maxWidth: 220, alignment: .leading)
-                                }
-
-                                configEditorRow("Progress") {
-                                    Toggle("Default progress", isOn: inlineOptionalBoolBinding(for: \.defaultProgress))
-                                        .toggleStyle(.switch)
-                                }
-
-                                configEditorRow("Interaction") {
-                                    Toggle("Interactive", isOn: inlineOptionalBoolBinding(for: \.interactive))
-                                        .toggleStyle(.switch)
-                                }
-                            }
-                        }
-
-                        if case .custom = draft.target {
-                            settingsSection("Files") {
-                                configEditorRow("Output") {
-                                    TextField("Output path", text: inlineOptionalStringBinding(for: \.output))
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(maxWidth: 360, alignment: .leading)
-                                }
-
-                                configEditorRow("Default Reads") {
-                                    TextField("fileA, fileB", text: inlineStringListBinding(for: \.defaultReads))
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(maxWidth: 360, alignment: .leading)
-                                }
-
-                                configEditorRow("Max Depth") {
-                                    Stepper(value: inlineOptionalIntBinding(for: \.maxSubagentDepth), in: 0...10) {
-                                        Text(inlineDraft?.config.maxSubagentDepth.map(String.init) ?? "0")
-                                    }
-                                    .frame(maxWidth: 180, alignment: .leading)
-                                }
-                            }
-                        }
-
-                        if let inlineSaveMessage {
-                            Text(inlineSaveMessage)
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        AppLabelTag(text: agent.resolutionKind.rawValue, color: AppTheme.assistantAccent)
+                        Text(configurationFootnote)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
                     }
-                } else if isEditing {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        readOnlyFieldRow("Model", value: agent.resolved.model ?? "default")
-                        readOnlyFieldRow("Fallback Models", value: agent.resolved.fallbackModels.isEmpty ? "—" : agent.resolved.fallbackModels.joined(separator: ", "))
-                        readOnlyFieldRow("Thinking", value: agent.resolved.thinking ?? "off")
-                        readOnlyFieldRow("Prompt Mode", value: agent.resolved.systemPromptMode ?? "—")
-                        readOnlyFieldRow("Disabled", value: display(agent.resolved.disabled))
-                        readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
-                        readOnlyFieldRow("Default Outcome", value: agent.resolved.defaultExpectedOutcome?.displayName ?? "—")
-                        readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—")
-                        readOnlyFieldRow("Default Progress", value: display(agent.resolved.defaultProgress))
-                        readOnlyFieldRow("Interactive", value: display(agent.resolved.interactive))
-                        readOnlyFieldRow("Max Subagent Depth", value: agent.resolved.maxSubagentDepth.map(String.init) ?? "—", isLast: true)
+                    .padding(.bottom, 4)
+
+                    let rows = configuredFieldRows
+                    if rows.isEmpty {
+                        Text("Using Pi defaults")
+                            .foregroundStyle(AppTheme.mutedText)
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                                readOnlyFieldRow(row.0, value: row.1, isLast: index == rows.count - 1)
+                            }
+                        }
                     }
                 }
             }
@@ -1039,44 +896,29 @@ private struct AgentDetailView: View {
         }
     }
 
+    private var configuredFieldRows: [(String, String)] {
+        var rows: [(String, String)] = []
+        if let model = agent.resolved.model { rows.append(("Model", model)) }
+        if !agent.resolved.fallbackModels.isEmpty { rows.append(("Fallback Models", agent.resolved.fallbackModels.joined(separator: ", "))) }
+        if let thinking = agent.resolved.thinking, thinking != "off" { rows.append(("Thinking", thinking)) }
+        if let mode = agent.resolved.systemPromptMode { rows.append(("Prompt Mode", mode)) }
+        if let whenToUse = agent.resolved.whenToUse, !whenToUse.isEmpty { rows.append(("When to Use", whenToUse)) }
+        if agent.resolved.disabled == true { rows.append(("Disabled", "Yes")) }
+        if let output = agent.resolved.output { rows.append(("Output", output)) }
+        if let outcome = agent.resolved.defaultExpectedOutcome { rows.append(("Default Outcome", outcome.displayName)) }
+        if let reads = agent.resolved.defaultReads, !reads.isEmpty { rows.append(("Default Reads", reads.joined(separator: ", "))) }
+        if let progress = agent.resolved.defaultProgress { rows.append(("Default Progress", display(progress))) }
+        if let interactive = agent.resolved.interactive { rows.append(("Interactive", display(interactive))) }
+        if let depth = agent.resolved.maxSubagentDepth { rows.append(("Max Subagent Depth", String(depth))) }
+        return rows
+    }
+
     private var promptTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: resolvedPromptDiffers ? "Resolved Prompt" : "Prompt", trailing: {
-                if isEditing {
-                    HStack(spacing: 10) {
-                        if inlineHasChanges {
-                            Button("Discard") {
-                                discardInlineChanges(exitEditMode: true)
-                            }
-                            .controlSize(.small)
-                        }
-
-                        Button("Save Changes") {
-                            requestSaveInlineDraft(exitEditMode: true)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!inlineHasChanges || inlineDraft == nil)
-                    }
-                }
-            }) {
-                if isEditing {
-                    TextEditor(text: Binding(
-                        get: { inlineDraft?.config.systemPrompt ?? "" },
-                        set: { inlineDraft?.config.systemPrompt = $0 }
-                    ))
-                    .frame(minHeight: 320)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(8)
-                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                    .help("The system prompt is the main instruction body for this agent. Replace mode uses this as the agent’s primary prompt, while append mode adds it on top of Pi’s normal base behavior.")
-                } else {
-                    MarkdownDocumentView(source: agent.resolved.systemPrompt)
-                        .help("The system prompt is the main instruction body for this agent.")
-                }
+            AppCard(title: resolvedPromptDiffers ? "Resolved Prompt" : "Prompt") {
+                MarkdownDocumentView(source: agent.resolved.systemPrompt)
             }
-
-            if !isEditing, resolvedPromptDiffers {
+            if resolvedPromptDiffers {
                 AppCard(title: "Raw Source Prompt") {
                     MarkdownDocumentView(source: agent.winningRecord?.promptBody ?? "")
                 }
@@ -1086,147 +928,23 @@ private struct AgentDetailView: View {
 
     private var toolsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Tools & Extensions", trailing: {
-                if isEditing {
-                    HStack(spacing: 10) {
-                        if inlineHasChanges {
-                            Button("Discard") {
-                                discardInlineChanges(exitEditMode: true)
-                            }
-                            .controlSize(.small)
-                        }
-
-                        Button("Save Changes") {
-                            requestSaveInlineDraft(exitEditMode: true)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!inlineHasChanges || inlineDraft == nil)
+            AppCard(title: "Tools & Extensions") {
+                VStack(alignment: .leading, spacing: 16) {
+                    let tools = (agent.resolved.tools ?? []) + (agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }
+                    if tools.isEmpty {
+                        readOnlyFieldRow("Tool Access", value: "Pi defaults")
+                    } else {
+                        readOnlyFieldRow("Tools", value: tools.joined(separator: ", "))
                     }
-                }
-            }) {
-                if isEditing, let draft = inlineDraft {
-                    VStack(alignment: .leading, spacing: 18) {
-                        settingsSection("Tool Access") {
-                            configEditorRow("Tool Access") {
-                                HStack(spacing: 10) {
-                                    Button("Reset Tool Access") {
-                                        resetInlineToolAccess()
-                                    }
-                                    .controlSize(.small)
-
-                                    Text(selectedInlineToolValues.isEmpty ? "Currently using Pi default tool access." : "Using an explicit tool allowlist.")
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.mutedText)
-                                }
-                            }
-
-                            configEditorRow("Add Tool") {
-                                Menu("Choose Tool") {
-                                    ForEach(availableTools, id: \.self) { tool in
-                                        Button(tool) {
-                                            addInlineTool(tool)
-                                        }
-                                    }
-                                }
-                                .lineLimit(1)
-                                .fontWidth(.condensed)
-                            }
-
-                            configEditorRow("Selected") {
-                                inlineTokenList(selectedInlineToolValues, remove: removeInlineTool)
-                            }
-                        }
-
-                        if case .custom = draft.target {
-                            settingsSection("Extensions") {
-                                configEditorRow("Extension Mode") {
-                                    HStack(spacing: 10) {
-                                        Button("Use Default Extensions") {
-                                            inlineDraft?.config.extensions = nil
-                                        }
-                                        .controlSize(.small)
-                                        .lineLimit(1)
-
-                                        Text((draft.config.extensions == nil) ? "Inherits Pi’s default extension behavior." : "Using an explicit extension list.")
-                                            .font(.caption)
-                                            .fontWidth(.condensed)
-                                            .lineLimit(1)
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .foregroundStyle(AppTheme.mutedText)
-                                    }
-                                }
-
-                                configEditorRow("Add Extension") {
-                                    Menu("Choose Extension") {
-                                        ForEach(availableExtensions, id: \.self) { name in
-                                            Button(name) {
-                                                addInlineExtension(name)
-                                            }
-                                        }
-                                    }
-                                    .lineLimit(1)
-                                    .fontWidth(.condensed)
-                                }
-
-                                configEditorRow("Selected") {
-                                    inlineTokenList(draft.config.extensions ?? [], remove: removeInlineExtension)
-                                }
-                            }
-
-                            settingsSection("Files") {
-                                configEditorRow("Output") {
-                                    TextField("Output path", text: inlineOptionalStringBinding(for: \.output))
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(maxWidth: 360, alignment: .leading)
-                                }
-
-                                configEditorRow("Default Reads") {
-                                    TextField("fileA, fileB", text: inlineStringListBinding(for: \.defaultReads))
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(maxWidth: 360, alignment: .leading)
-                                }
-                            }
-                        }
-                    }
-                } else if isEditing {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            readOnlyFieldRow("Extensions", value: extensionsSummary)
-                            readOnlyFieldRow("Output", value: agent.resolved.output ?? "—")
-                            readOnlyFieldRow("Default Outcome", value: agent.resolved.defaultExpectedOutcome?.displayName ?? "—")
-                            readOnlyFieldRow("Default Reads", value: agent.resolved.defaultReads?.joined(separator: ", ") ?? "—", isLast: true)
-                        }
-
-                        if let tools = agent.resolved.tools, !tools.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Built-in Tools")
-                                    .font(.headline)
-                                    .fontWidth(.expanded)
-                                ForEach(tools, id: \.self) { tool in
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "wrench.and.screwdriver")
-                                            .foregroundStyle(.blue)
-                                        Text(tool)
-                                    }
-                                }
-                            }
-                        }
-
-                        if (agent.resolved.tools ?? []).isEmpty && (agent.resolved.mcpDirectTools ?? []).isEmpty {
-                            Text("Default Pi tool access")
-                                .foregroundStyle(AppTheme.mutedText)
-                        }
+                    if let exts = agent.resolved.extensions {
+                        readOnlyFieldRow("Extensions", value: exts.isEmpty ? "—" : exts.joined(separator: ", "), isLast: true)
                     }
                 }
             }
 
             AppCard(title: "How Tool Access Works") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• If `tools` is omitted, the child gets Pi’s normal default built-in tools.")
+                    Text("• If `tools` is omitted, the child gets Pi's normal default built-in tools.")
                     Text("• If `tools` is set, it acts like an allowlist for regular tool names.")
                     Text("• Extensions are offered from installed package references Pi already knows about.")
                 }
@@ -1237,69 +955,21 @@ private struct AgentDetailView: View {
 
     private var skillsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Skills", trailing: {
-                if isEditing {
-                    HStack(spacing: 10) {
-                        if inlineHasChanges {
-                            Button("Discard") {
-                                discardInlineChanges(exitEditMode: true)
-                            }
-                            .controlSize(.small)
-                        }
-
-                        Button("Save Changes") {
-                            requestSaveInlineDraft(exitEditMode: true)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!inlineHasChanges || inlineDraft == nil)
+            AppCard(title: "Skills") {
+                VStack(alignment: .leading, spacing: 16) {
+                    let issues = skillVisibilityIssues(agent)
+                    if !issues.isEmpty {
+                        skillVisibilityWarningBlock(issues)
                     }
-                }
-            }) {
-                if isEditing, let draft = inlineDraft {
-                    VStack(alignment: .leading, spacing: 18) {
-                        settingsSection("Skill Selection") {
-                            configEditorRow("Skill Catalog") {
-                                Text("Only skills visible in this agent’s scope are selectable here.")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.mutedText)
-                            }
-
-                            configEditorRow("Add Skill") {
-                                Menu("Choose Skill") {
-                                    ForEach(availableSkills, id: \.self) { skill in
-                                        Button(skill) {
-                                            addInlineSkill(skill)
-                                        }
-                                    }
-                                }
-                            }
-
-                            configEditorRow("Selected") {
-                                inlineTokenList(draft.config.skills, remove: removeInlineSkill)
-                            }
-                        }
-                    }
-                } else if isEditing {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if !skillVisibilityIssues(agent).isEmpty {
-                            skillVisibilityWarningBlock(skillVisibilityIssues(agent))
-                        }
-
-                        if agent.resolved.skills.isEmpty {
-                            Text("No explicit skills")
-                                .foregroundStyle(AppTheme.mutedText)
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(agent.resolved.skills, id: \.self) { skill in
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "sparkles")
-                                            .foregroundStyle(.green)
-                                        Text(skill)
-                                    }
+                    if agent.resolved.skills.isEmpty {
+                        Text("No explicit skills")
+                            .foregroundStyle(AppTheme.mutedText)
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(agent.resolved.skills, id: \.self) { skill in
+                                HStack(spacing: 10) {
+                                    Image(systemName: "sparkles").foregroundStyle(.green)
+                                    Text(skill)
                                 }
                             }
                         }
@@ -1309,7 +979,7 @@ private struct AgentDetailView: View {
 
             AppCard(title: "How Skills Work") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("• Assigned skills are attached to this agent through Pi’s native `--skill` support.")
+                    Text("• Assigned skills are attached to this agent through Pi's native `--skill` support.")
                     Text("• Agents do not inherit parent/default/project skills; assign required skills explicitly.")
                     Text("• If this agent has a tool allowlist and assigned skills, include `read` so Pi can load the skill files.")
                 }
@@ -1430,7 +1100,6 @@ private struct AgentDetailView: View {
         }
     }
 
-
     private var advancedTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             AppCard(title: "Source Files") {
@@ -1474,63 +1143,10 @@ private struct AgentDetailView: View {
         }
     }
 
+    // MARK: Helpers
+
     private var resolvedPromptDiffers: Bool {
         (agent.winningRecord?.promptBody ?? agent.resolved.systemPrompt) != agent.resolved.systemPrompt
-    }
-
-    private var inlineHasChanges: Bool {
-        guard let inlineDraft, let baselineInlineDraft else { return false }
-        return normalizedInlineDraft(inlineDraft) != normalizedInlineDraft(baselineInlineDraft)
-    }
-
-    private var selectedInlineModel: AvailableModel? {
-        guard let identifier = inlineDraft?.config.model else { return nil }
-        return availableModels.first(where: { $0.identifier == identifier })
-    }
-
-    private var selectedInlineModelSummary: String {
-        if let model = selectedInlineModel {
-            return "\(model.identifier) · ctx \(model.contextWindow) · out \(model.maxOutput)"
-        }
-        return "Uses Pi’s default model resolution."
-    }
-
-    private var inlineAvailableThinkingLevels: [String] {
-        selectedInlineModel?.supportedThinkingLevels ?? []
-    }
-
-    private var inlineModelSelectionBinding: Binding<String> {
-        Binding(
-            get: { inlineDraft?.config.model ?? "" },
-            set: { newValue in
-                inlineDraft?.config.model = newValue.isEmpty ? nil : newValue
-                clampInlineThinkingSelection()
-            }
-        )
-    }
-
-    private var inlineThinkingSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let current = inlineDraft?.config.thinking ?? "off"
-                return inlineAvailableThinkingLevels.contains(current) ? current : (inlineAvailableThinkingLevels.first ?? "off")
-            },
-            set: { newValue in
-                inlineDraft?.config.thinking = newValue == "off" ? nil : newValue
-            }
-        )
-    }
-
-    private var inlinePromptModeBinding: Binding<String> {
-        Binding(
-            get: { inlineDraft?.config.systemPromptMode ?? "replace" },
-            set: { inlineDraft?.config.systemPromptMode = $0 }
-        )
-    }
-
-    private var selectedInlineToolValues: [String] {
-        ((inlineDraft?.config.tools ?? []) + (inlineDraft?.config.mcpDirectTools ?? []).map { "mcp:\($0)" })
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     private var configurationFootnote: String {
@@ -1551,10 +1167,6 @@ private struct AgentDetailView: View {
 
     private var isPlainBuiltin: Bool {
         agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil
-    }
-
-    private var primarySourcePath: String? {
-        agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
     }
 
     private var writeTargetSummary: String {
@@ -1594,42 +1206,6 @@ private struct AgentDetailView: View {
     }
 
     @ViewBuilder
-    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.headline)
-                .fontWidth(.expanded)
-
-            VStack(alignment: .leading, spacing: 12) {
-                content()
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-    }
-
-    @ViewBuilder
-    private func configEditorRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .top, spacing: 18) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(AppTheme.mutedText)
-                if let help = fieldHelpText(for: title) {
-                    helpIcon(help)
-                }
-            }
-            .frame(width: 170, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 6) {
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    @ViewBuilder
     private func readOnlyFieldRow(_ title: String, value: String, isLast: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
@@ -1657,8 +1233,639 @@ private struct AgentDetailView: View {
             .help(text)
     }
 
+    private func fieldHelpText(for title: String) -> String? {
+        agentFieldHelpText(for: title)
+    }
+
+    private func display(_ value: Bool?) -> String {
+        guard let value else { return "—" }
+        return value ? "Yes" : "No"
+    }
+
+    private func openFile(_ path: String?) {
+        guard let path else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    private func revealInFinder(_ path: String?) {
+        guard let path else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+}
+
+// MARK: - Shared field help text
+
+private func agentFieldHelpText(for title: String) -> String? {
+    switch title {
+    case "When to Use":
+        return "Concise routing guidance for parent sessions deciding whether to delegate to this agent. Prefer one short sentence."
+    case "Model":
+        return "Default model for this agent. Builtin overrides can change this. Custom agents save it in frontmatter."
+    case "Fallback Models":
+        return "Ordered backup models Pi can use when the primary model is unavailable or unsuitable."
+    case "Thinking":
+        return "Reasoning effort hint for the selected model. Available options are derived from Pi's installed model metadata."
+    case "Prompt Mode":
+        return "Replace makes this a focused specialist prompt. Append keeps more of Pi's normal base behavior and adds this agent's instructions on top."
+    case "Inherit Project Context", "Project Context":
+        return "When enabled, the agent keeps Pi's project instruction context, including files like AGENTS.md or CLAUDE.md."
+    case "Skills":
+        return "Skills assigned to this agent are passed to Pi with explicit --skill paths. The agent needs the read tool to load full skill files."
+    case "Disabled", "Availability":
+        return "Disabled agents are hidden from subagent discovery and normal launches."
+    case "Output", "Output File":
+        return "Default output file for single-agent runs. Most useful in managed workflows such as parallel runs."
+    case "Default Reads":
+        return "Files Pi should read before execution when this agent is launched through managed workflows."
+    case "Default Progress", "Progress":
+        return "When enabled, managed workflows maintain progress.md for this agent."
+    case "Interactive", "Interaction":
+        return "Compatibility frontmatter field for interactive behavior. Parsed and preserved."
+    case "Max Subagent Depth", "Max Depth":
+        return "Limits how many more nested subagent launches this agent can create below itself."
+    case "Extensions":
+        return "Extension loading mode. Omitted means normal extension loading, empty means none, and explicit values act as an allowlist."
+    case "Tool Access":
+        return "If tools are omitted, the agent keeps Pi's normal tool behavior. If tools are explicitly set, they become an allowlist."
+    case "Extension Mode":
+        return "If extensions are omitted, Pi uses normal extension loading. An explicit list acts as an allowlist. An empty list means no discovered extensions."
+    case "Add Tool":
+        return "Choose from built-in Pi tools visible in this agent's scope."
+    case "Selected":
+        return "Current explicit values for this field. Remove any item with the x button."
+    case "Add Extension":
+        return "Choose from installed Pi package references already visible to \(AppBrand.displayName)."
+    case "Add Skill":
+        return "Choose from skills in Agent Deck's skill catalog."
+    case "Skill Catalog":
+        return "All catalog skills are available for explicit assignment; duplicate names must be resolved before launch."
+    default:
+        return nil
+    }
+}
+
+// MARK: - AgentSaveChangesSheet
+
+private struct AgentSaveChangesSheet: View {
+    let agentName: String
+    let changes: [(field: String, before: String, after: String)]
+    let onSave: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Save Changes")
+                        .font(.headline.weight(.semibold))
+                    Text(agentName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button("Cancel") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(changes.indices, id: \.self) { i in
+                        let change = changes[i]
+                        HStack(alignment: .top, spacing: 0) {
+                            Text(change.field)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                                .frame(width: 140, alignment: .leading)
+                                .padding(.trailing, 16)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(change.before)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                    Image(systemName: "arrow.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                    Text(change.after)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        if i < changes.count - 1 {
+                            Divider().padding(.leading, 24)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+
+            Divider()
+
+            HStack {
+                Spacer(minLength: 0)
+                Button("Cancel") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { onSave() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 580)
+    }
+}
+
+// MARK: - AgentEditSheet
+
+private struct AgentEditSheet: View {
+    let agent: EffectiveAgentRecord
+    let availableModels: [AvailableModel]
+    let availableTools: [String]
+    let availableSkills: [String]
+    let availableExtensions: [String]
+    let makeDraft: (AgentEditingTarget.OverrideScope?) -> AgentEditorDraft?
+    let onSave: (AgentEditorDraft) throws -> Void
+
+    @State private var draft: AgentEditorDraft?
+    @State private var baselineDraft: AgentEditorDraft?
+    @State private var selectedTab: EditTab = .config
+    @State private var isSaveConfirmPresented = false
+    @State private var saveError: String?
+    @Environment(\.dismiss) private var dismiss
+
+    enum EditTab: String, CaseIterable, Identifiable {
+        case config = "Configuration"
+        case prompt = "Prompt"
+        case tools = "Tools"
+        case skills = "Skills"
+        var id: String { rawValue }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Edit Agent")
+                        .font(.headline.weight(.semibold))
+                    Text(agent.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            // Tab bar
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(EditTab.allCases) { tab in
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            Text(tab.rawValue)
+                                .font(.subheadline.weight(.semibold))
+                                .fontWidth(.expanded)
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(selectedTab == tab ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 10)
+            }
+
+            Divider()
+
+            // Content
+            if let _ = draft {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                        switch selectedTab {
+                        case .config: editConfigTab
+                        case .prompt: editPromptTab
+                        case .tools: editToolsTab
+                        case .skills: editSkillsTab
+                        }
+                    }
+                    .padding(24)
+                }
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            // Footer
+            Divider()
+
+            HStack(spacing: 12) {
+                if let saveError {
+                    Text(saveError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Button("Discard") {
+                    draft = baselineDraft
+                    saveError = nil
+                }
+                .disabled(!hasChanges)
+
+                Button("Review & Save…") {
+                    isSaveConfirmPresented = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.brandAccent)
+                .disabled(!hasChanges || draft == nil)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 700, height: 640)
+        .task {
+            loadDraft()
+        }
+        .sheet(isPresented: $isSaveConfirmPresented) {
+            AgentSaveChangesSheet(
+                agentName: agent.name,
+                changes: pendingChangedFields(),
+                onSave: { performConfirmedSave() },
+                onCancel: { isSaveConfirmPresented = false }
+            )
+        }
+    }
+
+    // MARK: Edit Tabs
+
+    private var editConfigTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Routing") {
+                editSection {
+                    configRow("When to Use") {
+                        TextField("Use when…", text: optionalStringBinding(for: \.whenToUse))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+
+            AppCard(title: "Model & Reasoning") {
+                editSection {
+                    configRow("Model") {
+                        Picker("Model", selection: modelSelectionBinding) {
+                            Text("Use Pi Default Model").tag("")
+                            ForEach(availableModels, id: \.identifier) { model in
+                                Text(model.identifier).tag(model.identifier)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 360, alignment: .leading)
+                        Text(modelSummary)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    configRow("Thinking") {
+                        Picker("Thinking", selection: thinkingSelectionBinding) {
+                            ForEach(availableThinkingLevels, id: \.self) { level in
+                                Text(level).tag(level)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 180, alignment: .leading)
+                        Text("Only values supported by the selected model are shown.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    configRow("Fallback Models") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Menu("Add Fallback Model") {
+                                if !availableModels.isEmpty {
+                                    Button("Use None") {
+                                        draft?.config.fallbackModels = []
+                                    }
+                                    Divider()
+                                }
+                                ForEach(availableModels, id: \.identifier) { model in
+                                    Button(model.identifier) {
+                                        addFallbackModel(model.identifier)
+                                    }
+                                }
+                            }
+                            tokenList(draft?.config.fallbackModels ?? [], remove: removeFallbackModel)
+                        }
+                    }
+                }
+            }
+
+            AppCard(title: "Prompt") {
+                editSection {
+                    configRow("Prompt Mode") {
+                        Picker("Prompt Mode", selection: promptModeBinding) {
+                            Text("Replace").tag("replace")
+                            Text("Append").tag("append")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 260, alignment: .leading)
+                        Text(agentFieldHelpText(for: "Prompt Mode") ?? "")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                }
+            }
+
+            AppCard(title: "Behavior") {
+                editSection {
+                    configRow("Availability") {
+                        Toggle("Disabled", isOn: optionalBoolBinding(for: \.disabled))
+                            .toggleStyle(.switch)
+                        Text(agentFieldHelpText(for: "Disabled") ?? "")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+
+                    if case .custom = draft?.target {
+                        configRow("Default Outcome") {
+                            Picker("Default Outcome", selection: defaultExpectedOutcomeBinding()) {
+                                Text("Unspecified").tag(PiSubagentExpectedOutcome?.none)
+                                ForEach(PiSubagentExpectedOutcome.allCases) { outcome in
+                                    Text(outcome.displayName).tag(Optional(outcome))
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 220, alignment: .leading)
+                        }
+
+                        configRow("Progress") {
+                            Toggle("Default progress", isOn: optionalBoolBinding(for: \.defaultProgress))
+                                .toggleStyle(.switch)
+                            Text(agentFieldHelpText(for: "Default Progress") ?? "")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+
+                        configRow("Interaction") {
+                            Toggle("Interactive", isOn: optionalBoolBinding(for: \.interactive))
+                                .toggleStyle(.switch)
+                            Text(agentFieldHelpText(for: "Interactive") ?? "")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
+                }
+            }
+
+            if case .custom = draft?.target {
+                AppCard(title: "Files") {
+                    editSection {
+                        configRow("Output") {
+                            TextField("Output path", text: optionalStringBinding(for: \.output))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 360, alignment: .leading)
+                            Text(agentFieldHelpText(for: "Output") ?? "")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+
+                        configRow("Default Reads") {
+                            TextField("fileA, fileB", text: stringListBinding(for: \.defaultReads))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 360, alignment: .leading)
+                            Text(agentFieldHelpText(for: "Default Reads") ?? "")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+
+                        configRow("Max Depth") {
+                            Stepper(value: optionalIntBinding(for: \.maxSubagentDepth), in: 0...10) {
+                                Text(draft?.config.maxSubagentDepth.map(String.init) ?? "0")
+                            }
+                            .frame(maxWidth: 180, alignment: .leading)
+                            Text(agentFieldHelpText(for: "Max Subagent Depth") ?? "")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var editPromptTab: some View {
+        AppCard(title: "System Prompt") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("The system prompt is the main instruction body for this agent. Replace mode uses this as the agent's primary prompt, while append mode adds it on top of Pi's normal base behavior.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                TextEditor(text: Binding(
+                    get: { draft?.config.systemPrompt ?? "" },
+                    set: { draft?.config.systemPrompt = $0 }
+                ))
+                .frame(minHeight: 400)
+                .font(.system(.body, design: .monospaced))
+                .padding(8)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
+    private var editToolsTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Tool Access") {
+                VStack(alignment: .leading, spacing: 18) {
+                    editSection {
+                        configRow("Reset") {
+                            HStack(spacing: 10) {
+                                Button("Reset Tool Access") {
+                                    resetToolAccess()
+                                }
+                                .controlSize(.small)
+                                Text(selectedToolValues.isEmpty ? "Currently using Pi default tool access." : "Using an explicit tool allowlist.")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
+                        }
+
+                        configRow("Add Tool") {
+                            Menu("Choose Tool") {
+                                ForEach(availableTools, id: \.self) { tool in
+                                    Button(tool) {
+                                        addTool(tool)
+                                    }
+                                }
+                            }
+                            .lineLimit(1)
+                            .fontWidth(.condensed)
+                        }
+
+                        configRow("Selected") {
+                            tokenList(selectedToolValues, remove: removeTool)
+                        }
+                    }
+                }
+            }
+
+            if case .custom = draft?.target {
+                AppCard(title: "Extensions") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        editSection {
+                            configRow("Extension Mode") {
+                                HStack(spacing: 10) {
+                                    Button("Use Default Extensions") {
+                                        draft?.config.extensions = nil
+                                    }
+                                    .controlSize(.small)
+                                    .lineLimit(1)
+                                    Text((draft?.config.extensions == nil) ? "Inherits Pi's default extension behavior." : "Using an explicit extension list.")
+                                        .font(.caption)
+                                        .fontWidth(.condensed)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                }
+                            }
+
+                            configRow("Add Extension") {
+                                Menu("Choose Extension") {
+                                    ForEach(availableExtensions, id: \.self) { name in
+                                        Button(name) {
+                                            addExtension(name)
+                                        }
+                                    }
+                                }
+                                .lineLimit(1)
+                                .fontWidth(.condensed)
+                            }
+
+                            configRow("Selected") {
+                                tokenList(draft?.config.extensions ?? [], remove: removeExtension)
+                            }
+                        }
+                    }
+                }
+            }
+
+            AppCard(title: "How Tool Access Works") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• If `tools` is omitted, the child gets Pi's normal default built-in tools.")
+                    Text("• If `tools` is set, it acts like an allowlist for regular tool names.")
+                    Text("• Extensions are offered from installed package references Pi already knows about.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var editSkillsTab: some View {
+        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Skills") {
+                VStack(alignment: .leading, spacing: 18) {
+                    editSection {
+                        configRow("Skill Catalog") {
+                            Text("Only skills visible in this agent's scope are selectable here.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+
+                        configRow("Add Skill") {
+                            Menu("Choose Skill") {
+                                ForEach(availableSkills, id: \.self) { skill in
+                                    Button(skill) {
+                                        addSkill(skill)
+                                    }
+                                }
+                            }
+                        }
+
+                        configRow("Selected") {
+                            tokenList(draft?.config.skills ?? [], remove: removeSkill)
+                        }
+                    }
+                }
+            }
+
+            AppCard(title: "How Skills Work") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("• Assigned skills are attached to this agent through Pi's native `--skill` support.")
+                    Text("• Agents do not inherit parent/default/project skills; assign required skills explicitly.")
+                    Text("• If this agent has a tool allowlist and assigned skills, include `read` so Pi can load the skill files.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: Layout Helpers
+
     @ViewBuilder
-    private func inlineTokenList(_ values: [String], remove: @escaping (String) -> Void) -> some View {
+    private func editSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.contentSubtleFill.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func configRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 18) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+                if let help = agentFieldHelpText(for: title) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .help(help)
+                }
+            }
+            .frame(width: 170, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 6) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func tokenList(_ values: [String], remove: @escaping (String) -> Void) -> some View {
         if values.isEmpty {
             Text("None")
                 .font(.caption)
@@ -1687,139 +1894,48 @@ private struct AgentDetailView: View {
         }
     }
 
-    private func reloadInlineDraft(preferredOverrideScope: AgentEditingTarget.OverrideScope? = nil) {
-        guard let draft = makeDraft(preferredOverrideScope) else {
-            inlineDraft = nil
-            baselineInlineDraft = nil
+    // MARK: Draft State
+
+    private var hasChanges: Bool {
+        guard let draft, let baselineDraft else { return false }
+        return normalizedDraft(draft) != normalizedDraft(baselineDraft)
+    }
+
+    private func loadDraft() {
+        guard let d = makeDraft(nil) else {
+            draft = nil
+            baselineDraft = nil
             return
         }
-        inlineDraft = draft
-        baselineInlineDraft = draft
-        inlineSaveMessage = nil
+        draft = d
+        baselineDraft = d
+        saveError = nil
     }
 
-    private func toggleEditMode() {
-        if isEditing {
-            guard !inlineHasChanges else {
-                NSSound.beep()
-                inlineSaveMessage = "Save or discard your changes first."
-                return
-            }
-            isEditing = false
-        } else {
-            reloadInlineDraft()
-            isEditing = true
-        }
+    private func pendingChangedFields() -> [(field: String, before: String, after: String)] {
+        guard let draft, let baselineDraft else { return [] }
+        return changedFields(from: normalizedDraft(baselineDraft), to: normalizedDraft(draft))
     }
 
-    private func discardInlineChanges(exitEditMode: Bool = false) {
-        inlineDraft = baselineInlineDraft
-        inlineSaveMessage = nil
-        if exitEditMode {
-            isEditing = false
-        }
-    }
-
-    private func requestSaveInlineDraft(exitEditMode: Bool = false) {
-        guard let inlineDraft, let baselineInlineDraft else { return }
-        let summary = changedFieldsSummary(from: normalizedInlineDraft(baselineInlineDraft), to: normalizedInlineDraft(inlineDraft))
-        guard !summary.isEmpty else { return }
-        pendingSaveConfirmation = SaveConfirmation(summary: summary, exitEditMode: exitEditMode)
-    }
-
-    private func performConfirmedSave(exitEditMode: Bool = false) {
-        guard let inlineDraft else { return }
+    private func performConfirmedSave() {
+        guard let draft else { return }
         do {
-            let normalized = normalizedInlineDraft(inlineDraft)
-            try onSaveDraft(normalized)
-            baselineInlineDraft = normalized
-            self.inlineDraft = normalized
-            inlineSaveMessage = "Saved"
-            pendingSaveConfirmation = nil
-            if exitEditMode {
-                isEditing = false
-            }
+            let normalized = normalizedDraft(draft)
+            try onSave(normalized)
+            baselineDraft = normalized
+            self.draft = normalized
+            saveError = nil
+            isSaveConfirmPresented = false
+            dismiss()
         } catch {
             NSSound.beep()
-            inlineSaveMessage = nil
-            pendingSaveConfirmation = nil
+            saveError = error.localizedDescription
+            isSaveConfirmPresented = false
         }
     }
 
-    private func clampInlineThinkingSelection() {
-        let current = inlineDraft?.config.thinking ?? "off"
-        guard !inlineAvailableThinkingLevels.contains(current) else { return }
-        let fallback = inlineAvailableThinkingLevels.first ?? "off"
-        inlineDraft?.config.thinking = fallback == "off" ? nil : fallback
-    }
-
-    private func addInlineFallbackModel(_ model: String) {
-        guard inlineDraft?.config.fallbackModels.contains(model) == false else { return }
-        inlineDraft?.config.fallbackModels.append(model)
-    }
-
-    private func removeInlineFallbackModel(_ model: String) {
-        inlineDraft?.config.fallbackModels.removeAll { $0 == model }
-    }
-
-    private func resetInlineToolAccess() {
-        if case .builtinOverride = inlineDraft?.target {
-            inlineDraft?.config.tools = agent.builtin?.parsed.tools
-            inlineDraft?.config.mcpDirectTools = agent.builtin?.parsed.mcpDirectTools
-        } else {
-            inlineDraft?.config.tools = nil
-            inlineDraft?.config.mcpDirectTools = nil
-        }
-    }
-
-    private func addInlineTool(_ tool: String) {
-        var values = selectedInlineToolValues
-        guard !values.contains(tool) else { return }
-        values.append(tool)
-        applyInlineToolValues(values)
-    }
-
-    private func removeInlineTool(_ tool: String) {
-        applyInlineToolValues(selectedInlineToolValues.filter { $0 != tool })
-    }
-
-    private func applyInlineToolValues(_ values: [String]) {
-        var tools: [String] = []
-        var mcpTools: [String] = []
-        for value in values {
-            if value.hasPrefix("mcp:") {
-                let name = String(value.dropFirst(4))
-                if !name.isEmpty { mcpTools.append(name) }
-            } else {
-                tools.append(value)
-            }
-        }
-        inlineDraft?.config.tools = tools.isEmpty ? nil : tools
-        inlineDraft?.config.mcpDirectTools = mcpTools.isEmpty ? nil : mcpTools
-    }
-
-    private func addInlineExtension(_ name: String) {
-        var values = inlineDraft?.config.extensions ?? []
-        guard !values.contains(name) else { return }
-        values.append(name)
-        inlineDraft?.config.extensions = values
-    }
-
-    private func removeInlineExtension(_ name: String) {
-        inlineDraft?.config.extensions?.removeAll { $0 == name }
-    }
-
-    private func addInlineSkill(_ skill: String) {
-        guard inlineDraft?.config.skills.contains(skill) == false else { return }
-        inlineDraft?.config.skills.append(skill)
-    }
-
-    private func removeInlineSkill(_ skill: String) {
-        inlineDraft?.config.skills.removeAll { $0 == skill }
-    }
-
-    private func normalizedInlineDraft(_ draft: AgentEditorDraft) -> AgentEditorDraft {
-        var copy = draft
+    private func normalizedDraft(_ d: AgentEditorDraft) -> AgentEditorDraft {
+        var copy = d
         copy.config.whenToUse = copy.config.whenToUse?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         copy.config.fallbackModels = normalizedList(copy.config.fallbackModels) ?? []
         copy.config.tools = normalizedList(copy.config.tools)
@@ -1842,12 +1958,12 @@ private struct AgentDetailView: View {
         return items.isEmpty ? nil : items
     }
 
-    private func changedFieldsSummary(from before: AgentEditorDraft, to after: AgentEditorDraft) -> String {
-        var changes: [(String, String, String)] = []
+    private func changedFields(from before: AgentEditorDraft, to after: AgentEditorDraft) -> [(field: String, before: String, after: String)] {
+        var changes: [(field: String, before: String, after: String)] = []
 
         func add(_ field: String, _ old: String, _ new: String) {
             guard old != new else { return }
-            changes.append((field, old, new))
+            changes.append((field: field, before: old, after: new))
         }
 
         let beforeConfig = before.config
@@ -1856,19 +1972,19 @@ private struct AgentDetailView: View {
         add("Fallback Models", beforeConfig.fallbackModels.isEmpty ? "—" : beforeConfig.fallbackModels.joined(separator: ", "), afterConfig.fallbackModels.isEmpty ? "—" : afterConfig.fallbackModels.joined(separator: ", "))
         add("Thinking", beforeConfig.thinking ?? "off", afterConfig.thinking ?? "off")
         add("Prompt Mode", beforeConfig.systemPromptMode ?? "—", afterConfig.systemPromptMode ?? "—")
-        add("Disabled", display(beforeConfig.disabled), display(afterConfig.disabled))
+        add("Disabled", displayBool(beforeConfig.disabled), displayBool(afterConfig.disabled))
         add("Tools", ((beforeConfig.tools ?? []) + (beforeConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined, ((afterConfig.tools ?? []) + (afterConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined)
         add("Extensions", (beforeConfig.extensions ?? []).nonEmptyJoined, (afterConfig.extensions ?? []).nonEmptyJoined)
         add("Skills", beforeConfig.skills.nonEmptyJoined, afterConfig.skills.nonEmptyJoined)
         add("Output", beforeConfig.output ?? "—", afterConfig.output ?? "—")
         add("Default Outcome", beforeConfig.defaultExpectedOutcome?.displayName ?? "—", afterConfig.defaultExpectedOutcome?.displayName ?? "—")
         add("Default Reads", (beforeConfig.defaultReads ?? []).nonEmptyJoined, (afterConfig.defaultReads ?? []).nonEmptyJoined)
-        add("Default Progress", display(beforeConfig.defaultProgress), display(afterConfig.defaultProgress))
-        add("Interactive", display(beforeConfig.interactive), display(afterConfig.interactive))
+        add("Default Progress", displayBool(beforeConfig.defaultProgress), displayBool(afterConfig.defaultProgress))
+        add("Interactive", displayBool(beforeConfig.interactive), displayBool(afterConfig.interactive))
         add("Max Subagent Depth", beforeConfig.maxSubagentDepth.map(String.init) ?? "—", afterConfig.maxSubagentDepth.map(String.init) ?? "—")
         add("Prompt", shortPromptSummary(beforeConfig.systemPrompt), shortPromptSummary(afterConfig.systemPrompt))
 
-        return changes.map { "\($0.0): \($0.1) → \($0.2)" }.joined(separator: "\n")
+        return changes
     }
 
     private func shortPromptSummary(_ value: String) -> String {
@@ -1878,131 +1994,180 @@ private struct AgentDetailView: View {
         return String(trimmed.prefix(57)) + "..."
     }
 
-    private func fieldHelpText(for title: String) -> String? {
-        switch title {
-        case "When to Use":
-            return "Concise routing guidance for parent sessions deciding whether to delegate to this agent. Prefer one short sentence."
-        case "Model":
-            return "Default model for this agent. Builtin overrides can change this. Custom agents save it in frontmatter."
-        case "Fallback Models":
-            return "Ordered backup models Pi can use when the primary model is unavailable or unsuitable."
-        case "Thinking":
-            return "Reasoning effort hint for the selected model. Available options are derived from Pi’s installed model metadata."
-        case "Prompt Mode":
-            return "Replace makes this a focused specialist prompt. Append keeps more of Pi’s normal base behavior and adds this agent’s instructions on top."
-        case "Inherit Project Context", "Project Context":
-            return "When enabled, the agent keeps Pi’s project instruction context, including files like AGENTS.md or CLAUDE.md."
-        case "Skills":
-            return "Skills assigned to this agent are passed to Pi with explicit --skill paths. The agent needs the read tool to load full skill files."
-        case "Disabled", "Availability":
-            return "Disabled agents are hidden from subagent discovery and normal launches."
-        case "Output", "Output File":
-            return "Default output file for single-agent runs. Most useful in managed workflows such as parallel runs."
-        case "Default Reads":
-            return "Files Pi should read before execution when this agent is launched through managed workflows."
-        case "Default Progress", "Progress":
-            return "When enabled, managed workflows maintain progress.md for this agent."
-        case "Interactive", "Interaction":
-            return "Compatibility frontmatter field for interactive behavior. Parsed and preserved."
-        case "Max Subagent Depth", "Max Depth":
-            return "Limits how many more nested subagent launches this agent can create below itself."
-        case "Extensions":
-            return "Extension loading mode. Omitted means normal extension loading, empty means none, and explicit values act as an allowlist."
-        case "Tool Access":
-            return "If tools are omitted, the agent keeps Pi’s normal tool behavior. If tools are explicitly set, they become an allowlist."
-        case "Extension Mode":
-            return "If extensions are omitted, Pi uses normal extension loading. An explicit list acts as an allowlist. An empty list means no discovered extensions."
-        case "Add Tool":
-            return "Choose from built-in Pi tools visible in this agent’s scope."
-        case "Selected":
-            return "Current explicit values for this field. Remove any item with the x button."
-        case "Add Extension":
-            return "Choose from installed Pi package references already visible to \(AppBrand.displayName)."
-        case "Add Skill":
-            return "Choose from skills in Agent Deck's skill catalog."
-        case "Skill Catalog":
-            return "All catalog skills are available for explicit assignment; duplicate names must be resolved before launch."
-        default:
-            return nil
+    private func displayBool(_ value: Bool?) -> String {
+        guard let value else { return "—" }
+        return value ? "Yes" : "No"
+    }
+
+    // MARK: Bindings
+
+    private var modelSelectionBinding: Binding<String> {
+        Binding(
+            get: { draft?.config.model ?? "" },
+            set: { newValue in
+                draft?.config.model = newValue.isEmpty ? nil : newValue
+                clampThinkingSelection()
+            }
+        )
+    }
+
+    private var thinkingSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let current = draft?.config.thinking ?? "off"
+                return availableThinkingLevels.contains(current) ? current : (availableThinkingLevels.first ?? "off")
+            },
+            set: { newValue in
+                draft?.config.thinking = newValue == "off" ? nil : newValue
+            }
+        )
+    }
+
+    private var promptModeBinding: Binding<String> {
+        Binding(
+            get: { draft?.config.systemPromptMode ?? "replace" },
+            set: { draft?.config.systemPromptMode = $0 }
+        )
+    }
+
+    private var selectedModel: AvailableModel? {
+        guard let identifier = draft?.config.model else { return nil }
+        return availableModels.first(where: { $0.identifier == identifier })
+    }
+
+    private var modelSummary: String {
+        if let model = selectedModel {
+            return "\(model.identifier) · ctx \(model.contextWindow) · out \(model.maxOutput)"
         }
+        return "Uses Pi's default model resolution."
     }
 
-    private func inlineOptionalStringBinding(for keyPath: WritableKeyPath<AgentConfig, String?>) -> Binding<String> {
+    private var availableThinkingLevels: [String] {
+        selectedModel?.supportedThinkingLevels ?? []
+    }
+
+    private var selectedToolValues: [String] {
+        ((draft?.config.tools ?? []) + (draft?.config.mcpDirectTools ?? []).map { "mcp:\($0)" })
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func optionalStringBinding(for keyPath: WritableKeyPath<AgentConfig, String?>) -> Binding<String> {
         Binding(
-            get: { inlineDraft?.config[keyPath: keyPath] ?? "" },
-            set: { inlineDraft?.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
+            get: { draft?.config[keyPath: keyPath] ?? "" },
+            set: { draft?.config[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
         )
     }
 
-    private func inlineDefaultExpectedOutcomeBinding() -> Binding<PiSubagentExpectedOutcome?> {
+    private func stringListBinding(for keyPath: WritableKeyPath<AgentConfig, [String]?>) -> Binding<String> {
         Binding(
-            get: { inlineDraft?.config.defaultExpectedOutcome },
-            set: { inlineDraft?.config.defaultExpectedOutcome = $0 }
-        )
-    }
-
-    private func inlineStringListBinding(for keyPath: WritableKeyPath<AgentConfig, [String]?>) -> Binding<String> {
-        Binding(
-            get: { (inlineDraft?.config[keyPath: keyPath] ?? []).joined(separator: ", ") },
+            get: { (draft?.config[keyPath: keyPath] ?? []).joined(separator: ", ") },
             set: { newValue in
                 let values = newValue
                     .split(separator: ",")
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
-                inlineDraft?.config[keyPath: keyPath] = values.isEmpty ? nil : values
+                draft?.config[keyPath: keyPath] = values.isEmpty ? nil : values
             }
         )
     }
 
-    private func inlineOptionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>) -> Binding<Bool> {
+    private func optionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>) -> Binding<Bool> {
         Binding(
-            get: { inlineDraft?.config[keyPath: keyPath] ?? false },
-            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+            get: { draft?.config[keyPath: keyPath] ?? false },
+            set: { draft?.config[keyPath: keyPath] = $0 }
         )
     }
 
-    private func inlineDefaultedOptionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>, default defaultValue: Bool) -> Binding<Bool> {
+    private func optionalIntBinding(for keyPath: WritableKeyPath<AgentConfig, Int?>) -> Binding<Int> {
         Binding(
-            get: { inlineDraft?.config[keyPath: keyPath] ?? defaultValue },
-            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+            get: { draft?.config[keyPath: keyPath] ?? 0 },
+            set: { draft?.config[keyPath: keyPath] = $0 }
         )
     }
 
-    private func inlineDefaultedOptionalBoolBinding(for keyPath: WritableKeyPath<AgentConfig, Bool?>, default defaultValue: @escaping () -> Bool) -> Binding<Bool> {
+    private func defaultExpectedOutcomeBinding() -> Binding<PiSubagentExpectedOutcome?> {
         Binding(
-            get: { inlineDraft?.config[keyPath: keyPath] ?? defaultValue() },
-            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
+            get: { draft?.config.defaultExpectedOutcome },
+            set: { draft?.config.defaultExpectedOutcome = $0 }
         )
     }
 
-    private func inlineOptionalIntBinding(for keyPath: WritableKeyPath<AgentConfig, Int?>) -> Binding<Int> {
-        Binding(
-            get: { inlineDraft?.config[keyPath: keyPath] ?? 0 },
-            set: { inlineDraft?.config[keyPath: keyPath] = $0 }
-        )
+    // MARK: Mutation Helpers
+
+    private func clampThinkingSelection() {
+        let current = draft?.config.thinking ?? "off"
+        guard !availableThinkingLevels.contains(current) else { return }
+        let fallback = availableThinkingLevels.first ?? "off"
+        draft?.config.thinking = fallback == "off" ? nil : fallback
     }
 
-    private func display(_ value: Bool?) -> String {
-        guard let value else { return "—" }
-        return value ? "Yes" : "No"
+    private func addFallbackModel(_ model: String) {
+        guard draft?.config.fallbackModels.contains(model) == false else { return }
+        draft?.config.fallbackModels.append(model)
     }
 
-    private func openFile(_ path: String?) {
-        guard let path else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    private func removeFallbackModel(_ model: String) {
+        draft?.config.fallbackModels.removeAll { $0 == model }
     }
 
-    private func revealInFinder(_ path: String?) {
-        guard let path else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    private func resetToolAccess() {
+        if case .builtinOverride = draft?.target {
+            draft?.config.tools = agent.builtin?.parsed.tools
+            draft?.config.mcpDirectTools = agent.builtin?.parsed.mcpDirectTools
+        } else {
+            draft?.config.tools = nil
+            draft?.config.mcpDirectTools = nil
+        }
+    }
+
+    private func addTool(_ tool: String) {
+        var values = selectedToolValues
+        guard !values.contains(tool) else { return }
+        values.append(tool)
+        applyToolValues(values)
+    }
+
+    private func removeTool(_ tool: String) {
+        applyToolValues(selectedToolValues.filter { $0 != tool })
+    }
+
+    private func applyToolValues(_ values: [String]) {
+        var tools: [String] = []
+        var mcpTools: [String] = []
+        for value in values {
+            if value.hasPrefix("mcp:") {
+                let name = String(value.dropFirst(4))
+                if !name.isEmpty { mcpTools.append(name) }
+            } else {
+                tools.append(value)
+            }
+        }
+        draft?.config.tools = tools.isEmpty ? nil : tools
+        draft?.config.mcpDirectTools = mcpTools.isEmpty ? nil : mcpTools
+    }
+
+    private func addExtension(_ name: String) {
+        var values = draft?.config.extensions ?? []
+        guard !values.contains(name) else { return }
+        values.append(name)
+        draft?.config.extensions = values
+    }
+
+    private func removeExtension(_ name: String) {
+        draft?.config.extensions?.removeAll { $0 == name }
+    }
+
+    private func addSkill(_ skill: String) {
+        guard draft?.config.skills.contains(skill) == false else { return }
+        draft?.config.skills.append(skill)
+    }
+
+    private func removeSkill(_ skill: String) {
+        draft?.config.skills.removeAll { $0 == skill }
     }
 }
 
-struct SaveConfirmation: Identifiable {
-    let id = UUID()
-    let summary: String
-    let exitEditMode: Bool
-}
+// MARK: - SubagentsProjectRecapPanel
 
 private struct SubagentsProjectRecapPanel: View {
     let project: DiscoveredProject
