@@ -324,7 +324,7 @@ private struct AgentLibraryPane: View {
                 }
             }
         }
-        .appResourceListStyle()
+        .appListStyle()
     }
 
     private var activeCustomAgents: [EffectiveAgentRecord] {
@@ -397,7 +397,7 @@ private struct AgentLibraryPane: View {
         let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
         let isSelected = viewModel.selectedAgentID == agent.id
 
-        return HStack(alignment: .top, spacing: 10) {
+        return HStack(alignment: .center, spacing: 10) {
             AgentAvatarView(
                 imageURL: imageStore.imageURL(for: agent.name),
                 fallbackSystemImage: icon(for: agent),
@@ -514,6 +514,10 @@ private struct AgentLibraryPane: View {
                 }
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { viewModel.selectedAgentID = agent.id }
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .appListRowBackground(isSelected: isSelected)
     }
 
     private func nativeEmptyRow(_ text: String) -> some View {

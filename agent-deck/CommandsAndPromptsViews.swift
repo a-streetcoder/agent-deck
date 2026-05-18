@@ -110,7 +110,7 @@ struct PromptsScreen: View {
                 }
             }
         }
-        .appResourceListStyle()
+        .appListStyle()
     }
 
     private func promptWarningRow(_ warning: DiagnosticWarning) -> some View {
@@ -191,6 +191,10 @@ struct PromptsScreen: View {
         }
         .padding(.vertical, 6)
         .badge(prompt.source.kind.rawValue)
+        .contentShape(Rectangle())
+        .onTapGesture { viewModel.selectedCommandItemID = prompt.id }
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .appListRowBackground(isSelected: viewModel.selectedCommandItemID == prompt.id)
     }
 
     private func nativePill(_ text: String, symbol: String, color: Color) -> some View {

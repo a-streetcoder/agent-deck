@@ -260,6 +260,26 @@ struct AppCopyTextButton: View {
     }
 }
 
+struct AppListRowSelectionBackground: View {
+    var isSelected: Bool
+
+    var body: some View {
+        if isSelected {
+            LinearGradient(
+                colors: [
+                    AppTheme.brandAccentBright.opacity(0.12),
+                    AppTheme.brandAccent.opacity(0.07),
+                    AppTheme.brandAccentDeep.opacity(0.10)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            Color.clear
+        }
+    }
+}
+
 extension View {
     func appContentSurface(cornerRadius: CGFloat = AppTheme.cardCornerRadius, isSelected: Bool = false) -> some View {
         modifier(AppContentSurface(cornerRadius: cornerRadius, isSelected: isSelected))
@@ -277,10 +297,22 @@ extension View {
         frame(width: AppTheme.toolbarIconFrame.width, height: AppTheme.toolbarIconFrame.height)
     }
 
-    func appResourceListStyle() -> some View {
+    // Canonical list style for all resource lists (agents, skills, prompts).
+    // Pair with .appListRowBackground(isSelected:) on each row.
+    func appListStyle() -> some View {
         listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
+    }
+
+    // Branded gradient selection background, consistent with the session list.
+    func appListRowBackground(isSelected: Bool) -> some View {
+        listRowBackground(AppListRowSelectionBackground(isSelected: isSelected))
+    }
+
+    @available(*, deprecated, renamed: "appListStyle")
+    func appResourceListStyle() -> some View {
+        appListStyle()
     }
 }
 

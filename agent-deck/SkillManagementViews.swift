@@ -206,7 +206,7 @@ struct SkillsScreen: View {
                 }
             }
         }
-        .appResourceListStyle()
+        .appListStyle()
     }
 
     private func catalogSection(skills: [SkillRecord]) -> some View {
@@ -244,7 +244,8 @@ struct SkillsScreen: View {
             selectedWarning = .missing(warning)
         }
         .padding(.vertical, 6)
-        .listRowBackground(selectedWarning == .missing(warning) ? AppTheme.selectionFill : Color.clear)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .appListRowBackground(isSelected: selectedWarning == .missing(warning))
     }
 
     private func diagnosticWarningRow(_ warning: DiagnosticWarning) -> some View {
@@ -263,7 +264,8 @@ struct SkillsScreen: View {
             selectedWarning = .diagnostic(warning)
         }
         .padding(.vertical, 6)
-        .listRowBackground(selectedWarning == .diagnostic(warning) ? AppTheme.selectionFill : Color.clear)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .appListRowBackground(isSelected: selectedWarning == .diagnostic(warning))
     }
 
     @ViewBuilder
@@ -594,6 +596,10 @@ struct SkillsScreen: View {
             }
             .disabled(!viewModel.canDeleteSkill(skill))
         }
+        .contentShape(Rectangle())
+        .onTapGesture { selectedSkillID = skill.id; selectedWarning = nil }
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .appListRowBackground(isSelected: selectedSkillID == skill.id)
     }
 
     private func nativeEmptyRow(_ text: String) -> some View {
