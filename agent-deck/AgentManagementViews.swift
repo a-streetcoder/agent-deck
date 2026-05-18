@@ -443,18 +443,22 @@ private struct AgentLibraryPane: View {
 
             Spacer(minLength: 0)
 
-            if hoveredAgentID == agent.id {
-                Button {
-                    onEditAgent(agent)
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-                .help("Edit agent")
+            Button {
+                onEditAgent(agent)
+            } label: {
+                Text("Edit")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(hoveredAgentID == agent.id ? AppTheme.brandAccent : .clear)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(hoveredAgentID == agent.id ? AppTheme.brandAccent.opacity(0.12) : .clear)
+                    )
             }
+            .buttonStyle(.plain)
+            .help("Edit agent")
+            .animation(.easeInOut(duration: 0.15), value: hoveredAgentID == agent.id)
         }
         .onHover { hovering in
             hoveredAgentID = hovering ? agent.id : nil
@@ -462,7 +466,6 @@ private struct AgentLibraryPane: View {
         .padding(.vertical, 6)
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
-        .badge(statusLabel(agent))
         .contextMenu {
             Button {
                 openFile(filePath)
