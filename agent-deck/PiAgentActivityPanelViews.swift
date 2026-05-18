@@ -62,7 +62,10 @@ struct PiAgentActivityPanel: View {
         .onChange(of: store.selectedSession?.id) { _, _ in
             selectedID = nil
             requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
-            rebuildActivityCache()
+            Task { @MainActor in
+                await Task.yield()
+                rebuildActivityCache()
+            }
         }
         .onChange(of: store.selectedTranscriptRevision) { _, _ in
             Task { @MainActor in
@@ -72,9 +75,17 @@ struct PiAgentActivityPanel: View {
         }
         .onReceive(store.$subagentRunsBySessionID) { _ in
             requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
-            rebuildActivityCache()
+            Task { @MainActor in
+                await Task.yield()
+                rebuildActivityCache()
+            }
         }
-        .onReceive(store.$subagentTranscriptsByRunID) { _ in rebuildActivityCache() }
+        .onReceive(store.$subagentTranscriptsByRunID) { _ in
+            Task { @MainActor in
+                await Task.yield()
+                rebuildActivityCache()
+            }
+        }
         .onReceive(activityCache.$changes) { changes in
             let diffs = changes.compactMap(\.diff)
             Task { await piAgentDiffRenderCache.prewarm(diffs) }

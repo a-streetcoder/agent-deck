@@ -387,6 +387,7 @@ private struct AgentLibraryPane: View {
         let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
         let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
+        let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
 
         return HStack(alignment: .top, spacing: 10) {
             AgentAvatarView(
@@ -437,6 +438,45 @@ private struct AgentLibraryPane: View {
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
         .badge(statusLabel(agent))
+        .contextMenu {
+            Button {
+                openFile(filePath)
+            } label: {
+                Label("Open Raw File", systemImage: "doc.text")
+            }
+            .disabled(filePath == nil)
+
+            Button {
+                revealInFinder(filePath)
+            } label: {
+                Label("Reveal in Finder", systemImage: "finder")
+            }
+            .disabled(filePath == nil)
+
+            Divider()
+
+            if agent.resolved.disabled == true {
+                Button {
+                    do {
+                        try viewModel.setAgentDisabled(false, for: agent)
+                    } catch {
+                        NSSound.beep()
+                    }
+                } label: {
+                    Label("Enable Agent", systemImage: "checkmark.circle")
+                }
+            } else {
+                Button(role: .destructive) {
+                    do {
+                        try viewModel.setAgentDisabled(true, for: agent)
+                    } catch {
+                        NSSound.beep()
+                    }
+                } label: {
+                    Label("Disable Agent", systemImage: "nosign")
+                }
+            }
+        }
     }
 
     private func nativeEmptyRow(_ text: String) -> some View {
