@@ -61,8 +61,11 @@ struct AgentPersistence {
 
     private func saveCustomAgent(_ config: AgentConfig, scope: AgentEditingTarget.CustomAgentScope, originalName: String, sourcePath: String?, projectRoot: String?) throws {
         let path = sourcePath ?? customAgentPath(name: config.name, scope: scope, projectRoot: projectRoot)
-        guard isWritableCustomAgentPath(path, scope: scope, projectRoot: projectRoot) else {
-            throw PersistenceError.invalidWriteTarget(path)
+        // Only validate computed paths for new files; existing source paths came from disk and are already trusted.
+        if sourcePath == nil {
+            guard isWritableCustomAgentPath(path, scope: scope, projectRoot: projectRoot) else {
+                throw PersistenceError.invalidWriteTarget(path)
+            }
         }
 
         if let sourcePath, sourcePath != path, fileManager.fileExists(atPath: sourcePath) {

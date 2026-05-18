@@ -395,6 +395,7 @@ private struct AgentLibraryPane: View {
         let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
         let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
+        let isSelected = viewModel.selectedAgentID == agent.id
 
         return HStack(alignment: .top, spacing: 10) {
             AgentAvatarView(
@@ -448,12 +449,20 @@ private struct AgentLibraryPane: View {
             } label: {
                 Text("Edit")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(hoveredAgentID == agent.id ? AppTheme.brandAccent : .clear)
+                    .foregroundStyle(
+                        hoveredAgentID == agent.id
+                            ? (isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(AppTheme.brandAccent))
+                            : AnyShapeStyle(Color.clear)
+                    )
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(
                         Capsule(style: .continuous)
-                            .fill(hoveredAgentID == agent.id ? AppTheme.brandAccent.opacity(0.12) : .clear)
+                            .fill(
+                                hoveredAgentID == agent.id
+                                    ? (isSelected ? Color.white.opacity(0.22) : AppTheme.brandAccent.opacity(0.12))
+                                    : Color.clear
+                            )
                     )
             }
             .buttonStyle(.plain)
