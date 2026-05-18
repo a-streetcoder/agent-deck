@@ -251,24 +251,26 @@ struct ContentView: View {
             ToolbarSpacer(.flexible)
 
             if viewModel.selectedSidebarItem == .projects {
-                ToolbarItemGroup {
-                    Button {
-                        viewModel.refresh(includeModels: false, scanAllProjects: true)
-                    } label: {
-                        Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
-                    }
-                    .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
-                    .toolbarNeutralChrome()
-                    .help("Refresh project discovery")
-                    .disabled(viewModel.isRefreshingProjects)
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Button {
+                            viewModel.refresh(includeModels: false, scanAllProjects: true)
+                        } label: {
+                            Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
+                        .toolbarNeutralChrome()
+                        .help("Refresh project discovery")
+                        .disabled(viewModel.isRefreshingProjects)
 
-                    Button {
-                        viewModel.chooseProjectRoot()
-                    } label: {
-                        Image(systemName: "plus")
+                        Button {
+                            viewModel.chooseProjectRoot()
+                        } label: {
+                            Label("Add Project", systemImage: "plus")
+                        }
+                        .toolbarPrimaryActionChrome()
+                        .help("Add project manually")
                     }
-                    .toolbarPrimaryActionChrome()
-                    .help("Add project manually")
                 }
             }
 
@@ -362,55 +364,59 @@ struct ContentView: View {
             }
 
             if viewModel.selectedSidebarItem == .environment {
-                ToolbarItem {
-                    if viewModel.selectedProjectPath == nil {
-                        Button {
-                            envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                        } label: {
-                            Label("New Key", systemImage: "plus")
-                        }
-                        .toolbarPrimaryActionChrome()
-                        .help("Create a global environment key")
-                    } else {
-                        Menu {
-                            Button("Project .pi/.env") {
-                                envDraft = viewModel.makeNewEnvDraft(scope: .project)
-                            }
-                            Button("Global ~/.pi/agent/.env") {
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        if viewModel.selectedProjectPath == nil {
+                            Button {
                                 envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                            } label: {
+                                Label("New Key", systemImage: "plus")
                             }
-                        } label: {
-                            Label("New Key", systemImage: "plus")
+                            .toolbarPrimaryActionChrome()
+                            .help("Create a global environment key")
+                        } else {
+                            Menu {
+                                Button("Project .pi/.env") {
+                                    envDraft = viewModel.makeNewEnvDraft(scope: .project)
+                                }
+                                Button("Global ~/.pi/agent/.env") {
+                                    envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                                }
+                            } label: {
+                                Label("New Key", systemImage: "plus")
+                            }
+                            .menuIndicator(.hidden)
+                            .toolbarPrimaryActionChrome()
+                            .help("Choose where to store the new environment key")
                         }
-                        .menuIndicator(.hidden)
-                        .toolbarPrimaryActionChrome()
-                        .help("Choose where to store the new environment key")
                     }
                 }
             }
 
             if viewModel.selectedSidebarItem == .prompts {
-                ToolbarItemGroup {
-                    Button {
-                        do { try viewModel.createLibraryPromptTemplate() }
-                        catch { NSSound.beep() }
-                    } label: {
-                        Label("New", systemImage: "plus")
-                    }
-                    .toolbarPrimaryActionChrome()
-                    .help("Create a new library prompt template")
-
-                    if let prompt = viewModel.selectedPromptTemplate {
-                        Menu {
-                            Button("Open Raw File") { openPromptFile(prompt.filePath) }
-                            Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
-                            AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
-                            AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
+                ToolbarItem(placement: .primaryAction) {
+                    ControlGroup {
+                        Button {
+                            do { try viewModel.createLibraryPromptTemplate() }
+                            catch { NSSound.beep() }
                         } label: {
-                            Label("More", systemImage: "ellipsis.circle")
+                            Label("New", systemImage: "plus")
                         }
-                        .toolbarNeutralChrome()
-                        .help("More actions for the selected prompt")
+                        .toolbarPrimaryActionChrome()
+                        .help("Create a new library prompt template")
+
+                        if let prompt = viewModel.selectedPromptTemplate {
+                            Menu {
+                                Button("Open Raw File") { openPromptFile(prompt.filePath) }
+                                Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
+                                AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
+                                AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
+                            } label: {
+                                Label("More", systemImage: "ellipsis.circle")
+                            }
+                            .toolbarNeutralChrome()
+                            .help("More actions for the selected prompt")
+                        }
                     }
                 }
             }

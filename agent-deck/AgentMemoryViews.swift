@@ -17,32 +17,34 @@ struct MemoryScreen: View {
             libraryCard
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    isInfoPresented.toggle()
-                } label: {
-                    Image(systemName: "info.circle")
-                }
-                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                    MemoryInfoPopover(
-                        enabled: viewModel.appSettings.agentMemoryEnabled,
-                        projectName: projectLabel,
-                        recordCount: currentRecords.count,
-                        injectableCount: currentRecords.filter(\.isInjectable).count,
-                        staleCount: currentRecords.filter { $0.status == .stale }.count
-                    )
-                }
-                .toolbarNeutralChrome()
-                .help("Explain Agent Deck memory")
+            ToolbarItem(placement: .primaryAction) {
+                ControlGroup {
+                    Button {
+                        isInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                        MemoryInfoPopover(
+                            enabled: viewModel.appSettings.agentMemoryEnabled,
+                            projectName: projectLabel,
+                            recordCount: currentRecords.count,
+                            injectableCount: currentRecords.filter(\.isInjectable).count,
+                            staleCount: currentRecords.filter { $0.status == .stale }.count
+                        )
+                    }
+                    .toolbarNeutralChrome()
+                    .help("Explain Agent Deck memory")
 
-                Button {
-                    isNewMemoryPresented = true
-                } label: {
-                    Image(systemName: "plus")
+                    Button {
+                        isNewMemoryPresented = true
+                    } label: {
+                        Label("New Memory", systemImage: "plus")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
+                    .disabled(viewModel.selectedProjectPath == nil)
                 }
-                .toolbarPrimaryActionChrome()
-                .help(viewModel.selectedProjectPath == nil ? "Select a project before creating memory." : "Create a project memory")
-                .disabled(viewModel.selectedProjectPath == nil)
             }
         }
         .sheet(isPresented: $isNewMemoryPresented) {

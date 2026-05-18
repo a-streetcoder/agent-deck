@@ -280,25 +280,27 @@ private struct PiGlobalSystemInstructionsDetail: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    isInfoPresented.toggle()
-                } label: {
-                    Image(systemName: "info.circle")
-                }
-                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                    PiSystemInstructionsInfoPopover()
-                }
-                .toolbarNeutralChrome()
-                .help("Explain Pi instruction assembly")
+            ToolbarItem(placement: .primaryAction) {
+                ControlGroup {
+                    Button {
+                        isInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                        PiSystemInstructionsInfoPopover()
+                    }
+                    .toolbarNeutralChrome()
+                    .help("Explain Pi instruction assembly")
 
-                Button {
-                    isPreviewPresented = true
-                } label: {
-                    Image(systemName: "doc.text.magnifyingglass")
+                    Button {
+                        isPreviewPresented = true
+                    } label: {
+                        Label("Preview", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help("Preview the global instruction pieces from the current editor contents")
                 }
-                .toolbarPrimaryActionChrome()
-                .help("Preview the global instruction pieces from the current editor contents")
             }
         }
         .onDisappear {
@@ -792,25 +794,27 @@ private struct PiSystemInstructionsProjectDetail: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    isInfoPresented.toggle()
-                } label: {
-                    Image(systemName: "info.circle")
-                }
-                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                    PiSystemInstructionsInfoPopover()
-                }
-                .toolbarNeutralChrome()
-                .help("Explain Pi prompt assembly")
+            ToolbarItem(placement: .primaryAction) {
+                ControlGroup {
+                    Button {
+                        isInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
+                        PiSystemInstructionsInfoPopover()
+                    }
+                    .toolbarNeutralChrome()
+                    .help("Explain Pi prompt assembly")
 
-                Button {
-                    isPreviewPresented = true
-                } label: {
-                    Image(systemName: "doc.text.magnifyingglass")
+                    Button {
+                        isPreviewPresented = true
+                    } label: {
+                        Label("Preview", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help("Preview the effective prompt from the current editor contents")
                 }
-                .toolbarPrimaryActionChrome()
-                .help("Preview the effective prompt from the current editor contents")
             }
         }
         .onDisappear {
