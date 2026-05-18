@@ -348,16 +348,14 @@ struct ContentView: View {
 
                 ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            isSubagentsInfoPresented.toggle()
-                        } label: {
-                            Label("Info", systemImage: "info.circle")
-                        }
-                        .help("Explain subagent library visibility")
-                        .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
-                            SubagentsInfoPopover()
-                        }
+                    Button {
+                        isSubagentsInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .help("Explain subagent library visibility")
+                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+                        SubagentsInfoPopover()
                     }
                     .toolbarNeutralChrome()
                 }
@@ -423,17 +421,14 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .skills {
                 ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            isSkillsInfoPresented.toggle()
-                        } label: {
-                            Label("Info", systemImage: "info.circle")
-                        }
-                        .help("Explain Pi skill visibility")
-                        .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
-                            SkillsInfoPopover()
-                        }
-
+                    Button {
+                        isSkillsInfoPresented.toggle()
+                    } label: {
+                        Label("Info", systemImage: "info.circle")
+                    }
+                    .help("Explain Pi skill visibility")
+                    .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
+                        SkillsInfoPopover()
                     }
                     .toolbarNeutralChrome()
                 }
@@ -454,16 +449,14 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agent {
                 ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            isPiAgentTranscriptOptionsPresented.toggle()
-                        } label: {
-                            Label("Transcript Display", systemImage: "eye")
-                        }
-                        .help("Choose what appears in the agent transcript")
-                        .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-                            PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
-                        }
+                    Button {
+                        isPiAgentTranscriptOptionsPresented.toggle()
+                    } label: {
+                        Label("Transcript Display", systemImage: "eye")
+                    }
+                    .help("Choose what appears in the agent transcript")
+                    .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                        PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
                     }
                     .toolbarNeutralChrome()
                 }

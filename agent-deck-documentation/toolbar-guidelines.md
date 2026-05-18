@@ -4,11 +4,15 @@ Agent Deck targets macOS 26 (Tahoe) with Liquid Glass. Every toolbar must follow
 
 ---
 
-## The one rule
+## The rules
 
-> **One logical group = one `ToolbarItem(placement: .primaryAction)` whose content is a `ControlGroup`.**
+> **A group of 2+ related buttons → `ToolbarItem(placement: .primaryAction)` containing a `ControlGroup`.**
+>
+> **A single standalone button → `ToolbarItem(placement: .primaryAction)` containing a plain `Button`. No `ControlGroup`.**
 
-Separate groups are divided by `ToolbarSpacer(.fixed, placement: .primaryAction)`. Nothing else.
+Separate items/groups are divided by `ToolbarSpacer(.fixed, placement: .primaryAction)`. Nothing else.
+
+`ControlGroup` renders its content as a unified glass capsule island. A single `Button` in a `ToolbarItem` also gets the native macOS 26 glass button treatment automatically — wrapping it in a single-item `ControlGroup` causes the capsule to size itself by the label's full text width instead of icon size.
 
 ---
 
@@ -206,10 +210,11 @@ Sheet toolbars use different placements and do **not** use `ControlGroup`:
 | `ToolbarItemGroup { ... }` | Multiple items coalesce into one glass blob; cannot be separated with spacers |
 | `ToolbarItemGroup(placement: .primaryAction) { ... }` | Same coalescing problem even with explicit placement |
 | `ToolbarItem { ... }` (no placement) | Defaults to `.automatic`; behaviour is implicit and inconsistent |
+| Single-item `ControlGroup` wrapping one `Button` | Capsule sizes from the label's full text width, not icon size; use a plain `Button` directly |
 | `HStack` or `Divider()` inside a toolbar item | Creates custom layout inside one item instead of native islands |
 | Adjacent `ToolbarItem`s with no spacer | Items run together visually |
 | `Image(systemName:)` as button label | No overflow-menu text, no VoiceOver label |
-| `.labelStyle(.iconOnly)` on toolbar Labels | Redundant; `ControlGroup` already renders icon-only |
+| `.labelStyle(.iconOnly)` on toolbar Labels | Redundant; `ControlGroup` and standalone toolbar buttons already render icon-only |
 | `frame(width:height:)` on button label containers | Breaks native ControlGroup spacing |
 
 ---

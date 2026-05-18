@@ -10,3 +10,4 @@ Start with:
 - [Skills in Agent Deck](skills-logic.md)
 - [Model and thinking logic](model-and-thinking-logic.md)
 - [Resource refresh and file watching](resource-refresh-and-file-watching.md)
+- [Toolbar guidelines](toolbar-guidelines.md)

@@ -1074,15 +1074,46 @@ final class PiAgentSessionStore: ObservableObject {
         return (saveSequence, persisted)
     }
 
+    private func makePersistedStateIndexSnapshot() -> (sequence: Int, state: PersistedStateIndex) {
+        saveSequence &+= 1
+        let persisted = PersistedStateIndex(
+            sessions: sessions,
+            selectedSessionID: selectedSessionID,
+            subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
+            supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
+            sessionPlans: Array(sessionPlansBySessionID.values),
+            sessionPlanEvents: Array(sessionPlanEventsBySessionID.values.joined())
+        )
+        return (saveSequence, persisted)
+    }
+
     private func saveNowAsync() {
         let fileURL = fileURL
         let transcriptManifestURL = transcriptManifestURL
         let manifest = makeTranscriptManifestSnapshot()
-        let (sequence, persisted) = makePersistedStateSnapshot()
-        saveQueue.async { [weak self, fileURL, transcriptManifestURL, manifest, persisted, sequence] in
+        let usesStateIndex = lazyTranscriptLoadingEnabled
+        let sequence: Int
+        let persistedState: PersistedState?
+        let persistedIndex: PersistedStateIndex?
+        if usesStateIndex {
+            let snapshot = makePersistedStateIndexSnapshot()
+            sequence = snapshot.sequence
+            persistedState = nil
+            persistedIndex = snapshot.state
+        } else {
+            let snapshot = makePersistedStateSnapshot()
+            sequence = snapshot.sequence
+            persistedState = snapshot.state
+            persistedIndex = nil
+        }
+        saveQueue.async { [weak self, fileURL, transcriptManifestURL, manifest, persistedState, persistedIndex, sequence] in
             do {
                 try Self.writeTranscriptManifest(manifest, to: transcriptManifestURL)
-                try Self.write(persisted, to: fileURL)
+                if let persistedIndex {
+                    try Self.write(persistedIndex, to: fileURL)
+                } else if let persistedState {
+                    try Self.write(persistedState, to: fileURL)
+                }
             } catch {
                 let message = "Could not save Pi Agent sessions: \(error.localizedDescription)"
                 Task { @MainActor [weak self] in
@@ -1097,11 +1128,23 @@ final class PiAgentSessionStore: ObservableObject {
         let fileURL = fileURL
         let transcriptManifestURL = transcriptManifestURL
         let manifest = makeTranscriptManifestSnapshot()
-        let (_, persisted) = makePersistedStateSnapshot()
+        let persistedState: PersistedState?
+        let persistedIndex: PersistedStateIndex?
+        if lazyTranscriptLoadingEnabled {
+            persistedState = nil
+            persistedIndex = makePersistedStateIndexSnapshot().state
+        } else {
+            persistedState = makePersistedStateSnapshot().state
+            persistedIndex = nil
+        }
         do {
             try saveQueue.sync {
                 try Self.writeTranscriptManifest(manifest, to: transcriptManifestURL)
-                try Self.write(persisted, to: fileURL)
+                if let persistedIndex {
+                    try Self.write(persistedIndex, to: fileURL)
+                } else if let persistedState {
+                    try Self.write(persistedState, to: fileURL)
+                }
             }
         } catch {
             lastError = "Could not save Pi Agent sessions: \(error.localizedDescription)"
@@ -1116,6 +1159,11 @@ final class PiAgentSessionStore: ObservableObject {
     }
 
     private nonisolated static func write(_ persisted: PersistedState, to fileURL: URL) throws {
+        let data = try JSONEncoder.piAgent.encode(persisted)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    private nonisolated static func write(_ persisted: PersistedStateIndex, to fileURL: URL) throws {
         let data = try JSONEncoder.piAgent.encode(persisted)
         try data.write(to: fileURL, options: .atomic)
     }
