@@ -2,15 +2,19 @@ import Foundation
 
 struct PiModelDiscoveryService: Sendable {
     private let commandRunner: CommandRunning
+    private let piResolver: PiExecutableResolver
 
-    init(commandRunner: CommandRunning = CommandRunner()) {
+    init(commandRunner: CommandRunning = CommandRunner(), piResolver: PiExecutableResolver = PiExecutableResolver()) {
         self.commandRunner = commandRunner
+        self.piResolver = piResolver
     }
 
     func loadAvailableModels() async -> [AvailableModel] {
+        let piCommand = piResolver.resolve()?.path ?? "pi"
+
         do {
             let result = try await commandRunner.run(
-                "pi",
+                piCommand,
                 arguments: ["--list-models"],
                 currentDirectoryURL: nil,
                 timeout: 12,

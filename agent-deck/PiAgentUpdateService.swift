@@ -27,17 +27,21 @@ struct PiAgentUpdateService {
     }
 
     private let commandRunner: CommandRunning
+    private let piResolver: PiExecutableResolver
     private let latestVersionURL = URL(string: "https://pi.dev/api/latest-version")!
 
-    init(commandRunner: CommandRunning = CommandRunner()) {
+    init(commandRunner: CommandRunning = CommandRunner(), piResolver: PiExecutableResolver = PiExecutableResolver()) {
         self.commandRunner = commandRunner
+        self.piResolver = piResolver
     }
 
     func loadStatus() async -> PiAgentRuntimeStatus {
+        let piCommand = piResolver.resolve()?.path ?? "pi"
+
         let currentVersion: String
         do {
             let result = try await commandRunner.run(
-                "pi",
+                piCommand,
                 arguments: ["--version"],
                 currentDirectoryURL: nil,
                 timeout: 6,

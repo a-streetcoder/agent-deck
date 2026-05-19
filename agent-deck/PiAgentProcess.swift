@@ -33,8 +33,6 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
     private let lock = NSLock()
     private var didTerminate = false
     private var didCleanupIO = false
-    private static let executableCacheLock = NSLock()
-    nonisolated(unsafe) private static var cachedExecutable: (key: String, url: URL)?
 
     init(configuration: Configuration, onStdoutLines: @escaping @Sendable ([String]) -> Void, onStderrLines: @escaping @Sendable ([String]) -> Void, onTermination: @escaping @Sendable (Int32) -> Void) throws {
         let executable = try Self.resolvePiExecutable()
@@ -121,126 +119,10 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
     }
 
     private static func resolvePiExecutable() throws -> URL {
-        let environment = ProcessInfo.processInfo.environment
-        let cacheKey = executableCacheKey(environment: environment)
-        executableCacheLock.lock()
-        if let cachedExecutable, cachedExecutable.key == cacheKey, FileManager.default.isExecutableFile(atPath: cachedExecutable.url.path) {
-            executableCacheLock.unlock()
-            return cachedExecutable.url
+        guard let url = PiExecutableResolver().resolve() else {
+            throw ProcessError.executableNotFound
         }
-        executableCacheLock.unlock()
-
-        let resolved = try resolvePiExecutableUncached(environment: environment)
-        executableCacheLock.lock()
-        cachedExecutable = (cacheKey, resolved)
-        executableCacheLock.unlock()
-        return resolved
-    }
-
-    private static func resolvePiExecutableUncached(environment: [String: String]) throws -> URL {
-        for key in ["AGENT_DECK_PI_PATH", "PI_CLI_PATH"] {
-            if let raw = environment[key], let url = executableURL(from: raw) {
-                return url
-            }
-        }
-
-        if let pathResolved = resolveExecutableInPATH("pi", environment: environment) {
-            return pathResolved
-        }
-
-        if let shellResolved = resolveUsingShell("pi") {
-            return shellResolved
-        }
-
-        let candidates = commonPiCandidates()
-        if let match = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) {
-            return match
-        }
-
-        throw ProcessError.executableNotFound
-    }
-
-    private static func executableCacheKey(environment: [String: String]) -> String {
-        [
-            environment["AGENT_DECK_PI_PATH"] ?? "",
-            environment["PI_CLI_PATH"] ?? "",
-            environment["SHELL"] ?? "",
-            environment["PATH"] ?? ""
-        ].joined(separator: "\u{1f}")
-    }
-
-    private static func executableURL(from raw: String) -> URL? {
-        let expanded = NSString(string: raw).expandingTildeInPath
-        if FileManager.default.isExecutableFile(atPath: expanded) {
-            return URL(fileURLWithPath: expanded)
-        }
-        return nil
-    }
-
-    private static func resolveExecutableInPATH(_ command: String, environment: [String: String]) -> URL? {
-        let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        let path = [environment["PATH"], defaultPath]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: ":")
-        var checked: Set<String> = []
-        for directory in path.split(separator: ":").map(String.init) where !directory.isEmpty {
-            let candidate = URL(fileURLWithPath: directory).appendingPathComponent(command).path
-            guard checked.insert(candidate).inserted else { continue }
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return URL(fileURLWithPath: candidate)
-            }
-        }
-        return nil
-    }
-
-    private static func resolveUsingShell(_ command: String) -> URL? {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-lic", "command -v \(command)"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        let semaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in semaphore.signal() }
-
-        do {
-            try process.run()
-            if semaphore.wait(timeout: .now() + 5) == .timedOut {
-                process.terminate()
-                _ = semaphore.wait(timeout: .now() + 1)
-                return nil
-            }
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return path.isEmpty ? nil : URL(fileURLWithPath: path)
-        } catch {
-            return nil
-        }
-    }
-
-    private static func commonPiCandidates() -> [URL] {
-        var paths = [
-            "/opt/homebrew/bin/pi",
-            "/usr/local/bin/pi",
-            "/usr/bin/pi"
-        ]
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        paths.append(contentsOf: [
-            "\(home)/.pi/agent/bin/pi",
-            "\(home)/.volta/bin/pi",
-            "\(home)/.local/bin/pi",
-            "\(home)/.npm-global/bin/pi",
-            "\(home)/.npm/bin/pi",
-            "\(home)/.nvm/versions/node/current/bin/pi"
-        ])
-        let nvm = URL(fileURLWithPath: "\(home)/.nvm/versions/node")
-        if let versions = try? FileManager.default.contentsOfDirectory(at: nvm, includingPropertiesForKeys: nil) {
-            paths.append(contentsOf: versions.map { $0.appendingPathComponent("bin/pi").path })
-        }
-        return paths.map(URL.init(fileURLWithPath:))
+        return url
     }
 
     private static func processEnvironment(extra: [String: String], executableURL: URL) -> [String: String] {

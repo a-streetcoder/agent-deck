@@ -387,6 +387,7 @@ enum SetupCheckStatus: Hashable {
 
 struct SetupDependencyService {
     private let commandRunner = CommandRunner()
+    private let piResolver = PiExecutableResolver()
 
     func loadItems(
         projectRootPath: String,
@@ -405,8 +406,10 @@ struct SetupDependencyService {
     }
 
     private func piCheck() async -> SetupCheckItem {
+        let piCommand = piResolver.resolve()?.path ?? "pi"
+
         do {
-            let result = try await commandRunner.run("pi", arguments: ["--help"], timeout: 6)
+            let result = try await commandRunner.run(piCommand, arguments: ["--help"], timeout: 6)
             return SetupCheckItem(
                 id: "pi-cli",
                 title: "Pi",
@@ -428,7 +431,7 @@ struct SetupDependencyService {
     }
 
     private func modelCheck() async -> SetupCheckItem {
-        let models = await PiModelDiscoveryService(commandRunner: commandRunner).loadAvailableModels()
+        let models = await PiModelDiscoveryService(commandRunner: commandRunner, piResolver: piResolver).loadAvailableModels()
         if !models.isEmpty {
             return SetupCheckItem(
                 id: "pi-models",
@@ -440,7 +443,8 @@ struct SetupDependencyService {
         }
 
         do {
-            let result = try await commandRunner.run("pi", arguments: ["--list-models"], timeout: 20)
+            let piCommand = piResolver.resolve()?.path ?? "pi"
+            let result = try await commandRunner.run(piCommand, arguments: ["--list-models"], timeout: 20)
             let modelRowCount = Self.modelRowCount(fromPiListOutput: result.stdout)
             if result.exitCode == 0, modelRowCount > 0 {
                 return SetupCheckItem(

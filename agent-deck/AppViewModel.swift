@@ -1614,17 +1614,9 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func terminalPiSelfUpdateCommand() -> String {
-        """
-        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-        if command -v pi >/dev/null 2>&1; then
-          pi update pi
-        elif [ -x /opt/homebrew/bin/pi ]; then
-          /opt/homebrew/bin/pi update pi
-        elif [ -x /usr/local/bin/pi ]; then
-          /usr/local/bin/pi update pi
-        else
-          echo "Pi not found. Install pi or add it to PATH."
-        fi
+        let piPath = resolvedPiPathForShell()
+        return """
+        "\(piPath)" update pi || { echo "Pi not found. Install pi or add it to PATH."; }
         echo ""
         echo "Press any key to close."
         read -k 1
@@ -1675,21 +1667,10 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func terminalResumeCommand(workingDirectory: String, sessionReference: String) -> String {
-        """
+        let piPath = resolvedPiPathForShell()
+        return """
         cd \(shellQuoted(workingDirectory)) || exit 1
-        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-        if command -v pi >/dev/null 2>&1; then
-          exec pi --session \(shellQuoted(sessionReference))
-        elif [ -x /opt/homebrew/bin/pi ]; then
-          exec /opt/homebrew/bin/pi --session \(shellQuoted(sessionReference))
-        elif [ -x /usr/local/bin/pi ]; then
-          exec /usr/local/bin/pi --session \(shellQuoted(sessionReference))
-        else
-          echo "Pi not found. Install pi or add it to PATH."
-          echo ""
-          echo "Command: pi --session \(shellQuoted(sessionReference))"
-          read -k 1 "?Press any key to close."
-        fi
+        "\(piPath)" --session \(shellQuoted(sessionReference)) || { echo "Pi not found. Install pi or add it to PATH."; echo ""; echo "Command: pi --session \(shellQuoted(sessionReference))"; read -k 1 "?Press any key to close."; }
         """
     }
 
@@ -1803,6 +1784,10 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func resolvedPiPathForShell() -> String {
+        PiExecutableResolver().resolve()?.path ?? "pi"
     }
 
     func togglePiAgentSessionPinned(_ id: UUID) {
