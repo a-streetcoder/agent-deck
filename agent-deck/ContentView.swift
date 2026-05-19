@@ -105,7 +105,7 @@ struct ContentView: View {
                         .foregroundStyle(.primary)
 
                     Text(AppBrand.betaBadgeText)
-                        .font(AppFonts.kemcoPixelBold(size: 12))
+                        .font(AppFonts.kemcoPixelBold(size: 18))
                         .foregroundStyle(AppTheme.brandAccent.gradient)
                         .accessibilityLabel(AppBrand.betaBadgeText)
                 }
