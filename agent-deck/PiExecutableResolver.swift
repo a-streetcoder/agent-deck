@@ -1,7 +1,7 @@
 import Foundation
 
 struct PiExecutableResolver: Sendable {
-    nonisolated(unsafe) private static let cacheLock = NSLock()
+    nonisolated private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cachedURL: (key: String, url: URL)?
 
     nonisolated func resolve() -> URL? {
