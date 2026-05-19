@@ -555,7 +555,7 @@ final class AppViewModel: NSObject, ObservableObject {
         if appSettingsController.addExternalSkillPaths(importedPaths) {
             appSettings = appSettingsController.settings
         }
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: true)
         if let firstImported = importedNames.first {
             selectedSkillID = allVisibleSkillRecords.first { $0.name == firstImported }?.id ?? selectedSkillID
         }
@@ -4766,7 +4766,7 @@ final class AppViewModel: NSObject, ObservableObject {
         try removeSkillReferences(named: skill.name)
         try FileManager.default.trashItem(at: targetURL, resultingItemURL: nil)
         removeExternalSkillCatalogReferences(for: skill, deletedTarget: targetURL)
-        refresh(includeModels: false)
+        refresh(includeModels: false, scanAllProjects: true)
         selectedSkillID = allVisibleSkillRecords.first?.id
     }
 

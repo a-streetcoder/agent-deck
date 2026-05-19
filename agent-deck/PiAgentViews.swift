@@ -102,9 +102,10 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         }
         guard sessionID != lastSessionID || revision != lastRevision else { return }
         let isSessionSwitch = sessionID != lastSessionID
-        if isSessionSwitch {
-            threadRevisionCache.removeAll()
-        }
+        // Don't wipe threadRevisionCache on session switch — keys are per-thread UUIDs
+        // which are globally unique, so cached revisions for a different session can't
+        // collide. Persisting the cache means a return-visit to a previously-viewed
+        // session reuses its thread revisions instead of re-hashing every entry.
         lastSessionID = sessionID
         lastRevision = revision
         updateTask?.cancel()
@@ -537,8 +538,17 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if isSessionSwitch || idsChanged {
                 let anchor = (!isSessionSwitch && !explicitScroll && !wasPinned) ? captureScrollAnchor() : nil
                 if isSessionSwitch {
-                    heightByID.removeAll()
-                    lastNotedHeightByID.removeAll()
+                    // Don't wipe heightByID / lastNotedHeightByID — the entry id is a
+                    // stable UUID, so heights measured for entries in one session stay
+                    // valid when the user switches away and back. With Tier A's
+                    // pre-measurement loop, wiping the cache forced every row of the
+                    // newly-selected session to re-measure synchronously through an
+                    // NSHostingView SwiftUI layout pass — which is what made session
+                    // switching slow. Keeping the cache turns a return visit into a
+                    // no-op for the pre-measurement step.
+                    //
+                    // Width changes still wipe the cache via updateColumnWidthIfNeeded,
+                    // so cross-width staleness can't happen.
                     pendingHeightIDs.removeAll()
                     pendingHeightWork?.cancel()
                     pendingHeightWork = nil
@@ -601,6 +611,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard abs(width - contentWidth) > 0.5 else { return }
             contentWidth = width
             tableView.tableColumns.first?.width = width
+
+            // Heights are width-specific. Now that heightByID survives session switches
+            // (entries are keyed by stable UUID), a width change has to invalidate the
+            // whole cache — not just the currently-visible rows — so that off-screen
+            // rows don't render at the wrong height when they scroll into view.
+            heightByID.removeAll()
+            lastNotedHeightByID.removeAll()
 
             pendingWidthWork?.cancel()
             let work = DispatchWorkItem { [weak self] in

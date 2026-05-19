@@ -13,101 +13,63 @@ struct MarkdownDocumentView: View {
     }
 }
 
+// Wraps the existing native AppKit-based `NativeMarkdownTextContainer` (per-block
+// `NSTextView`s in an `NSStackView`) for SwiftUI consumers. Measuring this view
+// flows through TextKit's `NSLayoutManager` instead of a SwiftUI body iteration
+// over `MarkdownBlock`s, so cells that contain markdown (transcript rows, memory
+// previews, GitHub comments, repo-change panes, subagent task cards) become
+// orders of magnitude cheaper to size — that was the dominant cost of session
+// switching and per-token streaming flushes.
+//
+// Visual parity with the previous pure-SwiftUI implementation comes from
+// `NativeMarkdownTextContainer.view(for:)`, which renders the same six block
+// kinds with matching fonts, paddings, indents, code-block backgrounds, and
+// quote-bar overlays.
 struct MarkdownTextView: View {
     let source: String
 
     var body: some View {
+        NativeMarkdownRepresentable(source: source)
+    }
+}
+
+private struct NativeMarkdownRepresentable: NSViewRepresentable {
+    let source: String
+
+    func makeNSView(context: Context) -> NativeMarkdownTextContainer {
+        let view = NativeMarkdownTextContainer()
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
+        configure(view: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NativeMarkdownTextContainer, context: Context) {
+        configure(view: nsView)
+    }
+
+    // SwiftUI's sizing pass for an NSViewRepresentable goes through this method on
+    // macOS 13+. Returning the TextKit-computed height for the proposed width is what
+    // makes measurement microseconds-fast — `intrinsicContentSize` alone isn't honoured
+    // by SwiftUI's hosting layer, so without this the parent ends up using a wildly
+    // wrong placeholder height while the view resolves layout asynchronously.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NativeMarkdownTextContainer, context: Context) -> CGSize? {
+        let width = proposal.width ?? nsView.bounds.width
+        guard width.isFinite, width > 1 else { return nil }
+        let height = nsView.measureHeight(forWidth: width)
+        return CGSize(width: width, height: max(1, height))
+    }
+
+    static func dismantleNSView(_ nsView: NativeMarkdownTextContainer, coordinator: ()) {
+        nsView.dismantle()
+    }
+
+    private func configure(view: NativeMarkdownTextContainer) {
         let displaySource = StreamingMarkdownBalancer.balance(source)
         let document = MarkdownRenderCache.document(for: displaySource)
-
-        VStack(alignment: .leading, spacing: document.frontmatter == nil ? 8 : 12) {
-            if let frontmatter = document.frontmatter, !frontmatter.isEmpty {
-                Text(frontmatter)
-                    .font(.system(size: 12, weight: .regular, design: .monospaced))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(AppTheme.contentSubtleFill)
-                    )
-            }
-
-            ForEach(document.blocks) { block in
-                blockView(block)
-            }
-        }
-        .textSelection(.enabled)
-    }
-
-    @ViewBuilder
-    private func blockView(_ block: MarkdownBlock) -> some View {
-        switch block.kind {
-        case .heading(let level, let text):
-            inlineText(text)
-                .font(level <= 1 ? .title3.weight(.bold) : .headline.weight(.semibold))
-                .padding(.top, level <= 2 ? 4 : 2)
-        case .paragraph(let text):
-            inlineText(text)
-                .font(.body)
-        case .bullet(let text, let indentLevel):
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(bulletMarker(for: indentLevel))
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(width: 18, alignment: .trailing)
-                inlineText(text)
-                    .font(.body)
-            }
-            .padding(.leading, listIndent(for: indentLevel))
-        case .numbered(let number, let text, let indentLevel):
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(number).")
-                    .font(.body.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .frame(minWidth: 22, alignment: .trailing)
-                inlineText(text)
-                    .font(.body)
-            }
-            .padding(.leading, listIndent(for: indentLevel))
-        case .quote(let text):
-            inlineText(text)
-                .font(.body)
-                .foregroundStyle(AppTheme.mutedText)
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 1, style: .continuous)
-                        .fill(AppTheme.contentStroke)
-                        .frame(width: 3)
-                }
-        case .code(let text):
-            Text(text)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.contentSubtleFill))
-        }
-    }
-
-    private func inlineText(_ text: String) -> Text {
-        if let attributed = MarkdownInlineRenderCache.attributedString(for: text) {
-            return Text(attributed)
-        }
-        return Text(text)
-    }
-
-    private func listIndent(for level: Int) -> CGFloat {
-        CGFloat(max(level, 0)) * 22
-    }
-
-    private func bulletMarker(for level: Int) -> String {
-        switch max(level, 0) % 3 {
-        case 1: return "◦"
-        case 2: return "▪"
-        default: return "•"
-        }
+        view.configure(document: document)
     }
 }
 
@@ -179,6 +141,7 @@ private final class NativeMarkdownTextContainer: NSView {
         if document != lastDocument {
             lastDocument = document
             rebuild(document: document)
+            invalidateIntrinsicContentSize()
         }
         scheduleHeightMeasurement()
     }
@@ -191,6 +154,49 @@ private final class NativeMarkdownTextContainer: NSView {
     override func layout() {
         super.layout()
         scheduleHeightMeasurement()
+        invalidateIntrinsicContentSize()
+    }
+
+    // SwiftUI sizes this view by calling `NSViewRepresentable.sizeThatFits(...)` which
+    // delegates here. AppKit-only callers (e.g. Auto Layout consumers) get the same
+    // answer via `intrinsicContentSize`. Computing it through the stack of per-block
+    // `AutoSizingMarkdownTextView`s (each backed by TextKit's `NSLayoutManager`) is
+    // what makes measurement microseconds-fast — the slow SwiftUI `MarkdownTextView`
+    // body iteration is gone.
+    func measureHeight(forWidth width: CGFloat) -> CGFloat {
+        guard width > 1 else { return 0 }
+        configureWidthConstraint(to: width)
+        // Force layout so the per-block AutoSizingMarkdownTextView intrinsics resolve
+        // before we ask the stack for its fitting size — without this, freshly-rebuilt
+        // children may still report stale heights.
+        stackView.layoutSubtreeIfNeeded()
+        return ceil(stackView.fittingSize.height)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let width = bounds.width
+        // Without a non-trivial width we can't sensibly measure — every text container
+        // would report a giant height after wrapping each character on its own line.
+        // Return `noIntrinsicMetric` so Auto Layout defers to constraints/parent sizing
+        // until a real width arrives, then `layout()` re-invalidates and we recompute.
+        guard width > 1 else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+        let height = measureHeight(forWidth: width)
+        return NSSize(width: NSView.noIntrinsicMetric, height: max(1, height))
+    }
+
+    private func configureWidthConstraint(to width: CGFloat) {
+        if let widthConstraint {
+            if abs(widthConstraint.constant - width) > 0.5 {
+                widthConstraint.constant = width
+            }
+        } else {
+            let constraint = stackView.widthAnchor.constraint(equalToConstant: width)
+            constraint.priority = .required
+            constraint.isActive = true
+            widthConstraint = constraint
+        }
     }
 
     private func rebuild(document: CachedMarkdownDocument) {
@@ -254,12 +260,22 @@ private final class NativeMarkdownTextContainer: NSView {
     private static func view(for block: MarkdownBlock) -> NSView {
         switch block.kind {
         case let .heading(level, text):
-            let font: NSFont = level <= 1 ? .systemFont(ofSize: 20, weight: .bold) : .systemFont(ofSize: 13, weight: .semibold)
-            let view = textView(text, font: font, color: .labelColor)
+            // Match SwiftUI `.title3.weight(.bold)` for level<=1 and `.headline.weight(.semibold)`
+            // for level>=2. `NSFont.preferredFont(forTextStyle:)` returns the dynamic-type
+            // size, so the headings track the user's text-size setting just like SwiftUI.
+            let baseFont: NSFont
+            if level <= 1 {
+                let title3 = NSFont.preferredFont(forTextStyle: .title3)
+                baseFont = NSFontManager.shared.convert(title3, toHaveTrait: .boldFontMask)
+            } else {
+                // `.headline` on macOS is semibold by default — same as SwiftUI's `.headline.weight(.semibold)`.
+                baseFont = NSFont.preferredFont(forTextStyle: .headline)
+            }
+            let view = textView(text, font: baseFont, color: .labelColor)
             view.setContentHuggingPriority(.required, for: .vertical)
             return paddedBlock(view, padding: NSEdgeInsets(top: level <= 2 ? 4 : 2, left: 0, bottom: 0, right: 0))
         case let .paragraph(text):
-            return textView(text, font: .systemFont(ofSize: NSFont.systemFontSize), color: .labelColor)
+            return textView(text, font: NSFont.preferredFont(forTextStyle: .body), color: .labelColor)
         case let .bullet(text, indentLevel):
             return listRow(marker: bulletMarker(for: indentLevel), text: text, indentLevel: indentLevel, markerWidth: 18)
         case let .numbered(number, text, indentLevel):
@@ -269,7 +285,7 @@ private final class NativeMarkdownTextContainer: NSView {
         case let .code(text):
             return paddedTextBlock(
                 text,
-                font: .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                font: .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular),
                 color: .labelColor,
                 fill: NSColor.controlColor.withAlphaComponent(0.62),
                 cornerRadius: 10,
@@ -286,15 +302,23 @@ private final class NativeMarkdownTextContainer: NSView {
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 0, left: CGFloat(max(indentLevel, 0)) * 22, bottom: 0, right: 0)
 
+        let bodyFont = NSFont.preferredFont(forTextStyle: .body)
         let markerView = NSTextField(labelWithString: marker)
         markerView.translatesAutoresizingMaskIntoConstraints = false
-        markerView.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        // Numbered lists use monospaced digits in SwiftUI (`.body.monospacedDigit().weight(.semibold)`).
+        // Detect "1.", "2.", … so the marker font matches.
+        let isNumberedMarker = marker.last == "." && marker.dropLast().allSatisfy(\.isNumber)
+        if isNumberedMarker {
+            markerView.font = NSFont.monospacedDigitSystemFont(ofSize: bodyFont.pointSize, weight: .semibold)
+        } else {
+            markerView.font = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
+        }
         markerView.textColor = .secondaryLabelColor
         markerView.alignment = .right
         markerView.setContentHuggingPriority(.required, for: .horizontal)
         markerView.widthAnchor.constraint(greaterThanOrEqualToConstant: markerWidth).isActive = true
 
-        let body = textView(text, font: .systemFont(ofSize: NSFont.systemFontSize), color: .labelColor)
+        let body = textView(text, font: bodyFont, color: .labelColor)
         row.addArrangedSubview(markerView)
         row.addArrangedSubview(body)
         body.widthAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
@@ -306,6 +330,8 @@ private final class NativeMarkdownTextContainer: NSView {
         row.translatesAutoresizingMaskIntoConstraints = false
         row.orientation = .horizontal
         row.alignment = .top
+        // SwiftUI quote: `.padding(.leading, 12)` with a 3 pt bar overlay = 12 pt total
+        // between the bar and the body. Native: 3 pt bar + 9 pt spacing = 12 pt total.
         row.spacing = 9
 
         let bar = NSView()
@@ -315,7 +341,7 @@ private final class NativeMarkdownTextContainer: NSView {
         bar.layer?.cornerRadius = 1
         bar.widthAnchor.constraint(equalToConstant: 3).isActive = true
 
-        let body = textView(text, font: .systemFont(ofSize: NSFont.systemFontSize), color: .secondaryLabelColor)
+        let body = textView(text, font: NSFont.preferredFont(forTextStyle: .body), color: .secondaryLabelColor)
         row.addArrangedSubview(bar)
         row.addArrangedSubview(body)
         return row
@@ -1180,5 +1206,320 @@ private enum RawFrontmatterParser {
         }
 
         return nil
+    }
+}
+
+// MARK: - Transcript NSAttributedString builder
+//
+// Renders a transcript markdown source into a list of `TranscriptRenderedBlock`s
+// for a native AppKit cell. Each "text-like" run of blocks (paragraph, bullet,
+// numbered, heading) collapses into one `NSAttributedString` so the cell can
+// stand up a single `NSTextView`. Code blocks and blockquotes remain separate
+// (rounded background and left-bar respectively can't be expressed purely with
+// `NSAttributedString` attribute keys, so the cell renders them with their own
+// `NSView` containers).
+//
+// Visual parity target: SwiftUI `MarkdownTextView` above. The attribute choices
+// in this builder mirror the SwiftUI font + colour + paragraph-style decisions
+// block-for-block.
+//
+// Lives in this file so it can reach `MarkdownBlock`, `MarkdownRenderCache`,
+// `MarkdownInlineRenderCache`, and `StreamingMarkdownBalancer` without
+// promoting any of them out of file-private scope.
+
+enum TranscriptRenderedBlock {
+    /// A run of paragraph / list / heading blocks merged with `\n` separators.
+    /// The cell renders this as a single `NSTextView`.
+    case text(NSAttributedString)
+    /// A standalone code fence. Rendered by the cell in an `NSView` with a
+    /// `RoundedRectangle`-equivalent fill behind a monospaced `NSTextView`.
+    case code(NSAttributedString)
+    /// A standalone blockquote. Rendered by the cell with a leading 3 pt
+    /// rounded bar matching the SwiftUI `AppTheme.contentStroke` overlay.
+    case quote(NSAttributedString)
+}
+
+@MainActor
+enum TranscriptAttributedStringBuilder {
+    /// Returns the structured render plan for `source`. Caches results by the
+    /// balanced source string; cells calling this on every streaming flush will
+    /// hit the cache when text doesn't change.
+    static func blocks(for source: String) -> [TranscriptRenderedBlock] {
+        TranscriptAttributedStringCache.blocks(for: source)
+    }
+
+    /// Convenience: flatten the block plan into a single attributed string.
+    /// Useful for cells that don't need separate views for code/quote blocks
+    /// (e.g. compact preview rows) and for tests.
+    static func attributedString(for source: String) -> NSAttributedString {
+        let pieces = blocks(for: source)
+        let result = NSMutableAttributedString()
+        for (index, block) in pieces.enumerated() {
+            if index > 0 { result.append(NSAttributedString(string: "\n")) }
+            switch block {
+            case let .text(s), let .code(s), let .quote(s):
+                result.append(s)
+            }
+        }
+        return result
+    }
+}
+
+@MainActor
+private enum TranscriptAttributedStringCache {
+    private static var cache: [String: [TranscriptRenderedBlock]] = [:]
+    private static var order: [String] = []
+    private static let limit = 1_024
+
+    static func blocks(for source: String) -> [TranscriptRenderedBlock] {
+        let key = cacheKey(for: source)
+        if let cached = cache[key] { return cached }
+        let built = build(from: source)
+        cache[key] = built
+        order.append(key)
+        if order.count > limit {
+            let overflow = order.count - limit
+            for oldKey in order.prefix(overflow) { cache[oldKey] = nil }
+            order.removeFirst(overflow)
+        }
+        return built
+    }
+
+    private static func cacheKey(for source: String) -> String {
+        var hasher = Hasher()
+        hasher.combine(source)
+        return "\(source.count):\(hasher.finalize())"
+    }
+
+    private static func build(from source: String) -> [TranscriptRenderedBlock] {
+        let balanced = StreamingMarkdownBalancer.balance(source)
+        let document = MarkdownRenderCache.document(for: balanced)
+        var result: [TranscriptRenderedBlock] = []
+        var current = NSMutableAttributedString()
+
+        func flushText() {
+            guard current.length > 0 else { return }
+            result.append(.text(current))
+            current = NSMutableAttributedString()
+        }
+
+        for block in document.blocks {
+            switch block.kind {
+            case let .quote(text):
+                flushText()
+                result.append(.quote(quoteString(text)))
+            case let .code(text):
+                flushText()
+                result.append(.code(codeString(text)))
+            default:
+                if current.length > 0 {
+                    current.append(NSAttributedString(string: "\n"))
+                }
+                current.append(renderTextBlock(block, isFirstInGroup: current.length == 0))
+            }
+        }
+        flushText()
+        return result
+    }
+
+    private static func renderTextBlock(_ block: MarkdownBlock, isFirstInGroup: Bool) -> NSAttributedString {
+        switch block.kind {
+        case let .heading(level, text):
+            return headingString(level: level, text: text, isFirst: isFirstInGroup)
+        case let .paragraph(text):
+            return paragraphString(text)
+        case let .bullet(text, indentLevel):
+            return bulletString(text: text, indentLevel: indentLevel)
+        case let .numbered(number, text, indentLevel):
+            return numberedString(number: number, text: text, indentLevel: indentLevel)
+        case .quote, .code:
+            return NSAttributedString() // handled by the caller
+        }
+    }
+
+    // MARK: per-kind rendering — mirrors MarkdownTextView.blockView
+
+    private static func headingString(level: Int, text: String, isFirst: Bool) -> NSAttributedString {
+        // SwiftUI: level<=1 → .title3.weight(.bold); else → .headline.weight(.semibold).
+        // `.headline` on macOS is already semibold; `.title3.bold` we synthesize.
+        let baseFont: NSFont = level <= 1
+            ? boldVariant(of: NSFont.preferredFont(forTextStyle: .title3))
+            : NSFont.preferredFont(forTextStyle: .headline)
+        let paragraph = NSMutableParagraphStyle()
+        // SwiftUI applies .padding(.top, level <= 2 ? 4 : 2). Block separator already
+        // contributes the inter-block gap; the heading itself adds this extra top.
+        paragraph.paragraphSpacingBefore = isFirst ? 0 : (level <= 2 ? 4 : 2)
+        paragraph.paragraphSpacing = 0
+        return inlineAttributedString(for: text, baseAttributes: [
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private static func paragraphString(_ text: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacing = 0
+        return inlineAttributedString(for: text, baseAttributes: [
+            .font: NSFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private static func bulletString(text: String, indentLevel: Int) -> NSAttributedString {
+        // SwiftUI bullet: HStack with marker .frame(width: 18, alignment: .trailing)
+        // and 8 pt spacing, then inlineText. Re-create with paragraph indents +
+        // marker prefix.
+        let leading = listIndent(for: indentLevel)
+        let markerColumnWidth: CGFloat = 18
+        let markerToTextGap: CGFloat = 8
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.firstLineHeadIndent = leading
+        paragraph.headIndent = leading + markerColumnWidth + markerToTextGap
+        paragraph.tabStops = [NSTextTab(textAlignment: .left, location: leading + markerColumnWidth + markerToTextGap)]
+        paragraph.defaultTabInterval = leading + markerColumnWidth + markerToTextGap
+        paragraph.paragraphSpacing = 0
+
+        let baseFont = NSFont.preferredFont(forTextStyle: .body)
+        let markerAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph
+        ]
+        let bodyAttrs: [NSAttributedString.Key: Any] = [
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+        let result = NSMutableAttributedString()
+        result.append(NSAttributedString(string: bulletMarker(for: indentLevel) + "\t", attributes: markerAttrs))
+        result.append(inlineAttributedString(for: text, baseAttributes: bodyAttrs))
+        return result
+    }
+
+    private static func numberedString(number: Int, text: String, indentLevel: Int) -> NSAttributedString {
+        // SwiftUI numbered: HStack with `"\(number)."` .frame(minWidth: 22, alignment: .trailing).
+        let leading = listIndent(for: indentLevel)
+        let markerColumnWidth: CGFloat = 22
+        let markerToTextGap: CGFloat = 8
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.firstLineHeadIndent = leading
+        paragraph.headIndent = leading + markerColumnWidth + markerToTextGap
+        paragraph.tabStops = [NSTextTab(textAlignment: .left, location: leading + markerColumnWidth + markerToTextGap)]
+        paragraph.defaultTabInterval = leading + markerColumnWidth + markerToTextGap
+        paragraph.paragraphSpacing = 0
+
+        let baseFont = NSFont.preferredFont(forTextStyle: .body)
+        let monoNumberFont = NSFont.monospacedDigitSystemFont(ofSize: baseFont.pointSize, weight: .semibold)
+        let numberAttrs: [NSAttributedString.Key: Any] = [
+            .font: monoNumberFont,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph
+        ]
+        let bodyAttrs: [NSAttributedString.Key: Any] = [
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]
+        let result = NSMutableAttributedString()
+        result.append(NSAttributedString(string: "\(number).\t", attributes: numberAttrs))
+        result.append(inlineAttributedString(for: text, baseAttributes: bodyAttrs))
+        return result
+    }
+
+    private static func quoteString(_ text: String) -> NSAttributedString {
+        // The cell adds the leading 3 pt vertical bar overlay; the body itself is
+        // muted-colour text with 12 pt of leading text padding to clear the bar.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.firstLineHeadIndent = 0
+        paragraph.headIndent = 0
+        paragraph.paragraphSpacing = 0
+        return inlineAttributedString(for: text, baseAttributes: [
+            .font: NSFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private static func codeString(_ text: String) -> NSAttributedString {
+        // The cell provides the rounded fill background and the 10 pt padding;
+        // the attributed string itself is just monospaced body text.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.firstLineHeadIndent = 0
+        paragraph.headIndent = 0
+        paragraph.paragraphSpacing = 0
+        let bodyFontSize = NSFont.preferredFont(forTextStyle: .body).pointSize
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: bodyFontSize, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    // MARK: helpers
+
+    /// Parses inline-only markdown (`**bold**`, `*italic*`, `` `code` ``, `[link](url)`)
+    /// via the same `AttributedString(markdown:options:)` path the SwiftUI views use,
+    /// then applies the base attributes while preserving the per-run trait choices
+    /// (bold, italic, monospaced) the inline parser produced.
+    private static func inlineAttributedString(for source: String, baseAttributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        guard let attributed = MarkdownInlineRenderCache.attributedString(for: source) else {
+            return NSAttributedString(string: source, attributes: baseAttributes)
+        }
+        let mutable = NSMutableAttributedString(attributedString: NSAttributedString(attributed))
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        for (key, value) in baseAttributes where key != .font {
+            mutable.addAttribute(key, value: value, range: fullRange)
+        }
+        if let baseFont = baseAttributes[.font] as? NSFont {
+            applyBaseFontPreservingInlineTraits(baseFont, in: mutable)
+        }
+        return mutable
+    }
+
+    private static func applyBaseFontPreservingInlineTraits(_ baseFont: NSFont, in attributed: NSMutableAttributedString) {
+        let manager = NSFontManager.shared
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
+            var replacement = baseFont
+            var keepMono = false
+            if let current = value as? NSFont {
+                let traits = manager.traits(of: current)
+                if traits.contains(.boldFontMask) {
+                    replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
+                }
+                if traits.contains(.italicFontMask) {
+                    replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
+                }
+                if current.fontDescriptor.symbolicTraits.contains(.monoSpace) || current.fontName.contains("Mono") {
+                    keepMono = true
+                }
+            }
+            if keepMono {
+                let weight: NSFont.Weight = manager.traits(of: replacement).contains(.boldFontMask) ? .semibold : .regular
+                replacement = NSFont.monospacedSystemFont(ofSize: replacement.pointSize, weight: weight)
+            }
+            attributed.addAttribute(.font, value: replacement, range: range)
+        }
+    }
+
+    private static func boldVariant(of font: NSFont) -> NSFont {
+        NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+    }
+
+    /// SwiftUI MarkdownTextView uses `.padding(.leading, CGFloat(indentLevel) * 18)`
+    /// implicitly via `listIndent(for:)` in the inline rendering. Match that here.
+    private static func listIndent(for indentLevel: Int) -> CGFloat {
+        CGFloat(max(indentLevel, 0)) * 18
+    }
+
+    private static func bulletMarker(for indentLevel: Int) -> String {
+        // Mirrors `MarkdownTextView.bulletMarker(for:)`.
+        switch max(indentLevel, 0) % 3 {
+        case 1: return "◦"
+        case 2: return "▪"
+        default: return "•"
+        }
     }
 }
