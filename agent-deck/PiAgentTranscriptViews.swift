@@ -621,25 +621,18 @@ struct PiAgentTranscriptThreadCard: View {
             }
 
             if hasChildren {
-                HStack(alignment: .top, spacing: 12) {
-                    if thread.question != nil {
-                        RoundedRectangle(cornerRadius: 1, style: .continuous)
-                            .fill(AppTheme.contentStroke)
-                            .frame(width: 2)
-                            .padding(.leading, 16)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(thread.children) { child in
+                        childView(child)
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(thread.children) { child in
-                            childView(child)
-                        }
-                        if visibility.showPlans {
-                            ForEach(latestPlanEvents) { event in
-                                PiAgentCurrentPlanCard(event: event)
-                                    .id(event.id)
-                            }
+                    if visibility.showPlans {
+                        ForEach(latestPlanEvents) { event in
+                            PiAgentCurrentPlanCard(event: event)
+                                .id(event.id)
                         }
                     }
                 }
+                .padding(.leading, thread.question != nil ? 24 : 0)
             }
         }
     }

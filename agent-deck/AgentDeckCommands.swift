@@ -163,6 +163,29 @@ extension FocusedValues {
     }
 }
 
+/// Tiny `Equatable` host that owns the `focusedSceneValue` publication.
+/// Applying `.focusedSceneValue` directly on a view whose body reads many
+/// observable properties (e.g. `ContentView.mainContent`) lets SwiftUI invoke
+/// the modifier multiple times within a single render frame during bursty
+/// updates (streaming, etc.), which logs
+/// "FocusedValue update tried to update multiple times per frame".
+/// `commandContext` is a stable reference for the lifetime of the scene, so
+/// identity comparison short-circuits re-renders and the modifier runs once.
+struct AgentDeckCommandsScope: View, Equatable {
+    let context: AgentDeckCommandContext
+
+    static func == (lhs: AgentDeckCommandsScope, rhs: AgentDeckCommandsScope) -> Bool {
+        lhs.context === rhs.context
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .focusedSceneValue(\.agentDeckCommands, context)
+    }
+}
+
 struct AgentDeckCommands: Commands {
     @Environment(\.openSettings) private var openSettings
     @FocusedValue(\.agentDeckCommands) private var context

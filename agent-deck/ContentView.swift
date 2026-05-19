@@ -22,6 +22,34 @@ private extension View {
 }
 
 extension View {
+    func transcriptEdgeFade(height: CGFloat = 28) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black.opacity(0), location: 0),
+                        .init(color: .black, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: height)
+                Rectangle()
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black.opacity(0), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: height)
+            }
+        }
+    }
+}
+
+extension View {
     func toolbarNeutralChrome() -> some View {
         symbolRenderingMode(.monochrome)
             .foregroundStyle(.primary)
@@ -99,10 +127,12 @@ struct ContentView: View {
         let warnings = sidebarWarningSnapshot
         NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 6) {
-                    Text("\(AppBrand.displayName)")
-                        .font(AppFonts.kemcoPixelBold(size: 18))
-                        .foregroundStyle(.primary)
+                HStack(alignment: .center, spacing: 12) {
+                    ForEach(AppBrand.titleWords, id: \.self) { word in
+                        Text(word)
+                            .font(AppFonts.kemcoPixelBold(size: 18))
+                            .foregroundStyle(.primary)
+                    }
 
                     Text(AppBrand.betaBadgeText)
                         .font(AppFonts.kemcoPixelBold(size: 18))
@@ -170,14 +200,10 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 700)
         .navigationTitle(toolbarTitle)
-        .focusedSceneValue(\.agentDeckCommands, commandContext)
+        .background(AgentDeckCommandsScope(context: commandContext).equatable())
         .onAppear(perform: updateCommandContext)
-        // Coalesce per-frame: .onChange fires synchronously during view update, so when
-        // multiple @Published properties on viewModel update in the same SwiftUI render
-        // frame (common during streaming), the token changes more than once per frame and
-        // SwiftUI logs "FocusedValue update tried to update multiple times per frame".
         // .task(id:) cancels and restarts asynchronously after body settles, so at most
-        // one update lands per frame.
+        // one `updateCommandContext()` call lands per render frame.
         .task(id: commandContextUpdateToken) { updateCommandContext() }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             handleSidebarSelectionChange(newValue)
@@ -656,12 +682,11 @@ struct ContentView: View {
         let selectedAgentPath = selectedAgentFilePath
         let promptsAreVisible = viewModel.selectedSidebarItem == .prompts
 
-        // Mutate the existing `@State` context in place rather than allocating a fresh
-        // instance — `AgentDeckCommandContext` is now `@Observable`, so SwiftUI consumers
-        // (the menu `Commands` body's `@FocusedValue` reader) re-render via observation
-        // when individual properties change. Keeping the same reference means
-        // `focusedSceneValue` never reports a new identity, which is what SwiftUI was
-        // logging "FocusedValue update tried to update multiple times per frame" about.
+        // Mutate the existing `@State` context in place — `AgentDeckCommandContext`
+        // is `@Observable`, so the menu `Commands` body's `@FocusedValue` reader
+        // re-renders via observation when individual properties change. The stable
+        // reference is also what lets `AgentDeckCommandsScope` short-circuit re-renders
+        // via `Equatable` identity comparison.
         let ctx = commandContext
 
         ctx.canCreatePiAgentSession = true

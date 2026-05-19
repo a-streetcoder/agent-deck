@@ -112,25 +112,6 @@ struct PiAgentSidebarButton: View {
         .accessibilityHint(accessibilityHint)
     }
 
-    private var sidebarBackground: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(
-                isSelected
-                    ? AnyShapeStyle(
-                        LinearGradient(
-                            colors: [
-                                AppTheme.brandAccentBright.opacity(0.14),
-                                AppTheme.brandAccent.opacity(0.08),
-                                AppTheme.contentSubtleFill
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    : AnyShapeStyle(AppTheme.contentSubtleFill)
-            )
-    }
-
     private var statusText: String {
         if needsAttentionCount > 0 {
             let remainingRunningCount = max(0, runningSessionCount - needsAttentionCount)
@@ -161,6 +142,25 @@ struct PiAgentSidebarButton: View {
 
     private var badgeText: String {
         needsAttentionCount > 99 ? "99+" : "\(needsAttentionCount)"
+    }
+
+    private var sidebarBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(
+                isSelected
+                    ? AnyShapeStyle(
+                        LinearGradient(
+                            colors: [
+                                AppTheme.brandAccentBright.opacity(0.14),
+                                AppTheme.brandAccent.opacity(0.08),
+                                AppTheme.contentSubtleFill
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    : AnyShapeStyle(AppTheme.contentSubtleFill)
+            )
     }
 }
 
@@ -360,35 +360,49 @@ struct ProjectPickerPopover: View {
             SearchFieldWithProgress(
                 placeholder: "Search enabled projects",
                 text: $filterText,
-                isLoading: isSearchDebouncing
+                isLoading: isSearchDebouncing,
+                font: .subheadline
             )
 
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 8) {
+            List(selection: selectionBinding) {
+                Section {
                     ProjectSidebarRow(
                         title: "All Projects",
                         subtitle: "Show sessions across every project",
                         symbolName: "square.grid.2x2",
-                        imageURL: nil,
-                        isSelected: selectedProjectPath == nil,
-                        action: { onSelectProject(nil) }
+                        imageURL: nil
                     )
+                    .tag(nil as String?)
 
                     ForEach(projects) { project in
                         ProjectSidebarRow(
                             title: project.repositoryDisplayName,
                             subtitle: project.path,
                             symbolName: project.fallbackSymbolName,
-                            imageURL: project.iconFileURL,
-                            isSelected: selectedProjectPath == project.path,
-                            action: { onSelectProject(project) }
+                            imageURL: project.iconFileURL
                         )
+                        .tag(Optional(project.path))
                     }
                 }
             }
+            .listStyle(.inset)
             .frame(width: 360, height: 220)
         }
         .padding(14)
+    }
+
+    private var selectionBinding: Binding<String?> {
+        Binding(
+            get: { selectedProjectPath },
+            set: { newValue in
+                guard newValue != selectedProjectPath else { return }
+                if let path = newValue, let project = projects.first(where: { $0.path == path }) {
+                    onSelectProject(project)
+                } else {
+                    onSelectProject(nil)
+                }
+            }
+        )
     }
 }
 
@@ -397,48 +411,24 @@ struct ProjectSidebarRow: View {
     let subtitle: String
     let symbolName: String
     let imageURL: URL?
-    let isSelected: Bool
-    let action: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28)
+            ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(AppTheme.brandAccent)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isSelected ? AppTheme.selectionFill : AppTheme.contentSubtleFill.opacity(0.22))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
-                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
 
-
+            Spacer(minLength: 8)
         }
+        .padding(.vertical, 4)
     }
 }
 

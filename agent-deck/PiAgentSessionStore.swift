@@ -738,6 +738,7 @@ final class PiAgentSessionStore: ObservableObject {
             writeLoadedTranscriptFilesAndManifest()
             if lazyTranscriptLoadingEnabled {
                 evictTranscriptsIfNeeded()
+                if let id = selectedSessionID { requestTranscriptLoad(for: id) }
             }
         } catch {
             lastError = "Could not load Pi Agent sessions: \(error.localizedDescription)"
@@ -834,6 +835,10 @@ final class PiAgentSessionStore: ObservableObject {
             selectedSessionID = sessions.first?.id
         }
         loadInitialTranscriptCache()
+        // Kick the selected session's transcript load synchronously so
+        // `isSelectedTranscriptLoading` is already true by the time the view
+        // first renders — otherwise the transcript area is briefly blank.
+        if let id = selectedSessionID { requestTranscriptLoad(for: id) }
     }
 
     private func bumpTranscriptRevision(_ sessionID: UUID) {

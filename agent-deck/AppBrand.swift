@@ -3,6 +3,10 @@ import Foundation
 enum AppBrand {
     nonisolated static let betaBadgeText = "Beta"
 
+    nonisolated static var titleWords: [String] {
+        displayName.components(separatedBy: " ")
+    }
+
     nonisolated static var displayName: String {
         let bundle = Bundle.main
         for key in ["CFBundleDisplayName", "CFBundleName"] {

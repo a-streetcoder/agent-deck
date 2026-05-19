@@ -40,9 +40,11 @@ struct SearchFieldWithProgress: View {
     let placeholder: String
     @Binding var text: String
     let isLoading: Bool
+    var font: Font = .body
 
     var body: some View {
         TextField(placeholder, text: $text)
+            .font(font)
             .textFieldStyle(.roundedBorder)
             .overlay(alignment: .trailing) {
                 if isLoading {
@@ -1608,14 +1610,11 @@ private struct PiInstructionFile: Identifiable, Hashable {
         var paths = Set<String>()
         [
             globalDir.appendingPathComponent("SYSTEM.md"),
-            globalDir.appendingPathComponent("APPEND_SYSTEM.md"),
-            globalDir.appendingPathComponent("AGENTS.md"),
-            globalDir.appendingPathComponent("AGENTS.MD"),
-            globalDir.appendingPathComponent("CLAUDE.md"),
-            globalDir.appendingPathComponent("CLAUDE.MD")
+            globalDir.appendingPathComponent("APPEND_SYSTEM.md")
         ].forEach { url in
             if fileManager.fileExists(atPath: url.path) { paths.insert(url.path) }
         }
+        insertCaseSensitiveContextMatches(in: globalDir, into: &paths)
         return paths
     }
 
@@ -1636,15 +1635,22 @@ private struct PiInstructionFile: Identifiable, Hashable {
         }
 
         for directory in [globalDir] + contextDirectories(for: projectURL) {
-            for filename in contextCandidateNames {
-                let url = directory.appendingPathComponent(filename)
-                if fileManager.fileExists(atPath: url.path) {
-                    paths.insert(url.path)
-                }
-            }
+            insertCaseSensitiveContextMatches(in: directory, into: &paths)
         }
 
         return paths
+    }
+
+    // `FileManager.fileExists` is case-insensitive on APFS, so probing each
+    // candidate casing reports the same on-disk file under every spelling.
+    // Listing the directory once and matching exact names keeps only the real
+    // on-disk casing.
+    private static func insertCaseSensitiveContextMatches(in directory: URL, into paths: inout Set<String>) {
+        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+        let onDisk = Set(contents)
+        for filename in contextCandidateNames where onDisk.contains(filename) {
+            paths.insert(directory.appendingPathComponent(filename).path)
+        }
     }
 
     static func activeContextFiles(for projectURL: URL, existingPaths: Set<String>) -> [URL] {

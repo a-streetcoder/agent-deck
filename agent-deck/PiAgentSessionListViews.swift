@@ -514,26 +514,30 @@ struct PiAgentProjectIcon: View {
     }
 }
 
-struct PiAgentProcessingIndicatorCard: View {
-    let message: String
+struct PiAgentProcessingIndicatorBar: View {
+    let message: String?
 
     var body: some View {
-        AppRowCard {
-            HStack(spacing: 10) {
+        HStack(spacing: 8) {
+            if let message {
                 Image("pi")
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
                     .foregroundStyle(AppTheme.assistantAccent)
-                    .frame(width: 16, height: 16)
+                    .frame(width: 14, height: 14)
                 Text(message)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 PiAgentTypingIndicator()
-                Spacer()
             }
+            Spacer(minLength: 0)
         }
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+        .animation(.easeInOut(duration: 0.15), value: message)
     }
 }
 

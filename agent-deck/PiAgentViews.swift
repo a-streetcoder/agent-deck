@@ -330,11 +330,21 @@ private struct PiAgentAppKitTranscriptItem {
     let id: String
     let view: AnyView
     let contentRevision: Int
+    /// Fast height estimate used by `heightOfRow` before the cell renders.
+    /// Closer estimates produce smoother first paint — the cell self-measures
+    /// after it renders and reports its actual height back via callback.
+    let estimatedHeight: (CGFloat) -> CGFloat
 
-    init(id: String, view: AnyView, contentRevision: Int = 0) {
+    init(
+        id: String,
+        view: AnyView,
+        contentRevision: Int = 0,
+        estimatedHeight: @escaping (CGFloat) -> CGFloat = { _ in 120 }
+    ) {
         self.id = id
         self.view = view
         self.contentRevision = contentRevision
+        self.estimatedHeight = estimatedHeight
     }
 }
 
@@ -436,8 +446,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var itemByID: [String: PiAgentAppKitTranscriptItem] = [:]
         private var orderedIDs: [String] = []
         private var contentRevisionByID: [String: Int] = [:]
+        // Heights are populated by two paths:
+        //  1. `heightOfRow` returns the item's estimator (cached) when there's no measurement.
+        //  2. The cell measures itself after configure() and reports back via `reportMeasuredHeight`.
+        // The table re-queries heightOfRow only when `noteHeightOfRows` is called, which we
+        // do (debounced ~16ms) when a reported height differs from the cache.
         private var heightByID: [String: CGFloat] = [:]
-        private var lastNotedHeightByID: [String: CGFloat] = [:]
         private var pendingHeightIDs = Set<String>()
         private var pendingHeightWork: DispatchWorkItem?
         private var pendingScrollWork: DispatchWorkItem?
@@ -451,12 +465,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var isProgrammaticScroll = false
         private var contentWidth: CGFloat = 0
         private let estimatedRowHeight: CGFloat = 120
-        private let heightChangeEpsilon: CGFloat = 1
-        // Offscreen cell reused to pre-measure rows that aren't yet realized by the table.
-        // Lets us seed heightByID before applySnapshot so the table lays out with correct
-        // row heights from the first frame, eliminating the scroll-target-too-short bug
-        // that crops the last assistant message during streaming.
-        private var measurementCell: TranscriptTableCellView?
+        private let heightChangeEpsilon: CGFloat = 0.5
+        // One-frame debounce so a burst of cell measurements during a single
+        // layout pass coalesces into one noteHeightOfRows call.
+        private let heightReportInterval: TimeInterval = 0.016
 
         private struct ScrollAnchor {
             let id: String
@@ -473,6 +485,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let cell = (tableView.makeView(withIdentifier: TranscriptTableCellView.reuseIdentifier, owner: nil) as? TranscriptTableCellView)
                     ?? TranscriptTableCellView(frame: .zero)
                 cell.identifier = TranscriptTableCellView.reuseIdentifier
+                cell.onHeightChanged = { [weak self] itemID, height in
+                    self?.reportMeasuredHeight(height, forItemID: itemID)
+                }
                 self.configure(cell, with: item, row: row)
                 return cell
             }
@@ -543,17 +558,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if isSessionSwitch || idsChanged {
                 let anchor = (!isSessionSwitch && !explicitScroll && !wasPinned) ? captureScrollAnchor() : nil
                 if isSessionSwitch {
-                    // Don't wipe heightByID / lastNotedHeightByID — the entry id is a
-                    // stable UUID, so heights measured for entries in one session stay
-                    // valid when the user switches away and back. With Tier A's
-                    // pre-measurement loop, wiping the cache forced every row of the
-                    // newly-selected session to re-measure synchronously through an
-                    // NSHostingView SwiftUI layout pass — which is what made session
-                    // switching slow. Keeping the cache turns a return visit into a
-                    // no-op for the pre-measurement step.
-                    //
-                    // Width changes still wipe the cache via updateColumnWidthIfNeeded,
-                    // so cross-width staleness can't happen.
                     pendingHeightIDs.removeAll()
                     pendingHeightWork?.cancel()
                     pendingHeightWork = nil
@@ -561,37 +565,38 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let previousIDs = Set(orderedIDs)
                 let removedIDs = previousIDs.subtracting(nextIDs)
                 for id in removedIDs {
-                    heightByID[id] = nil
-                    lastNotedHeightByID[id] = nil
-                    contentRevisionByID[id] = nil
+                    heightByID.removeValue(forKey: id)
+                    contentRevisionByID.removeValue(forKey: id)
                     pendingHeightIDs.remove(id)
                 }
-                let addedIDs = nextIDs.filter { heightByID[$0] == nil }
+                // Existing rows whose contentRevision changed need their cached heights
+                // invalidated — heightOfRow will fall back to the item's estimator until
+                // the cell re-measures and reports back. This is what eliminates the
+                // overlap: the table never has to use a stale height because it always
+                // queries the estimator (close enough) or the freshly-reported value.
+                for id in nextIDs {
+                    if contentRevisionByID[id] != nil, contentRevisionByID[id] != nextRevisions[id] {
+                        heightByID.removeValue(forKey: id)
+                    }
+                }
                 orderedIDs = nextIDs
                 contentRevisionByID = nextRevisions
-                // Pre-measure newly-added rows (including those below the visible viewport)
-                // so the table's row-height delegate returns correct heights as soon as the
-                // snapshot is applied. Without this, new bottom rows render at the 120pt
-                // estimate, the documentView ends up too short, and scrollToBottom clips them.
-                preMeasureRows(forIDs: addedIDs)
                 applySnapshot(ids: nextIDs) { [weak self] in
                     guard let self else { return }
-                    self.reconfigureVisibleRows(forceRemeasure: isSessionSwitch)
+                    // Visible cells whose content changed (same id, new revision) are NOT
+                    // reconfigured automatically by the diffable data source — it only
+                    // touches cells whose ids changed. Walk the visible window and
+                    // reconfigure those whose item revision has shifted.
+                    self.reconfigureChangedVisibleCells()
                     self.restoreScrollAnchorIfNeeded(anchor)
                     self.handleScrollAfterUpdate(isSessionSwitch: isSessionSwitch, explicitScroll: explicitScroll, wasPinned: wasPinned)
-                    // The previous 60 ms `scheduleVisibleRemeasure()` here was a settle
-                    // pass introduced when first-measurement was slow and possibly wrong
-                    // (NSHostingView fittingSize iterating a SwiftUI MarkdownTextView).
-                    // With markdown measurement now going through TextKit per-block, the
-                    // first pass above is already correct — a second pass would re-tile
-                    // rows for no reason and can introduce a tiny height-recompute jitter.
                 }
             } else {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
                 contentRevisionByID = nextRevisions
                 if !changedIDs.isEmpty {
-                    invalidateHeights(for: changedIDs)
-                    reconfigureRows(withIDs: changedIDs)
+                    for id in changedIDs { heightByID.removeValue(forKey: id) }
+                    reconfigureVisibleCellsForIDs(Set(changedIDs))
                 } else if streamingUpdate || structuralUpdate {
                     publishPinnedState(isPinnedToBottom(scrollView))
                 }
@@ -620,141 +625,78 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             contentWidth = width
             tableView.tableColumns.first?.width = width
 
-            // Heights are width-specific. Now that heightByID survives session switches
-            // (entries are keyed by stable UUID), a width change has to invalidate the
-            // whole cache — not just the currently-visible rows — so that off-screen
-            // rows don't render at the wrong height when they scroll into view.
+            // Heights are width-specific. Wipe the cache so heightOfRow falls back to the
+            // item estimator until cells re-measure for the new width.
             heightByID.removeAll()
-            lastNotedHeightByID.removeAll()
 
             pendingWidthWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.pendingWidthWork = nil
-                self.reconfigureVisibleRows(forceRemeasure: true)
+                self.reconfigureAllVisibleCells()
             }
             pendingWidthWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
         }
 
-        private func reconfigureRows(withIDs ids: [String]) {
-            guard let tableView, !ids.isEmpty else { return }
-            var rows = IndexSet()
-            var offscreenIDs: [String] = []
-            for id in ids {
-                guard let row = orderedIDs.firstIndex(of: id), let item = itemByID[id] else { continue }
-                if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView {
-                    configure(cell, with: item, row: row)
-                    rows.insert(row)
-                } else {
-                    // Cell isn't realized (row is off-screen). invalidateHeights wiped its
-                    // cached height, so without a fallback measurement the row would render
-                    // at the 120pt estimate the next time it scrolls into view — causing the
-                    // same scroll-target-too-short cropping we fixed for new rows.
-                    offscreenIDs.append(id)
-                }
-            }
-            if !offscreenIDs.isEmpty {
-                preMeasureRows(forIDs: offscreenIDs)
-                for id in offscreenIDs {
-                    if let row = orderedIDs.firstIndex(of: id) { rows.insert(row) }
-                }
-            }
-            // Apply height changes synchronously instead of via the 25ms debounce. During
-            // streaming we want the row to grow in the same frame the cell's content
-            // updates — otherwise the cell renders new content into a still-old (shorter)
-            // row for ~25ms and clips the bottom of the message. Also force the table to
-            // re-tile so the row's frame actually picks up the new height before the
-            // hostingView's SwiftUI content draws.
-            if !rows.isEmpty {
-                var changedIDs = Set<String>()
-                for row in rows where row < orderedIDs.count {
-                    changedIDs.insert(orderedIDs[row])
-                }
-                applyHeightChanges(forIDs: changedIDs)
-                tableView.layoutSubtreeIfNeeded()
-            }
-        }
-
-        private func scheduleVisibleRemeasure() {
-            pendingRemeasureWork?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pendingRemeasureWork = nil
-                self.reconfigureVisibleRows(forceRemeasure: true)
-                if let scrollView = self.scrollView, self.isPinnedToBottom(scrollView) {
-                    self.performScrollToBottom(scrollView)
-                }
-            }
-            pendingRemeasureWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: work)
-        }
-
-        private func reconfigureVisibleRows(forceRemeasure: Bool) {
+        /// Walk visible rows and reconfigure cells whose content has changed since
+        /// they were last configured. Used after a snapshot apply (diffable data
+        /// source only reconfigures rows whose ids changed).
+        private func reconfigureChangedVisibleCells() {
             guard let tableView else { return }
             let visible = tableView.rows(in: tableView.visibleRect)
             guard visible.length > 0 else { return }
-            var rows = IndexSet()
             for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
                 let id = orderedIDs[row]
                 guard let item = itemByID[id],
                       let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
-                if forceRemeasure { heightByID[id] = nil }
+                // configure() is a no-op when nothing's changed; otherwise the cell
+                // measures itself and reports a new height via onHeightChanged.
                 configure(cell, with: item, row: row)
-                rows.insert(row)
             }
-            if forceRemeasure, !rows.isEmpty { scheduleHeightChanged(forRows: rows) }
         }
 
-        private func invalidateHeights(for ids: [String]) {
-            for id in ids { heightByID[id] = nil }
+        private func reconfigureVisibleCellsForIDs(_ ids: Set<String>) {
+            guard let tableView, !ids.isEmpty else { return }
+            let visible = tableView.rows(in: tableView.visibleRect)
+            guard visible.length > 0 else { return }
+            for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
+                let id = orderedIDs[row]
+                guard ids.contains(id),
+                      let item = itemByID[id],
+                      let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
+                configure(cell, with: item, row: row)
+            }
         }
 
-        // Pre-measures rows that aren't realized by the table yet (off-screen new appends).
-        // Uses a single reusable offscreen cell so we avoid allocating one NSHostingView per row.
-        // The cell isn't added to any view hierarchy; NSHostingView.fittingSize still triggers
-        // a SwiftUI layout pass and returns a correct fitting height without window attachment.
-        private func preMeasureRows(forIDs ids: [String]) {
-            guard !ids.isEmpty else { return }
-            let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
-            guard width > 1 else { return }
-            let cell = measurementCell ?? TranscriptTableCellView(frame: .zero)
-            measurementCell = cell
-            for id in ids {
-                guard let item = itemByID[id] else { continue }
-                cell.configure(item: item, width: width)
-                let measured = cell.measuredHeight(width: width)
-                guard measured.isFinite, measured > 0 else { continue }
-                let height = ceil(measured)
-                heightByID[id] = height
-                lastNotedHeightByID[id] = height
+        private func reconfigureAllVisibleCells() {
+            guard let tableView else { return }
+            let visible = tableView.rows(in: tableView.visibleRect)
+            guard visible.length > 0 else { return }
+            for row in visible.location ..< visible.location + visible.length where row < orderedIDs.count {
+                let id = orderedIDs[row]
+                guard let item = itemByID[id],
+                      let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
+                heightByID.removeValue(forKey: id)
+                configure(cell, with: item, row: row)
             }
         }
 
         private func configure(_ cell: TranscriptTableCellView, with item: PiAgentAppKitTranscriptItem, row: Int) {
             let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
-            let changed = cell.configure(item: item, width: width)
-            // Measuring an NSHostingView forces a SwiftUI layout pass. Skip it when
-            // cell content and width are unchanged; the cached row height remains valid.
-            if changed || heightByID[item.id] == nil {
-                measure(cell, itemID: item.id, row: row, width: width)
-            }
+            // The cell self-measures inside configure() and calls onHeightChanged
+            // with its natural height. We don't need to call measure() manually.
+            cell.configure(item: item, width: width)
         }
 
-        private func measure(_ cell: TranscriptTableCellView, itemID: String, row: Int, width: CGFloat) {
-            let measured = cell.measuredHeight(width: width)
-            guard measured.isFinite, measured > 0 else { return }
-            let height = ceil(measured)
-            let previousHeight = heightByID[itemID]
+        /// Called by a cell after it has measured its natural height. Updates the
+        /// cache and (debounced) tells the table to re-tile the changed row.
+        func reportMeasuredHeight(_ height: CGFloat, forItemID itemID: String) {
+            let existing = heightByID[itemID]
             heightByID[itemID] = height
-            let comparisonHeight = lastNotedHeightByID[itemID] ?? previousHeight ?? estimatedRowHeight
-            if abs(comparisonHeight - height) > heightChangeEpsilon {
-                scheduleHeightChanged(forID: itemID)
-            }
-        }
-
-        private func scheduleHeightChanged(forID id: String) {
-            pendingHeightIDs.insert(id)
+            let delta = abs((existing ?? estimatedRowHeight) - height)
+            guard delta > heightChangeEpsilon else { return }
+            pendingHeightIDs.insert(itemID)
             guard pendingHeightWork == nil else { return }
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
@@ -764,54 +706,26 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 self.noteHeightsChanged(forIDs: ids)
             }
             pendingHeightWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.025, execute: work)
-        }
-
-        private func scheduleHeightChanged(forRows rows: IndexSet) {
-            for row in rows where row >= 0 && row < orderedIDs.count {
-                pendingHeightIDs.insert(orderedIDs[row])
-            }
-            guard !pendingHeightIDs.isEmpty, pendingHeightWork == nil else { return }
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                let ids = self.pendingHeightIDs
-                self.pendingHeightIDs.removeAll()
-                self.pendingHeightWork = nil
-                self.noteHeightsChanged(forIDs: ids)
-            }
-            pendingHeightWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.025, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + heightReportInterval, execute: work)
         }
 
         private func noteHeightsChanged(forIDs ids: Set<String>) {
-            guard let scrollView else { return }
+            guard let tableView, let scrollView, !ids.isEmpty else { return }
             let wasPinned = isPinnedToBottom(scrollView)
-            applyHeightChanges(forIDs: ids)
-            if wasPinned {
-                scrollToBottom(settle: false)
-            }
-        }
-
-        // Apply queued row-height changes to the table without scrolling. Extracted from
-        // noteHeightsChanged so performScrollToBottom can flush pending height work
-        // synchronously and read accurate documentView bounds.
-        private func applyHeightChanges(forIDs ids: Set<String>) {
-            guard let tableView, !ids.isEmpty else { return }
             var rows = IndexSet()
             for id in ids {
-                guard let row = orderedIDs.firstIndex(of: id), row < tableView.numberOfRows else { continue }
-                if let height = heightByID[id] {
-                    let lastNoted = lastNotedHeightByID[id] ?? estimatedRowHeight
-                    guard abs(lastNoted - height) > heightChangeEpsilon else { continue }
-                    lastNotedHeightByID[id] = height
+                if let row = orderedIDs.firstIndex(of: id), row < tableView.numberOfRows {
+                    rows.insert(row)
                 }
-                rows.insert(row)
             }
             guard !rows.isEmpty else { return }
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             tableView.noteHeightOfRows(withIndexesChanged: rows)
             NSAnimationContext.endGrouping()
+            if wasPinned {
+                scrollToBottom(settle: false)
+            }
         }
 
         private func flushPendingHeightWorkSynchronously() {
@@ -820,7 +734,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingHeightWork = nil
             let ids = pendingHeightIDs
             pendingHeightIDs.removeAll()
-            applyHeightChanges(forIDs: ids)
+            noteHeightsChanged(forIDs: ids)
         }
 
         private func captureScrollAnchor() -> ScrollAnchor? {
@@ -927,7 +841,18 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < orderedIDs.count else { return estimatedRowHeight }
-            return heightByID[orderedIDs[row]] ?? estimatedRowHeight
+            let id = orderedIDs[row]
+            if let cached = heightByID[id] { return cached }
+            // No measurement yet — use the item's fast estimator so the table can lay
+            // the row out close to its natural size without triggering a SwiftUI pass.
+            // The cell will measure precisely as it renders and report back via
+            // reportMeasuredHeight, at which point this row gets re-tiled.
+            if let item = itemByID[id] {
+                let est = item.estimatedHeight(contentWidth)
+                heightByID[id] = est
+                return est
+            }
+            return estimatedRowHeight
         }
     }
 
@@ -947,6 +872,16 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var configuredItemID: String?
         private var configuredRevision: Int?
         private var configuredWidth: CGFloat = 0
+        private var lastReportedHeight: CGFloat = -1
+        // Re-entry guard. reportNaturalHeightIfChanged mutates the cell's frame, which
+        // can trigger another `layout()` pass; without this flag the measurement
+        // would recurse and saturate the runloop.
+        private var isMeasuring = false
+
+        /// Callback the cell invokes after measuring its natural height. Wired by
+        /// the Coordinator at cell-vend time. Posts `(itemID, height)` so the
+        /// coordinator can update its height cache and tell the table to re-tile.
+        var onHeightChanged: ((String, CGFloat) -> Void)?
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -959,7 +894,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         @discardableResult
         func configure(item: PiAgentAppKitTranscriptItem, width: CGFloat) -> Bool {
             let widthChanged = abs(configuredWidth - width) > 0.5
-            guard configuredItemID != item.id || configuredRevision != item.contentRevision || widthChanged else { return false }
+            let itemChanged = configuredItemID != item.id
+            let revisionChanged = configuredRevision != item.contentRevision
+            guard itemChanged || revisionChanged || widthChanged else { return false }
+
+            // Reset the reported-height tracker if the *item* changed — when the cell
+            // is reused for a new row, the previous lastReportedHeight is meaningless
+            // and would suppress the new row's first measurement.
+            if itemChanged { lastReportedHeight = -1 }
+
             configuredItemID = item.id
             configuredRevision = item.contentRevision
             configuredWidth = width
@@ -981,30 +924,41 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 ])
                 self.hostingView = hostingView
             }
+            reportNaturalHeightIfChanged(width: width, itemID: item.id)
             return true
         }
 
-        func measuredHeight(width: CGFloat) -> CGFloat {
-            guard let hostingView else { return 0 }
-            // Resize the cell — not just the hostingView — to a generous frame before
-            // measuring. The hostingView is pinned to the cell's leading/trailing/top/
-            // bottom anchors with required Auto Layout constraints; if the cell's bounds
-            // are too short (zero for the off-screen measurement cell, or just the current
-            // stale row height when reconfiguring a streaming row), those required pins
-            // win the constraint solve and SwiftUI is forced to truncate-and-fit into the
-            // compressed height. fittingSize then reports that truncated height, not the
-            // natural one — and the row is permanently sized too small, so the SwiftUI
-            // text inside the next cell renders with `…` and the rows visually overlap.
-            // Giving the cell a tall measurement frame lets the constraint solve land at
-            // the content's natural height. NSTableView restores the cell's row-sized
-            // frame on its next layout pass (triggered by noteHeightOfRows downstream),
-            // and because we never yield the runloop between these steps there is no
-            // chance of an intermediate paint at the inflated size.
+        /// Called after every Auto Layout pass on the hosted content (image loads,
+        /// markdown TextKit measurement settling, etc.). Re-measures in case the
+        /// natural size has changed for a reason other than revision turnover.
+        override func layout() {
+            super.layout()
+            guard !isMeasuring, let itemID = configuredItemID, configuredWidth > 1 else { return }
+            reportNaturalHeightIfChanged(width: configuredWidth, itemID: itemID)
+        }
+
+        private func reportNaturalHeightIfChanged(width: CGFloat, itemID: String) {
+            guard !isMeasuring, let hostingView, width > 1 else { return }
+            isMeasuring = true
+            defer { isMeasuring = false }
+            // Use a measurement frame tall enough that SwiftUI's required-bottom
+            // constraint doesn't compress the content into a truncated fittingSize.
+            // We restore the frame before returning so the cell never paints at the
+            // inflated height — NSTableView's actual frame is reapplied immediately
+            // after the synchronous measurement.
+            let originalFrame = frame
             let measuringFrame = CGRect(x: 0, y: 0, width: width, height: 100_000)
             if frame != measuringFrame { frame = measuringFrame }
             hostingView.invalidateIntrinsicContentSize()
             layoutSubtreeIfNeeded()
-            return hostingView.fittingSize.height
+            let natural = hostingView.fittingSize.height
+            if frame != originalFrame { frame = originalFrame }
+            guard natural.isFinite, natural > 0 else { return }
+            let rounded = ceil(natural)
+            if abs(rounded - lastReportedHeight) > 0.5 {
+                lastReportedHeight = rounded
+                onHeightChanged?(itemID, rounded)
+            }
         }
     }
 }
@@ -1083,6 +1037,11 @@ struct PiAgentScreen: View {
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
             resetTranscriptAutoScroll()
+            // Kick the load synchronously on appear so `isSelectedTranscriptLoading`
+            // flips to true before the first render — otherwise the transcript area
+            // is briefly blank (no loading card, no content) until the deferred task
+            // runs after Task.yield.
+            store.requestSelectedTranscriptLoad()
             requestSelectedTranscriptLoadAfterViewUpdate()
             updateStabilizedProcessingMessage(selectedSessionProcessingMessage)
             Task { @MainActor in
@@ -1421,7 +1380,10 @@ struct PiAgentScreen: View {
         VStack(spacing: 0) {
             transcript
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(18)
+                .padding(.horizontal, 18)
+                .transcriptEdgeFade()
+
+            PiAgentProcessingIndicatorBar(message: stabilizedProcessingMessage)
 
             Divider()
 
@@ -1511,17 +1473,28 @@ struct PiAgentScreen: View {
                 view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session) {
                     startupResourcesLayoutRevision &+= 1
                 }),
-                contentRevision: chromeRevision &+ startupResourcesLayoutRevision
+                contentRevision: chromeRevision &+ startupResourcesLayoutRevision,
+                estimatedHeight: { _ in 110 }
             ))
             if let finalSystemPrompt = session.finalSystemPrompt {
-                items.append(PiAgentAppKitTranscriptItem(id: "system-prompt-\(session.id.uuidString)", view: AnyView(PiAgentSystemPromptAuditCard(title: "Final System Prompt", subtitle: "", prompt: finalSystemPrompt)), contentRevision: finalSystemPrompt.hashValue))
+                items.append(PiAgentAppKitTranscriptItem(
+                    id: "system-prompt-\(session.id.uuidString)",
+                    view: AnyView(PiAgentSystemPromptAuditCard(title: "Final System Prompt", subtitle: "", prompt: finalSystemPrompt)),
+                    contentRevision: finalSystemPrompt.hashValue,
+                    estimatedHeight: { _ in 80 }
+                ))
             }
             for request in store.supervisorRequests(for: session.id).filter({ $0.status == .pending }) {
-                items.append(PiAgentAppKitTranscriptItem(id: "supervisor-request-\(request.id)", view: AnyView(PiSubagentSupervisorRequestCard(
-                    request: request,
-                    onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
-                    onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
-                )), contentRevision: request.hashValue))
+                items.append(PiAgentAppKitTranscriptItem(
+                    id: "supervisor-request-\(request.id)",
+                    view: AnyView(PiSubagentSupervisorRequestCard(
+                        request: request,
+                        onRespond: { response in viewModel.respondToSubagentSupervisorRequest(request.id, parentSessionID: session.id, response: response) },
+                        onCancel: { viewModel.cancelSubagentSupervisorRequest(request.id, parentSessionID: session.id) }
+                    )),
+                    contentRevision: request.hashValue,
+                    estimatedHeight: { _ in 180 }
+                ))
             }
         }
 
@@ -1529,32 +1502,92 @@ struct PiAgentScreen: View {
             var hasher = Hasher()
             hasher.combine(archive.hiddenCount)
             hasher.combine(archive.compactedAt)
-            items.append(PiAgentAppKitTranscriptItem(id: "pre-compaction-archive", view: AnyView(preCompactionArchiveCard(archive)), contentRevision: hasher.finalize()))
+            items.append(PiAgentAppKitTranscriptItem(
+                id: "pre-compaction-archive",
+                view: AnyView(preCompactionArchiveCard(archive)),
+                contentRevision: hasher.finalize(),
+                estimatedHeight: { _ in 60 }
+            ))
         }
         if let archive = timelineSnapshot.recentWindowArchive {
             var hasher = Hasher()
             hasher.combine(archive.hiddenCount)
             hasher.combine(archive.limit)
-            items.append(PiAgentAppKitTranscriptItem(id: "recent-window-archive", view: AnyView(recentWindowArchiveCard(archive)), contentRevision: hasher.finalize()))
+            items.append(PiAgentAppKitTranscriptItem(
+                id: "recent-window-archive",
+                view: AnyView(recentWindowArchiveCard(archive)),
+                contentRevision: hasher.finalize(),
+                estimatedHeight: { _ in 60 }
+            ))
         }
         if store.isSelectedTranscriptLoading && timelineItems.isEmpty {
-            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(loadingTranscriptCard), contentRevision: chromeRevision))
+            items.append(PiAgentAppKitTranscriptItem(
+                id: "pi-agent-transcript-state-card",
+                view: AnyView(loadingTranscriptCard),
+                contentRevision: chromeRevision,
+                estimatedHeight: { _ in 80 }
+            ))
         } else if timelineItems.isEmpty && items.isEmpty {
-            items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-transcript-state-card", view: AnyView(emptyTranscriptCard), contentRevision: chromeRevision))
+            items.append(PiAgentAppKitTranscriptItem(
+                id: "pi-agent-transcript-state-card",
+                view: AnyView(emptyTranscriptCard),
+                contentRevision: chromeRevision,
+                estimatedHeight: { _ in 120 }
+            ))
         } else {
             for item in timelineItems {
                 items.append(PiAgentAppKitTranscriptItem(
                     id: item.id,
                     view: AnyView(transcriptTimelineItemView(item, snapshot: timelineSnapshot)),
-                    contentRevision: appKitTranscriptContentRevision(for: item, snapshot: timelineSnapshot, contextRevision: threadContextRevision)
+                    contentRevision: appKitTranscriptContentRevision(for: item, snapshot: timelineSnapshot, contextRevision: threadContextRevision),
+                    estimatedHeight: { width in
+                        Self.estimatedHeight(for: item, snapshot: timelineSnapshot, width: width)
+                    }
                 ))
             }
-            if let processingMessage = stabilizedProcessingMessage {
-                items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-processing", view: AnyView(PiAgentProcessingIndicatorCard(message: processingMessage)), contentRevision: processingMessage.hashValue))
-            }
         }
-        items.append(PiAgentAppKitTranscriptItem(id: "pi-agent-bottom-anchor", view: AnyView(Color.clear.frame(height: 1)), contentRevision: 0))
+        items.append(PiAgentAppKitTranscriptItem(
+            id: "pi-agent-bottom-anchor",
+            view: AnyView(Color.clear.frame(height: 1)),
+            contentRevision: 0,
+            estimatedHeight: { _ in 1 }
+        ))
         return items
+    }
+
+    /// Fast height estimator for a transcript timeline item. Uses character-count
+    /// math (no SwiftUI invocation) — close enough so the row lands near its final
+    /// position on first paint; the cell reports its precise height immediately
+    /// after rendering and the row re-tiles to match.
+    private static func estimatedHeight(
+        for item: PiAgentTranscriptTimelineItem,
+        snapshot: PiAgentTranscriptTimelineSnapshot,
+        width: CGFloat
+    ) -> CGFloat {
+        switch item.kind {
+        case let .thread(thread):
+            let cardWidth = max(width - 32, 200)
+            let charsPerLine = max(Int(cardWidth / 7), 20)
+            var total: CGFloat = 0
+            if let q = thread.question {
+                let lines = max(1, (q.text.count + charsPerLine - 1) / charsPerLine)
+                total += CGFloat(lines) * 18 + 56  // bubble paddings + author label
+            }
+            for child in thread.children {
+                switch child {
+                case let .assistant(entry), let .steering(entry), let .thinking(entry):
+                    let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
+                    total += CGFloat(min(lines, 40)) * 18 + 48
+                case .toolGroup:
+                    total += 48
+                case .status, .error:
+                    total += 56
+                }
+            }
+            return max(total, 80)
+        case .plan:
+            return 120
+        }
     }
 
     private func appKitTranscriptChromeRevision(snapshot: PiAgentTranscriptTimelineSnapshot) -> Int {
@@ -1966,9 +1999,9 @@ struct PiAgentScreen: View {
     private func processingMessage(after entry: PiAgentTranscriptEntry) -> String? {
         switch entry.role {
         case .assistant:
-            return entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Preparing response" : nil
+            return entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Preparing response" : "Writing response"
         case .error, .stderr:
-            return nil
+            return "Pi is working"
         case .tool:
             if entry.text.localizedCaseInsensitiveContains("waiting for user input") { return nil }
             return toolProcessingMessage(for: entry)
@@ -1983,7 +2016,7 @@ struct PiAgentScreen: View {
         case .thinking:
             return "Reasoning"
         case .raw:
-            return "Processing event"
+            return "Pi is working"
         }
     }
 

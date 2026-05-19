@@ -1,8 +1,8 @@
-# Pilot — Brand Identity & Marketing Brief
+# Agent Deck — Brand Identity & Marketing Brief
 
 ---
 
-## The Name: **Pilot**
+## The Name: **Agent Deck**
 
 > A native macOS command center for Pi AI agents.
 
@@ -10,15 +10,15 @@
 
 ### Rationale
 
-**Pilot** distills everything this app is into a single, punchy, five-letter word.
+**Agent Deck** captures the metaphor of a deck of cards — each agent is a card you play, each skill a tool you deal, and every session a hand you manage from one organized surface.
 
-| Element | How Pilot delivers it |
-|---------|----------------------|
-| **Pi connection** | The name literally starts with **"Pi"** — a subtle but unmistakable nod that Pi powers the experience. Users of Pi will feel the connection instantly. |
-| **Orchestration** | A pilot doesn't just watch — they **command, steer, and orchestrate**. Every agent, skill, and session falls under your direction. |
-| **Agent + skill management** | Managing a fleet of agents with diverse skills is *piloting*. You assign, monitor, adjust, and supervise. |
-| **Native macOS vs TUI** | Pilots fly from a cockpit, not a terminal. Pilot is the native macOS cockpit for AI agent work — visual, calm, in command. |
-| **Authoritative tone** | "Pilot" is confident without being aggressive. It sits you in the captain's chair. |
+| Element | How Agent Deck delivers it |
+|---------|---------------------------|
+| **Deck metaphor** | A deck holds many cards, each with a purpose. Agent Deck holds your agents, skills, prompts, and sessions — organized, shuffled, ready to play. |
+| **Agent + skill management** | You deal agents into projects, stack skills onto them, and play the right combination for the task at hand. |
+| **Orchestration** | A card table gives the dealer full oversight. Agent Deck gives you that same clarity — every agent visible, every skill accounted for. |
+| **Native macOS vs TUI** | You don't manage a deck from a terminal. Agent Deck is the native macOS surface where you lay out, inspect, and command your AI resources. |
+| **Collectible / extensible** | Decks grow. You add new agents, import new skills, discover new prompts. Agent Deck is your growing collection. |
 
 ---
 
@@ -28,9 +28,10 @@
 > Command your AI agent fleet.
 
 **Alternatives:**
-> Pilot your AI agents. Not a terminal.
+> Deal your agents. Command your code.
 > The native macOS command center for Pi.
 > Orchestrate. Supervise. Command.
+> Every agent. One deck.
 
 ---
 
@@ -40,7 +41,7 @@
 |-----------|-------------|
 | **Authoritative** | Speaks with quiet confidence. No hype, no buzzwords — just command. |
 | **Professional** | Developer-first, macOS-native quality. Every pixel earned. |
-| **Calm** | Like a well-designed cockpit: everything where you need it, nothing where you don't. |
+| **Calm** | Like a well-organized card table: everything where you need it, nothing where you don't. |
 | **Precise** | Words are chosen with care. Clear over clever. |
 
 **Tone examples:**
@@ -48,9 +49,9 @@
 | Context | Voice |
 |---------|-------|
 | Website hero | "Your AI agents. Under your command. From your Mac." |
-| App Store description | "Pilot is the native macOS command center for Pi AI agents. Orchestrate agents, manage skills, and supervise every interaction — without touching a terminal." |
+| App Store description | "Agent Deck is the native macOS command center for Pi AI agents. Orchestrate agents, manage skills, and supervise every interaction — without touching a terminal." |
 | Error/empty state | "No agents running. Ready when you are." |
-| Onboarding | "Welcome to the cockpit. Here's what you can command." |
+| Onboarding | "Welcome to Agent Deck. Here's what you can command." |
 
 ---
 
@@ -58,25 +59,17 @@
 
 #### App Icon
 
-**Primary concept: Compass Rose**
-- A minimalist compass rose in **Liquid Glass** style (macOS 26 Tahoe aesthetic)
-- Connects to: navigation, direction, circles (Pi), command
-- Brand colors: teal/cyan accent (`#8DDEFF`) on a dark or clear background
-- 4-pointed star (simple, bold, recognizable at 16×16px)
-
-**Alternative concept: Aviator Sunglasses**
-- A stylized, minimalist aviator silhouette
-- Instantly readable as "pilot" — cool, confident, iconic
-- The reflection in the lenses could subtly show agent activity or a terminal prompt
-
-**Alternative concept: Yoke / Control Wheel**
-- A minimalist aircraft yoke
-- The most literal "pilot" symbol
-- Conveys hands-on control
+**Current icon: Deck of Cards (Icon Composer)**
+- Built with Apple's **Icon Composer** (`.icon` format) for native macOS 26 Tahoe Liquid Glass rendering
+- Depicts a stylized **deck of cards** — stacked, offset rectangles forming the silhouette of a card deck
+- Gradient fill: muted steel-gray tones (`display-p3` gray gradient) with translucency and neutral shadow
+- The stacked-card motif directly echoes the "Deck" in the name — instantly recognizable at any size
+- Liquid Glass treatment gives depth, light refraction, and platform-native feel
+- At 16×16px it reads as a clean, layered shape. At 1024×1024px it reveals glass depth and subtle reflections
 
 #### Color Palette
 
-Continue using the existing brand accent colors — they work perfectly with the Pilot identity:
+Continue using the existing brand accent colors — they complement the Agent Deck identity:
 
 | Token | Color | Usage |
 |-------|-------|-------|
@@ -95,15 +88,15 @@ Continue using the existing brand accent colors — they work perfectly with the
 ### Marketing Copy
 
 #### One-liner
-> *Pilot is the native macOS command center for Pi AI agents.*
+> *Agent Deck is the native macOS command center for Pi AI agents.*
 
 #### Short description (App Store tagline)
 > *Orchestrate agents, manage skills, and supervise every interaction — without touching a terminal.*
 
 #### App Store description (draft)
-> **Pilot is the native macOS command center for Pi AI agents.**
+> **Agent Deck is the native macOS command center for Pi AI agents.**
 >
-> If you use Pi CLI, you know how powerful AI-driven coding can be. But the terminal wasn't built for oversight. Pilot gives you a calm, visual cockpit for everything Pi can do — and more.
+> If you use Pi CLI, you know how powerful AI-driven coding can be. But the terminal wasn't built for oversight. Agent Deck gives you a calm, visual surface for everything Pi can do — and more.
 >
 > **Command your AI fleet.**
 > - Chat with agents in a rich, native transcript UI with real-time activity, tool calls, diffs, and thinking traces
@@ -124,10 +117,10 @@ Continue using the existing brand accent colors — they work perfectly with the
 > - Discover and configure models, disable unwanted ones
 > - Run Doctor to check CLI health, model availability, and configuration
 >
-> Pilot turns your terminal workflow into a native macOS experience. Your AI agents, under your command. From your Mac.
+> Agent Deck turns your terminal workflow into a native macOS experience. Your AI agents, under your command. From your Mac.
 
 #### Website hero section
-> **Pilot**
+> **Agent Deck**
 > *A native macOS command center for Pi AI agents.*
 >
 > [CTA: Download for macOS]
@@ -141,7 +134,7 @@ Continue using the existing brand accent colors — they work perfectly with the
 
 ### Brand Territory
 
-Pilot occupies a unique space at the intersection of:
+Agent Deck occupies a unique space at the intersection of:
 
 ```
 Terminal (Pi CLI)        ←  →  Native macOS app
@@ -151,7 +144,7 @@ Terminal (Pi CLI)        ←  →  Native macOS app
    Flexible but chaotic   Structured but controlled
 ```
 
-Pilot doesn't replace Pi — it gives Pi a cockpit. It's the bridge between the raw power of the terminal and the calm clarity of a well-designed native app.
+Agent Deck doesn't replace Pi — it gives Pi a surface. It's the bridge between the raw power of the terminal and the calm clarity of a well-designed native app.
 
 ---
 
@@ -159,25 +152,25 @@ Pilot doesn't replace Pi — it gives Pi a cockpit. It's the bridge between the 
 
 | Check | Status |
 |-------|--------|
-| Trademark conflict (AI agent management, macOS) | Unlikely — "Pilot" is a common word; no direct competitor in this space |
-| Domain availability | `pilotai.app`, `pilotforpi.com`, `getpilot.app` likely available |
-| Package manager / SwiftPM | `Pilot` — clean, no conflicts |
-| CLI tool name | `pilot` — short, typable, memorable |
-| App Store searchability | "Pilot" is searchable; "Pilot AI" narrows well |
-| Internationalization | Common English word, easy to pronounce across languages |
+| Trademark conflict (AI agent management, macOS) | Unlikely — "Agent Deck" is a descriptive compound; no direct competitor in this space |
+| Domain availability | `agentdeck.app`, `agentdeck.io`, `getagentdeck.com` likely available |
+| Package manager / SwiftPM | `AgentDeck` — clean, no conflicts |
+| Bundle identifier | `streetcoding.agent-deck` — already in use |
+| App Store searchability | "Agent Deck" is specific and searchable; "Agent Deck AI" narrows well |
+| Internationalization | Common English compound, easy to understand across languages |
 
 ---
 
 ### Brand Architecture
 
 ```
-Pilot
-  └── Pilot for Pi (marketing context, web)
-  └── Pilot.app (on disk, in /Applications)
-  └── pilot (future CLI companion, if any)
+Agent Deck
+  └── Agent Deck for Pi (marketing context, web)
+  └── Agent Deck.app (on disk, in /Applications)
+  └── streetcoding.agent-deck (bundle identifier)
 ```
 
-The brand stands alone. "For Pi" is used only in contexts that need to explain the underlying technology (website, docs). In the app itself, it's just **Pilot**.
+The brand stands alone. "For Pi" is used only in contexts that need to explain the underlying technology (website, docs). In the app itself, it's just **Agent Deck**.
 
 ---
 
@@ -187,27 +180,20 @@ The brand stands alone. "For Pi" is used only in contexts that need to explain t
 |-------|------|
 | **Primary tagline** | Command your AI agent fleet. |
 | **Hero / website** | A native macOS command center for Pi AI agents. |
-| **Subtitle / explainer** | Pilot your AI agents. Not a terminal. |
-| **One-liner (elevator)** | The native macOS cockpit for Pi. |
+| **Subtitle / explainer** | Every agent. One deck. |
+| **One-liner (elevator)** | The native macOS command center for Pi. |
 
 ---
 
-### Icon / Glyph Sketch Description
+### Icon / Glyph Description
 
-**Compass Rose (recommended icon direction):**
+**Deck of Cards (current icon — built with Icon Composer):**
 
-```
-        ▲
-        │
-    ┌── ┼ ──┐
-    │   │   │
-  ◄──┼───┼──►
-    │   │   │
-    └── ┼ ──┘
-        │
-        ▼
-```
+The app icon depicts a stylized deck of playing cards — a stack of offset rectangles rendered in steel-gray tones with Liquid Glass translucency. Built with Apple's Icon Composer tool using the `.icon` format for native macOS 26 Tahoe rendering.
 
-A 4-pointed star executed in Liquid Glass — layered with depth, light, and the teal/cyan accent gradient. The four points represent the four core domains: **agents, skills, sessions, projects**. Rounded, not sharp. Glowing, not harsh. macOS-native through and through.
+- **Shape:** Layered, stacked rectangles suggesting a deck of cards viewed from above
+- **Style:** Liquid Glass with translucency (`0.5` value), neutral shadow, and a vertical gray gradient
+- **Scale:** The glyph is rendered at `1.57×` scale within the icon grid for visual prominence
+- **Platform:** Supports square icon (macOS, iOS, iPadOS) and circle variant (watchOS)
 
-At 16×16px it reads as a clean star. At 1024×1024px it reveals Liquid Glass depth and subtle reflections. Versatile, iconic, unmistakable.
+The stacked-card motif is a direct visual representation of the "Deck" in Agent Deck — a collection of organized, ready-to-use resources. At small sizes it reads as a bold layered shape; at large sizes the Liquid Glass depth and translucency give it the premium, native macOS feel.
