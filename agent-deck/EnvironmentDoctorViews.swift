@@ -621,13 +621,15 @@ struct DoctorScreen: View {
                     if !status.isInstalled {
                         piCommandChip("npm install -g @earendil-works/pi-coding-agent", action: nil)
                     } else {
-                        HStack(alignment: .top, spacing: 24) {
-                            if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
-                                piVersionPill(label: "Current", value: v)
-                            }
-                            if case let .updateAvailable(latest) = status.updateState {
-                                piVersionPill(label: "Latest", value: latest)
-                            }
+                        var versionRows: [(String, String)] = []
+                        if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
+                            versionRows.append(("Current", v))
+                        }
+                        if case let .updateAvailable(latest) = status.updateState {
+                            versionRows.append(("Latest", latest))
+                        }
+                        if !versionRows.isEmpty {
+                            AppKeyValueList(rows: versionRows)
                         }
 
                         switch status.updateState {
@@ -645,16 +647,6 @@ struct DoctorScreen: View {
                 }
             }
             .padding(.vertical, 10)
-        }
-    }
-
-    private func piVersionPill(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(AppTheme.mutedText)
-            Text(value)
-                .font(.footnote.weight(.medium).monospaced())
         }
     }
 
