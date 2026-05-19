@@ -86,14 +86,6 @@ nonisolated enum GitHubConnectionState: Hashable, Sendable {
     }
 }
 
-nonisolated enum GitHubSection: String, CaseIterable, Identifiable {
-    case projectBoard = "Project Board"
-    case repoChanges = "Repo Changes"
-    case connection = "Connection"
-
-    var id: String { rawValue }
-}
-
 nonisolated enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
     case open = "Open"
     case closed = "Closed"

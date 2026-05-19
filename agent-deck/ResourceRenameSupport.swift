@@ -174,7 +174,7 @@ struct RenameResourceSheet: View {
                         preview = makePreview(newName)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(!preview.canApply)
             }
         }

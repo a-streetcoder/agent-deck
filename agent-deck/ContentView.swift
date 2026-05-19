@@ -82,9 +82,7 @@ struct ContentView: View {
     @State private var showingPiAgentDeleteAlert = false
     @State private var isPiAgentTranscriptOptionsPresented = false
     @State private var isPiAgentSubagentsPopoverPresented = false
-    @State private var isPiAgentRepoChangesPresented = false
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
-    @State private var piAgentRightPanelCollapsedSidebar = false
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
     #if DEBUG
@@ -207,9 +205,6 @@ struct ContentView: View {
         .task(id: commandContextUpdateToken) { updateCommandContext() }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             handleSidebarSelectionChange(newValue)
-        }
-        .onChange(of: isPiAgentRightPanelPresented) { _, isPresented in
-            updateSidebarVisibilityForPiAgentRightPanel(isPresented: isPresented)
         }
         .alert("Enable all projects?", isPresented: $showingEnableAllProjectsAlert) {
             Button("Enable All") { viewModel.setAllProjectsEnabled(true) }
@@ -464,10 +459,6 @@ struct ContentView: View {
                 if viewModel.shouldShowPiAgentGitActions {
                     ToolbarItem(placement: .primaryAction) {
                         ControlGroup {
-                            PiAgentGitHubToolbarButton(
-                                viewModel: viewModel,
-                                isRepoChangesPresented: $isPiAgentRepoChangesPresented
-                            )
                             PiAgentCommitToolbarButton(viewModel: viewModel)
                             PiAgentPushToolbarButton(viewModel: viewModel)
                         } label: {
@@ -575,31 +566,14 @@ struct ContentView: View {
 
     private var detailInspectorIsPresented: Binding<Bool> {
         Binding(
-            get: {
-                if viewModel.selectedSidebarItem == .agent {
-                    return isPiAgentRepoChangesPresented
-                }
-                return viewModel.isPiAgentInspectorPresented
-            },
-            set: { isPresented in
-                if viewModel.selectedSidebarItem == .agent {
-                    isPiAgentRepoChangesPresented = isPresented
-                } else {
-                    viewModel.isPiAgentInspectorPresented = isPresented
-                }
-            }
+            get: { viewModel.isPiAgentInspectorPresented },
+            set: { viewModel.isPiAgentInspectorPresented = $0 }
         )
     }
 
-    @ViewBuilder
     private var detailInspectorContent: some View {
-        if viewModel.selectedSidebarItem == .agent {
-            PiAgentRepoChangesPanel(viewModel: viewModel, isPresented: $isPiAgentRepoChangesPresented)
-                .inspectorColumnWidth(min: 360, ideal: 400, max: 560)
-        } else {
-            PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
-                .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
-        }
+        PiAgentInspectorPanel(viewModel: viewModel, store: viewModel.piAgentSessionStore)
+            .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
     }
 
     private var toolbarSearchIsVisible: Bool {
@@ -691,7 +665,6 @@ struct ContentView: View {
         ctx.canCreateAgent = true
         ctx.canDeletePiAgentSession = selectedSession != nil
         ctx.canStopPiAgentSession = selectedSessionIsRunning
-        ctx.canOpenPiAgentRepoChanges = selectedSession != nil
         ctx.canTogglePiAgentInspector = viewModel.selectedSidebarItem != .agent
         ctx.canOpenPiAgentInTerminal = viewModel.canOpenSelectedPiAgentSessionInTerminal
         ctx.canCommitGitHubChanges = hasGitProject && !commitMessage.isEmpty && !viewModel.githubIsCommitting
@@ -718,10 +691,6 @@ struct ContentView: View {
         }
         ctx.deletePiAgentSession = { showingPiAgentDeleteAlert = true }
         ctx.stopPiAgentSession = { viewModel.stopSelectedPiAgentSession() }
-        ctx.showPiAgentRepoChanges = {
-            viewModel.openPiAgentScreen()
-            isPiAgentRepoChangesPresented.toggle()
-        }
         ctx.togglePiAgentInspector = {
             if viewModel.selectedSidebarItem != .agent {
                 viewModel.isPiAgentInspectorPresented.toggle()
@@ -822,6 +791,8 @@ struct ContentView: View {
             SystemInstructionsScreen(viewModel: viewModel)
         case .memory:
             MemoryScreen(viewModel: viewModel, memoryStore: viewModel.agentMemoryStore)
+        case .issues:
+            IssuesScreen(viewModel: viewModel)
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,
@@ -869,29 +840,7 @@ struct ContentView: View {
     private func handleSidebarSelectionChange(_ newValue: SidebarItem) {
         if newValue == .agent {
             viewModel.acknowledgeVisibleSelectedPiAgentSession()
-        } else {
-            restoreSidebarIfPiAgentRightPanelCollapsedIt()
         }
-    }
-
-    private var isPiAgentRightPanelPresented: Bool {
-        viewModel.selectedSidebarItem == .agent && isPiAgentRepoChangesPresented
-    }
-
-    private func updateSidebarVisibilityForPiAgentRightPanel(isPresented: Bool) {
-        if isPresented {
-            guard navigationColumnVisibility == .all else { return }
-            navigationColumnVisibility = .detailOnly
-            piAgentRightPanelCollapsedSidebar = true
-        } else {
-            restoreSidebarIfPiAgentRightPanelCollapsedIt()
-        }
-    }
-
-    private func restoreSidebarIfPiAgentRightPanelCollapsedIt() {
-        guard piAgentRightPanelCollapsedSidebar else { return }
-        navigationColumnVisibility = .all
-        piAgentRightPanelCollapsedSidebar = false
     }
 
     private var toolbarTitle: String {

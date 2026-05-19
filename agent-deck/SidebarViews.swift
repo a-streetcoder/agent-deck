@@ -24,9 +24,18 @@ struct SidebarNavigationRow: View {
         }
     }
 
+    @ViewBuilder
     private var icon: some View {
-        Image(systemName: item.systemImage)
-            .frame(width: 16, height: 16)
+        if let asset = item.assetImageName {
+            Image(asset)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 16, height: 16)
+        } else {
+            Image(systemName: item.systemImage)
+                .frame(width: 16, height: 16)
+        }
     }
 }
 

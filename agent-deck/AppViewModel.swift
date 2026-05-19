@@ -75,8 +75,9 @@ final class AppViewModel: NSObject, ObservableObject {
     private var cachedPiRuntimeSettingsModificationDate: Date?
     private var lastPiRuntimeSettingsStatCheck: Date?
     @Published var githubConnectionState: GitHubConnectionState = .checking
-    @Published var githubSelectedSection: GitHubSection = .projectBoard
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
+    @Published var githubAuthorFilter: String?
+    @Published var githubLabelFilters: Set<String> = []
     @Published var githubAggregateBoard: GitHubBoardSnapshot?
     @Published var githubProjectBoard: GitHubBoardSnapshot?
     @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
@@ -959,7 +960,8 @@ final class AppViewModel: NSObject, ObservableObject {
                     self.githubProjectBoardFetchedAt = Date()
                     self.githubIsLoadingProjectBoard = false
 
-                    let visibleItemIDs = Set(snapshot.columns.flatMap(\.items).map(\.id))
+                    let visibleItems = self.filteredBoardItems(from: snapshot)
+                    let visibleItemIDs = Set(visibleItems.map(\.id))
                     if let selectedID = self.githubSelectedWorkItem?.id,
                        !visibleItemIDs.contains(selectedID) {
                         self.githubIssueDetailRequestID += 1
@@ -968,6 +970,10 @@ final class AppViewModel: NSObject, ObservableObject {
                         self.githubCommentDraft = ""
                         self.githubIsLoadingIssueDetail = false
                         self.githubIsSubmittingComment = false
+                    }
+
+                    if self.githubSelectedWorkItem == nil, let first = visibleItems.first {
+                        self.selectWorkItem(first)
                     }
                 }
             } catch {

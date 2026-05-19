@@ -551,7 +551,7 @@ private struct AgentLibraryPane: View {
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .glassEffect(in: Capsule(style: .continuous))
+                    .appGlassCapsule()
             }
             .buttonStyle(.plain)
             .opacity(hoveredAgentID == agent.id ? 1 : 0)
@@ -1177,7 +1177,7 @@ private struct AgentDetailView: View {
                                     Button("Enable Globally") {
                                         do { try setAgentGlobal(managedAgent, true) } catch { NSSound.beep() }
                                     }
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.glassProminent)
                                     .controlSize(.small)
                                 }
                             }
@@ -1555,7 +1555,7 @@ private struct AgentEditSheet: View {
                     performConfirmedSave()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .tint(AppTheme.brandAccent)
                 .disabled(!hasChanges || draft == nil)
             }

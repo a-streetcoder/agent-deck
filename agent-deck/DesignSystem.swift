@@ -87,9 +87,11 @@ extension View {
         glassEffect(.regular, in: Capsule(style: .continuous))
     }
 
-    /// Tinted variant for prominence — e.g. the primary send button.
+    /// Tinted variant for primary actions (the `+` add-session button, etc.).
+    /// Includes `.interactive()` for the press-state material feedback Apple's
+    /// HIG calls out for prominent controls.
     func appGlassCapsule(tint: Color) -> some View {
-        glassEffect(.regular.tint(tint), in: Capsule(style: .continuous))
+        glassEffect(.regular.tint(tint).interactive(), in: Capsule(style: .continuous))
     }
 
     /// Glass circle for icon-only chrome buttons (compact, attach, etc.).
@@ -97,16 +99,15 @@ extension View {
         glassEffect(.regular, in: Circle())
     }
 
-    /// Conditionally apply the capsule glass background. Used by views (like the
-    /// hover-revealed copy button on transcript cards) that want chrome only in
-    /// specific contexts.
-    @ViewBuilder
-    func glassEffectIf(_ condition: Bool) -> some View {
-        if condition {
-            glassEffect(.regular, in: Capsule(style: .continuous))
-        } else {
-            self
-        }
+    /// Tinted glass circle for primary icon-only actions (send button, etc.).
+    func appGlassCircle(tint: Color) -> some View {
+        glassEffect(.regular.tint(tint).interactive(), in: Circle())
+    }
+
+    /// Glass rounded rectangle for larger chrome surfaces — popovers, dropdowns,
+    /// floating panels. Use for non-capsule, non-circle navigation-layer surfaces.
+    func appGlassPanel(cornerRadius: CGFloat = 12) -> some View {
+        glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 
@@ -222,8 +223,7 @@ struct AppSecondaryButtonStyle: ButtonStyle {
             .foregroundStyle(.primary)
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-            .overlay(Capsule(style: .continuous).stroke(AppTheme.contentStroke, lineWidth: 1))
+            .appGlassCapsule()
             .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }
@@ -237,8 +237,10 @@ struct AppPillButtonStyle: ButtonStyle {
             .foregroundStyle(isActive ? AppTheme.brandAccent : .primary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Capsule(style: .continuous).fill(isActive ? AppTheme.selectionFill : AppTheme.contentSubtleFill))
-            .overlay(Capsule(style: .continuous).stroke(isActive ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
+            .glassEffect(
+                isActive ? .regular.tint(AppTheme.brandAccent.opacity(0.18)).interactive() : .regular,
+                in: Capsule(style: .continuous)
+            )
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }
@@ -247,7 +249,6 @@ struct AppCopyIconButton: View {
     var text: String
     var help: String = "Copy"
     var size = CGSize(width: 28, height: 22)
-    var usesMaterialBackground = false
     @State private var copied = false
 
     var body: some View {
@@ -256,15 +257,25 @@ struct AppCopyIconButton: View {
             NSPasteboard.general.setString(text, forType: .string)
             showCopiedFeedback()
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(copied ? Color.green : Color.primary)
-                .contentTransition(.symbolEffect(.replace))
-                .accessibilityLabel(copied ? "Copied" : "Copy")
-                .frame(width: size.width, height: size.height)
-                .glassEffectIf(usesMaterialBackground)
+            // The label is a Rectangle-shape ZStack so the Button's hit area
+            // covers the entire frame, not just the SF Symbol's intrinsic
+            // glyph bounds. Inside the ZStack the Image is overlaid centered.
+            ZStack {
+                Color.clear
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(copied ? Color.green : Color.primary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityLabel(copied ? "Copied" : "Copy")
+            }
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Glass chrome lives OUTSIDE the Button so it doesn't interfere with
+        // hit-testing. `.interactive()` gives us press-state material feedback
+        // on the full button area.
+        .glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
         .help(copied ? "Copied" : help)
     }
 
@@ -442,7 +453,7 @@ struct AppLabelTag: View {
             .fontWidth(.expanded)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .glassEffect(.regular.tint(color.opacity(0.18)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .foregroundStyle(color)
     }
 }
@@ -632,7 +643,7 @@ struct AppStepper: View {
                 .frame(width: 24, height: 24)
                 .contentShape(Circle())
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.glass)
         .controlSize(.small)
         .tint(disabled ? Color.secondary : AppTheme.brandAccent)
         .disabled(disabled)

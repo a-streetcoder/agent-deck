@@ -150,12 +150,10 @@ private final class NativeMarkdownTextContainer: NSView {
         // assistant/thinking flush — without it each token costs a full per-block view
         // tear-down + recreation.
         if let previous, tryIncrementalUpdate(from: previous, to: document) {
-            invalidateIntrinsicContentSize()
             scheduleHeightMeasurement()
             return
         }
         rebuild(document: document)
-        invalidateIntrinsicContentSize()
         scheduleHeightMeasurement()
     }
 
@@ -267,7 +265,6 @@ private final class NativeMarkdownTextContainer: NSView {
     override func layout() {
         super.layout()
         scheduleHeightMeasurement()
-        invalidateIntrinsicContentSize()
     }
 
     // SwiftUI sizes this view by calling `NSViewRepresentable.sizeThatFits(...)` which
@@ -286,17 +283,13 @@ private final class NativeMarkdownTextContainer: NSView {
         return ceil(stackView.fittingSize.height)
     }
 
+    // Must be side-effect-free: AppKit calls this during the window's update-constraints
+    // pass, and `measureHeight` mutates an active layout constraint, which re-enters the
+    // constraint engine and loops the window's update-constraints pass until AppKit bails.
+    // SwiftUI sizes us via `sizeThatFits` → `measureHeight` directly (NSViewRepresentable
+    // doesn't honour intrinsicContentSize), so AppKit's intrinsic path can defer.
     override var intrinsicContentSize: NSSize {
-        let width = bounds.width
-        // Without a non-trivial width we can't sensibly measure — every text container
-        // would report a giant height after wrapping each character on its own line.
-        // Return `noIntrinsicMetric` so Auto Layout defers to constraints/parent sizing
-        // until a real width arrives, then `layout()` re-invalidates and we recompute.
-        guard width > 1 else {
-            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-        }
-        let height = measureHeight(forWidth: width)
-        return NSSize(width: NSView.noIntrinsicMetric, height: max(1, height))
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
     private func configureWidthConstraint(to width: CGFloat) {

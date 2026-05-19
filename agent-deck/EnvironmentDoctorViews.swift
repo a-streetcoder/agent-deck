@@ -677,7 +677,7 @@ struct DoctorScreen: View {
 
             if let action {
                 Button(buttonLabel, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .controlSize(.small)
             }
         }
@@ -834,7 +834,7 @@ struct DoctorScreen: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+                        .appGlassCapsule()
                 }
 
                 if item.status != .passed, item.action != nil || item.secondaryAction != nil {

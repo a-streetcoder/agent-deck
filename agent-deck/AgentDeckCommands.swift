@@ -7,7 +7,6 @@ enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
     case refresh
     case stopSession
     case deleteSession
-    case showRepoChanges
     case toggleInspector
     case resumeInTerminal
     case refreshGitHub
@@ -53,7 +52,6 @@ extension AgentDeckShortcutSection {
             .init(.newSession, "New Session", key: "n", modifiers: [.command], description: "Create a new Pi Agent session for the current project."),
             .init(.stopSession, "Stop Session", key: ".", modifiers: [.command], description: "Stop the currently running session."),
             .init(.deleteSession, "Delete Session", key: "delete", modifiers: [.command], description: "Delete the selected session."),
-            .init(.showRepoChanges, "Show Repo Changes", key: "2", modifiers: [.command, .option], description: "Open repository changes for the selected session."),
             .init(.toggleInspector, "Toggle Inspector", key: "i", modifiers: [.command, .option], description: "Show or hide the session inspector."),
             .init(.resumeInTerminal, "Resume in Terminal", key: "t", modifiers: [.command, .option], description: "Resume the selected session in your configured terminal.")
         ]),
@@ -109,7 +107,6 @@ final class AgentDeckCommandContext {
     var canCreateAgent = false
     var canDeletePiAgentSession = false
     var canStopPiAgentSession = false
-    var canOpenPiAgentRepoChanges = false
     var canTogglePiAgentInspector = false
     var canOpenPiAgentInTerminal = false
     var canCommitGitHubChanges = false
@@ -133,7 +130,6 @@ final class AgentDeckCommandContext {
     var createAgent: () -> Void = {}
     var deletePiAgentSession: () -> Void = {}
     var stopPiAgentSession: () -> Void = {}
-    var showPiAgentRepoChanges: () -> Void = {}
     var togglePiAgentInspector: () -> Void = {}
     var resumePiAgentInTerminal: () -> Void = {}
     var refreshGitHub: () -> Void = {}
@@ -246,12 +242,6 @@ struct AgentDeckCommands: Commands {
             .disabled(context?.canDeletePiAgentSession != true)
 
             Divider()
-
-            Button("Show Repo Changes") {
-                context?.showPiAgentRepoChanges()
-            }
-            .agentDeckShortcut(.showRepoChanges)
-            .disabled(context?.canOpenPiAgentRepoChanges != true)
 
             Button("Toggle Inspector") {
                 context?.togglePiAgentInspector()

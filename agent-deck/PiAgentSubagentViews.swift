@@ -67,7 +67,7 @@ struct PiSubagentSupervisorRequestCard: View {
                     Spacer()
                     Button("Cancel", action: onCancel)
                     Button("Send Response") { onRespond(responsePayload) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                         .disabled(!canRespond)
                 }
             }
@@ -206,7 +206,7 @@ struct PiNativeSubagentRunCard: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.72)))
+                        .appGlassCapsule()
                         .textSelection(.enabled)
                         .help(run.id.uuidString)
                 }
@@ -230,7 +230,7 @@ struct PiNativeSubagentRunCard: View {
                 .foregroundStyle(AppTheme.mutedText)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.72)))
+                .appGlassCapsule()
             PiSubagentStatusText(status: effectiveStatus, color: statusColor)
             Spacer(minLength: 0)
         }
@@ -253,7 +253,7 @@ struct PiNativeSubagentRunCard: View {
         }
         if run.children?.isEmpty == false {
             Button("Graph", action: onOpenGraph)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
         }
         Button("System Prompt") {
@@ -262,16 +262,16 @@ struct PiNativeSubagentRunCard: View {
                 text: promptFileText(path: artifactURL(named: "final-system-prompt.md").path)
             )
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.glass)
         .controlSize(.small)
         .disabled(!canOpenArtifact(named: "final-system-prompt.md"))
         .help("Show final runtime system prompt")
         Button("Transcript", action: onOpenTranscript)
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .controlSize(.small)
         if run.status.isActive {
             Button("Stop", action: onStop)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
                 .tint(.red)
         }
@@ -353,7 +353,7 @@ struct PiNativeSubagentRunCard: View {
                         Button("Reveal Run Folder", action: onReveal)
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
             }
         }
@@ -497,7 +497,7 @@ struct PiNativeSubagentRunCard: View {
                                 .fixedSize(horizontal: true, vertical: false)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
-                                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill.opacity(0.72)))
+                                .appGlassCapsule()
                                 .textSelection(.enabled)
                                 .help(executionRunID.uuidString)
                         }
@@ -529,7 +529,7 @@ struct PiNativeSubagentRunCard: View {
                     text: promptFileText(path: childArtifactURL(child, named: "final-system-prompt.md").path)
                 )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .controlSize(.small)
             .fixedSize(horizontal: true, vertical: false)
             .disabled(!canOpenChildArtifact(child, named: "final-system-prompt.md"))
@@ -539,7 +539,7 @@ struct PiNativeSubagentRunCard: View {
                 Button("Transcript") {
                     onOpenChildTranscript(executionRunID)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.small)
                 .fixedSize(horizontal: true, vertical: false)
 
@@ -547,7 +547,7 @@ struct PiNativeSubagentRunCard: View {
                     Button("Stop") {
                         onStopChild(executionRunID)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .controlSize(.small)
                     .tint(.red)
                     .fixedSize(horizontal: true, vertical: false)
@@ -822,7 +822,7 @@ struct PiNativeSubagentGraphSheet: View {
                 Spacer()
                 if run.status.isActive {
                     Button("Stop Graph", role: .destructive, action: onStopGraph)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                 }
             }
             Divider()
@@ -862,7 +862,7 @@ struct PiNativeSubagentGraphSheet: View {
                     if [.failed, .stopped, .disconnected].contains(child.status) {
                         Button("Retry") { onRetryChild(child) }
                             .controlSize(.small)
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
                     }
                     Button("Artifacts") { onOpenChildArtifacts(child) }
                         .controlSize(.small)

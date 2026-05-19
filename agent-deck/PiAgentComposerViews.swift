@@ -641,7 +641,7 @@ private struct PiAgentPathAttachmentChip: View {
         .font(.caption.weight(.medium))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+        .appGlassCapsule()
         .help(path)
     }
 }
@@ -1027,7 +1027,7 @@ private struct PiAgentComposerProjectPickerPopover: View {
             .frame(maxHeight: 300)
         }
         .frame(width: 340)
-        .background(.regularMaterial)
+        .appGlassPanel(cornerRadius: 14)
     }
 }
 
@@ -1044,11 +1044,7 @@ struct PiAgentSendButton: View {
                 .foregroundStyle(foregroundStyle)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(backgroundColor)
-                        .animation(.snappy(duration: 0.22), value: isRunning)
-                )
+                .appGlassCircle(tint: tintColor)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -1070,10 +1066,10 @@ struct PiAgentSendButton: View {
         return AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
     }
 
-    private var backgroundColor: AnyShapeStyle {
-        if isRunning { return AnyShapeStyle(Color.red.opacity(0.88).gradient) }
-        if canSend { return AnyShapeStyle(AppTheme.brandAccent.gradient) }
-        return AnyShapeStyle(AppTheme.mutedText.opacity(0.28).gradient)
+    private var tintColor: Color {
+        if isRunning { return Color.red }
+        if canSend { return AppTheme.brandAccent }
+        return AppTheme.mutedText.opacity(0.35)
     }
 }
 
@@ -1874,7 +1870,7 @@ struct PiAgentShortcutChip: View {
         .foregroundStyle(AppTheme.mutedText)
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
-        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+        .appGlassCapsule()
     }
 }
 
@@ -1986,7 +1982,7 @@ struct PiAgentModelPicker: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .frame(maxWidth: 220, alignment: .leading)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+            .appGlassCapsule()
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -2166,7 +2162,7 @@ struct PiAgentThinkingPicker: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+            .appGlassCapsule()
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {

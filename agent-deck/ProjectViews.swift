@@ -1120,7 +1120,7 @@ private struct PiInstructionFileEditorSheet: View {
                 Spacer()
                 Button("Cancel") { onCancel() }
                 Button(saveTitle) { onSave() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
             }
             .padding(16)

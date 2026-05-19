@@ -268,7 +268,7 @@ struct PiAgentCurrentPlanCard: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+                    .appGlassCapsule()
             }
 
             if items.isEmpty {

@@ -23,7 +23,7 @@ struct GitHubIssueListRow: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+                        .appGlassCapsule()
                 }
 
                 Text(item.title)
@@ -129,7 +129,7 @@ private struct GitHubIssueDetailCard: View {
                                     .foregroundStyle(AppTheme.mutedText)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 8)
-                                    .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+                                    .appGlassCapsule()
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(viewModel.githubIsClosingIssue)

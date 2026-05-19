@@ -99,26 +99,6 @@ private func piAgentGitAlertMessage(for action: PiAgentGitAction, viewModel: App
     return "Repository: \(repoName)\n\n\(action.alertMessage)"
 }
 
-struct PiAgentGitHubToolbarButton: View {
-    @ObservedObject var viewModel: AppViewModel
-    @Binding var isRepoChangesPresented: Bool
-
-    var body: some View {
-        Button {
-            isRepoChangesPresented.toggle()
-        } label: {
-            Image("github")
-                .resizable()
-                .renderingMode(.template)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: AppTheme.toolbarAssetIconSize.width, height: AppTheme.toolbarAssetIconSize.height)
-        }
-        .help("Show GitHub panel")
-        .accessibilityLabel("Show GitHub panel")
-        .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-    }
-}
-
 private enum PiAgentGitAction: Identifiable {
     case commit
     case commitAndPush

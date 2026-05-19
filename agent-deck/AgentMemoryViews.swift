@@ -412,11 +412,11 @@ private struct MemoryDetailView: View {
                 } label: {
                     Label("Actions", systemImage: "ellipsis.circle")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
                 .controlSize(.regular)
 
                 Button("Edit") { isEditing = true }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .controlSize(.regular)
             }
 
@@ -582,7 +582,7 @@ struct PiAgentMemoryActivityCard: View {
                                 .foregroundStyle(AppTheme.mutedText)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+                                .appGlassCapsule()
                         }
                     }
                     Text(event.summary)

@@ -319,7 +319,7 @@ struct SkillsScreen: View {
                                 do { try viewModel.enableSkillGlobally(skill) }
                                 catch { presentSkillActionError(error, skill: skill, action: "enable global visibility") }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
                         }
                     }
                 }
@@ -929,13 +929,13 @@ struct SkillsScreen: View {
                                     selectedImportCandidateIDs.formUnion(visibleImportableCandidateIDs)
                                 }
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
                             .disabled(visibleImportableCandidateIDs.isEmpty)
 
                             Button("Clear") {
                                 selectedImportCandidateIDs.removeAll()
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
                             .disabled(selectedImportCandidateIDs.isEmpty)
                         }
 

@@ -153,7 +153,7 @@ private struct PiAgentProjectPickerPopover: View {
             .frame(maxHeight: 300)
         }
         .frame(width: 340)
-        .background(.regularMaterial)
+        .appGlassPanel(cornerRadius: 14)
     }
 }
 
@@ -172,10 +172,7 @@ private struct PiAgentAddSessionButtonLabel: View {
         }
         .foregroundStyle(foregroundStyle)
         .frame(width: showsChevron ? 42 : 30, height: 30)
-        .background(
-            Capsule(style: .continuous)
-                .fill(backgroundStyle)
-        )
+        .appGlassCapsule(tint: tintColor)
         .contentShape(Capsule(style: .continuous))
     }
 
@@ -185,10 +182,8 @@ private struct PiAgentAddSessionButtonLabel: View {
             : AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
     }
 
-    private var backgroundStyle: AnyShapeStyle {
-        isEnabled
-            ? AnyShapeStyle(AppTheme.brandAccent.gradient)
-            : AnyShapeStyle(AppTheme.contentStroke.opacity(0.45).gradient)
+    private var tintColor: Color {
+        isEnabled ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.35)
     }
 }
 

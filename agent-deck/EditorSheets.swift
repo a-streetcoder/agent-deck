@@ -37,7 +37,7 @@ struct EnvEditorSheet: View {
                         NSSound.beep()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(draft.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -260,7 +260,7 @@ struct AgentEditorSheet: View {
                         NSSound.beep()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
             }
         }
         .padding(20)

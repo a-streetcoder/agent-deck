@@ -391,6 +391,8 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.scrollerStyle = .overlay
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.usesPredominantAxisScrolling = true
         scrollView.documentView = tableView
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.postsFrameChangedNotifications = true
@@ -509,6 +511,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                         self.pendingSettleScrollWork = nil
                         self.pendingScrollSettle = false
                     }
+                    // Clip-view bounds change before the scrollView frame notification fires,
+                    // so resync column width here to avoid a one-frame horizontal overflow
+                    // when the inspector slides in or the window resizes.
+                    self.updateColumnWidthIfNeeded()
                     self.publishPinnedState(self.isPinnedToBottom(scrollView))
                 }
             }

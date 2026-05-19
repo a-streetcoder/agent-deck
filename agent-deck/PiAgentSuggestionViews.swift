@@ -277,7 +277,7 @@ struct ShortcutComboHint: View {
         .foregroundStyle(AppTheme.mutedText)
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+        .appGlassCapsule()
     }
 }
 
@@ -301,7 +301,7 @@ struct PiAgentUIRequestInlineNotice: View {
             Spacer(minLength: 0)
             Button("Cancel", action: onCancel)
             Button("Respond…", action: onRespond)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -330,9 +330,10 @@ struct PiAgentUIRequestSheet: View {
             onCancel: onCancel
         )
         .padding(22)
-        .frame(minWidth: 560, idealWidth: 680, maxWidth: 760)
+        .frame(minWidth: 560, idealWidth: 680, maxWidth: 760, alignment: .topLeading)
+        .appGlassPanel(cornerRadius: 22)
         .presentationSizing(.fitted)
-        .presentationBackground(.regularMaterial)
+        .presentationBackground(.clear)
     }
 }
 
@@ -356,11 +357,7 @@ struct PiAgentUIRequestCard: View {
 
             switch request.method {
             case .select:
-                if isComposingFreeform {
-                    freeformComposer
-                } else {
-                    selectOptions
-                }
+                selectOptions
             case .multiSelect:
                 multiSelectOptions
             case .confirm:
@@ -369,7 +366,7 @@ struct PiAgentUIRequestCard: View {
                     Button("Cancel", action: onCancel)
                     Button("No") { onConfirm(false) }
                     Button("Yes") { onConfirm(true) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                 }
             case .input, .editor:
                 textInput(submitTitle: "Submit", cancelTitle: "Cancel", cancelAction: onCancel) { submitTextInput() }
@@ -416,30 +413,35 @@ struct PiAgentUIRequestCard: View {
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(request.options, id: \.self) { option in
-                        Button {
-                            if option == freeformSentinel {
-                                isComposingFreeform = true
-                            } else {
+                        if option == freeformSentinel {
+                            freeformPill(label: option)
+                        } else {
+                            Button {
                                 onSubmitValue(option)
+                            } label: {
+                                HStack {
+                                    Text(option)
+                                        .fontWeight(.semibold)
+                                    Spacer()
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .foregroundStyle(AppTheme.brandAccent)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
-                        } label: {
-                            HStack {
-                                Text(option)
-                                    .fontWeight(.semibold)
-                                Spacer()
-                                Image(systemName: option == freeformSentinel ? "square.and.pencil" : "arrow.right.circle.fill")
-                                    .foregroundStyle(AppTheme.brandAccent)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
 
                     HStack(spacing: 10) {
                         Spacer()
                         Button("Cancel", action: onCancel)
+                        if isComposingFreeform {
+                            Button("Submit") { onSubmitFreeform(freeformSentinel, draft) }
+                                .buttonStyle(.glassProminent)
+                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
                     }
                     .padding(.top, 4)
                 }
@@ -447,17 +449,45 @@ struct PiAgentUIRequestCard: View {
         }
     }
 
-    private var freeformComposer: some View {
-        textInput(submitTitle: "Submit", cancelTitle: "Back", cancelAction: {
-            draft = ""
-            isComposingFreeform = false
-        }) {
-            if request.responseFormat == .nativeAsk {
-                onSubmitValue(request.nativeAskFreeformResponseValue(draft))
-            } else {
-                onSubmitFreeform(freeformSentinel, draft)
+    private func freeformPill(label: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isComposingFreeform.toggle()
+                if !isComposingFreeform { draft = "" }
+            } label: {
+                HStack {
+                    Text(label)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Image(systemName: isComposingFreeform ? "checkmark.circle.fill" : "square.and.pencil")
+                        .foregroundStyle(AppTheme.brandAccent)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isComposingFreeform {
+                Divider()
+                    .padding(.horizontal, 12)
+                TextField("Custom response", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...4)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .onSubmit {
+                        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onSubmitFreeform(freeformSentinel, draft)
+                        }
+                    }
             }
         }
+        .background(
+            isComposingFreeform ? AppTheme.brandAccent.opacity(0.12) : AppTheme.contentSubtleFill,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
     }
 
     private var multiSelectOptions: some View {
@@ -492,7 +522,7 @@ struct PiAgentUIRequestCard: View {
                         Spacer()
                         Button("Cancel", action: onCancel)
                         Button("Submit") { onSubmitValue(request.options.filter { selectedOptions.contains($0) }.joined(separator: ", ")) }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
                             .disabled(selectedOptions.isEmpty)
                     }
                     .padding(.top, 4)
@@ -541,40 +571,55 @@ struct PiAgentUIRequestCard: View {
             }
 
             if request.allowsFreeform {
-                Button {
-                    selectedOptions = []
-                    isComposingFreeform = true
-                    draft = ""
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: isComposingFreeform ? "checkmark.circle.fill" : "square.and.pencil")
-                            .foregroundStyle(isComposingFreeform ? AppTheme.brandAccent : AppTheme.mutedText)
-                            .frame(width: 18)
-                        Text("Type custom response")
-                            .fontWeight(.semibold)
-                        Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        selectedOptions = []
+                        isComposingFreeform.toggle()
+                        if !isComposingFreeform { draft = "" }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: isComposingFreeform ? "checkmark.circle.fill" : "square.and.pencil")
+                                .foregroundStyle(isComposingFreeform ? AppTheme.brandAccent : AppTheme.mutedText)
+                                .frame(width: 18)
+                            Text("Type custom response")
+                                .fontWeight(.semibold)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+
+                    if isComposingFreeform {
+                        Divider()
+                            .padding(.horizontal, 12)
+                        TextField("Custom response", text: $draft, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...4)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .onSubmit {
+                                let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    onSubmitValue(request.nativeAskFreeformResponseValue(trimmed))
+                                }
+                            }
+                    }
+                }
+                .background(
+                    isComposingFreeform ? AppTheme.brandAccent.opacity(0.12) : AppTheme.contentSubtleFill,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            }
+
+            if !isComposingFreeform, request.allowsComment {
+                TextField("Optional comment", text: $commentDraft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...3)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-
-            if isComposingFreeform {
-                TextField("Custom response", text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                    .onSubmit {
-                        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty {
-                            onSubmitValue(request.nativeAskFreeformResponseValue(trimmed))
-                        }
-                    }
-            } else if request.allowsComment {
-                TextField("Optional comment", text: $commentDraft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...3)
             }
 
             HStack(spacing: 10) {
@@ -587,7 +632,7 @@ struct PiAgentUIRequestCard: View {
                         submitNativeAskSelection()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(nativeAskSubmitDisabled)
             }
             .padding(.top, 4)
@@ -611,7 +656,7 @@ struct PiAgentUIRequestCard: View {
                 Spacer()
                 Button(cancelTitle, action: cancelAction)
                 Button(submitTitle, action: submitAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .disabled(!canSubmit)
             }
             .padding(.top, 4)

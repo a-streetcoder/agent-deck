@@ -182,7 +182,7 @@ struct SetupChecklistView: View {
                 Button(finishButtonTitle) {
                     onFinish(finishTarget)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)

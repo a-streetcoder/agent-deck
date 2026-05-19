@@ -674,7 +674,7 @@ private struct CommandsSettingsTab: View {
                         Label("Reveal Library", systemImage: "folder")
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
 
                 VStack(spacing: 24) {
                     CommandGroupSection(

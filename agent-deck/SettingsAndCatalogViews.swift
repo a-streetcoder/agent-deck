@@ -404,7 +404,7 @@ struct AgentModelQuickEditorSheet: View {
                 Button("Save All") {
                     saveAll()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(dirtyAgentIDs.isEmpty)
             }
         }

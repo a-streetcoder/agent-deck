@@ -4,6 +4,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case projects = "Projects"
     case instructions = "System Prompt"
     case memory = "Memory"
+    case issues = "Issues"
     case agent = "Pi Agent"
     case agents = "Agents"
     case skills = "Skills"
@@ -23,6 +24,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .projects: return "folder"
         case .instructions: return "doc.text.magnifyingglass"
         case .memory: return "brain"
+        case .issues: return "circle.dotted"
         case .agent: return "sparkles.rectangle.stack"
         case .agents: return "rectangle.connected.to.line.below"
         case .skills: return "wand.and.stars"
@@ -34,6 +36,14 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .piDocs: return "book"
         case .credits: return "info.circle"
         case .listShowcase: return "list.bullet.rectangle"
+        }
+    }
+
+    /// Asset-catalog image to use instead of `systemImage`, when set.
+    var assetImageName: String? {
+        switch self {
+        case .issues: return "github"
+        default: return nil
         }
     }
 }
@@ -53,7 +63,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     private var unsortedItems: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.projects, .instructions, .memory]
+            return [.projects, .instructions, .memory, .issues]
         case .piResources:
             return [.agents, .skills, .prompts]
         case .runtime:
