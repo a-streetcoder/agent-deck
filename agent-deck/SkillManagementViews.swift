@@ -166,12 +166,20 @@ struct SkillsScreen: View {
     private var skillLibraryContent: some View {
         List(selection: skillSelection) {
             if !viewModel.skillReferenceWarnings.isEmpty || !viewModel.skillWarnings.isEmpty {
-                appListSection("Warnings", info: "Skill issues that need attention.") {
+                appListSection("Warnings", tint: .orange) {
                     ForEach(viewModel.skillReferenceWarnings) { warning in
-                        skillWarningRow(warning)
+                        skillWarningCard(warning)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .selectionDisabled()
                     }
                     ForEach(viewModel.skillWarnings) { warning in
-                        diagnosticWarningRow(warning)
+                        diagnosticWarningCard(warning)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .selectionDisabled()
                     }
                 }
             }
@@ -218,54 +226,63 @@ struct SkillsScreen: View {
         }
     }
 
-    private func skillWarningRow(_ warning: SkillReferenceWarning) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(warning.missingSkill)
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                    .lineLimit(1)
-                Text("Referenced by \(warning.agentName) in \(warning.project.name)")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
-            Text("Missing")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+    private func skillWarningCard(_ warning: SkillReferenceWarning) -> some View {
+        Button {
             selectedSkillID = nil
             selectedWarning = .missing(warning)
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .imageScale(.medium)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(warning.missingSkill)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                        .lineLimit(1)
+                    Text("Referenced by \(warning.agentName) in \(warning.project.name)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text("Missing")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.orange.opacity(0.12), in: Capsule())
+            }
+            .padding(.leading, 8).padding(.trailing, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 6)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .appListRowBackground(isSelected: selectedWarning == .missing(warning))
+        .buttonStyle(.plain)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.orange.opacity(0.25), lineWidth: 1))
     }
 
-    private func diagnosticWarningRow(_ warning: DiagnosticWarning) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .frame(width: 18)
-            Text(warning.message)
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+    private func diagnosticWarningCard(_ warning: DiagnosticWarning) -> some View {
+        Button {
             selectedSkillID = nil
             selectedWarning = .diagnostic(warning)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .imageScale(.medium)
+                Text(warning.message)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 6)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .appListRowBackground(isSelected: selectedWarning == .diagnostic(warning))
+        .buttonStyle(.plain)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.orange.opacity(0.25), lineWidth: 1))
     }
 
     @ViewBuilder
@@ -571,8 +588,17 @@ struct SkillsScreen: View {
             }
         }
         .padding(.vertical, 5)
+        .listRowSeparator(.hidden, edges: .top)
         .opacity(isInactive ? 0.62 : 1)
         .saturation(isInactive ? 0.25 : 1)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                skillPendingDeletion = skill
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(!viewModel.canDeleteSkill(skill))
+        }
         .contextMenu {
             Button {
                 revealSkillInFinder(skill)
@@ -596,19 +622,6 @@ struct SkillsScreen: View {
             }
             .disabled(!viewModel.canDeleteSkill(skill))
         }
-        .contentShape(Rectangle())
-        .onTapGesture { selectedSkillID = skill.id; selectedWarning = nil }
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .appListRowBackground(isSelected: selectedSkillID == skill.id)
-    }
-
-    private func nativeEmptyRow(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(AppTheme.mutedText)
-            .padding(.vertical, 4)
-            .selectionDisabled()
-            .listRowSeparator(.hidden)
     }
 
     private func projectAssignmentList(for skill: SkillRecord) -> some View {

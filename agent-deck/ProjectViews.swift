@@ -183,7 +183,7 @@ struct SystemInstructionsScreen: View {
             )
         } else {
             AppPage("System Prompt", subtitle: "Select a project to manage its effective prompt") {
-                AppCard(title: "No Project Selected") {
+                AppCard() {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Choose a project from the sidebar", systemImage: "folder.badge.gearshape")
                             .font(.headline)

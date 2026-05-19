@@ -3,15 +3,55 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct PiAgentThreadToolGroup: Hashable {
+    var id: UUID
+    var entries: [PiAgentTranscriptEntry]
+    // Activities are computed once at thread-build time (per publish), not per render.
+    // PiAgentTranscriptActivity.make is O(entries) and would otherwise run on every body
+    // re-evaluation during streaming.
+    var activities: [PiAgentTranscriptActivity]
+}
+
+enum PiAgentThreadChild: Hashable, Identifiable {
+    case steering(PiAgentTranscriptEntry)
+    case thinking(PiAgentTranscriptEntry)
+    case assistant(PiAgentTranscriptEntry)
+    case toolGroup(PiAgentThreadToolGroup)
+    case status(PiAgentTranscriptEntry)
+    case error(PiAgentTranscriptEntry)
+
+    var id: String {
+        switch self {
+        case .steering(let e): return "st-\(e.id.uuidString)"
+        case .thinking(let e): return "th-\(e.id.uuidString)"
+        case .assistant(let e): return "as-\(e.id.uuidString)"
+        case .toolGroup(let g): return "tg-\(g.id.uuidString)"
+        case .status(let e): return "ss-\(e.id.uuidString)"
+        case .error(let e): return "er-\(e.id.uuidString)"
+        }
+    }
+}
+
 struct PiAgentTranscriptThread: Identifiable, Hashable {
     var id: UUID
     var question: PiAgentTranscriptEntry?
     var steeringMessages: [PiAgentTranscriptEntry]
-    var thinking: PiAgentTranscriptEntry?
+    // Thinking entries are kept as a list (not merged into one) so they can be rendered
+    // at their actual timestamp position in the timeline. Merging the post-tool thinking
+    // back to the top would push already-rendered tool activities down on every new
+    // thinking_delta — the source of the "thinking block jumps content around" issue.
+    var thinkingParts: [PiAgentTranscriptEntry]
     var assistantMessages: [PiAgentTranscriptEntry]
     var activities: [PiAgentTranscriptActivity]
     var statuses: [PiAgentTranscriptEntry]
     var errors: [PiAgentTranscriptEntry]
+    // Chronological children for rendering. The card body iterates this list in order,
+    // so each entry lands at the position it arrived. Consecutive tool/error entries fold
+    // into a single `.toolGroup` so multi-tool bursts still aggregate into one summary
+    // card. Anything else (thinking, assistant, status, non-tool error) renders as its
+    // own row. This is what gives zero jumpiness: only the bottom-most child ever grows
+    // because new arrivals always have a later timestamp.
+    var children: [PiAgentThreadChild]
 
     @MainActor
     static func make(from entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptThread] {
@@ -41,6 +81,14 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
     }
 
     private struct Builder {
+        // Category tag for arrival-order tracking. .toolError is split out from .error
+        // so the renderer can fold tool-prefixed errors into adjacent tool groups while
+        // non-tool errors (Launch Failed, Connection Error, etc.) stay as standalone
+        // rows in their chronological position.
+        enum ArrivalKind {
+            case steering, thinking, assistant, tool, toolError, status, error
+        }
+
         var question: PiAgentTranscriptEntry?
         var steeringMessages: [PiAgentTranscriptEntry] = []
         var thinkingParts: [PiAgentTranscriptEntry] = []
@@ -48,23 +96,35 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
         var toolEntries: [PiAgentTranscriptEntry] = []
         var statuses: [PiAgentTranscriptEntry] = []
         var errors: [PiAgentTranscriptEntry] = []
+        // Same entries as above, kept in arrival order with a category tag. The renderer
+        // walks this list to lay children out chronologically — preserving the order
+        // events actually came off the RPC stream rather than re-sorting by timestamp
+        // (which can tie or shift as entries get re-upserted during streaming).
+        var arrivals: [(kind: ArrivalKind, entry: PiAgentTranscriptEntry)] = []
 
         mutating func add(_ entry: PiAgentTranscriptEntry) {
             switch entry.role {
             case .user where entry.title == "Steering":
                 steeringMessages.append(entry)
+                arrivals.append((.steering, entry))
             case .thinking:
                 thinkingParts.append(entry)
+                arrivals.append((.thinking, entry))
             case .assistant:
                 assistantMessages.append(entry)
+                arrivals.append((.assistant, entry))
             case .tool:
                 toolEntries.append(entry)
+                arrivals.append((.tool, entry))
             case .status, .stderr:
                 statuses.append(entry)
+                arrivals.append((.status, entry))
             case .error:
                 errors.append(entry)
+                arrivals.append((entry.title.hasPrefix("Tool: ") ? .toolError : .error, entry))
             case .user, .raw:
                 statuses.append(entry)
+                arrivals.append((.status, entry))
             }
         }
 
@@ -75,17 +135,101 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
                 return nil
             }
             let first = question ?? steeringMessages.first ?? thinkingParts.first ?? assistantMessages.first ?? activities.first?.representativeEntry ?? statuses.first ?? errors.first
-            let thinking = PiAgentTranscriptEntry.mergedThinking(from: thinkingParts)
+
+            // Dedupe identical thinking texts (Pi sometimes re-emits a turn boundary's
+            // prior thinking). Whitelisted ids drive both the per-role thinkingParts
+            // array (used by the per-thread revision cache) and the chronological
+            // children list (used by the renderer).
+            var seenThinkingTexts = Set<String>()
+            var allowedThinkingIDs = Set<UUID>()
+            for entry in thinkingParts {
+                let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, seenThinkingTexts.insert(trimmed).inserted else { continue }
+                allowedThinkingIDs.insert(entry.id)
+            }
+            let dedupedThinking = thinkingParts.filter { allowedThinkingIDs.contains($0.id) }
+
+            // Coalesce compaction status entries to the latest one only. Skip the rest
+            // when building the chronological list so the user doesn't see "Compacting
+            // context…" stacking up across retries.
+            var latestCompactionID: UUID?
+            for entry in statuses where entry.title == "Compaction" {
+                latestCompactionID = entry.id
+            }
+
+            let children = chronologicalChildren(
+                allowedThinkingIDs: allowedThinkingIDs,
+                latestCompactionID: latestCompactionID
+            )
+
             return PiAgentTranscriptThread(
                 id: question?.id ?? first?.id ?? UUID(),
                 question: question,
                 steeringMessages: steeringMessages,
-                thinking: thinking,
+                thinkingParts: dedupedThinking,
                 assistantMessages: assistantMessages,
                 activities: activities,
                 statuses: coalescedStatuses(statuses),
-                errors: coalescedErrors(errors)
+                errors: coalescedErrors(errors),
+                children: children
             )
+        }
+
+        // Walks arrivals in arrival order and produces the chronological children list.
+        // Consecutive `.tool` and `.toolError` arrivals fold into a single `.toolGroup`;
+        // any other kind seals the current group and emits its own child.
+        private func chronologicalChildren(
+            allowedThinkingIDs: Set<UUID>,
+            latestCompactionID: UUID?
+        ) -> [PiAgentThreadChild] {
+            var children: [PiAgentThreadChild] = []
+            var groupEntries: [PiAgentTranscriptEntry] = []
+
+            func flushGroup() {
+                guard !groupEntries.isEmpty else { return }
+                let firstID = groupEntries.first?.id ?? UUID()
+                let groupActivities = PiAgentTranscriptActivity.make(from: groupEntries)
+                children.append(.toolGroup(PiAgentThreadToolGroup(
+                    id: firstID,
+                    entries: groupEntries,
+                    activities: groupActivities
+                )))
+                groupEntries = []
+            }
+
+            for arrival in arrivals {
+                switch arrival.kind {
+                case .tool, .toolError:
+                    groupEntries.append(arrival.entry)
+                case .thinking:
+                    guard allowedThinkingIDs.contains(arrival.entry.id) else { continue }
+                    flushGroup()
+                    children.append(.thinking(arrival.entry))
+                case .steering:
+                    flushGroup()
+                    children.append(.steering(arrival.entry))
+                case .assistant:
+                    // Empty placeholders are filtered upstream in normalizedTranscriptEntry,
+                    // so any assistant arrival that reaches here has visible text and is
+                    // worth rendering.
+                    flushGroup()
+                    children.append(.assistant(arrival.entry))
+                case .status:
+                    if arrival.entry.title == "Compaction" && arrival.entry.id != latestCompactionID {
+                        continue
+                    }
+                    flushGroup()
+                    let normalized = arrival.entry.title == "Compaction"
+                        ? normalizedCompaction(arrival.entry)
+                        : arrival.entry
+                    children.append(.status(normalized))
+                case .error:
+                    flushGroup()
+                    children.append(.error(arrival.entry))
+                }
+            }
+            flushGroup()
+            return children
         }
 
         private func coalescedStatuses(_ entries: [PiAgentTranscriptEntry]) -> [PiAgentTranscriptEntry] {
@@ -460,27 +604,6 @@ extension String {
     }
 }
 
-private extension PiAgentTranscriptEntry {
-    static func mergedThinking(from entries: [PiAgentTranscriptEntry]) -> PiAgentTranscriptEntry? {
-        guard let first = entries.first else { return nil }
-        var seen = Set<String>()
-        let text = entries.compactMap { entry -> String? in
-            let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
-            return trimmed
-        }.joined(separator: "\n\n")
-        return PiAgentTranscriptEntry(
-            id: first.id,
-            sessionID: first.sessionID,
-            role: .thinking,
-            title: first.title,
-            text: text,
-            rawJSON: first.rawJSON,
-            timestamp: first.timestamp
-        )
-    }
-}
-
 struct PiAgentTranscriptThreadCard: View {
     let thread: PiAgentTranscriptThread
     let visibility: PiAgentTranscriptVisibilitySettings
@@ -506,49 +629,13 @@ struct PiAgentTranscriptThreadCard: View {
                             .padding(.leading, 16)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(thread.steeringMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
-                                .id(entry.id)
-                        }
-                        if visibility.showThinking, let thinking = thread.thinking {
-                            PiAgentTranscriptCard(entry: thinking, style: childStyle, skills: skills)
-                                .id(thinking.id)
-                        }
-                        if visibility.showWebActivity && !webActivities.isEmpty {
-                            PiAgentWebActivitySummaryView(activities: webActivities)
-                        }
-                        if visibility.showToolCalls && !toolActivities.isEmpty {
-                            PiAgentActivitySummaryView(activities: toolActivities)
-                        }
-                        if visibility.showDiffs {
-                            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+                        ForEach(thread.children) { child in
+                            childView(child)
                         }
                         if visibility.showPlans {
                             ForEach(latestPlanEvents) { event in
                                 PiAgentCurrentPlanCard(event: event)
                                     .id(event.id)
-                            }
-                        }
-                        ForEach(visibleStatusEntries) { entry in
-                            if let memoryEvent = entry.agentMemoryEvent {
-                                PiAgentMemoryActivityCard(event: memoryEvent)
-                                    .id(entry.id)
-                            } else if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
-                                nativeSubagentCard(run)
-                                    .id(entry.id)
-                            } else {
-                                PiAgentStatusTranscriptRow(entry: entry)
-                                    .id(entry.id)
-                            }
-                        }
-                        ForEach(thread.assistantMessages) { entry in
-                            PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
-                                .id(entry.id)
-                        }
-                        if visibility.showErrors {
-                            ForEach(thread.errors) { entry in
-                                PiAgentStatusTranscriptRow(entry: entry)
-                                    .id(entry.id)
                             }
                         }
                     }
@@ -557,28 +644,69 @@ struct PiAgentTranscriptThreadCard: View {
         }
     }
 
+    @ViewBuilder
+    private func childView(_ child: PiAgentThreadChild) -> some View {
+        switch child {
+        case .steering(let entry):
+            PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
+                .id(entry.id)
+        case .thinking(let entry):
+            if visibility.showThinking {
+                PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
+                    .id(entry.id)
+            }
+        case .assistant(let entry):
+            PiAgentTranscriptCard(entry: entry, style: childStyle, skills: skills)
+                .id(entry.id)
+        case .toolGroup(let group):
+            toolGroupView(group)
+        case .status(let entry):
+            if !shouldHideNativeSubagentStatus(entry) {
+                statusRowView(entry)
+            }
+        case .error(let entry):
+            if visibility.showErrors {
+                PiAgentStatusTranscriptRow(entry: entry)
+                    .id(entry.id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func toolGroupView(_ group: PiAgentThreadToolGroup) -> some View {
+        let webActivities = group.activities.filter(\.isWebActivity)
+        let toolActivities = group.activities.filter { !$0.isWebActivity }
+        if visibility.showWebActivity, !webActivities.isEmpty {
+            PiAgentWebActivitySummaryView(activities: webActivities)
+        }
+        if visibility.showToolCalls, !toolActivities.isEmpty {
+            PiAgentActivitySummaryView(activities: toolActivities)
+        }
+        if visibility.showDiffs {
+            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+        }
+    }
+
+    @ViewBuilder
+    private func statusRowView(_ entry: PiAgentTranscriptEntry) -> some View {
+        if let memoryEvent = entry.agentMemoryEvent {
+            PiAgentMemoryActivityCard(event: memoryEvent)
+                .id(entry.id)
+        } else if let runID = entry.nativeSubagentRunID, let run = nativeSubagentRunsByID[runID] {
+            nativeSubagentCard(run)
+                .id(entry.id)
+        } else {
+            PiAgentStatusTranscriptRow(entry: entry)
+                .id(entry.id)
+        }
+    }
+
     private var childStyle: PiAgentTranscriptCardStyle {
         thread.question == nil ? .standalone : .threadChild
     }
 
     private var hasChildren: Bool {
-        !thread.steeringMessages.isEmpty || (visibility.showThinking && thread.thinking != nil) || !thread.assistantMessages.isEmpty || (visibility.showWebActivity && !webActivities.isEmpty) || (visibility.showToolCalls && !toolActivities.isEmpty) || (visibility.showDiffs && !editablePaths.isEmpty) || (visibility.showPlans && !latestPlanEvents.isEmpty) || !visibleStatusEntries.isEmpty || (visibility.showErrors && !thread.errors.isEmpty)
-    }
-
-    private var visibleStatusEntries: [PiAgentTranscriptEntry] {
-        thread.statuses.filter { !shouldHideNativeSubagentStatus($0) }
-    }
-
-    private var webActivities: [PiAgentTranscriptActivity] {
-        thread.activities.filter(\.isWebActivity)
-    }
-
-    private var toolActivities: [PiAgentTranscriptActivity] {
-        thread.activities.filter { !$0.isWebActivity }
-    }
-
-    private var editablePaths: [String] {
-        PiAgentThreadDiffSummaryView.changedPaths(from: toolActivities)
+        !thread.children.isEmpty || (visibility.showPlans && !latestPlanEvents.isEmpty)
     }
 
     private func shouldHideNativeSubagentStatus(_ entry: PiAgentTranscriptEntry) -> Bool {

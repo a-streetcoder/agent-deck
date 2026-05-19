@@ -46,7 +46,6 @@ struct AgentsScreen: View {
                             try viewModel.moveAgentToLibrary(record)
                         },
                         canRenameAgent: { viewModel.canRenameAgent($0) },
-                        renamePreview: { agent, name in viewModel.renamePreview(for: agent, to: name) },
                         renameAgent: { agent, name in try viewModel.renameAgent(agent, to: name) },
                         projects: viewModel.enabledProjects,
                         imageStore: viewModel.agentImageStore,
@@ -90,8 +89,22 @@ struct AgentAvatarView: View {
     let color: Color
     var size: CGFloat = 32
     var bundledImageName: String?
+    // When true, fills the available height of the enclosing HStack as a square circle.
+    var flexible: Bool = false
 
     var body: some View {
+        if flexible {
+            avatarContent
+                .aspectRatio(1.0, contentMode: .fit)
+                .frame(maxHeight: .infinity)
+        } else {
+            avatarContent
+                .frame(width: size, height: size)
+        }
+    }
+
+    @ViewBuilder
+    private var avatarContent: some View {
         ZStack {
             Circle()
                 .fill(color.opacity(0.10))
@@ -102,15 +115,13 @@ struct AgentAvatarView: View {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: size, height: size)
                     .clipShape(Circle())
             } else {
                 Image(systemName: fallbackSystemImage)
-                    .font(fallbackFont)
+                    .font(flexible ? .title3.weight(.medium) : fallbackFont)
                     .foregroundStyle(color)
             }
         }
-        .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 
@@ -126,69 +137,159 @@ struct AgentAvatarView: View {
     }
 }
 
-private struct AgentAvatarPreviewSheet: View {
-    let agentName: String
+
+private struct AgentAvatarHoverActionButton: View {
     let imageURL: URL?
     let bundledImageName: String?
+    let isReadOnly: Bool
+    let hasCustomImage: Bool
+    let isGenerating: Bool
+    let onRemove: () -> Void
+    let onEditImage: () -> Void
+
+    @State private var isHovering = false
+
+    private var size: CGFloat { 52 }
+
+    var body: some View {
+        ZStack {
+            AgentAvatarView(
+                imageURL: imageURL,
+                fallbackSystemImage: "rectangle.connected.to.line.below",
+                color: AppTheme.assistantAccent,
+                size: size,
+                bundledImageName: bundledImageName
+            )
+
+            if isGenerating {
+                Circle().fill(Color.black.opacity(0.42))
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else if !isReadOnly && isHovering {
+                Circle().fill(Color.black.opacity(0.42))
+                Image(systemName: hasCustomImage ? "trash" : "photo.badge.plus")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 1)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .contentShape(Circle())
+        .scaleEffect(isHovering && !isReadOnly ? 1.03 : 1)
+        .animation(.easeOut(duration: 0.16), value: isHovering)
+        .onHover { hovering in
+            guard !isReadOnly else { return }
+            isHovering = hovering
+        }
+        .onTapGesture {
+            guard !isReadOnly, !isGenerating else { return }
+            if hasCustomImage {
+                onRemove()
+            } else {
+                onEditImage()
+            }
+        }
+        .help(helpText)
+        .disabled(isGenerating)
+    }
+
+    private var helpText: String {
+        if isReadOnly { return "" }
+        if isGenerating { return "Generating avatar…" }
+        return hasCustomImage ? "Remove avatar image" : "Edit avatar image"
+    }
+}
+
+private struct EditAgentAvatarSheet: View {
+    let agentName: String
+    let isGenerating: Bool
+    let canGenerate: Bool
+    let onGenerate: () -> Void
+    let onImport: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 320, height: 320)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(AppTheme.hairlineStroke, lineWidth: 1)
-                        )
-                } else {
-                    ContentUnavailableView("No Avatar", systemImage: "photo")
-                        .frame(width: 320, height: 320)
-                }
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Edit Avatar")
+                    .font(.title2.bold())
+                    .fontWidth(.expanded)
+                Text(agentName)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(24)
-            .navigationTitle("Avatar")
-            // Modal avatar editor title chrome remains SwiftUI; it is not part of the main window toolbar.
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(agentName)
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                        .lineLimit(1)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    doneButton
-                }
+
+            Text("Choose how to set the avatar for this agent.")
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 10) {
+                avatarOptionButton(
+                    title: "Generate with Image Playground",
+                    subtitle: canGenerate
+                        ? "Create an illustrated avatar based on the agent's description."
+                        : "Image Playground is not available on this Mac.",
+                    systemImage: "wand.and.stars",
+                    isPrimary: true,
+                    isDisabled: !canGenerate || isGenerating,
+                    action: onGenerate
+                )
+
+                avatarOptionButton(
+                    title: "Import from File…",
+                    subtitle: "Pick an image file from your computer to use as the avatar.",
+                    systemImage: "photo.on.rectangle",
+                    isPrimary: false,
+                    isDisabled: isGenerating,
+                    action: onImport
+                )
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
         }
-        .frame(width: 400, height: 430)
+        .padding(22)
+        .frame(width: 440)
     }
 
     @ViewBuilder
-    private var doneButton: some View {
-        let button = Button { dismiss() } label: {
-            Image(systemName: "checkmark")
-                .font(.headline.weight(.semibold))
-                .frame(width: 34, height: 28)
+    private func avatarOptionButton(title: String, subtitle: String, systemImage: String, isPrimary: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(isPrimary ? AppTheme.brandAccent : .secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(AppTheme.contentSubtleFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(AppTheme.hairlineStroke, lineWidth: 1)
+            )
         }
-        .buttonStyle(.borderless)
-        .keyboardShortcut(.defaultAction)
-        .help("Done")
-
-        if #available(macOS 26.0, *) {
-            button
-                .foregroundStyle(AppTheme.brandAccent)
-                .glassEffect(.regular, in: Capsule(style: .continuous))
-        } else {
-            button
-                .foregroundStyle(AppTheme.brandAccent)
-                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
-        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.55 : 1)
     }
 }
 
@@ -393,20 +494,20 @@ private struct AgentLibraryPane: View {
         let warnings = viewModel.warnings(for: agent)
         let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
         let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
+        let warningColor: Color = .orange
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
         let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
-        let isSelected = viewModel.selectedAgentID == agent.id
 
         return HStack(alignment: .center, spacing: 10) {
             AgentAvatarView(
                 imageURL: imageStore.imageURL(for: agent.name),
                 fallbackSystemImage: icon(for: agent),
                 color: color(for: agent),
-                size: 24,
+                size: 40,
                 bundledImageName: bundledAvatarName(for: agent)
             )
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(agent.name)
                         .font(.headline)
@@ -420,7 +521,7 @@ private struct AgentLibraryPane: View {
                             warningPopoverAgentID = agent.id
                         } label: {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(warningColor)
                                 .imageScale(.small)
                                 .accessibilityLabel("Agent warnings")
                         }
@@ -438,8 +539,6 @@ private struct AgentLibraryPane: View {
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
-
-                capabilityStrip(for: agent)
             }
 
             Spacer(minLength: 0)
@@ -449,23 +548,12 @@ private struct AgentLibraryPane: View {
             } label: {
                 Text("Edit")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(
-                        hoveredAgentID == agent.id
-                            ? (isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(AppTheme.brandAccent))
-                            : AnyShapeStyle(Color.clear)
-                    )
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(
-                                hoveredAgentID == agent.id
-                                    ? (isSelected ? Color.white.opacity(0.22) : AppTheme.brandAccent.opacity(0.12))
-                                    : Color.clear
-                            )
-                    )
+                    .glassEffect(in: Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
+            .opacity(hoveredAgentID == agent.id ? 1 : 0)
             .help("Edit agent")
             .animation(.easeInOut(duration: 0.15), value: hoveredAgentID == agent.id)
         }
@@ -473,8 +561,29 @@ private struct AgentLibraryPane: View {
             hoveredAgentID = hovering ? agent.id : nil
         }
         .padding(.vertical, 6)
+        .listRowBackground(hasWarningDetails ? AnyView(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(warningColor.opacity(0.12).gradient).padding(.horizontal, 8)) : nil)
+        .listRowSeparator(.hidden, edges: .top)
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if agent.resolved.disabled == true {
+                Button {
+                    do { try viewModel.setAgentDisabled(false, for: agent) }
+                    catch { NSSound.beep() }
+                } label: {
+                    Label("Enable", systemImage: "checkmark.circle")
+                }
+                .tint(.green)
+            } else {
+                Button {
+                    do { try viewModel.setAgentDisabled(true, for: agent) }
+                    catch { NSSound.beep() }
+                } label: {
+                    Label("Disable", systemImage: "nosign")
+                }
+                .tint(.orange)
+            }
+        }
         .contextMenu {
             Button {
                 openFile(filePath)
@@ -514,19 +623,6 @@ private struct AgentLibraryPane: View {
                 }
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { viewModel.selectedAgentID = agent.id }
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .appListRowBackground(isSelected: isSelected)
-    }
-
-    private func nativeEmptyRow(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(AppTheme.mutedText)
-            .padding(.vertical, 4)
-            .selectionDisabled()
-            .listRowSeparator(.hidden)
     }
 
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
@@ -621,16 +717,6 @@ private func rowIndicator(_ symbol: String, color: Color) -> some View {
 // MARK: - AgentDetailView (read-only)
 
 private struct AgentDetailView: View {
-    enum DetailTab: String, CaseIterable, Identifiable {
-        case summary = "Summary"
-        case prompt = "Prompt"
-        case tools = "Tools & Extensions"
-        case skills = "Skills"
-        case advanced = "Advanced"
-
-        var id: String { rawValue }
-    }
-
     let agent: EffectiveAgentRecord
     let stateBadge: (text: String, color: Color)?
     let onSetBuiltinDisabled: (AgentEditingTarget.OverrideScope, Bool) -> Void
@@ -642,72 +728,52 @@ private struct AgentDetailView: View {
     let setAgentForProject: (AgentRecord, DiscoveredProject, Bool) throws -> Void
     let moveAgentToLibrary: (AgentRecord) throws -> Void
     let canRenameAgent: (EffectiveAgentRecord) -> Bool
-    let renamePreview: (EffectiveAgentRecord, String) -> ResourceRenamePreview
     let renameAgent: (EffectiveAgentRecord, String) throws -> Void
     let projects: [DiscoveredProject]
     @ObservedObject var imageStore: AgentImageStore
     let autoGenerateAvatarPrompts: Bool
     let generateAvatarPrompt: (EffectiveAgentRecord) async throws -> String
     @Environment(\.supportsImagePlayground) private var supportsImagePlayground
-    @State private var selectedTab: DetailTab = .summary
-    @State private var agentPendingRename: EffectiveAgentRecord?
     @State private var isGeneratingAvatarPrompt = false
     @State private var isAvatarImporterPresented = false
-    @State private var isAvatarPreviewPresented = false
+    @State private var isEditImageSheetPresented = false
     @State private var avatarMessage: String?
+    @State private var isRenamingAgentName = false
+    @State private var draftAgentName = ""
+    @State private var isAgentNameHovered = false
+    @FocusState private var isAgentNameFocused: Bool
+    @State private var renameErrorMessage: String?
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(DetailTab.allCases) { tab in
-                        Button {
-                            selectedTab = tab
-                        } label: {
-                            Text(tab.rawValue)
-                                .font(.subheadline.weight(.semibold))
-                                .fontWidth(.expanded)
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule(style: .continuous)
-                                        .fill(selectedTab == tab ? AppTheme.selectionFill : AppTheme.contentSubtleFill)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-
-            switch selectedTab {
-            case .summary:
-                summaryTab
-            case .prompt:
-                promptTab
-            case .tools:
-                toolsTab
-            case .skills:
-                skillsTab
-            case .advanced:
-                advancedTab
-            }
-        }
-        .sheet(item: $agentPendingRename) { renameAgentRecord in
-            RenameResourceSheet(
-                title: "Rename Agent",
-                currentName: renameAgentRecord.name,
-                resourceLabel: "agent",
-                makePreview: { renamePreview(renameAgentRecord, $0) },
-                onRename: { try renameAgent(renameAgentRecord, $0) }
-            )
+            summaryTab
+            promptTab
+            toolsTab
+            skillsTab
+            advancedTab
         }
         .fileImporter(isPresented: $isAvatarImporterPresented, allowedContentTypes: [.image]) { result in
             handleAvatarImport(result)
         }
-        .sheet(isPresented: $isAvatarPreviewPresented) {
-            AgentAvatarPreviewSheet(agentName: agent.name, imageURL: imageStore.imageURL(for: agent.name), bundledImageName: bundledAvatarName)
+        .sheet(isPresented: $isEditImageSheetPresented) {
+            EditAgentAvatarSheet(
+                agentName: agent.name,
+                isGenerating: isGeneratingAvatarPrompt,
+                canGenerate: supportsImagePlayground,
+                onGenerate: {
+                    isEditImageSheetPresented = false
+                    prepareImagePlaygroundPromptAndPresent()
+                },
+                onImport: {
+                    isEditImageSheetPresented = false
+                    isAvatarImporterPresented = true
+                }
+            )
+        }
+        .onChange(of: agent.id) { _, _ in
+            cancelAgentRename()
+            renameErrorMessage = nil
+            avatarMessage = nil
         }
     }
 
@@ -715,77 +781,126 @@ private struct AgentDetailView: View {
 
     private var agentAvatarEditor: some View {
         HStack(alignment: .center, spacing: 14) {
-            Button {
-                if hasPreviewableAvatar {
-                    isAvatarPreviewPresented = true
-                }
-            } label: {
-                AgentAvatarView(
-                    imageURL: imageStore.imageURL(for: agent.name),
-                    fallbackSystemImage: "rectangle.connected.to.line.below",
-                    color: AppTheme.assistantAccent,
-                    size: 52,
-                    bundledImageName: bundledAvatarName
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasPreviewableAvatar)
-            .help(hasPreviewableAvatar ? "Preview avatar" : "No avatar to preview")
+            agentAvatarHoverButton
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Agent Avatar")
-                    .font(.body.weight(.semibold))
-                    .fontWidth(.expanded)
-                Text(isReadOnlyBuiltinAvatar ? "Bundled avatar included with Agent Deck." : "Generate an app-only avatar with Image Playground or import your own image.")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
+                agentNameEditableView
+                if !agent.resolved.description.isEmpty {
+                    Text(agent.resolved.description)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let renameErrorMessage {
+                    Text(renameErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let avatarMessage {
                     Text(avatarMessage)
                         .font(.caption)
                         .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             Spacer(minLength: 8)
-
-            HStack(spacing: 8) {
-                if !isReadOnlyBuiltinAvatar {
-                    if imageStore.imageURL(for: agent.name) != nil {
-                        Button("Remove") {
-                            do {
-                                try imageStore.removeImage(for: agent.name)
-                                avatarMessage = nil
-                            } catch {
-                                avatarMessage = error.localizedDescription
-                            }
-                        }
-                        .controlSize(.small)
-                    } else {
-                        Button("Import…") {
-                            isAvatarImporterPresented = true
-                        }
-                        .controlSize(.small)
-                    }
-
-                    Button {
-                        prepareImagePlaygroundPromptAndPresent()
-                    } label: {
-                        if isGeneratingAvatarPrompt {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Text("Generate")
-                        }
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!supportsImagePlayground || isGeneratingAvatarPrompt)
-                    .help(supportsImagePlayground ? "Generate an avatar with Image Playground" : "Image Playground is not available on this Mac")
-                }
-            }
         }
         .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var agentAvatarHoverButton: some View {
+        let hasCustomImage = imageStore.imageURL(for: agent.name) != nil
+        AgentAvatarHoverActionButton(
+            imageURL: imageStore.imageURL(for: agent.name),
+            bundledImageName: bundledAvatarName,
+            isReadOnly: isReadOnlyBuiltinAvatar,
+            hasCustomImage: hasCustomImage,
+            isGenerating: isGeneratingAvatarPrompt,
+            onRemove: removeCustomAvatar,
+            onEditImage: { isEditImageSheetPresented = true }
+        )
+    }
+
+    @ViewBuilder
+    private var agentNameEditableView: some View {
+        if isRenamingAgentName {
+            TextField("Agent name", text: $draftAgentName)
+                .textFieldStyle(.plain)
+                .font(.body.weight(.semibold))
+                .fontWidth(.expanded)
+                .focused($isAgentNameFocused)
+                .onSubmit { commitAgentRename() }
+                .onExitCommand { cancelAgentRename() }
+                .onAppear {
+                    draftAgentName = agent.name
+                    isAgentNameFocused = true
+                }
+        } else {
+            HStack(alignment: .center, spacing: 6) {
+                Text(agent.name)
+                    .font(.body.weight(.semibold))
+                    .fontWidth(.expanded)
+                    .lineLimit(1)
+                if canRenameAgent(agent) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .opacity(isAgentNameHovered ? 0.85 : 0)
+                }
+            }
+            .contentShape(Rectangle())
+            .onHover { isAgentNameHovered = $0 }
+            .onTapGesture { beginAgentRename() }
+            .help(canRenameAgent(agent) ? "Rename agent" : "")
+        }
+    }
+
+    private func beginAgentRename() {
+        guard canRenameAgent(agent), !isRenamingAgentName else { return }
+        renameErrorMessage = nil
+        draftAgentName = agent.name
+        isRenamingAgentName = true
+        isAgentNameFocused = true
+    }
+
+    private func cancelAgentRename() {
+        isRenamingAgentName = false
+        isAgentNameFocused = false
+        draftAgentName = agent.name
+        renameErrorMessage = nil
+    }
+
+    private func commitAgentRename() {
+        let trimmed = draftAgentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            cancelAgentRename()
+            return
+        }
+        guard trimmed != agent.name else {
+            cancelAgentRename()
+            return
+        }
+        do {
+            try renameAgent(agent, trimmed)
+            isRenamingAgentName = false
+            isAgentNameFocused = false
+            renameErrorMessage = nil
+        } catch {
+            renameErrorMessage = error.localizedDescription
+            NSSound.beep()
+        }
+    }
+
+    private func removeCustomAvatar() {
+        do {
+            try imageStore.removeImage(for: agent.name)
+            avatarMessage = nil
+        } catch {
+            avatarMessage = error.localizedDescription
+        }
     }
 
     private func prepareImagePlaygroundPromptAndPresent() {
@@ -824,10 +939,6 @@ private struct AgentDetailView: View {
         default:
             return nil
         }
-    }
-
-    private var hasPreviewableAvatar: Bool {
-        imageStore.imageURL(for: agent.name) != nil || bundledAvatarName != nil
     }
 
     private func generatedAvatarPrompt() async throws -> String {
@@ -882,18 +993,10 @@ private struct AgentDetailView: View {
 
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Configuration") {
+            AppCard {
                 agentAvatarEditor
 
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        AppLabelTag(text: agent.resolutionKind.rawValue, color: AppTheme.assistantAccent)
-                        Text(configurationFootnote)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    .padding(.bottom, 4)
-
                     let rows = configuredFieldRows
                     if rows.isEmpty {
                         Text("Using Pi defaults")
@@ -1029,6 +1132,22 @@ private struct AgentDetailView: View {
         .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
+    @ViewBuilder
+    private func visibilityKeyValueRow<Trailing: View>(_ label: String, value: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(value)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            trailing()
+        }
+    }
+
     private var agentVisibilityManagementCards: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
             if let managedAgent {
@@ -1038,26 +1157,41 @@ private struct AgentDetailView: View {
                             .foregroundStyle(AppTheme.mutedText)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        AppKeyValueList(rows: [
-                            ("In Library", managedAgent.source.kind == .library ? "Yes" : "No"),
-                            ("Active Globally", isAgentGlobal(managedAgent) ? "Yes" : "No"),
-                            ("Assigned Projects", assignedAgentProjects(managedAgent).map(\.name).joined(separator: ", ").nonEmpty ?? "—")
-                        ])
-
-                        HStack(spacing: 10) {
-                            if canRenameAgent(agent) {
-                                Button("Rename…") { agentPendingRename = agent }
-                            }
-
-                            if managedAgent.source.kind != .library {
-                                Button("Move to Library") { do { try moveAgentToLibrary(managedAgent) } catch { NSSound.beep() } }
-                            }
-
-                            if isAgentGlobal(managedAgent) {
-                                Button("Disable Globally") { do { try setAgentGlobal(managedAgent, false) } catch { NSSound.beep() } }
-                            } else {
-                                Button("Enable Globally") { do { try setAgentGlobal(managedAgent, true) } catch { NSSound.beep() } }
+                        VStack(alignment: .leading, spacing: 10) {
+                            visibilityKeyValueRow(
+                                "In Library",
+                                value: managedAgent.source.kind == .library ? "Yes" : "No"
+                            )
+                            Divider()
+                            visibilityKeyValueRow(
+                                "Active Globally",
+                                value: isAgentGlobal(managedAgent) ? "Yes" : "No"
+                            ) {
+                                if isAgentGlobal(managedAgent) {
+                                    Button("Disable Globally") {
+                                        do { try setAgentGlobal(managedAgent, false) } catch { NSSound.beep() }
+                                    }
+                                    .controlSize(.small)
+                                } else {
+                                    Button("Enable Globally") {
+                                        do { try setAgentGlobal(managedAgent, true) } catch { NSSound.beep() }
+                                    }
                                     .buttonStyle(.borderedProminent)
+                                    .controlSize(.small)
+                                }
+                            }
+                            Divider()
+                            visibilityKeyValueRow(
+                                "Assigned Projects",
+                                value: assignedAgentProjects(managedAgent).map(\.name).joined(separator: ", ").nonEmpty ?? "—"
+                            )
+                        }
+
+                        if managedAgent.source.kind != .library {
+                            HStack(spacing: 10) {
+                                Button("Move to Library") {
+                                    do { try moveAgentToLibrary(managedAgent) } catch { NSSound.beep() }
+                                }
                             }
                         }
                     }
@@ -1105,12 +1239,9 @@ private struct AgentDetailView: View {
                 }
             } else if canRenameAgent(agent) {
                 AppCard(title: "Custom Agent") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("This custom agent currently replaces a builtin. Rename it to turn it into a separate custom agent.")
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Rename…") { agentPendingRename = agent }
-                    }
+                    Text("This custom agent currently replaces a builtin. Rename it (hover the name in the header above) to turn it into a separate custom agent.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -1230,7 +1361,7 @@ private struct AgentDetailView: View {
                     .fontWidth(.expanded)
                     .foregroundStyle(AppTheme.mutedText)
                 if let help = fieldHelpText(for: title) {
-                    helpIcon(help)
+                    FieldHelpButton(text: help)
                 }
             }
             Text(value)
@@ -1240,13 +1371,6 @@ private struct AgentDetailView: View {
         if !isLast {
             Divider()
         }
-    }
-
-    private func helpIcon(_ text: String) -> some View {
-        Image(systemName: "questionmark.circle")
-            .font(.caption)
-            .foregroundStyle(AppTheme.mutedText)
-            .help(text)
     }
 
     private func fieldHelpText(for title: String) -> String? {
@@ -1320,88 +1444,6 @@ private func agentFieldHelpText(for title: String) -> String? {
     }
 }
 
-// MARK: - AgentSaveChangesSheet
-
-private struct AgentSaveChangesSheet: View {
-    let agentName: String
-    let changes: [(field: String, before: String, after: String)]
-    let onSave: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Save Changes")
-                        .font(.headline.weight(.semibold))
-                    Text(agentName)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Button("Cancel") { onCancel() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 20)
-            .padding(.bottom, 16)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(changes.indices, id: \.self) { i in
-                        let change = changes[i]
-                        HStack(alignment: .top, spacing: 0) {
-                            Text(change.field)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.primary)
-                                .frame(width: 140, alignment: .leading)
-                                .padding(.trailing, 16)
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
-                                    Text(change.before)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                    Image(systemName: "arrow.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.tertiary)
-                                    Text(change.after)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(2)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        if i < changes.count - 1 {
-                            Divider().padding(.leading, 24)
-                        }
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-
-            Divider()
-
-            HStack {
-                Spacer(minLength: 0)
-                Button("Cancel") { onCancel() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") { onSave() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-        }
-        .frame(width: 580)
-    }
-}
-
 // MARK: - AgentEditSheet
 
 private struct AgentEditSheet: View {
@@ -1416,7 +1458,6 @@ private struct AgentEditSheet: View {
     @State private var draft: AgentEditorDraft?
     @State private var baselineDraft: AgentEditorDraft?
     @State private var selectedTab: EditTab = .config
-    @State private var isSaveConfirmPresented = false
     @State private var saveError: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -1440,14 +1481,6 @@ private struct AgentEditSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                .buttonStyle(.plain)
                 .help("Close")
             }
             .padding(.horizontal, 24)
@@ -1513,14 +1546,14 @@ private struct AgentEditSheet: View {
                 }
                 Spacer(minLength: 0)
                 Button("Discard") {
-                    draft = baselineDraft
-                    saveError = nil
+                    dismiss()
                 }
-                .disabled(!hasChanges)
+                .keyboardShortcut(.cancelAction)
 
-                Button("Review & Save…") {
-                    isSaveConfirmPresented = true
+                Button("Save") {
+                    performConfirmedSave()
                 }
+                .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .tint(AppTheme.brandAccent)
                 .disabled(!hasChanges || draft == nil)
@@ -1532,14 +1565,6 @@ private struct AgentEditSheet: View {
         .task {
             loadDraft()
         }
-        .sheet(isPresented: $isSaveConfirmPresented) {
-            AgentSaveChangesSheet(
-                agentName: agent.name,
-                changes: pendingChangedFields(),
-                onSave: { performConfirmedSave() },
-                onCancel: { isSaveConfirmPresented = false }
-            )
-        }
     }
 
     // MARK: Edit Tabs
@@ -1549,9 +1574,10 @@ private struct AgentEditSheet: View {
             AppCard(title: "Routing") {
                 editSection {
                     configRow("When to Use") {
-                        TextField("Use when…", text: optionalStringBinding(for: \.whenToUse))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: .infinity)
+                        TextEditor(text: optionalStringBinding(for: \.whenToUse))
+                            .frame(minHeight: 64, maxHeight: 120)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
                     }
                 }
             }
@@ -1574,8 +1600,9 @@ private struct AgentEditSheet: View {
 
                     configRow("Thinking") {
                         Picker("Thinking", selection: thinkingSelectionBinding) {
-                            ForEach(availableThinkingLevels, id: \.self) { level in
-                                Text(level).tag(level)
+                            Text("Pi Default").tag("off")
+                            ForEach(availableThinkingLevels.filter { $0 != "off" }, id: \.self) { level in
+                                Text(level.capitalized).tag(level)
                             }
                         }
                         .pickerStyle(.menu)
@@ -1713,8 +1740,7 @@ private struct AgentEditSheet: View {
                 ))
                 .frame(minHeight: 400)
                 .font(.system(.body, design: .monospaced))
-                .padding(8)
-                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                .scrollContentBackground(.hidden)
             }
         }
     }
@@ -1865,10 +1891,7 @@ private struct AgentEditSheet: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(AppTheme.mutedText)
                 if let help = agentFieldHelpText(for: title) {
-                    Image(systemName: "questionmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                        .help(help)
+                    FieldHelpButton(text: help)
                 }
             }
             .frame(width: 170, alignment: .leading)
@@ -1928,11 +1951,6 @@ private struct AgentEditSheet: View {
         saveError = nil
     }
 
-    private func pendingChangedFields() -> [(field: String, before: String, after: String)] {
-        guard let draft, let baselineDraft else { return [] }
-        return changedFields(from: normalizedDraft(baselineDraft), to: normalizedDraft(draft))
-    }
-
     private func performConfirmedSave() {
         guard let draft else { return }
         do {
@@ -1941,12 +1959,10 @@ private struct AgentEditSheet: View {
             baselineDraft = normalized
             self.draft = normalized
             saveError = nil
-            isSaveConfirmPresented = false
             dismiss()
         } catch {
             NSSound.beep()
             saveError = error.localizedDescription
-            isSaveConfirmPresented = false
         }
     }
 
@@ -1972,42 +1988,6 @@ private struct AgentEditSheet: View {
         guard let value else { return nil }
         let items = value.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return items.isEmpty ? nil : items
-    }
-
-    private func changedFields(from before: AgentEditorDraft, to after: AgentEditorDraft) -> [(field: String, before: String, after: String)] {
-        var changes: [(field: String, before: String, after: String)] = []
-
-        func add(_ field: String, _ old: String, _ new: String) {
-            guard old != new else { return }
-            changes.append((field: field, before: old, after: new))
-        }
-
-        let beforeConfig = before.config
-        let afterConfig = after.config
-        add("Model", beforeConfig.model ?? "default", afterConfig.model ?? "default")
-        add("Fallback Models", beforeConfig.fallbackModels.isEmpty ? "—" : beforeConfig.fallbackModels.joined(separator: ", "), afterConfig.fallbackModels.isEmpty ? "—" : afterConfig.fallbackModels.joined(separator: ", "))
-        add("Thinking", beforeConfig.thinking ?? "off", afterConfig.thinking ?? "off")
-        add("Prompt Mode", beforeConfig.systemPromptMode ?? "—", afterConfig.systemPromptMode ?? "—")
-        add("Disabled", displayBool(beforeConfig.disabled), displayBool(afterConfig.disabled))
-        add("Tools", ((beforeConfig.tools ?? []) + (beforeConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined, ((afterConfig.tools ?? []) + (afterConfig.mcpDirectTools ?? []).map { "mcp:\($0)" }).nonEmptyJoined)
-        add("Extensions", (beforeConfig.extensions ?? []).nonEmptyJoined, (afterConfig.extensions ?? []).nonEmptyJoined)
-        add("Skills", beforeConfig.skills.nonEmptyJoined, afterConfig.skills.nonEmptyJoined)
-        add("Output", beforeConfig.output ?? "—", afterConfig.output ?? "—")
-        add("Default Outcome", beforeConfig.defaultExpectedOutcome?.displayName ?? "—", afterConfig.defaultExpectedOutcome?.displayName ?? "—")
-        add("Default Reads", (beforeConfig.defaultReads ?? []).nonEmptyJoined, (afterConfig.defaultReads ?? []).nonEmptyJoined)
-        add("Default Progress", displayBool(beforeConfig.defaultProgress), displayBool(afterConfig.defaultProgress))
-        add("Interactive", displayBool(beforeConfig.interactive), displayBool(afterConfig.interactive))
-        add("Max Subagent Depth", beforeConfig.maxSubagentDepth.map(String.init) ?? "—", afterConfig.maxSubagentDepth.map(String.init) ?? "—")
-        add("Prompt", shortPromptSummary(beforeConfig.systemPrompt), shortPromptSummary(afterConfig.systemPrompt))
-
-        return changes
-    }
-
-    private func shortPromptSummary(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "empty" }
-        if trimmed.count <= 60 { return trimmed }
-        return String(trimmed.prefix(57)) + "..."
     }
 
     private func displayBool(_ value: Bool?) -> String {

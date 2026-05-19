@@ -961,8 +961,24 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         func measuredHeight(width: CGFloat) -> CGFloat {
             guard let hostingView else { return 0 }
-            hostingView.frame = CGRect(x: 0, y: 0, width: width, height: max(bounds.height, 1))
+            // Resize the cell — not just the hostingView — to a generous frame before
+            // measuring. The hostingView is pinned to the cell's leading/trailing/top/
+            // bottom anchors with required Auto Layout constraints; if the cell's bounds
+            // are too short (zero for the off-screen measurement cell, or just the current
+            // stale row height when reconfiguring a streaming row), those required pins
+            // win the constraint solve and SwiftUI is forced to truncate-and-fit into the
+            // compressed height. fittingSize then reports that truncated height, not the
+            // natural one — and the row is permanently sized too small, so the SwiftUI
+            // text inside the next cell renders with `…` and the rows visually overlap.
+            // Giving the cell a tall measurement frame lets the constraint solve land at
+            // the content's natural height. NSTableView restores the cell's row-sized
+            // frame on its next layout pass (triggered by noteHeightOfRows downstream),
+            // and because we never yield the runloop between these steps there is no
+            // chance of an intermediate paint at the inflated size.
+            let measuringFrame = CGRect(x: 0, y: 0, width: width, height: 100_000)
+            if frame != measuringFrame { frame = measuringFrame }
             hostingView.invalidateIntrinsicContentSize()
+            layoutSubtreeIfNeeded()
             return hostingView.fittingSize.height
         }
     }
@@ -973,7 +989,7 @@ private extension PiAgentTranscriptThread {
         let activityEntries = activities.compactMap(\.representativeEntry)
         let candidates = [question].compactMap { $0 }
             + steeringMessages
-            + [thinking].compactMap { $0 }
+            + thinkingParts
             + assistantMessages
             + activityEntries
             + statuses
@@ -1038,15 +1054,18 @@ struct PiAgentScreen: View {
             syncVisibleSessionSelection()
             syncMultiSelectionToSelectedSession()
             syncRuntimeFooterSnapshot()
-            viewModel.acknowledgeVisibleSelectedPiAgentSession()
             syncSelectedSessionTitleDraft()
             isUIRequestSheetPresented = store.selectedUIRequest != nil
             rebuildVisibleSessions()
             resetTranscriptAutoScroll()
             requestSelectedTranscriptLoadAfterViewUpdate()
-            scheduleTranscriptCacheUpdate()
-            viewModel.prepareRepoChangesForSelectedPiAgentSession()
             updateStabilizedProcessingMessage(selectedSessionProcessingMessage)
+            Task { @MainActor in
+                await Task.yield()
+                viewModel.acknowledgeVisibleSelectedPiAgentSession()
+                scheduleTranscriptCacheUpdate()
+                viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            }
         }
         .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
@@ -1083,8 +1102,11 @@ struct PiAgentScreen: View {
             isEarlierTranscriptSheetPresented = false
             syncRuntimeFooterSnapshot()
             requestSelectedTranscriptLoadAfterViewUpdate()
-            scheduleTranscriptCacheUpdate()
-            viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            Task { @MainActor in
+                await Task.yield()
+                scheduleTranscriptCacheUpdate()
+                viewModel.prepareRepoChangesForSelectedPiAgentSession()
+            }
         }
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
@@ -1097,7 +1119,10 @@ struct PiAgentScreen: View {
         .onChange(of: viewModel.selectedProjectPath) { _, _ in
             rebuildVisibleSessions()
             syncVisibleSessionSelection()
-            viewModel.acknowledgeVisibleSelectedPiAgentSession()
+            Task { @MainActor in
+                await Task.yield()
+                viewModel.acknowledgeVisibleSelectedPiAgentSession()
+            }
         }
         .task(id: store.selectedTranscriptRevision) {
             await Task.yield()
@@ -1338,7 +1363,6 @@ struct PiAgentScreen: View {
         .tag(session.id)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         .listRowSeparator(.automatic)
-        .listRowBackground(sessionListRowBackground(isSelected: selectedSessionIDs.contains(session.id), isActive: isWorking))
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
                 viewModel.togglePiAgentSessionPinned(session.id)
@@ -1365,33 +1389,6 @@ struct PiAgentScreen: View {
             } label: {
                 Label(selectedSessionIDs.contains(session.id) && selectedSessionIDs.count > 1 ? "Delete Selected Sessions" : "Delete Session", systemImage: "trash")
             }
-        }
-    }
-
-    @ViewBuilder
-    private func sessionListRowBackground(isSelected: Bool, isActive: Bool) -> some View {
-        if isSelected {
-            LinearGradient(
-                colors: [
-                    AppTheme.brandAccentBright.opacity(0.12),
-                    AppTheme.brandAccent.opacity(0.07),
-                    AppTheme.brandAccentDeep.opacity(0.10)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else if isActive {
-            LinearGradient(
-                colors: [
-                    AppTheme.brandAccentBright.opacity(0.10),
-                    AppTheme.brandAccent.opacity(0.045),
-                    AppTheme.brandAccentDeep.opacity(0.08)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            Color.clear
         }
     }
 
@@ -1597,7 +1594,8 @@ struct PiAgentScreen: View {
         inlineEntrySignature(thread.question, into: &hasher)
         hasher.combine(thread.steeringMessages.count)
         for entry in thread.steeringMessages { inlineEntrySignature(entry, into: &hasher) }
-        inlineEntrySignature(thread.thinking, into: &hasher)
+        hasher.combine(thread.thinkingParts.count)
+        for entry in thread.thinkingParts { inlineEntrySignature(entry, into: &hasher) }
         hasher.combine(thread.assistantMessages.count)
         for entry in thread.assistantMessages { inlineEntrySignature(entry, into: &hasher) }
         hasher.combine(thread.activities.count)
@@ -1627,7 +1625,7 @@ struct PiAgentScreen: View {
         hasher.combine(thread.id)
         hashEntryRevision(thread.question, into: &hasher)
         thread.steeringMessages.forEach { hashEntryRevision($0, into: &hasher) }
-        hashEntryRevision(thread.thinking, into: &hasher)
+        thread.thinkingParts.forEach { hashEntryRevision($0, into: &hasher) }
         thread.assistantMessages.forEach { hashEntryRevision($0, into: &hasher) }
         thread.activities.forEach { activity in
             hasher.combine(activity.id)

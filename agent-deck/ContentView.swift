@@ -181,7 +181,13 @@ struct ContentView: View {
         .navigationTitle(toolbarTitle)
         .focusedSceneValue(\.agentDeckCommands, commandContext)
         .onAppear(perform: updateCommandContext)
-        .onChange(of: commandContextUpdateToken) { _, _ in updateCommandContext() }
+        // Coalesce per-frame: .onChange fires synchronously during view update, so when
+        // multiple @Published properties on viewModel update in the same SwiftUI render
+        // frame (common during streaming), the token changes more than once per frame and
+        // SwiftUI logs "FocusedValue update tried to update multiple times per frame".
+        // .task(id:) cancels and restarts asynchronously after body settles, so at most
+        // one update lands per frame.
+        .task(id: commandContextUpdateToken) { updateCommandContext() }
         .onChange(of: viewModel.selectedSidebarItem) { _, newValue in
             handleSidebarSelectionChange(newValue)
         }
@@ -274,34 +280,35 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .agents {
                 ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            agentModelQuickEditor = currentAgentModelQuickEditorContext
-                        } label: {
-                            Image(systemName: "cpu")
-                        }
-                        .toolbarNeutralChrome()
-                        .help("Quick edit agent models and thinking")
-                        .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
-
-                        Menu {
-                            Button("New Library Agent") {
-                                editingAgent = nil
-                                agentDraft = viewModel.makeNewAgentDraft(scope: .library)
-                            }
-                            if viewModel.selectedProjectPath != nil {
-                                Button("New Project Agent") {
-                                    editingAgent = nil
-                                    agentDraft = viewModel.makeNewAgentDraft(scope: .project)
-                                }
-                            }
-                        } label: {
-                            Label("New", systemImage: "plus")
-                        }
-                        .menuIndicator(.hidden)
-                        .toolbarPrimaryActionChrome()
-                        .help("Create a library agent, then choose global or project visibility")
+                    Button {
+                        agentModelQuickEditor = currentAgentModelQuickEditorContext
+                    } label: {
+                        Image(systemName: "cpu")
                     }
+                    .toolbarNeutralChrome()
+                    .help("Quick edit agent models and thinking")
+                    .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
+                }
+
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("New Library Agent") {
+                            editingAgent = nil
+                            agentDraft = viewModel.makeNewAgentDraft(scope: .library)
+                        }
+                        if viewModel.selectedProjectPath != nil {
+                            Button("New Project Agent") {
+                                editingAgent = nil
+                                agentDraft = viewModel.makeNewAgentDraft(scope: .project)
+                            }
+                        }
+                    } label: {
+                        Label("New", systemImage: "plus")
+                    }
+                    .menuIndicator(.hidden)
+                    .toolbarPrimaryActionChrome()
+                    .help("Create a library agent, then choose global or project visibility")
                 }
 
                 if let agent = viewModel.selectedAgent {
@@ -368,28 +375,29 @@ struct ContentView: View {
 
             if viewModel.selectedSidebarItem == .prompts {
                 ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            do { try viewModel.createLibraryPromptTemplate() }
-                            catch { NSSound.beep() }
-                        } label: {
-                            Label("New", systemImage: "plus")
-                        }
-                        .toolbarPrimaryActionChrome()
-                        .help("Create a new library prompt template")
+                    Button {
+                        do { try viewModel.createLibraryPromptTemplate() }
+                        catch { NSSound.beep() }
+                    } label: {
+                        Label("New", systemImage: "plus")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help("Create a new library prompt template")
+                }
 
-                        if let prompt = viewModel.selectedPromptTemplate {
-                            Menu {
-                                Button("Open Raw File") { openPromptFile(prompt.filePath) }
-                                Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
-                                AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
-                                AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
-                            } label: {
-                                Label("More", systemImage: "ellipsis.circle")
-                            }
-                            .toolbarNeutralChrome()
-                            .help("More actions for the selected prompt")
+                if let prompt = viewModel.selectedPromptTemplate {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button("Open Raw File") { openPromptFile(prompt.filePath) }
+                            Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
+                            AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
+                            AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
                         }
+                        .toolbarNeutralChrome()
+                        .help("More actions for the selected prompt")
                     }
                 }
             }
@@ -410,14 +418,12 @@ struct ContentView: View {
 
                 ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
-                        } label: {
-                            Label("Import Skills", systemImage: "plus")
-                        }
-                        .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
+                    Button {
+                        NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+                    } label: {
+                        Label("Import Skills", systemImage: "plus")
                     }
+                    .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
                     .toolbarPrimaryActionChrome()
                 }
             }
@@ -837,6 +843,8 @@ struct ContentView: View {
             PiDocsScreen()
         case .credits:
             CreditsScreen()
+        case .listShowcase:
+            NativeListShowcaseScreen()
         }
     }
 

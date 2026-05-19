@@ -194,7 +194,8 @@ struct PiAgentComposerBox: View {
                             onToggleSubagents: {
                                 viewModel.setSubagentsEnabledForSelectedSession(!metricsSession.subagentsEnabled)
                             },
-                            onToggleOpenAIFast: openAIFastToggleAction(for: metricsSession)
+                            onToggleOpenAIFast: openAIFastToggleAction(for: metricsSession),
+                            onSetAsDefault: setAsDefaultAction(for: metricsSession)
                         )
                     }
 
@@ -294,6 +295,36 @@ struct PiAgentComposerBox: View {
         let identifier = "\(provider ?? "")/\(baseModelID)"
         return viewModel.availableModels.first { $0.identifier == identifier }
             ?? viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+    }
+
+    private func currentModel(for session: PiAgentSessionRecord) -> AvailableModel? {
+        let fallback = viewModel.defaultPiAgentModel()
+        let provider = session.modelOverrideProvider ?? session.modelProvider ?? fallback?.provider
+        let modelID = session.modelOverrideID ?? session.model ?? fallback?.model
+        // Strip thinking suffix (e.g. "gpt-5.2:high" → "gpt-5.2") before lookup
+        let baseModelID = modelID?.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
+        let identifier = "\(provider ?? "")/\(baseModelID)"
+        return viewModel.availableModels.first { $0.identifier == identifier }
+            ?? viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+    }
+
+    private func setAsDefaultAction(for session: PiAgentSessionRecord) -> (() -> Void)? {
+        let model = currentModel(for: session)
+        let thinkingLevel = session.thinkingLevel
+        let defaultModel = viewModel.defaultPiAgentModel()
+        let defaultThinking = viewModel.piRuntimeDefaultThinkingLevel()
+        let modelDiffers = model?.identifier != defaultModel?.identifier
+        let resolvedThinking = thinkingLevel ?? defaultThinking
+        let thinkingDiffers = resolvedThinking != defaultThinking
+        guard modelDiffers || thinkingDiffers else { return nil }
+        return { [weak viewModel] in
+            if let model {
+                viewModel?.setDefaultPiAgentModel(model)
+            }
+            if let level = thinkingLevel {
+                viewModel?.setDefaultPiAgentThinkingLevel(level)
+            }
+        }
     }
 
     private func shortPath(_ path: String) -> String {
@@ -1852,6 +1883,7 @@ struct PiAgentRuntimeFooter: View {
     let onToggleMemory: () -> Void
     let onToggleSubagents: () -> Void
     let onToggleOpenAIFast: (() -> Void)?
+    let onSetAsDefault: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 7) {
@@ -1878,6 +1910,13 @@ struct PiAgentRuntimeFooter: View {
                     action: { onToggleOpenAIFast?() }
                 )
                 .disabled(onToggleOpenAIFast == nil)
+            }
+            if let onSetAsDefault {
+                metricButton(
+                    "Set as default",
+                    icon: "pin",
+                    action: onSetAsDefault
+                )
             }
         }
         .font(.caption)

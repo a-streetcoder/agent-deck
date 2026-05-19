@@ -6,7 +6,7 @@ Agent Deck targets macOS 26 (Tahoe) with Liquid Glass. Every toolbar must follow
 
 ## The rules
 
-> **A group of 2+ related buttons → `ToolbarItem(placement: .primaryAction)` containing a `ControlGroup`.**
+> **A group of 2+ peer buttons with the same island treatment → `ToolbarItem(placement: .primaryAction)` containing a `ControlGroup`.**
 >
 > **A single standalone button → `ToolbarItem(placement: .primaryAction)` containing a plain `Button`. No `ControlGroup`.**
 
@@ -14,12 +14,14 @@ Separate items/groups are divided by `ToolbarSpacer(.fixed, placement: .primaryA
 
 `ControlGroup` renders its content as a unified glass capsule island. A single `Button` in a `ToolbarItem` also gets the native macOS 26 glass button treatment automatically — wrapping it in a single-item `ControlGroup` causes the capsule to size itself by the label's full text width instead of icon size.
 
+If one control is the screen's primary `+` / create action and an adjacent control is a neutral utility action, they should usually be separate toolbar items, not one `ControlGroup`. Otherwise the primary action inherits grouped hover/background behaviour instead of the compact standalone glass treatment.
+
 ---
 
 ## Correct pattern
 
 ```swift
-// Single group
+// Single group for peer actions
 ToolbarItem(placement: .primaryAction) {
     ControlGroup {
         Button { } label: { Label("Refresh", systemImage: "arrow.clockwise") }
@@ -32,27 +34,47 @@ ToolbarItem(placement: .primaryAction) {
     }
 }
 
-// Two separate groups
+// Two separate standalone islands
 ToolbarItem(placement: .primaryAction) {
-    ControlGroup {
-        Button { } label: { Label("Info", systemImage: "info.circle") }
-            .toolbarNeutralChrome()
-            .help("Show info")
-    }
+    Button { } label: { Label("Info", systemImage: "info.circle") }
+        .toolbarNeutralChrome()
+        .help("Show info")
 }
 
 ToolbarSpacer(.fixed, placement: .primaryAction)
 
 ToolbarItem(placement: .primaryAction) {
-    ControlGroup {
-        Button { } label: { Label("Import", systemImage: "plus") }
-            .toolbarPrimaryActionChrome()
-            .help("Import items")
-    }
+    Button { } label: { Label("Import", systemImage: "plus") }
+        .toolbarPrimaryActionChrome()
+        .help("Import items")
 }
 ```
 
-macOS renders each `ControlGroup` as its own glass capsule island. `ToolbarSpacer` produces the visual gap between islands.
+macOS renders each `ControlGroup` as its own glass capsule island. A standalone `Button` in a `ToolbarItem` gets its own compact glass button. `ToolbarSpacer` produces the visual gap between islands.
+
+When you need one neutral utility action beside one primary create action, prefer two separate items:
+
+```swift
+ToolbarItem(placement: .primaryAction) {
+    Button { } label: { Image(systemName: "cpu") }
+        .toolbarNeutralChrome()
+        .help("Quick edit models")
+}
+
+ToolbarSpacer(.fixed, placement: .primaryAction)
+
+ToolbarItem(placement: .primaryAction) {
+    Menu {
+        Button("New Library Agent") { }
+        Button("New Project Agent") { }
+    } label: {
+        Label("New", systemImage: "plus")
+    }
+    .menuIndicator(.hidden)
+    .toolbarPrimaryActionChrome()
+    .help("Create agent")
+}
+```
 
 ---
 
@@ -147,6 +169,8 @@ ToolbarItem(placement: .primaryAction) {
 }
 ```
 
+Do not use this pattern when the conditional item is the section's primary `+` / create action and you want standalone hover/background treatment for it. In that case, split it into a separate `ToolbarItem` with a spacer.
+
 ---
 
 ## Fixed frame sizes on button labels
@@ -211,6 +235,7 @@ Sheet toolbars use different placements and do **not** use `ControlGroup`:
 | `ToolbarItemGroup(placement: .primaryAction) { ... }` | Same coalescing problem even with explicit placement |
 | `ToolbarItem { ... }` (no placement) | Defaults to `.automatic`; behaviour is implicit and inconsistent |
 | Single-item `ControlGroup` wrapping one `Button` | Capsule sizes from the label's full text width, not icon size; use a plain `Button` directly |
+| Grouping a neutral utility button with a primary `+` / create button | The primary action gets grouped hover/background treatment instead of a standalone compact glass button |
 | `HStack` or `Divider()` inside a toolbar item | Creates custom layout inside one item instead of native islands |
 | Adjacent `ToolbarItem`s with no spacer | Items run together visually |
 | `Image(systemName:)` as button label | No overflow-menu text, no VoiceOver label |

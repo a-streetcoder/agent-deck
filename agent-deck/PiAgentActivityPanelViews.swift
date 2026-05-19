@@ -57,7 +57,10 @@ struct PiAgentActivityPanel: View {
         }
         .onAppear {
             requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
-            rebuildActivityCache()
+            Task { @MainActor in
+                await Task.yield()
+                rebuildActivityCache()
+            }
         }
         .onChange(of: store.selectedSession?.id) { _, _ in
             selectedID = nil

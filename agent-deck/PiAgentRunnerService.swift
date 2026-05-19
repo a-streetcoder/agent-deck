@@ -1168,10 +1168,17 @@ final class PiAgentRunnerService {
         let text: String
         switch event.type {
         case "tool_execution_start":
+            // Close out any in-flight thinking entry before the tool card materializes so
+            // the renderer keeps pre-tool reasoning visually above the tool, and any new
+            // post-tool reasoning opens a fresh thinking entry with a later timestamp.
+            finalizeStreamingThinking(sessionID: sessionID)
             text = event.args?.compactDescription ?? "Starting…"
         case "tool_execution_update":
             text = extractText(from: event.partialResult ?? .null).isEmpty ? (event.partialResult?.compactDescription ?? "Running…") : extractText(from: event.partialResult ?? .null)
         case "tool_execution_end":
+            // Also close out on tool end — by the time the next thinking_delta arrives,
+            // we want a brand-new thinking entry whose timestamp is after this tool's.
+            finalizeStreamingThinking(sessionID: sessionID)
             let resultText = extractText(from: event.result ?? .null)
             text = resultText.isEmpty ? (event.result?.compactDescription ?? "Completed.") : resultText
             toolEntryIDsByCallID[toolKey] = nil
@@ -1179,6 +1186,30 @@ final class PiAgentRunnerService {
             text = rawLine
         }
         store.upsert(.init(id: entryID, sessionID: sessionID, role: event.isError == true ? .error : .tool, title: title, text: text, rawJSON: rawLine))
+    }
+
+    /// Flushes any pending thinking text to the store and clears the in-flight thinking
+    /// entry id/buffer so subsequent thinking_delta events open a new entry. Called at
+    /// tool boundaries inside a single assistant message so each reasoning pass is its
+    /// own transcript entry with its own timestamp.
+    private func finalizeStreamingThinking(sessionID: UUID) {
+        guard let thinkingEntryID = thinkingEntryIDsBySessionID[sessionID],
+              let thinkingText = thinkingTextBySessionID[sessionID],
+              !thinkingText.isEmpty else {
+            thinkingEntryIDsBySessionID[sessionID] = nil
+            thinkingTextBySessionID[sessionID] = nil
+            return
+        }
+        store.upsert(.init(
+            id: thinkingEntryID,
+            sessionID: sessionID,
+            role: .thinking,
+            title: "Thinking",
+            text: thinkingText,
+            rawJSON: nil
+        ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
+        thinkingEntryIDsBySessionID[sessionID] = nil
+        thinkingTextBySessionID[sessionID] = nil
     }
 
     private func handleCompaction(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {

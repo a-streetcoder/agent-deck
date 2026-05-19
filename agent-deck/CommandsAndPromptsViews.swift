@@ -47,9 +47,13 @@ struct PromptsScreen: View {
     private var promptLibraryPane: some View {
         List(selection: $viewModel.selectedCommandItemID) {
             if !viewModel.promptWarnings.isEmpty {
-                appListSection("Warnings", info: "Prompt issues that need attention.") {
+                appListSection("Warnings", tint: .orange) {
                     ForEach(viewModel.promptWarnings) { warning in
-                        promptWarningRow(warning)
+                        promptWarningCard(warning)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .selectionDisabled()
                     }
                 }
             }
@@ -113,17 +117,21 @@ struct PromptsScreen: View {
         .appListStyle()
     }
 
-    private func promptWarningRow(_ warning: DiagnosticWarning) -> some View {
+    private func promptWarningCard(_ warning: DiagnosticWarning) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-                .frame(width: 18)
+                .imageScale(.medium)
             Text(warning.message)
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
+                .font(.callout)
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.orange.opacity(0.25), lineWidth: 1))
     }
 
     private var visiblePrompts: [PromptTemplateRecord] {
@@ -190,11 +198,31 @@ struct PromptsScreen: View {
             }
         }
         .padding(.vertical, 6)
+        .listRowSeparator(.hidden, edges: .top)
         .badge(prompt.source.kind.rawValue)
-        .contentShape(Rectangle())
-        .onTapGesture { viewModel.selectedCommandItemID = prompt.id }
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .appListRowBackground(isSelected: viewModel.selectedCommandItemID == prompt.id)
+        .contextMenu {
+            Button {
+                copyCommandValue(prompt.invocation)
+            } label: {
+                Label("Copy Invocation", systemImage: "doc.on.doc")
+            }
+
+            Divider()
+
+            Button {
+                openPromptFile(prompt.filePath)
+            } label: {
+                Label("Open Raw File", systemImage: "doc.text")
+            }
+            .disabled(prompt.filePath.isEmpty)
+
+            Button {
+                revealPromptFile(prompt.filePath)
+            } label: {
+                Label("Reveal in Finder", systemImage: "finder")
+            }
+            .disabled(prompt.filePath.isEmpty)
+        }
     }
 
     private func nativePill(_ text: String, symbol: String, color: Color) -> some View {
@@ -204,15 +232,6 @@ struct PromptsScreen: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(color.opacity(0.10), in: Capsule(style: .continuous))
-    }
-
-    private func nativeEmptyRow(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(AppTheme.mutedText)
-            .padding(.vertical, 4)
-            .selectionDisabled()
-            .listRowSeparator(.hidden)
     }
 
     private func promptIcon(_ prompt: PromptTemplateRecord) -> String {

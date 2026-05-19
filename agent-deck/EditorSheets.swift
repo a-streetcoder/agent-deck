@@ -241,8 +241,7 @@ struct AgentEditorSheet: View {
                         ))
                         .frame(minHeight: 320)
                         .font(.system(.body, design: .monospaced))
-                        .padding(8)
-                        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                        .scrollContentBackground(.hidden)
                     }
                 }
             }
@@ -281,9 +280,7 @@ struct AgentEditorSheet: View {
         HStack(spacing: 6) {
             Text(title)
             if let help {
-                Image(systemName: "questionmark.circle")
-                    .foregroundStyle(AppTheme.mutedText)
-                    .help(help)
+                FieldHelpButton(text: help)
             }
         }
     }

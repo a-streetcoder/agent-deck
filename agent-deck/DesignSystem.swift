@@ -260,26 +260,6 @@ struct AppCopyTextButton: View {
     }
 }
 
-struct AppListRowSelectionBackground: View {
-    var isSelected: Bool
-
-    var body: some View {
-        if isSelected {
-            LinearGradient(
-                colors: [
-                    AppTheme.brandAccentBright.opacity(0.12),
-                    AppTheme.brandAccent.opacity(0.07),
-                    AppTheme.brandAccentDeep.opacity(0.10)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            Color.clear
-        }
-    }
-}
-
 extension View {
     func appContentSurface(cornerRadius: CGFloat = AppTheme.cardCornerRadius, isSelected: Bool = false) -> some View {
         modifier(AppContentSurface(cornerRadius: cornerRadius, isSelected: isSelected))
@@ -298,21 +278,10 @@ extension View {
     }
 
     // Canonical list style for all resource lists (agents, skills, prompts).
-    // Pair with .appListRowBackground(isSelected:) on each row.
     func appListStyle() -> some View {
-        listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-    }
-
-    // Branded gradient selection background, consistent with the session list.
-    func appListRowBackground(isSelected: Bool) -> some View {
-        listRowBackground(AppListRowSelectionBackground(isSelected: isSelected))
-    }
-
-    @available(*, deprecated, renamed: "appListStyle")
-    func appResourceListStyle() -> some View {
-        appListStyle()
+        listStyle(.inset)
+            .alternatingRowBackgrounds()
+            .scrollIndicators(.hidden)
     }
 }
 
@@ -437,11 +406,13 @@ struct AppLabelTag: View {
 struct AppListSectionHeader: View {
     let title: String
     let info: String?
+    let tint: Color?
     @State private var isInfoPresented = false
 
-    init(_ title: String, info: String? = nil) {
+    init(_ title: String, info: String? = nil, tint: Color? = nil) {
         self.title = title
         self.info = info
+        self.tint = tint
     }
 
     var body: some View {
@@ -449,7 +420,7 @@ struct AppListSectionHeader: View {
             Text(title)
                 .font(.headline)
                 .fontWidth(.expanded)
-                .foregroundStyle(.primary)
+                .foregroundStyle(tint.map { AnyShapeStyle($0.gradient) } ?? AnyShapeStyle(.primary))
                 .textCase(nil)
 
             if let info {
@@ -500,14 +471,48 @@ private struct AppListSectionInfoPopover: View {
     }
 }
 
+struct FieldHelpButton: View {
+    let text: String
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(AppTheme.mutedText)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .padding(14)
+                .frame(maxWidth: 280)
+        }
+    }
+}
+
 @ViewBuilder
-func appListSection<Content: View>(_ title: String, info: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+func appListSection<Content: View>(_ title: String, info: String? = nil, tint: Color? = nil, @ViewBuilder content: () -> Content) -> some View {
     Section {
         content()
     } header: {
-        AppListSectionHeader(title, info: info)
+        AppListSectionHeader(title, info: info, tint: tint)
     }
     .listSectionSeparator(.hidden)
+}
+
+func nativeEmptyRow(_ text: String) -> some View {
+    Text(text)
+        .font(.callout)
+        .foregroundStyle(AppTheme.mutedText)
+        .padding(.vertical, 4)
+        .selectionDisabled()
+        .listRowSeparator(.hidden)
 }
 
 struct AppKeyValueList: View {
