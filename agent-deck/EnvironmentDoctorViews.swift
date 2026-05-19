@@ -665,7 +665,7 @@ struct DoctorScreen: View {
         if !status.isInstalled {
             return [("Install", "npm install -g @earendil-works/pi-coding-agent")]
         }
-        var rows = [("Current", status.currentVersion ?? "Unknown")]
+        var rows = [("Current", status.currentVersion.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown")]
         if case let .some(.updateAvailable(latestVersion)) = status.updateState {
             rows.append(("Latest", latestVersion))
             rows.append(("Command", "pi update pi"))

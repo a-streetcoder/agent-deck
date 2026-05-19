@@ -455,10 +455,12 @@ struct SetupDependencyService {
                     recovery: nil
                 )
             }
+            let rawPreview = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let preview = rawPreview.isEmpty ? (result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(no output)" : "stderr: \(result.stderr.prefix(200))") : String(rawPreview.prefix(200))
             return SetupCheckItem(
                 id: "pi-models",
                 title: "Pi Models",
-                detail: "`pi --list-models` exited with code \(result.exitCode) and did not return usable models.",
+                detail: "`pi --list-models` exited with code \(result.exitCode) and did not return usable models. Output: \(preview)",
                 status: .failed,
                 recovery: "Run `pi --list-models` in Terminal and complete any provider/model setup Pi reports."
             )
