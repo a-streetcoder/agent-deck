@@ -548,6 +548,7 @@ private struct AgentLibraryPane: View {
             } label: {
                 Text("Edit")
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .glassEffect(in: Capsule(style: .continuous))
