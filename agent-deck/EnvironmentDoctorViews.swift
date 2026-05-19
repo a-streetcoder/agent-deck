@@ -621,13 +621,7 @@ struct DoctorScreen: View {
                     if !status.isInstalled {
                         piCommandChip("npm install -g @earendil-works/pi-coding-agent", buttonLabel: "Install in Terminal") { viewModel.openPiInstallInTerminal() }
                     } else {
-                        var versionRows: [(String, String)] = []
-                        if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
-                            versionRows.append(("Current", v))
-                        }
-                        if case let .updateAvailable(latest) = status.updateState {
-                            versionRows.append(("Latest", latest))
-                        }
+                        let versionRows = piVersionRows(for: status)
                         if !versionRows.isEmpty {
                             AppKeyValueList(rows: versionRows)
                         }
@@ -648,6 +642,17 @@ struct DoctorScreen: View {
             }
             .padding(.vertical, 10)
         }
+    }
+
+    private func piVersionRows(for status: PiAgentRuntimeStatus) -> [(String, String)] {
+        var rows: [(String, String)] = []
+        if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
+            rows.append(("Current", v))
+        }
+        if case let .updateAvailable(latest) = status.updateState {
+            rows.append(("Latest", latest))
+        }
+        return rows
     }
 
     private func piCommandChip(_ command: String, buttonLabel: String = "Run in Terminal", action: (() -> Void)? = nil) -> some View {
