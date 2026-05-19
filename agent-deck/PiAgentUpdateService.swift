@@ -50,7 +50,10 @@ struct PiAgentUpdateService {
             guard result.exitCode == 0 else {
                 return .missing
             }
-            currentVersion = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawVersion = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedVersion = rawVersion.isEmpty ? result.stderr.trimmingCharacters(in: .whitespacesAndNewlines) : rawVersion
+            guard !resolvedVersion.isEmpty else { return .missing }
+            currentVersion = resolvedVersion
         } catch {
             return .missing
         }

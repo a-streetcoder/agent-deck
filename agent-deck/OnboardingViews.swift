@@ -445,12 +445,13 @@ struct SetupDependencyService {
         do {
             let piCommand = piResolver.resolve()?.path ?? "pi"
             let result = try await commandRunner.run(piCommand, arguments: ["--list-models"], timeout: 20)
-            let modelRowCount = Self.modelRowCount(fromPiListOutput: result.stdout)
+            let listOutput = result.stdout.isEmpty ? result.stderr : result.stdout
+            let modelRowCount = Self.modelRowCount(fromPiListOutput: listOutput)
             if result.exitCode == 0, modelRowCount > 0 {
                 return SetupCheckItem(
                     id: "pi-models",
                     title: "Pi Models",
-                    detail: "\(modelRowCount) model rows were returned by `pi --list-models`.",
+                    detail: "\(modelRowCount) models available.",
                     status: .passed,
                     recovery: nil
                 )

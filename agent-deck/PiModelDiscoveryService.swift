@@ -21,8 +21,9 @@ struct PiModelDiscoveryService: Sendable {
                 environment: nil
             )
             guard result.exitCode == 0 else { return [] }
-            let exactThinkingLevels = await loadModelThinkingLevels(fromPiListOutput: result.stdout)
-            return Self.parseAvailableModels(from: result.stdout, exactThinkingLevels: exactThinkingLevels)
+            let output = result.stdout.isEmpty ? result.stderr : result.stdout
+            let exactThinkingLevels = await loadModelThinkingLevels(fromPiListOutput: output)
+            return Self.parseAvailableModels(from: output, exactThinkingLevels: exactThinkingLevels)
         } catch {
             return []
         }
