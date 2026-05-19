@@ -84,13 +84,15 @@ struct PiAgentStartupResourcesCard: View {
                 Text("Pi startup resources")
                     .font(.title3.bold())
                     .fontWidth(.expanded)
-                HStack(spacing: 6) {
-                    hintChip("↩", "send / steer")
-                    hintChip("⇧/⌘/⌥ ↩", "newline")
-                    hintChip("Esc", "stop running turn")
-                    hintChip("Esc Esc", "clear input")
-                    hintChip("/", "commands")
-                    hintChip("@", "file suggestions")
+                GlassEffectContainer(spacing: 4) {
+                    HStack(spacing: 6) {
+                        hintChip("↩", "send / steer")
+                        hintChip("⇧/⌘/⌥ ↩", "newline")
+                        hintChip("Esc", "stop running turn")
+                        hintChip("Esc Esc", "clear input")
+                        hintChip("/", "commands")
+                        hintChip("@", "file suggestions")
+                    }
                 }
             }
             Spacer()
@@ -223,7 +225,7 @@ struct PiAgentStartupResourcesCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .frame(minHeight: 26)
-        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+        .appGlassCapsule()
     }
 
     private func resourceChip(_ item: PiStartupResourceItem, isOverflow: Bool = false, showsDetail: Bool = false) -> some View {

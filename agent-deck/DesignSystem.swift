@@ -14,7 +14,21 @@ enum AppTheme {
     static let brandAccentBright = adaptiveColor(light: RGB(44, 205, 199), dark: RGB(96, 232, 224))
     static let brandAccentDeep = adaptiveColor(light: RGB(13, 132, 129), dark: RGB(49, 122, 121))
     static let brandAccentShadow = adaptiveColor(light: RGB(207, 245, 243), dark: RGB(37, 72, 74))
-    static let assistantAccent = Color.purple
+    // Halfway between the original Color.purple and a fully softened variant — keeps
+    // the original's punch in light mode while easing the dark-mode saturation just
+    // enough to sit on the dark transcript surface without screaming.
+    static let assistantAccent = adaptiveColor(light: RGB(155, 82, 207), dark: RGB(186, 110, 238))
+
+    // Native (TextKit) markdown surfaces — code fences, frontmatter, quote bar.
+    // Mirror the WKWebView CSS palette so HTML and native markdown look identical.
+    static let codeBlockFill = adaptiveColor(light: RGB(240, 240, 240), dark: RGB(30, 30, 32))
+    static let quoteBarFill = adaptiveColor(light: RGB(180, 180, 184), dark: RGB(96, 96, 102))
+    // AppKit-side NSColor mirrors of the same tokens, for callers that need a
+    // dynamic NSColor (e.g. CALayer.backgroundColor via DynamicFillView). Built
+    // with the same dynamicProvider so they resolve under each view's effective
+    // appearance, not the global one.
+    static let nsCodeBlockFill = adaptiveNSColor(light: RGB(240, 240, 240), dark: RGB(30, 30, 32))
+    static let nsQuoteBarFill = adaptiveNSColor(light: RGB(180, 180, 184), dark: RGB(96, 96, 102))
 
     static let windowBackground = Color(nsColor: .windowBackgroundColor)
     static let panelFill = Color(nsColor: .windowBackgroundColor)
@@ -44,11 +58,15 @@ enum AppTheme {
     }
 
     private static func adaptiveColor(light: RGB, dark: RGB) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
+        Color(nsColor: adaptiveNSColor(light: light, dark: dark))
+    }
+
+    private static func adaptiveNSColor(light: RGB, dark: RGB) -> NSColor {
+        NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let rgb = isDark ? dark : light
             return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
-        })
+        }
     }
 
     @available(*, deprecated, message: "Use semantic content, panel, or control surface helpers based on role.")
@@ -57,6 +75,39 @@ enum AppTheme {
     static let cardStroke = contentStroke
     @available(*, deprecated, message: "Use contentSubtleFill or semantic surface helpers based on role.")
     static let subtleFill = contentSubtleFill
+}
+
+extension View {
+    /// Liquid Glass capsule chrome for pill-shaped controls (composer chips, keyboard
+    /// shortcut hints, the like). Replaces the previous `.background(Capsule().fill(…))`
+    /// idiom that produced flat-gray surfaces. Per Apple HIG: glass is reserved for
+    /// the navigation/control layer — do NOT apply to content cells (transcript cards,
+    /// list rows).
+    func appGlassCapsule() -> some View {
+        glassEffect(.regular, in: Capsule(style: .continuous))
+    }
+
+    /// Tinted variant for prominence — e.g. the primary send button.
+    func appGlassCapsule(tint: Color) -> some View {
+        glassEffect(.regular.tint(tint), in: Capsule(style: .continuous))
+    }
+
+    /// Glass circle for icon-only chrome buttons (compact, attach, etc.).
+    func appGlassCircle() -> some View {
+        glassEffect(.regular, in: Circle())
+    }
+
+    /// Conditionally apply the capsule glass background. Used by views (like the
+    /// hover-revealed copy button on transcript cards) that want chrome only in
+    /// specific contexts.
+    @ViewBuilder
+    func glassEffectIf(_ condition: Bool) -> some View {
+        if condition {
+            glassEffect(.regular, in: Capsule(style: .continuous))
+        } else {
+            self
+        }
+    }
 }
 
 struct AppLoadingView: View {
@@ -205,20 +256,13 @@ struct AppCopyIconButton: View {
             NSPasteboard.general.setString(text, forType: .string)
             showCopiedFeedback()
         } label: {
-            ZStack {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(copied ? Color.green : Color.primary)
-                    .contentTransition(.symbolEffect(.replace))
-                    .accessibilityLabel(copied ? "Copied" : "Copy")
-            }
-            .frame(width: size.width, height: size.height)
-            .background {
-                if usesMaterialBackground {
-                    Capsule(style: .continuous)
-                        .fill(.regularMaterial)
-                }
-            }
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(copied ? Color.green : Color.primary)
+                .contentTransition(.symbolEffect(.replace))
+                .accessibilityLabel(copied ? "Copied" : "Copy")
+                .frame(width: size.width, height: size.height)
+                .glassEffectIf(usesMaterialBackground)
         }
         .buttonStyle(.plain)
         .help(copied ? "Copied" : help)

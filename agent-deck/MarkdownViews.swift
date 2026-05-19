@@ -325,7 +325,7 @@ private final class NativeMarkdownTextContainer: NSView {
                 frontmatter,
                 font: .monospacedSystemFont(ofSize: 12, weight: .regular),
                 color: .secondaryLabelColor,
-                fill: NSColor.controlColor.withAlphaComponent(0.62),
+                fill: AppTheme.nsCodeBlockFill,
                 cornerRadius: 6,
                 padding: NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
             )
@@ -400,7 +400,7 @@ private final class NativeMarkdownTextContainer: NSView {
                 text,
                 font: .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular),
                 color: .labelColor,
-                fill: NSColor.controlColor.withAlphaComponent(0.62),
+                fill: AppTheme.nsCodeBlockFill,
                 cornerRadius: 10,
                 padding: NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
             )
@@ -447,10 +447,7 @@ private final class NativeMarkdownTextContainer: NSView {
         // between the bar and the body. Native: 3 pt bar + 9 pt spacing = 12 pt total.
         row.spacing = 9
 
-        let bar = NSView()
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.wantsLayer = true
-        bar.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
+        let bar = DynamicFillView(fill: AppTheme.nsQuoteBarFill)
         bar.layer?.cornerRadius = 1
         bar.widthAnchor.constraint(equalToConstant: 3).isActive = true
 
@@ -460,11 +457,39 @@ private final class NativeMarkdownTextContainer: NSView {
         return row
     }
 
+    /// Layer-backed NSView whose `backgroundColor` tracks the view's effective
+    /// appearance. `nsColor.cgColor` is a snapshot — setting it once at view
+    /// construction freezes the layer at whatever appearance was active then.
+    /// Overriding `viewDidChangeEffectiveAppearance` and re-resolving the
+    /// dynamic NSColor under the new appearance keeps the layer live across
+    /// runtime Light↔Dark switches.
+    private final class DynamicFillView: NSView {
+        private let fillColor: NSColor
+        init(fill: NSColor) {
+            self.fillColor = fill
+            super.init(frame: .zero)
+            wantsLayer = true
+            translatesAutoresizingMaskIntoConstraints = false
+            applyFill()
+        }
+        required init?(coder: NSCoder) { fatalError() }
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            applyFill()
+        }
+        private func applyFill() {
+            // Resolve the dynamic provider under THIS view's effective appearance
+            // (not the global one). `performAsCurrentDrawingAppearance` makes
+            // `nsColor.cgColor` resolve against the supplied appearance for the
+            // duration of the closure.
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = fillColor.cgColor
+            }
+        }
+    }
+
     private static func paddedTextBlock(_ source: String, font: NSFont, color: NSColor, fill: NSColor, cornerRadius: CGFloat, padding: NSEdgeInsets) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.wantsLayer = true
-        container.layer?.backgroundColor = fill.cgColor
+        let container = DynamicFillView(fill: fill)
         container.layer?.cornerRadius = cornerRadius
         container.layer?.masksToBounds = true
 

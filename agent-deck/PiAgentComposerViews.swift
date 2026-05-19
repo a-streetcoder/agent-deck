@@ -250,7 +250,7 @@ struct PiAgentComposerBox: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+                    .appGlassCircle()
             }
             .buttonStyle(.plain)
             .help("Attach files")
@@ -1151,64 +1151,66 @@ struct PiAgentContextUsageMeter: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+            .appGlassCapsule()
             .fixedSize(horizontal: true, vertical: false)
             .help("Pi is compacting this conversation. Input is disabled until compaction finishes.")
         } else if let percent = session.contextPercent, let tokens = session.contextTokens, let window = session.contextWindow {
-            HStack(spacing: 6) {
-                HStack(spacing: 7) {
-                    Text("Context")
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .fixedSize()
-                    PiAgentSmartZoneContextBar(
-                        percent: percent,
-                        showsSmartZoneHint: showsSmartZoneHint,
-                        width: 92,
-                        height: 10
-                    )
-                    Text("\(Int(percent))%")
-                        .font(.caption.monospacedDigit().weight(.bold))
-                        .lineLimit(1)
-                    Text("\(compact(tokens))/\(compact(window))")
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(1)
-                    Image(systemName: "info.circle")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .accessibilityLabel("Show context usage details")
-                }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
-                .fixedSize(horizontal: true, vertical: false)
-                .contentShape(Capsule(style: .continuous))
-                .onTapGesture {
-                    isBreakdownPresented.toggle()
-                }
-                .popover(isPresented: $isBreakdownPresented, arrowEdge: .bottom) {
-                    PiAgentContextBreakdownPopover(
-                        session: session,
-                        transcript: transcript,
-                        fallbackModels: fallbackModels,
-                        showsSmartZoneHint: showsSmartZoneHint
-                    )
-                }
-                .help(showsSmartZoneHint ? "Show context usage details. Smart zone hint is enabled in Settings." : "Show context usage details")
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    HStack(spacing: 7) {
+                        Text("Context")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .fixedSize()
+                        PiAgentSmartZoneContextBar(
+                            percent: percent,
+                            showsSmartZoneHint: showsSmartZoneHint,
+                            width: 92,
+                            height: 10
+                        )
+                        Text("\(Int(percent))%")
+                            .font(.caption.monospacedDigit().weight(.bold))
+                            .lineLimit(1)
+                        Text("\(compact(tokens))/\(compact(window))")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                        Image(systemName: "info.circle")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .accessibilityLabel("Show context usage details")
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .appGlassCapsule()
+                    .fixedSize(horizontal: true, vertical: false)
+                    .contentShape(Capsule(style: .continuous))
+                    .onTapGesture {
+                        isBreakdownPresented.toggle()
+                    }
+                    .popover(isPresented: $isBreakdownPresented, arrowEdge: .bottom) {
+                        PiAgentContextBreakdownPopover(
+                            session: session,
+                            transcript: transcript,
+                            fallbackModels: fallbackModels,
+                            showsSmartZoneHint: showsSmartZoneHint
+                        )
+                    }
+                    .help(showsSmartZoneHint ? "Show context usage details. Smart zone hint is enabled in Settings." : "Show context usage details")
 
-                Button {
-                    isConfirmingCompaction = true
-                } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .frame(width: 24, height: 24)
-                        .background(Circle().fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+                    Button {
+                        isConfirmingCompaction = true
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(width: 24, height: 24)
+                            .appGlassCircle()
+                    }
+                    .buttonStyle(.plain)
+                    .help("Compact context")
                 }
-                .buttonStyle(.plain)
-                .help("Compact context")
             }
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
@@ -1815,7 +1817,7 @@ struct PiAgentModelStatus: View {
         .font(.footnote.weight(.semibold))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+        .appGlassCapsule()
     }
 
     @ViewBuilder
@@ -1846,7 +1848,7 @@ struct PiAgentThinkingStatus: View {
             .lineLimit(1)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill).stroke(AppTheme.contentStroke, lineWidth: 1))
+            .appGlassCapsule()
     }
 
     private var displayLevel: String {

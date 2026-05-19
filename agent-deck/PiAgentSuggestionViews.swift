@@ -322,28 +322,17 @@ struct PiAgentUIRequestSheet: View {
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "questionmark.bubble.fill")
-                    .font(.title3)
-                    .foregroundStyle(AppTheme.brandAccent)
-                Text("Response needed")
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                Spacer()
-            }
-
-            PiAgentUIRequestCard(
-                request: request,
-                onSubmitValue: onSubmitValue,
-                onSubmitFreeform: onSubmitFreeform,
-                onConfirm: onConfirm,
-                onCancel: onCancel
-            )
-        }
-        .padding(20)
-        .frame(minWidth: 560, idealWidth: 680, maxWidth: 760, minHeight: 260)
+        PiAgentUIRequestCard(
+            request: request,
+            onSubmitValue: onSubmitValue,
+            onSubmitFreeform: onSubmitFreeform,
+            onConfirm: onConfirm,
+            onCancel: onCancel
+        )
+        .padding(22)
+        .frame(minWidth: 560, idealWidth: 680, maxWidth: 760)
         .presentationSizing(.fitted)
+        .presentationBackground(.regularMaterial)
     }
 }
 
@@ -362,28 +351,28 @@ struct PiAgentUIRequestCard: View {
     @State private var selectedOptions: Set<String> = []
 
     var body: some View {
-        AppCard {
-            VStack(alignment: .leading, spacing: 12) {
-                header
+        VStack(alignment: .leading, spacing: 16) {
+            header
 
-                switch request.method {
-                case .select:
-                    if isComposingFreeform {
-                        freeformComposer
-                    } else {
-                        selectOptions
-                    }
-                case .multiSelect:
-                    multiSelectOptions
-                case .confirm:
-                    HStack(spacing: 10) {
-                        Button("No") { onConfirm(false) }
-                        Button("Yes") { onConfirm(true) }
-                            .buttonStyle(.borderedProminent)
-                    }
-                case .input, .editor:
-                    textInput(submitTitle: "Submit", cancelTitle: "Cancel", cancelAction: onCancel) { submitTextInput() }
+            switch request.method {
+            case .select:
+                if isComposingFreeform {
+                    freeformComposer
+                } else {
+                    selectOptions
                 }
+            case .multiSelect:
+                multiSelectOptions
+            case .confirm:
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button("Cancel", action: onCancel)
+                    Button("No") { onConfirm(false) }
+                    Button("Yes") { onConfirm(true) }
+                        .buttonStyle(.borderedProminent)
+                }
+            case .input, .editor:
+                textInput(submitTitle: "Submit", cancelTitle: "Cancel", cancelAction: onCancel) { submitTextInput() }
             }
         }
         .onAppear {
@@ -400,10 +389,10 @@ struct PiAgentUIRequestCard: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Image(systemName: "questionmark.bubble.fill")
                 .foregroundStyle(AppTheme.brandAccent)
-                .font(.title3)
+                .font(.headline)
             VStack(alignment: .leading, spacing: 4) {
                 Text(request.title)
                     .font(.headline)
@@ -414,10 +403,7 @@ struct PiAgentUIRequestCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer()
-            if request.method != .input && request.method != .editor && !isComposingFreeform && request.responseFormat != .nativeAsk {
-                Button("Cancel", action: onCancel)
-            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -450,6 +436,12 @@ struct PiAgentUIRequestCard: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    HStack(spacing: 10) {
+                        Spacer()
+                        Button("Cancel", action: onCancel)
+                    }
+                    .padding(.top, 4)
                 }
             }
         }
@@ -498,10 +490,12 @@ struct PiAgentUIRequestCard: View {
 
                     HStack(spacing: 10) {
                         Spacer()
+                        Button("Cancel", action: onCancel)
                         Button("Submit") { onSubmitValue(request.options.filter { selectedOptions.contains($0) }.joined(separator: ", ")) }
                             .buttonStyle(.borderedProminent)
                             .disabled(selectedOptions.isEmpty)
                     }
+                    .padding(.top, 4)
                 }
             }
         }
@@ -596,6 +590,7 @@ struct PiAgentUIRequestCard: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(nativeAskSubmitDisabled)
             }
+            .padding(.top, 4)
         }
     }
 
@@ -619,6 +614,7 @@ struct PiAgentUIRequestCard: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!canSubmit)
             }
+            .padding(.top, 4)
         }
     }
 

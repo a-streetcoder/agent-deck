@@ -367,6 +367,7 @@ struct PiAgentRepoChangesPanel: View {
                     title: "Commit",
                     subtitle: "Stage all changes and create an AI-generated commit.",
                     systemImage: "checkmark.seal",
+                    customImage: "git-commit",
                     isRunning: viewModel.piAgentGitAutomationAction == .commit,
                     isDisabled: !viewModel.canCommitSelectedPiAgentSession,
                     action: commitTapped
@@ -383,6 +384,7 @@ struct PiAgentRepoChangesPanel: View {
                     title: "Commit & Push",
                     subtitle: "Stage all changes, commit, then push.",
                     systemImage: "shippingbox.and.arrow.backward",
+                    customImage: "git-commit",
                     isRunning: viewModel.piAgentGitAutomationAction == .commitAndPush,
                     isDisabled: !viewModel.canCommitAndPushSelectedPiAgentSession,
                     action: commitAndPushTapped
@@ -406,12 +408,18 @@ struct PiAgentRepoChangesPanel: View {
         }
     }
 
-    private func gitActionButton(title: String, subtitle: String, systemImage: String, isRunning: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
+    private func gitActionButton(title: String, subtitle: String, systemImage: String, customImage: String? = nil, isRunning: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 ZStack {
-                    Image(systemName: systemImage)
-                        .opacity(isRunning ? 0 : 1)
+                    Group {
+                        if let customImage {
+                            Image(customImage)
+                        } else {
+                            Image(systemName: systemImage)
+                        }
+                    }
+                    .opacity(isRunning ? 0 : 1)
                     if isRunning {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .symbolEffect(.rotate, options: .repeating)

@@ -12,6 +12,13 @@ struct CreditsScreen: View {
                         url: nil
                     )
                     Divider()
+                    Divider()
+                    creditRow(
+                        title: "GitLab SVGs",
+                        detail: "Toolbar icons sourced from the GitLab SVGs icon collection by GitLab B.V. MIT License. Copyright © 2011–2017 GitLab B.V.",
+                        url: "https://gitlab.com/gitlab-org/gitlab-svgs"
+                    )
+                    Divider()
                     creditRow(
                         title: "Kemco Pixel Bold",
                         detail: "Font created and edited by Jayvee D. Enaguas (Grand Chaos). Licensed under Creative Commons CC-BY-NC-SA 3.0. © GrandChaos9000. Some Rights Reserved.",

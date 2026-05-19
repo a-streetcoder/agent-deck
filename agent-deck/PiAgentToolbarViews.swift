@@ -7,8 +7,16 @@ struct PiAgentCommitToolbarButton: View {
 
     var body: some View {
         Button { commitTapped() } label: {
-            Label("Commit", systemImage: iconName)
-                .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .commit)
+            Label {
+                Text("Commit")
+            } icon: {
+                if viewModel.piAgentGitAutomationAction == .commit {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .symbolEffect(.rotate, options: .repeating)
+                } else {
+                    Image("git-commit")
+                }
+            }
         }
         .accessibilityLabel("Commit")
         .disabled(!viewModel.canCommitSelectedPiAgentSession)
@@ -19,10 +27,6 @@ struct PiAgentCommitToolbarButton: View {
         } message: {
             Text(piAgentGitAlertMessage(for: .commit, viewModel: viewModel))
         }
-    }
-
-    private var iconName: String {
-        viewModel.piAgentGitAutomationAction == .commit ? "arrow.triangle.2.circlepath" : "checkmark"
     }
 
     private func commitTapped() {
@@ -58,8 +62,16 @@ struct PiAgentCommitAndPushToolbarButton: View {
 
     var body: some View {
         Button { commitAndPushTapped() } label: {
-            Label("Commit & Push", systemImage: iconName)
-                .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .commitAndPush)
+            Label {
+                Text("Commit & Push")
+            } icon: {
+                if viewModel.piAgentGitAutomationAction == .commitAndPush {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .symbolEffect(.rotate, options: .repeating)
+                } else {
+                    Image("git-commit")
+                }
+            }
         }
         .accessibilityLabel("Commit & Push")
         .disabled(!viewModel.canCommitAndPushSelectedPiAgentSession)
@@ -70,10 +82,6 @@ struct PiAgentCommitAndPushToolbarButton: View {
         } message: {
             Text(piAgentGitAlertMessage(for: .commitAndPush, viewModel: viewModel))
         }
-    }
-
-    private var iconName: String {
-        viewModel.piAgentGitAutomationAction == .commitAndPush ? "arrow.triangle.2.circlepath" : "arrow.up.doc"
     }
 
     private func commitAndPushTapped() {

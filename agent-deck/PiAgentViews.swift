@@ -877,6 +877,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         // can trigger another `layout()` pass; without this flag the measurement
         // would recurse and saturate the runloop.
         private var isMeasuring = false
+        // De-dupe deferred measurement requests so each layout pass enqueues at most
+        // one async re-measure.
+        private var pendingDeferredMeasure = false
 
         /// Callback the cell invokes after measuring its natural height. Wired by
         /// the Coordinator at cell-vend time. Posts `(itemID, height)` so the
@@ -928,13 +931,23 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             return true
         }
 
-        /// Called after every Auto Layout pass on the hosted content (image loads,
-        /// markdown TextKit measurement settling, etc.). Re-measures in case the
-        /// natural size has changed for a reason other than revision turnover.
+        /// Schedule a re-measurement after the current AppKit layout pass settles.
+        /// We can't call `layoutSubtreeIfNeeded()` from within `-layout` (AppKit
+        /// forbids it: "not legal to call -layoutSubtreeIfNeeded on a view which is
+        /// already being laid out"), and inflating our own frame inside that pass
+        /// produces an infinite update loop. Deferring to the next runloop tick
+        /// catches post-layout size changes (image loads, TextKit settles) without
+        /// recursing.
         override func layout() {
             super.layout()
-            guard !isMeasuring, let itemID = configuredItemID, configuredWidth > 1 else { return }
-            reportNaturalHeightIfChanged(width: configuredWidth, itemID: itemID)
+            guard configuredItemID != nil, configuredWidth > 1, !pendingDeferredMeasure else { return }
+            pendingDeferredMeasure = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pendingDeferredMeasure = false
+                guard let itemID = self.configuredItemID else { return }
+                self.reportNaturalHeightIfChanged(width: self.configuredWidth, itemID: itemID)
+            }
         }
 
         private func reportNaturalHeightIfChanged(width: CGFloat, itemID: String) {

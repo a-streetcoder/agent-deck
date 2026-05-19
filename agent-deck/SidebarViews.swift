@@ -364,46 +364,45 @@ struct ProjectPickerPopover: View {
                 font: .subheadline
             )
 
-            List(selection: selectionBinding) {
-                ProjectSidebarRow(
-                    title: "All Projects",
-                    subtitle: "Show sessions across every project",
-                    symbolName: "square.grid.2x2",
-                    imageURL: nil
-                )
-                .tag(nil as String?)
-
-                ForEach(projects) { project in
+            ScrollView {
+                LazyVStack(spacing: 2) {
                     ProjectSidebarRow(
-                        title: project.repositoryDisplayName,
-                        subtitle: project.path,
-                        symbolName: project.fallbackSymbolName,
-                        imageURL: project.iconFileURL
+                        title: "All Projects",
+                        subtitle: "Show sessions across every project",
+                        symbolName: "square.grid.2x2",
+                        imageURL: nil,
+                        isSelected: selectedProjectPath == nil,
+                        action: { select(nil) }
                     )
-                    .tag(Optional(project.path))
+
+                    ForEach(projects) { project in
+                        ProjectSidebarRow(
+                            title: project.repositoryDisplayName,
+                            subtitle: project.path,
+                            symbolName: project.fallbackSymbolName,
+                            imageURL: project.iconFileURL,
+                            isSelected: selectedProjectPath == project.path,
+                            action: { select(project) }
+                        )
+                    }
                 }
+                .padding(.horizontal, 3)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
-            .tint(AppTheme.brandAccent)
+            .background(ProjectPickerScrollerConfigurator())
             .frame(width: 360, height: 220)
         }
         .padding(14)
     }
 
-    private var selectionBinding: Binding<String?> {
-        Binding(
-            get: { selectedProjectPath },
-            set: { newValue in
-                guard newValue != selectedProjectPath else { return }
-                if let path = newValue, let project = projects.first(where: { $0.path == path }) {
-                    onSelectProject(project)
-                } else {
-                    onSelectProject(nil)
-                }
-            }
-        )
+    private func select(_ project: DiscoveredProject?) {
+        // Hop to the next runloop tick: the tap fires inside a SwiftUI update
+        // pass, and onSelectProject triggers @Published mutations on
+        // AppViewModel that would otherwise emit "Publishing changes from
+        // within view updates is not allowed".
+        DispatchQueue.main.async {
+            onSelectProject(project)
+        }
     }
 }
 
@@ -412,24 +411,85 @@ struct ProjectSidebarRow: View {
     let subtitle: String
     let symbolName: String
     let imageURL: URL?
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28)
+        Button(action: action) {
+            HStack(spacing: 10) {
+                ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
             }
-
-            Spacer(minLength: 8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(rowFill)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+
+    private var rowFill: Color {
+        if isSelected {
+            return AppTheme.brandAccent.opacity(0.22)
+        }
+        if isHovering {
+            return Color.primary.opacity(0.06)
+        }
+        return .clear
+    }
+}
+
+private struct ProjectPickerScrollerConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            configure(from: view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(from: nsView)
+        }
+    }
+
+    private func configure(from view: NSView) {
+        guard let scrollView = view.enclosingScrollView ?? findEnclosingScrollView(from: view) else { return }
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+    }
+
+    private func findEnclosingScrollView(from view: NSView) -> NSScrollView? {
+        var candidate = view.superview
+        while let current = candidate {
+            if let scrollView = current as? NSScrollView {
+                return scrollView
+            }
+            candidate = current.superview
+        }
+        return nil
     }
 }
 

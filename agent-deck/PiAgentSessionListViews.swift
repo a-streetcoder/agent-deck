@@ -527,7 +527,7 @@ struct PiAgentProcessingIndicatorBar: View {
                     .foregroundStyle(AppTheme.assistantAccent)
                     .frame(width: 14, height: 14)
                 Text(message)
-                    .font(.footnote.weight(.medium))
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -546,12 +546,12 @@ struct PiAgentTypingIndicator: View {
     @State private var phase = 0
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { index in
                 let isActive = phase == index
                 Circle()
                     .fill(Color.secondary.opacity(isActive ? 0.78 : 0.22))
-                    .frame(width: 6, height: 6)
+                    .frame(width: 5, height: 5)
                     .scaleEffect(reduceMotion ? 1 : (isActive ? 1.18 : 0.86))
                     .offset(y: reduceMotion ? 0 : (isActive ? -2 : 0))
             }

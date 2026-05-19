@@ -464,9 +464,12 @@ struct ContentView: View {
                 if viewModel.shouldShowPiAgentGitActions {
                     ToolbarItem(placement: .primaryAction) {
                         ControlGroup {
+                            PiAgentGitHubToolbarButton(
+                                viewModel: viewModel,
+                                isRepoChangesPresented: $isPiAgentRepoChangesPresented
+                            )
                             PiAgentCommitToolbarButton(viewModel: viewModel)
                             PiAgentPushToolbarButton(viewModel: viewModel)
-                            PiAgentCommitAndPushToolbarButton(viewModel: viewModel)
                         } label: {
                             Label("Git Actions", systemImage: "checkmark")
                         }
@@ -477,17 +480,12 @@ struct ContentView: View {
 
                 ToolbarItem(placement: .primaryAction) {
                     ControlGroup {
-                        PiAgentGitHubToolbarButton(
-                            viewModel: viewModel,
-                            isRepoChangesPresented: $isPiAgentRepoChangesPresented
-                        )
-
                         PiAgentOpenTerminalToolbarButton(
                             viewModel: viewModel,
                             store: viewModel.piAgentSessionStore
                         )
                     } label: {
-                        Label("External Tools", systemImage: "terminal")
+                        Label("Terminal", systemImage: "terminal")
                     }
                     .toolbarNeutralChrome()
                 }
