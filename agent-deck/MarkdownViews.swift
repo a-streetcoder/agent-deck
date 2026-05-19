@@ -138,12 +138,125 @@ private final class NativeMarkdownTextContainer: NSView {
 
     func configure(document: CachedMarkdownDocument) {
         isDismantled = false
-        if document != lastDocument {
-            lastDocument = document
-            rebuild(document: document)
-            invalidateIntrinsicContentSize()
+        guard document != lastDocument else {
+            scheduleHeightMeasurement()
+            return
         }
+        let previous = lastDocument
+        lastDocument = document
+        // Try the cheap streaming-friendly path first: when only the last block's text
+        // changed (and its kind stayed the same), update that block's text view in place
+        // instead of rebuilding the whole NSStackView. This is the hot path for every
+        // assistant/thinking flush — without it each token costs a full per-block view
+        // tear-down + recreation.
+        if let previous, tryIncrementalUpdate(from: previous, to: document) {
+            invalidateIntrinsicContentSize()
+            scheduleHeightMeasurement()
+            return
+        }
+        rebuild(document: document)
+        invalidateIntrinsicContentSize()
         scheduleHeightMeasurement()
+    }
+
+    private func tryIncrementalUpdate(from previous: CachedMarkdownDocument, to next: CachedMarkdownDocument) -> Bool {
+        guard previous.frontmatter == next.frontmatter else { return false }
+        let oldBlocks = previous.blocks
+        let newBlocks = next.blocks
+        guard oldBlocks.count == newBlocks.count, !oldBlocks.isEmpty else { return false }
+
+        // All blocks except (possibly) the last must match byte-for-byte.
+        let lastIndex = oldBlocks.count - 1
+        for i in 0..<lastIndex where oldBlocks[i] != newBlocks[i] {
+            return false
+        }
+
+        // Last block: same kind metadata, different text content allowed.
+        let oldLast = oldBlocks[lastIndex].kind
+        let newLast = newBlocks[lastIndex].kind
+        guard Self.sameKindShape(oldLast, newLast) else { return false }
+
+        let viewOffset = next.frontmatter != nil ? 1 : 0
+        let viewIndex = viewOffset + lastIndex
+        guard viewIndex < stackView.arrangedSubviews.count else { return false }
+        let view = stackView.arrangedSubviews[viewIndex]
+        guard let textView = Self.firstTextView(in: view) else { return false }
+
+        Self.updateTextView(textView, with: newLast)
+        return true
+    }
+
+    // Two block kinds have the "same shape" if their layout chrome (paddedBlock, listRow
+    // with marker, quote bar, code container) is identical and only the inner text
+    // changed. Heading level / list indent / numbered number all affect chrome, so a
+    // change in any of them forces a rebuild.
+    private static func sameKindShape(_ a: MarkdownBlock.Kind, _ b: MarkdownBlock.Kind) -> Bool {
+        switch (a, b) {
+        case (.heading(let levelA, _), .heading(let levelB, _)):
+            return levelA == levelB
+        case (.paragraph, .paragraph):
+            return true
+        case (.bullet(_, let indentA), .bullet(_, let indentB)):
+            return indentA == indentB
+        case (.numbered(let numberA, _, let indentA), .numbered(let numberB, _, let indentB)):
+            return numberA == numberB && indentA == indentB
+        case (.quote, .quote):
+            return true
+        case (.code, .code):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func firstTextView(in view: NSView) -> NSTextView? {
+        if let tv = view as? NSTextView { return tv }
+        for subview in view.subviews {
+            if let found = firstTextView(in: subview) { return found }
+        }
+        return nil
+    }
+
+    private static func updateTextView(_ textView: NSTextView, with kind: MarkdownBlock.Kind) {
+        let (font, color, parseInline) = textStyling(for: kind)
+        let body = bodyText(from: kind)
+        let attr = attributedString(body, font: font, color: color, parseInlineMarkdown: parseInline)
+        if let storage = textView.textStorage {
+            storage.beginEditing()
+            storage.setAttributedString(attr)
+            storage.endEditing()
+        }
+        textView.invalidateIntrinsicContentSize()
+    }
+
+    private static func bodyText(from kind: MarkdownBlock.Kind) -> String {
+        switch kind {
+        case let .heading(_, text), let .paragraph(text), let .quote(text), let .code(text):
+            return text
+        case let .bullet(text, _):
+            return text
+        case let .numbered(_, text, _):
+            return text
+        }
+    }
+
+    private static func textStyling(for kind: MarkdownBlock.Kind) -> (font: NSFont, color: NSColor, parseInlineMarkdown: Bool) {
+        switch kind {
+        case let .heading(level, _):
+            if level <= 1 {
+                let title3 = NSFont.preferredFont(forTextStyle: .title3)
+                return (NSFontManager.shared.convert(title3, toHaveTrait: .boldFontMask), .labelColor, true)
+            } else {
+                return (NSFont.preferredFont(forTextStyle: .headline), .labelColor, true)
+            }
+        case .paragraph, .bullet, .numbered:
+            return (NSFont.preferredFont(forTextStyle: .body), .labelColor, true)
+        case .quote:
+            return (NSFont.preferredFont(forTextStyle: .body), .secondaryLabelColor, true)
+        case .code:
+            let size = NSFont.preferredFont(forTextStyle: .body).pointSize
+            return (.monospacedSystemFont(ofSize: size, weight: .regular), .labelColor, false)
+        }
     }
 
     func dismantle() {

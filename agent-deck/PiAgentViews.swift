@@ -574,9 +574,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     self.reconfigureVisibleRows(forceRemeasure: isSessionSwitch)
                     self.restoreScrollAnchorIfNeeded(anchor)
                     self.handleScrollAfterUpdate(isSessionSwitch: isSessionSwitch, explicitScroll: explicitScroll, wasPinned: wasPinned)
-                    if isSessionSwitch {
-                        self.scheduleVisibleRemeasure()
-                    }
+                    // The previous 60 ms `scheduleVisibleRemeasure()` here was a settle
+                    // pass introduced when first-measurement was slow and possibly wrong
+                    // (NSHostingView fittingSize iterating a SwiftUI MarkdownTextView).
+                    // With markdown measurement now going through TextKit per-block, the
+                    // first pass above is already correct — a second pass would re-tile
+                    // rows for no reason and can introduce a tiny height-recompute jitter.
                 }
             } else {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
