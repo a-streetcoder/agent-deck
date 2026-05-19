@@ -1613,6 +1613,31 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    func openPiInstallInTerminal() {
+        let operationID = UUID()
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-deck-pi-install-\(operationID.uuidString)")
+            .appendingPathExtension("command")
+        let installCommand = """
+        npm install -g @earendil-works/pi-coding-agent || { echo "npm not found. Install Node.js first."; }
+        echo ""
+        echo "Press any key to close."
+        read -k 1
+        """
+        let script = """
+        #!/bin/zsh
+        \(installCommand)
+        """
+
+        do {
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            openTerminalScript(scriptURL, command: installCommand, for: operationID)
+        } catch {
+            NSLog("Failed to create Pi install terminal script: \(error.localizedDescription)")
+        }
+    }
+
     private func terminalPiSelfUpdateCommand() -> String {
         let piPath = resolvedPiPathForShell()
         return """

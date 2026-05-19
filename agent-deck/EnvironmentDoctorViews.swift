@@ -619,7 +619,7 @@ struct DoctorScreen: View {
 
                 if let status = piRuntimeStatus {
                     if !status.isInstalled {
-                        piCommandChip("npm install -g @earendil-works/pi-coding-agent", action: nil)
+                        piCommandChip("npm install -g @earendil-works/pi-coding-agent", buttonLabel: "Install in Terminal") { viewModel.openPiInstallInTerminal() }
                     } else {
                         var versionRows: [(String, String)] = []
                         if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
@@ -634,7 +634,7 @@ struct DoctorScreen: View {
 
                         switch status.updateState {
                         case .some(.updateAvailable):
-                            piCommandChip("pi update pi") { viewModel.openPiSelfUpdateInTerminal() }
+                            piCommandChip("pi update pi", buttonLabel: "Update in Terminal") { viewModel.openPiSelfUpdateInTerminal() }
                         case let .some(.unableToCheck(reason)):
                             Text(reason)
                                 .font(.caption.monospaced())
@@ -650,7 +650,7 @@ struct DoctorScreen: View {
         }
     }
 
-    private func piCommandChip(_ command: String, action: (() -> Void)?) -> some View {
+    private func piCommandChip(_ command: String, buttonLabel: String = "Run in Terminal", action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Text(command)
@@ -671,7 +671,7 @@ struct DoctorScreen: View {
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.contentSubtleFill))
 
             if let action {
-                Button("Update in Terminal", action: action)
+                Button(buttonLabel, action: action)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }
