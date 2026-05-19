@@ -579,40 +579,60 @@ struct DoctorScreen: View {
 
     private var piAgentSection: some View {
         AppCard(title: "Pi Runtime") {
-            HStack(alignment: .top, spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(AppTheme.contentSubtleFill)
-                        .stroke(AppTheme.contentStroke, lineWidth: 1)
-                    Image("pi")
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .foregroundStyle(piAgentStatusColor)
-                        .padding(13)
-                }
-                .frame(width: 54, height: 54)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 16) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(AppTheme.contentSubtleFill)
+                            .stroke(AppTheme.contentStroke, lineWidth: 1)
+                        Image("pi")
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(piAgentStatusColor)
+                            .padding(13)
+                    }
+                    .frame(width: 54, height: 54)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("Pi")
-                            .font(.title3.weight(.semibold))
-                            .fontWidth(.expanded)
-                        AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text("Pi")
+                                .font(.title3.weight(.semibold))
+                                .fontWidth(.expanded)
+                            AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
+                        }
+                        if let status = piRuntimeStatus {
+                            Text(status.detail)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Checking Pi…").font(.caption).foregroundStyle(AppTheme.mutedText)
+                            }
+                        }
                     }
 
-                    if let status = piRuntimeStatus {
-                        Text(status.detail)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                }
 
-                        AppKeyValueList(rows: piAgentRows(for: status))
+                if let status = piRuntimeStatus {
+                    if !status.isInstalled {
+                        piCommandChip("npm install -g @earendil-works/pi-coding-agent", action: nil)
+                    } else {
+                        HStack(alignment: .top, spacing: 24) {
+                            if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
+                                piVersionPill(label: "Current", value: v)
+                            }
+                            if case let .updateAvailable(latest) = status.updateState {
+                                piVersionPill(label: "Latest", value: latest)
+                            }
+                        }
 
                         switch status.updateState {
                         case .some(.updateAvailable):
-                            Button("Update in Terminal") { viewModel.openPiSelfUpdateInTerminal() }
-                                .buttonStyle(.borderedProminent)
+                            piCommandChip("pi update pi") { viewModel.openPiSelfUpdateInTerminal() }
                         case let .some(.unableToCheck(reason)):
                             Text(reason)
                                 .font(.caption.monospaced())
@@ -621,19 +641,48 @@ struct DoctorScreen: View {
                         case .some(.upToDate), .none:
                             EmptyView()
                         }
-                    } else {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Checking Pi...")
-                                .foregroundStyle(AppTheme.mutedText)
-                        }
                     }
                 }
-
-                Spacer(minLength: 8)
             }
             .padding(.vertical, 10)
+        }
+    }
+
+    private func piVersionPill(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+            Text(value)
+                .font(.footnote.weight(.medium).monospaced())
+        }
+    }
+
+    private func piCommandChip(_ command: String, action: (() -> Void)?) -> some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text(command)
+                    .font(.footnote.monospaced())
+                    .textSelection(.enabled)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy command")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.contentSubtleFill))
+
+            if let action {
+                Button("Update in Terminal", action: action)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -659,18 +708,6 @@ struct DoctorScreen: View {
         if case .some(.updateAvailable) = status.updateState { return "Update" }
         if case .some(.unableToCheck) = status.updateState { return "Check Failed" }
         return "Ready"
-    }
-
-    private func piAgentRows(for status: PiAgentRuntimeStatus) -> [(String, String)] {
-        if !status.isInstalled {
-            return [("Install", "npm install -g @earendil-works/pi-coding-agent")]
-        }
-        var rows = [("Current", status.currentVersion.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown")]
-        if case let .some(.updateAvailable(latestVersion)) = status.updateState {
-            rows.append(("Latest", latestVersion))
-            rows.append(("Command", "pi update pi"))
-        }
-        return rows
     }
 
     // MARK: - Foundation Model
@@ -719,9 +756,7 @@ struct DoctorScreen: View {
     private func foundationModelRows(isAvailable: Bool) -> [(String, String)] {
         [
             ("Model", "apple/foundation"),
-            ("Scope", "Automations only"),
-            ("Runtime", isAvailable ? "Local on-device" : "Unavailable"),
-            ("Context", "Small window; Agent Deck bounds automation prompts")
+            ("Runtime", isAvailable ? "Local on-device" : "Unavailable")
         ]
     }
 
