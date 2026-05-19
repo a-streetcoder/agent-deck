@@ -84,11 +84,8 @@ private struct ProviderInlineLabelStyle: LabelStyle {
     let spacing: CGFloat
 
     func makeBody(configuration: Configuration) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: spacing) {
+        HStack(alignment: .center, spacing: spacing) {
             configuration.icon
-                .alignmentGuide(.firstTextBaseline) { dimensions in
-                    dimensions[VerticalAlignment.center]
-                }
             configuration.title
         }
     }
