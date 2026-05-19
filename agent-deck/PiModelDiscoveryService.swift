@@ -22,14 +22,14 @@ struct PiModelDiscoveryService: Sendable {
             )
             guard result.exitCode == 0 else { return [] }
             let output = result.stdout.isEmpty ? result.stderr : result.stdout
-            let exactThinkingLevels = await loadModelThinkingLevels(fromPiListOutput: output)
+            let exactThinkingLevels = await loadModelThinkingLevels(fromPiListOutput: output, piPath: piCommand)
             return Self.parseAvailableModels(from: output, exactThinkingLevels: exactThinkingLevels)
         } catch {
             return []
         }
     }
 
-    private func loadModelThinkingLevels(fromPiListOutput text: String) async -> [String: [String]] {
+    private func loadModelThinkingLevels(fromPiListOutput text: String, piPath: String) async -> [String: [String]] {
         let knownModels = Self.availableModelIdentifiers(fromPiListOutput: text).map { ["provider": $0.provider, "model": $0.model] }
         guard !knownModels.isEmpty,
               let inputData = try? JSONSerialization.data(withJSONObject: knownModels),
@@ -38,13 +38,39 @@ struct PiModelDiscoveryService: Sendable {
             return [:]
         }
 
+        // Walk up from the real pi binary location to find models.js, covering nvm,
+        // volta, fnm, local installs, and anything else where the binary is a symlink
+        // into a node_modules tree. Falls back to known Homebrew paths.
         let script = #"""
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
-const candidates = [
+const candidates = [];
+
+const piPath = process.env.AGENT_DECK_PI_PATH;
+if (piPath && existsSync(piPath)) {
+  try {
+    const realPath = realpathSync(piPath);
+    let dir = dirname(realPath);
+    for (let i = 0; i < 10; i++) {
+      const earendil = resolve(dir, 'node_modules/@earendil-works/pi-ai/dist/models.js');
+      const mario    = resolve(dir, 'node_modules/@mariozechner/pi-ai/dist/models.js');
+      if (existsSync(earendil)) { candidates.push(earendil); break; }
+      if (existsSync(mario))    { candidates.push(mario);    break; }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {}
+}
+
+candidates.push(
   '/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/models.js',
   '/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js',
-];
+  '/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/models.js',
+  '/usr/local/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/models.js',
+);
+
 const modulePath = candidates.find((path) => existsSync(path));
 if (!modulePath) throw new Error('Could not locate pi-ai models.js');
 
@@ -70,7 +96,7 @@ process.stdout.write(JSON.stringify(result));
                 arguments: ["--input-type=module", "--eval", script],
                 currentDirectoryURL: nil,
                 timeout: 8,
-                environment: ["AGENT_DECK_MODEL_INPUT": inputText]
+                environment: ["AGENT_DECK_MODEL_INPUT": inputText, "AGENT_DECK_PI_PATH": piPath]
             )
             guard result.exitCode == 0,
                   let data = result.stdout.data(using: .utf8),
