@@ -99,7 +99,7 @@ struct ContentView: View {
         let warnings = sidebarWarningSnapshot
         NavigationSplitView(columnVisibility: $navigationColumnVisibility) {
             VStack(spacing: 0) {
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
 //                    Image("agent-deck")
 //                        .resizable()
 //                    a    .scaledToFit()
@@ -109,13 +109,9 @@ struct ContentView: View {
                         .font(AppFonts.kemcoPixelBold(size: 18))
                         .foregroundStyle(.primary)
 
-                    Text(AppBrand.betaBadgeText.uppercased())
-                        .font(.caption2.weight(.bold))
-                        .fontWidth(.expanded)
-                        .foregroundStyle(AppTheme.brandAccent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(AppTheme.brandAccent.opacity(0.12), in: Capsule(style: .continuous))
+                    Text(AppBrand.betaBadgeText)
+                        .font(AppFonts.kemcoPixelBold(size: 11))
+                        .foregroundStyle(AppTheme.brandAccent.gradient)
                         .accessibilityLabel(AppBrand.betaBadgeText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
