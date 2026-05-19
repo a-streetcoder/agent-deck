@@ -1074,14 +1074,22 @@ final class PiAgentRunnerService {
     }
 
     private func streamingFlushDelay(for sessionID: UUID) -> UInt64 {
+        // Cadence governs how big each per-flush scroll step is. Bigger delays = more
+        // text per flush = bigger pixel jumps when pinned-to-bottom scrollToBottom snaps
+        // the origin. Previously these were 60/80/120 ms to keep CPU low — each flush
+        // re-ran the SwiftUI MarkdownTextView body and triggered a fresh per-block view
+        // tree (slow). With markdown measurement now going through TextKit and streaming
+        // updates being in-place NSTextStorage replacements (Step 4), each flush is
+        // ~microseconds of layout work; we can afford much faster cadence and the user
+        // perceives streaming as smooth scroll instead of discrete steps.
         let characterCount = (assistantTextBySessionID[sessionID]?.count ?? 0) + (thinkingTextBySessionID[sessionID]?.count ?? 0)
         switch characterCount {
         case 0..<1_000:
-            return 60_000_000
+            return 33_000_000   // ~30 fps
         case 1_000..<4_000:
-            return 80_000_000
+            return 45_000_000   // ~22 fps
         default:
-            return 120_000_000
+            return 60_000_000   // ~17 fps for very long messages
         }
     }
 

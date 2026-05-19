@@ -116,7 +116,12 @@ final class PiAgentTranscriptRenderCache: ObservableObject {
         }
 
         updateTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 66_000_000)
+            // Lowered from 66 ms (the previous safety value when each publish triggered
+            // an expensive SwiftUI body rebuild) to 33 ms. With TextKit-based markdown
+            // measurement and in-place NSTextStorage updates, each publish is cheap;
+            // halving the coalesce window means streaming feels like smooth scroll
+            // instead of discrete 66 ms steps.
+            try? await Task.sleep(nanoseconds: 33_000_000)
             guard !Task.isCancelled else { return }
             self?.publish(rawEntries)
         }

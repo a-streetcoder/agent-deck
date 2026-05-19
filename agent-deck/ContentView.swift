@@ -665,7 +665,13 @@ struct ContentView: View {
         let selectedAgentPath = selectedAgentFilePath
         let promptsAreVisible = viewModel.selectedSidebarItem == .prompts
 
-        let ctx = AgentDeckCommandContext()
+        // Mutate the existing `@State` context in place rather than allocating a fresh
+        // instance — `AgentDeckCommandContext` is now `@Observable`, so SwiftUI consumers
+        // (the menu `Commands` body's `@FocusedValue` reader) re-render via observation
+        // when individual properties change. Keeping the same reference means
+        // `focusedSceneValue` never reports a new identity, which is what SwiftUI was
+        // logging "FocusedValue update tried to update multiple times per frame" about.
+        let ctx = commandContext
 
         ctx.canCreatePiAgentSession = true
         ctx.canCreateAgent = true
@@ -738,8 +744,6 @@ struct ContentView: View {
         ctx.toggleSelectedAgentDisabled = {
             setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
         }
-
-        commandContext = ctx
     }
 
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {

@@ -94,6 +94,16 @@ private extension View {
     }
 }
 
+/// `@Observable` so property mutations are picked up by SwiftUI consumers
+/// (`@FocusedValue(\.agentDeckCommands)` readers like the menu `Commands` body)
+/// without needing to swap the focused-scene-value's reference on every update.
+/// The old pattern in `updateCommandContext` was to allocate a brand-new
+/// `AgentDeckCommandContext` instance per call and reassign it to the `@State`,
+/// which made `focusedSceneValue` see a new identity every frame and SwiftUI
+/// logged "FocusedValue update tried to update multiple times per frame" when
+/// two updates landed in the same render cycle. With `@Observable` we keep the
+/// same instance for the lifetime of the scene and just mutate its properties.
+@Observable
 final class AgentDeckCommandContext {
     var canCreatePiAgentSession = false
     var canCreateAgent = false
