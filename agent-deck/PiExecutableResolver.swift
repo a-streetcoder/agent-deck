@@ -1,10 +1,10 @@
 import Foundation
 
 struct PiExecutableResolver: Sendable {
-    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cachedURL: (key: String, url: URL)?
 
-    func resolve() -> URL? {
+    nonisolated func resolve() -> URL? {
         let environment = ProcessInfo.processInfo.environment
         let cacheKey = Self.cacheKey(for: environment)
 
@@ -26,7 +26,7 @@ struct PiExecutableResolver: Sendable {
         return resolved
     }
 
-    private static func cacheKey(for environment: [String: String]) -> String {
+    nonisolated private static func cacheKey(for environment: [String: String]) -> String {
         [
             environment["AGENT_DECK_PI_PATH"] ?? "",
             environment["PI_CLI_PATH"] ?? "",
@@ -35,7 +35,7 @@ struct PiExecutableResolver: Sendable {
         ].joined(separator: "\u{1f}")
     }
 
-    private func resolveUncached(environment: [String: String]) -> URL? {
+    nonisolated private func resolveUncached(environment: [String: String]) -> URL? {
         for key in ["AGENT_DECK_PI_PATH", "PI_CLI_PATH"] {
             if let raw = environment[key], let url = executableURL(from: raw) {
                 return url
@@ -46,10 +46,6 @@ struct PiExecutableResolver: Sendable {
             return pathResolved
         }
 
-        if let shellResolved = resolveUsingShell("pi") {
-            return shellResolved
-        }
-
         let candidates = commonPiCandidates()
         if let match = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) {
             return match
@@ -58,7 +54,7 @@ struct PiExecutableResolver: Sendable {
         return nil
     }
 
-    private func executableURL(from raw: String) -> URL? {
+    nonisolated private func executableURL(from raw: String) -> URL? {
         let expanded = NSString(string: raw).expandingTildeInPath
         if FileManager.default.isExecutableFile(atPath: expanded) {
             return URL(fileURLWithPath: expanded)
@@ -66,7 +62,7 @@ struct PiExecutableResolver: Sendable {
         return nil
     }
 
-    private func resolveExecutableInPATH(_ command: String, environment: [String: String]) -> URL? {
+    nonisolated private func resolveExecutableInPATH(_ command: String, environment: [String: String]) -> URL? {
         let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         let path = [environment["PATH"], defaultPath]
             .compactMap { $0 }
@@ -83,34 +79,7 @@ struct PiExecutableResolver: Sendable {
         return nil
     }
 
-    private func resolveUsingShell(_ command: String) -> URL? {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-lic", "command -v \(command)"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        let semaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in semaphore.signal() }
-
-        do {
-            try process.run()
-            if semaphore.wait(timeout: .now() + 5) == .timedOut {
-                process.terminate()
-                _ = semaphore.wait(timeout: .now() + 1)
-                return nil
-            }
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return path.isEmpty ? nil : URL(fileURLWithPath: path)
-        } catch {
-            return nil
-        }
-    }
-
-    func commonPiCandidates() -> [URL] {
+    nonisolated func commonPiCandidates() -> [URL] {
         var paths = [
             "/opt/homebrew/bin/pi",
             "/usr/local/bin/pi",
