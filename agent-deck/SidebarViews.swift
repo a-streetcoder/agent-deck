@@ -365,27 +365,28 @@ struct ProjectPickerPopover: View {
             )
 
             List(selection: selectionBinding) {
-                Section {
-                    ProjectSidebarRow(
-                        title: "All Projects",
-                        subtitle: "Show sessions across every project",
-                        symbolName: "square.grid.2x2",
-                        imageURL: nil
-                    )
-                    .tag(nil as String?)
+                ProjectSidebarRow(
+                    title: "All Projects",
+                    subtitle: "Show sessions across every project",
+                    symbolName: "square.grid.2x2",
+                    imageURL: nil
+                )
+                .tag(nil as String?)
 
-                    ForEach(projects) { project in
-                        ProjectSidebarRow(
-                            title: project.repositoryDisplayName,
-                            subtitle: project.path,
-                            symbolName: project.fallbackSymbolName,
-                            imageURL: project.iconFileURL
-                        )
-                        .tag(Optional(project.path))
-                    }
+                ForEach(projects) { project in
+                    ProjectSidebarRow(
+                        title: project.repositoryDisplayName,
+                        subtitle: project.path,
+                        symbolName: project.fallbackSymbolName,
+                        imageURL: project.iconFileURL
+                    )
+                    .tag(Optional(project.path))
                 }
             }
-            .listStyle(.inset)
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
+            .tint(AppTheme.brandAccent)
             .frame(width: 360, height: 220)
         }
         .padding(14)
