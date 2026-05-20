@@ -964,10 +964,18 @@ private struct PiSystemInstructionsProjectDetail: View {
 }
 
 private struct PiInstructionFileEditor: View {
+    /// Describes the file's place in a competing row so the editor can dim
+    /// losing fallbacks and point at the file Pi actually loads.
+    struct Competition {
+        let hasWinner: Bool
+        let winnerTitle: String?
+    }
+
     let file: PiInstructionFile
     @Binding var text: String
     let isDirty: Bool
-    var isInPair: Bool = false
+    /// Non-nil when this file shares a row with other competing files.
+    var competition: Competition? = nil
     let save: () -> Void
     let revealInFinder: () -> Void
 
@@ -975,7 +983,13 @@ private struct PiInstructionFileEditor: View {
     @State private var sheetDraft = ""
 
     private var isActive: Bool { file.status == .active }
-    private var isDimmed: Bool { isInPair && !isActive }
+
+    // Desaturate competing files that lost to a winner so the loaded file
+    // stands out. Rows with no winner yet keep every card at full strength.
+    private var isDimmed: Bool {
+        guard let competition else { return false }
+        return competition.hasWinner && !isActive
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1543,6 +1557,63 @@ private struct PiInstructionFile: Identifiable, Hashable {
 
     var id: String { url.path }
     var displayPath: String { url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~") }
+
+    /// A set of instruction files that compete for the same prompt slot, where
+    /// at most one (`winner`) is actually loaded by Pi. The remaining files are
+    /// shadowed fallbacks or not-yet-created candidates.
+    struct CompetitionGroup: Identifiable {
+        let id: String
+        /// Directory caption shown above a context-file row. `nil` for base and
+        /// append rows, where the competing files live in different directories.
+        let label: String?
+        let files: [PiInstructionFile]
+
+        var winner: PiInstructionFile? { files.first { $0.status == .active } }
+    }
+
+    /// Splits a role's files into the groups that actually compete in Pi.
+    ///
+    /// - Base/append: a session uses exactly one base prompt and one append
+    ///   prompt, so every file of that role competes in a single group.
+    /// - Context: Pi loads one context file *per directory* (`AGENTS.md` beats
+    ///   `CLAUDE.md` within a directory, but every directory contributes one
+    ///   file), so each directory is its own competition.
+    static func competitionGroups(for files: [PiInstructionFile]) -> [CompetitionGroup] {
+        guard let role = files.first?.role else { return [] }
+        switch role {
+        case .base, .append:
+            return [CompetitionGroup(id: role.rawValue, label: nil, files: files)]
+        case .context:
+            var groups: [CompetitionGroup] = []
+            for file in files {
+                let directory = file.url.deletingLastPathComponent().path
+                if let last = groups.indices.last,
+                   groups[last].files.first?.url.deletingLastPathComponent().path == directory {
+                    groups[last] = CompetitionGroup(
+                        id: groups[last].id,
+                        label: groups[last].label,
+                        files: groups[last].files + [file]
+                    )
+                } else {
+                    let label = directory.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+                    groups.append(CompetitionGroup(id: directory, label: label, files: [file]))
+                }
+            }
+            // Order each directory's cards by Pi's candidate precedence so the
+            // left-most column is always the highest-priority filename.
+            return groups.map { group in
+                CompetitionGroup(
+                    id: group.id,
+                    label: group.label,
+                    files: group.files.sorted { contextPrecedence(of: $0) < contextPrecedence(of: $1) }
+                )
+            }
+        }
+    }
+
+    private static func contextPrecedence(of file: PiInstructionFile) -> Int {
+        contextCandidateNames.firstIndex(of: file.url.lastPathComponent) ?? contextCandidateNames.count
+    }
 
     static func globalCatalog(existingPaths: Set<String>) -> [PiInstructionFile] {
         let globalDir = globalAgentDirectory
