@@ -347,7 +347,6 @@ struct PiAgentUIRequestCard: View {
     let onCancel: () -> Void
 
     @State private var draft = ""
-    @State private var commentDraft = ""
     @State private var isComposingFreeform = false
     @State private var selectedOptions: Set<String> = []
 
@@ -379,7 +378,6 @@ struct PiAgentUIRequestCard: View {
         }
         .onChange(of: request.id) { _, _ in
             draft = request.prefill ?? ""
-            commentDraft = ""
             isComposingFreeform = false
             selectedOptions = []
         }
@@ -613,15 +611,6 @@ struct PiAgentUIRequestCard: View {
                 )
             }
 
-            if !isComposingFreeform, request.allowsComment {
-                TextField("Optional comment", text: $commentDraft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...3)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-
             HStack(spacing: 10) {
                 Spacer()
                 Button("Cancel", action: onCancel)
@@ -692,7 +681,7 @@ struct PiAgentUIRequestCard: View {
 
     private func submitNativeAskSelection() {
         let orderedSelections = request.options.filter { selectedOptions.contains($0) }
-        onSubmitValue(request.nativeAskSelectionResponseValue(selections: orderedSelections, comment: commentDraft))
+        onSubmitValue(request.nativeAskSelectionResponseValue(selections: orderedSelections, comment: ""))
     }
 }
 
