@@ -500,26 +500,8 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var mainToolbarContent: some ToolbarContent {
-        navigationToolbarItems
         ToolbarSpacer(.flexible)
         primaryActionToolbarItems
-    }
-
-    @ToolbarContentBuilder
-    private var navigationToolbarItems: some ToolbarContent {
-        if viewModel.selectedSidebarItem == .agent {
-            ToolbarItem(placement: .navigation) {
-                Button(role: .destructive) {
-                    showingPiAgentDeleteAlert = true
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .toolbarNeutralChrome()
-                .help("Delete the current Pi Agent session")
-                .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-            }
-        }
-
     }
 
     private var agentsFilterButton: some View {
@@ -759,11 +741,35 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var piAgentPrimaryToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) { piAgentStartupInfoButton }
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                Button {
+                    isPiAgentStartupResourcesPresented.toggle()
+                } label: {
+                    Label("Session Resources", systemImage: "info.circle")
+                }
+                .help("Agents, skills, prompts, and environment available to this session")
+                .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
 
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        ToolbarItem(placement: .primaryAction) { piAgentTranscriptDisplayButton }
+                Button {
+                    isPiAgentTranscriptOptionsPresented.toggle()
+                } label: {
+                    Label("Transcript Display", systemImage: "eye")
+                }
+                .help("Choose what appears in the agent transcript")
+            } label: {
+                Label("Session", systemImage: "info.circle")
+            }
+            .toolbarNeutralChrome()
+            .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
+                if let session = viewModel.piAgentSessionStore.selectedSession {
+                    PiAgentStartupResourcesPopover(viewModel: viewModel, session: session)
+                }
+            }
+            .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+            }
+        }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
@@ -790,35 +796,6 @@ struct ContentView: View {
                 Label("Terminal", systemImage: "terminal")
             }
             .toolbarNeutralChrome()
-        }
-    }
-
-    private var piAgentTranscriptDisplayButton: some View {
-        Button {
-            isPiAgentTranscriptOptionsPresented.toggle()
-        } label: {
-            Label("Transcript Display", systemImage: "eye")
-        }
-        .toolbarNeutralChrome()
-        .help("Choose what appears in the agent transcript")
-        .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-            PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
-        }
-    }
-
-    private var piAgentStartupInfoButton: some View {
-        Button {
-            isPiAgentStartupResourcesPresented.toggle()
-        } label: {
-            Label("Session Resources", systemImage: "info.circle")
-        }
-        .toolbarNeutralChrome()
-        .help("Agents, skills, prompts, and environment available to this session")
-        .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-        .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
-            if let session = viewModel.piAgentSessionStore.selectedSession {
-                PiAgentStartupResourcesPopover(viewModel: viewModel, session: session)
-            }
         }
     }
 
