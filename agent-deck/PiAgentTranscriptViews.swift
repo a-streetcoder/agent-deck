@@ -604,6 +604,64 @@ extension String {
     }
 }
 
+/// Hover-driven copy-button wrapper for thread messages. Used by
+/// `PiAgentTranscriptThreadCard` to place a glass copy button beside user
+/// bubbles and assistant cards.
+///
+/// CRITICAL: the copy button is an `.overlay` on the card, NOT a sibling in
+/// the row's HStack. Overlays never contribute to their host's layout size,
+/// so the row the AppKit table measures is byte-for-byte the long-stable
+/// `HStack { card; Spacer }` layout — adding/removing/animating the copy
+/// button cannot change a row's measured height. (A previous version put the
+/// button in the HStack; that changed what the offscreen measurement cell
+/// saw and reintroduced the card-overlap bug.)
+///
+/// The button floats into the 60pt `Spacer` gap via `.offset`. `@State` is
+/// per-row, so each row tracks its own hover with no cross-row coupling.
+private struct ThreadMessageRow<Content: View>: View {
+    enum CopySide { case leading, trailing }
+
+    let copyText: String
+    let copyOn: CopySide
+    let cardMaxWidth: CGFloat
+    @ViewBuilder var content: () -> Content
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if copyOn == .leading {
+                Spacer(minLength: 60)
+                card
+            } else {
+                card
+                Spacer(minLength: 60)
+            }
+        }
+        .onHover { isHovering = $0 }
+        .animation(.easeInOut(duration: 0.15), value: isHovering)
+    }
+
+    private var card: some View {
+        content()
+            .frame(maxWidth: cardMaxWidth, alignment: copyOn == .leading ? .trailing : .leading)
+            .overlay(alignment: copyOn == .leading ? .leading : .trailing) {
+                AppCopyIconButton(
+                    text: copyText,
+                    help: "Copy message",
+                    size: CGSize(width: 28, height: 28)
+                )
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+                .accessibilityHidden(!isHovering)
+                // Vertically centered against the card; floated into the
+                // Spacer gap beside it. The overlay is layout-neutral so this
+                // offset never affects measurement.
+                .offset(x: copyOn == .leading ? -38 : 38)
+            }
+    }
+}
+
 struct PiAgentTranscriptThreadCard: View {
     let thread: PiAgentTranscriptThread
     let visibility: PiAgentTranscriptVisibilitySettings
@@ -616,52 +674,58 @@ struct PiAgentTranscriptThreadCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let question = thread.question {
-                // iMessage-style: right-aligned user bubble. Pushed right by a
-                // leading Spacer; capped at a fixed 520pt so long messages wrap
-                // instead of spanning the pane. Fixed cap (not proportional)
-                // because the proportional approaches we tried (onGeometryChange,
-                // containerRelativeFrame) both caused layout instability —
-                // onGeometryChange flashed on every resize tick, and
-                // containerRelativeFrame resolved to the wrong container in
-                // our AppKit-hosted scroll view and overflowed the row.
-                HStack(spacing: 0) {
-                    Spacer(minLength: 60)
+                // iMessage-style: right-aligned user bubble. The hover-revealed
+                // glass copy button sits just to the LEFT of the bubble.
+                ThreadMessageRow(
+                    copyText: question.text,
+                    copyOn: .leading,
+                    cardMaxWidth: 520
+                ) {
                     PiAgentTranscriptCard(entry: question, style: .question, skills: skills)
-                        .frame(maxWidth: 520, alignment: .trailing)
                         .id(question.id)
                 }
             }
 
             if hasChildren {
-                // Assistant / tool / status children: mirrored layout — left-
-                // aligned with a trailing Spacer pushing the open space to the
-                // right, mirroring the user-bubble's leading Spacer. Capped at
-                // a fixed 900pt so wide windows don't stretch code blocks /
-                // diff cards edge-to-edge (Apple HIG ~"80% of row" convention,
-                // approximated as a fixed cap because every proportional
-                // approach we tried — onGeometryChange, containerRelativeFrame
-                // — produced layout instability inside the AppKit-hosted
-                // scrollView).
+                // Mirrored — assistant / tool / status cards on the left, with
+                // the hover-revealed glass copy button on the RIGHT.
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(thread.children) { child in
-                        HStack(spacing: 0) {
+                        ThreadMessageRow(
+                            copyText: copyText(for: child),
+                            copyOn: .trailing,
+                            cardMaxWidth: 900
+                        ) {
                             childView(child)
-                                .frame(maxWidth: 900, alignment: .leading)
-                            Spacer(minLength: 60)
                         }
                     }
                     if visibility.showPlans {
                         ForEach(latestPlanEvents) { event in
-                            HStack(spacing: 0) {
+                            ThreadMessageRow(
+                                copyText: event.items.map(\.title).joined(separator: "\n"),
+                                copyOn: .trailing,
+                                cardMaxWidth: 900
+                            ) {
                                 PiAgentCurrentPlanCard(event: event)
                                     .id(event.id)
-                                    .frame(maxWidth: 900, alignment: .leading)
-                                Spacer(minLength: 60)
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Plain-text representation of a thread child suitable for the system
+    /// pasteboard. Combines text from underlying entries (or tool-group
+    /// entries) and falls back to the raw entry text.
+    private func copyText(for child: PiAgentThreadChild) -> String {
+        switch child {
+        case .steering(let entry), .thinking(let entry), .assistant(let entry),
+             .status(let entry), .error(let entry):
+            return entry.text
+        case .toolGroup(let group):
+            return group.entries.map(\.text).joined(separator: "\n\n")
         }
     }
 
