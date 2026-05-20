@@ -171,7 +171,7 @@ struct GitHubIssueDetailView: View {
                         .renderingMode(.template)
                         .scaledToFit()
                         .frame(width: 16, height: 16)
-                    Text("Open in Pi")
+                    Text("Open")
                         .fontWeight(.semibold)
                 }
                 .foregroundStyle(AppTheme.accentForeground.gradient)
@@ -194,7 +194,7 @@ struct GitHubIssueDetailView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 16, weight: .semibold))
-                        Text(viewModel.githubIsClosingIssue ? "Closing…" : "Close Issue")
+                        Text(viewModel.githubIsClosingIssue ? "Closing…" : "Close")
                             .fontWeight(.semibold)
                     }
                     .foregroundStyle(AppTheme.mutedText)
