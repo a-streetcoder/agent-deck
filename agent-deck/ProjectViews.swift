@@ -275,7 +275,11 @@ private struct PiGlobalSystemInstructionsDetail: View {
                 .padding(AppTheme.pagePadding)
             }
             .sheet(isPresented: $isPreviewPresented) {
-                PiGlobalSystemPromptPreviewSheet(preview: PiInstructionPreviewBuilder.globalPreview(existingPaths: existingPaths, drafts: drafts))
+                PiPromptPreviewSheet(
+                    title: "System Prompt Preview",
+                    subtitle: "Global fallback · ~/.pi/agent",
+                    preview: PiInstructionPreviewBuilder.globalPreview(existingPaths: existingPaths, drafts: drafts)
+                )
             }
             .task {
                 loadFiles()
@@ -429,83 +433,150 @@ private struct PiGlobalSystemInstructionsDetail: View {
     }
 }
 
-/// Read-only, selectable, monospaced text backed by AppKit's `NSTextView`.
-///
-/// SwiftUI's `ScrollView { Text(...).textSelection(.enabled) }` keeps a
-/// selection overlay across the entire string and re-rasterizes one tall
-/// layer while scrolling, which makes large documents (assembled system
-/// prompts) janky. `NSTextView` is backed by TextKit: with non-contiguous
-/// layout it lays out and selects only the visible portion on demand.
-private struct ReadOnlyMonospacedTextView: NSViewRepresentable {
-    let text: String
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-
-        let textView = NSTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = false
-        textView.drawsBackground = false
-        textView.backgroundColor = .clear
-        textView.textColor = .labelColor
-        let captionSize = NSFont.preferredFont(forTextStyle: .caption1).pointSize
-        textView.font = NSFont.monospacedSystemFont(ofSize: captionSize, weight: .regular)
-        textView.textContainerInset = NSSize(width: 16, height: 16)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        // Accessing `layoutManager` opts into TextKit 1, where non-contiguous
-        // layout keeps scrolling smooth for large documents.
-        textView.layoutManager?.allowsNonContiguousLayout = true
-        textView.string = text
-
-        scrollView.documentView = textView
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
-        }
-    }
-}
-
-private struct PiGlobalSystemPromptPreviewSheet: View {
-    let preview: String
+/// The System Prompt "Preview" sheet. Renders the assembled effective prompt as
+/// labelled sections — each base/append/context file in its own card, and Agent
+/// Deck's runtime placeholders as visually distinct callouts — so literal prompt
+/// text is never confused with text Pi substitutes at runtime.
+private struct PiPromptPreviewSheet: View {
+    let title: String
+    let subtitle: String
+    let preview: PiPromptPreview
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Global Instruction Preview")
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                    Text("~/.pi/agent")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                Spacer()
+            AppSheetHeader(
+                systemImage: "doc.text.magnifyingglass",
+                title: title,
+                subtitle: subtitle,
+                metadata: metadataLine
+            ) {
+                AppCopyTextButton(text: preview.fullText, help: "Copy the full assembled system prompt")
                 Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
-            .padding(16)
 
-            Divider()
-
-            ReadOnlyMonospacedTextView(text: preview)
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                    ForEach(preview.sections) { section in
+                        PiPromptPreviewSectionView(section: section)
+                    }
+                }
+                .padding(18)
+            }
         }
         .frame(minWidth: 760, minHeight: 620)
+    }
+
+    private var metadataLine: String {
+        let text = preview.fullText
+        let lineCount = text.split(separator: "\n", omittingEmptySubsequences: false).count
+        let lines = lineCount == 1 ? "1 line" : "\(lineCount.formatted()) lines"
+        let size = ByteCountFormatter.string(fromByteCount: Int64(text.utf8.count), countStyle: .file)
+        return "\(lines) · \(size) · \(tokenEstimate(for: text))"
+    }
+
+    // A rough chars-per-token heuristic — enough to gauge context budget, not
+    // an exact tokenizer count, hence the "≈".
+    private func tokenEstimate(for text: String) -> String {
+        let tokens = max(1, text.count / 4)
+        guard tokens >= 1000 else { return "≈\(tokens) tokens" }
+        let thousands = (Double(tokens) / 1000).formatted(.number.precision(.fractionLength(0...1)))
+        return "≈\(thousands)k tokens"
+    }
+}
+
+/// One section of `PiPromptPreviewSheet`: a file-backed card (base/append/context)
+/// or a tinted "inserted at runtime" callout for Agent Deck's placeholders.
+private struct PiPromptPreviewSectionView: View {
+    let section: PiPromptPreview.Section
+
+    var body: some View {
+        if section.kind.isFileBacked {
+            fileCard
+        } else {
+            runtimeCallout
+        }
+    }
+
+    private var fileCard: some View {
+        VStack(alignment: .leading, spacing: AppTheme.contentSpacing) {
+            HStack(spacing: 8) {
+                roleChip
+                Text(section.sourcePath ?? section.sourceLabel ?? section.title)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                AppCopyTextButton(text: section.content, help: "Copy this section")
+                    .controlSize(.small)
+            }
+
+            if section.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("(empty file)")
+                    .font(.system(.caption, design: .monospaced))
+                    .italic()
+                    .foregroundStyle(AppTheme.mutedText)
+            } else {
+                Text(section.content)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(AppTheme.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appContentSurface()
+    }
+
+    private var roleChip: some View {
+        Text(roleLabel)
+            .font(.caption2.weight(.semibold))
+            .fontWidth(.expanded)
+            .foregroundStyle(AppTheme.brandAccent)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(AppTheme.brandAccent.opacity(0.14), in: Capsule(style: .continuous))
+    }
+
+    private var roleLabel: String {
+        switch section.kind {
+        case .base: return "BASE"
+        case .append: return "APPEND"
+        case .context: return "CONTEXT"
+        case .builtinDefault, .subagentCatalog, .runtime: return ""
+        }
+    }
+
+    private var runtimeCallout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: calloutIcon)
+                    .foregroundStyle(AppTheme.brandAccent)
+                Text(section.title)
+                    .font(.subheadline.weight(.semibold))
+                    .fontWidth(.expanded)
+                Spacer(minLength: 8)
+                Text("Inserted at runtime")
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Text(section.content)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(AppTheme.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appControlSurface()
+    }
+
+    private var calloutIcon: String {
+        switch section.kind {
+        case .subagentCatalog: return "person.2"
+        case .runtime: return "clock"
+        case .builtinDefault, .base, .append, .context: return "info.circle"
+        }
     }
 }
 
@@ -813,7 +884,11 @@ private struct PiSystemInstructionsProjectDetail: View {
                     .padding(AppTheme.pagePadding)
                 }
                 .sheet(isPresented: $isPreviewPresented) {
-                    PiSystemPromptPreviewSheet(project: project, preview: previewText(for: project))
+                    PiPromptPreviewSheet(
+                        title: "System Prompt Preview",
+                        subtitle: project.path,
+                        preview: previewText(for: project)
+                    )
                 }
                 .task(id: project.path) {
                     loadFiles(for: project)
@@ -974,7 +1049,7 @@ private struct PiSystemInstructionsProjectDetail: View {
         }
     }
 
-    private func previewText(for project: DiscoveredProject) -> String {
+    private func previewText(for project: DiscoveredProject) -> PiPromptPreview {
         PiInstructionPreviewBuilder.preview(
             projectURL: project.url,
             existingPaths: existingPaths,
@@ -1348,37 +1423,6 @@ private struct PiSystemInstructionsInfoPopover: View {
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-private struct PiSystemPromptPreviewSheet: View {
-    let project: DiscoveredProject
-    let preview: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("System Prompt Preview")
-                        .font(.headline)
-                        .fontWidth(.expanded)
-                    Text(project.path)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer()
-                Button("Done") { dismiss() }
-            }
-            .padding(16)
-
-            Divider()
-
-            ReadOnlyMonospacedTextView(text: preview)
-        }
-        .frame(minWidth: 760, minHeight: 620)
     }
 }
 
@@ -2034,37 +2078,79 @@ private struct PiInstructionFile: Identifiable, Hashable {
     }
 }
 
+/// The assembled effective prompt, split into the pieces that compose it. The
+/// preview sheet labels each piece and sets Agent Deck's runtime placeholders
+/// apart from literal prompt text. `fullText` is the verbatim flat string Pi
+/// would assemble — used for the top-level Copy and the size readout.
+struct PiPromptPreview {
+    enum SectionKind {
+        case base, append, context
+        case builtinDefault, subagentCatalog, runtime
+
+        /// File-backed sections render as cards; the rest render as runtime callouts.
+        var isFileBacked: Bool {
+            switch self {
+            case .base, .append, .context: return true
+            case .builtinDefault, .subagentCatalog, .runtime: return false
+            }
+        }
+    }
+
+    struct Section: Identifiable {
+        let id: String
+        let kind: SectionKind
+        let title: String
+        let sourceLabel: String?
+        let sourcePath: String?
+        let content: String
+    }
+
+    let sections: [Section]
+    let assembledText: String
+
+    var fullText: String { assembledText }
+}
+
 private enum PiInstructionPreviewBuilder {
-    static func globalPreview(existingPaths: Set<String>, drafts: [String: String]) -> String {
+    static func globalPreview(existingPaths: Set<String>, drafts: [String: String]) -> PiPromptPreview {
         let catalog = PiInstructionFile.globalCatalog(existingPaths: existingPaths.union(drafts.compactMap { path, content in
             existingPaths.contains(path) || content.isEmpty ? nil : path
         }))
         var prompt: String
+        var sections: [PiPromptPreview.Section] = []
+
         if let baseFile = catalog.first(where: { $0.role == .base && $0.status == .active }) {
             prompt = content(for: baseFile.url, drafts: drafts)
+            sections.append(fileSection(baseFile, kind: .base, title: "Base prompt", drafts: drafts))
         } else {
-            prompt = """
-            [PI BUILT-IN DEFAULT SYSTEM PROMPT]
-            [Pi tool-aware guidance is generated at runtime when the built-in prompt is used.]
-            """
+            prompt = builtinDefaultText
+            sections.append(builtinDefaultSection)
         }
+
         if let appendFile = catalog.first(where: { $0.role == .append && $0.status == .active }) {
             prompt += "\n\n\(content(for: appendFile.url, drafts: drafts))"
+            sections.append(fileSection(appendFile, kind: .append, title: "Append prompt", drafts: drafts))
         }
+
         if let contextFile = catalog.first(where: { $0.role == .context && $0.status == .active }) {
             prompt += "\n\n# Global Context\n\n## \(contextFile.url.path)\n\n\(content(for: contextFile.url, drafts: drafts))"
+            sections.append(fileSection(contextFile, kind: .context, title: "Global context", drafts: drafts))
         }
-        prompt += """
 
+        // Mirrors the original trailing block: a leading newline plus these lines.
+        let runtime = """
         [PROJECT CONTEXT FILES, when a project session is launched]
         [PI SKILL CATALOG, if skills are enabled and the read tool is available]
         Current date: \(currentDateString())
         Current working directory: [selected project]
         """
-        return prompt
+        prompt += "\n" + runtime
+        sections.append(runtimeSection(runtime))
+
+        return PiPromptPreview(sections: sections, assembledText: prompt)
     }
 
-    static func preview(projectURL: URL, existingPaths: Set<String>, drafts: [String: String], includesNativeSubagentCatalog: Bool = false) -> String {
+    static func preview(projectURL: URL, existingPaths: Set<String>, drafts: [String: String], includesNativeSubagentCatalog: Bool = false) -> PiPromptPreview {
         let projectURL = projectURL.standardizedFileURL
         let draftedNewPaths = drafts.compactMap { path, content in
             existingPaths.contains(path) || content.isEmpty ? nil : path
@@ -2072,22 +2158,31 @@ private enum PiInstructionPreviewBuilder {
         let previewExistingPaths = existingPaths.union(draftedNewPaths)
         let catalog = PiInstructionFile.catalog(for: projectURL, existingPaths: previewExistingPaths)
         var prompt: String
+        var sections: [PiPromptPreview.Section] = []
 
         if let baseFile = catalog.first(where: { $0.role == .base && $0.status == .active }) {
             prompt = content(for: baseFile.url, drafts: drafts)
+            sections.append(fileSection(baseFile, kind: .base, title: "Base prompt", drafts: drafts))
         } else {
-            prompt = """
-            [PI BUILT-IN DEFAULT SYSTEM PROMPT]
-            [Pi tool-aware guidance is generated at runtime when the built-in prompt is used.]
-            """
+            prompt = builtinDefaultText
+            sections.append(builtinDefaultSection)
         }
 
         if let appendFile = catalog.first(where: { $0.role == .append && $0.status == .active }) {
             prompt += "\n\n\(content(for: appendFile.url, drafts: drafts))"
+            sections.append(fileSection(appendFile, kind: .append, title: "Append prompt", drafts: drafts))
         }
 
         if includesNativeSubagentCatalog {
             prompt += "\n\n[AGENT DECK NATIVE SUBAGENT CATALOG]"
+            sections.append(PiPromptPreview.Section(
+                id: "subagent-catalog",
+                kind: .subagentCatalog,
+                title: "Native subagent catalog",
+                sourceLabel: nil,
+                sourcePath: nil,
+                content: "Agent Deck inserts its native subagent catalog here when native subagents are enabled."
+            ))
         }
 
         let contextFiles = PiInstructionFile.activeContextFiles(for: projectURL, existingPaths: previewExistingPaths)
@@ -2095,17 +2190,64 @@ private enum PiInstructionPreviewBuilder {
             prompt += "\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n"
             for url in contextFiles {
                 prompt += "## \(url.path)\n\n\(content(for: url, drafts: drafts))\n\n"
+                sections.append(PiPromptPreview.Section(
+                    id: url.path,
+                    kind: .context,
+                    title: "Context file",
+                    sourceLabel: catalog.first { $0.id == url.path }?.title ?? url.lastPathComponent,
+                    sourcePath: url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"),
+                    content: content(for: url, drafts: drafts)
+                ))
             }
         }
 
-        prompt += """
-
+        let runtime = """
         [PI SKILL CATALOG, if skills are enabled and the read tool is available]
         Current date: \(currentDateString())
         Current working directory: \(projectURL.path)
         """
+        prompt += "\n" + runtime
+        sections.append(runtimeSection(runtime))
 
-        return prompt
+        return PiPromptPreview(sections: sections, assembledText: prompt)
+    }
+
+    private static let builtinDefaultText = """
+    [PI BUILT-IN DEFAULT SYSTEM PROMPT]
+    [Pi tool-aware guidance is generated at runtime when the built-in prompt is used.]
+    """
+
+    private static var builtinDefaultSection: PiPromptPreview.Section {
+        PiPromptPreview.Section(
+            id: "builtin-default",
+            kind: .builtinDefault,
+            title: "Built-in default prompt",
+            sourceLabel: nil,
+            sourcePath: nil,
+            content: builtinDefaultText
+        )
+    }
+
+    private static func fileSection(_ file: PiInstructionFile, kind: PiPromptPreview.SectionKind, title: String, drafts: [String: String]) -> PiPromptPreview.Section {
+        PiPromptPreview.Section(
+            id: file.id,
+            kind: kind,
+            title: title,
+            sourceLabel: file.title,
+            sourcePath: file.displayPath,
+            content: content(for: file.url, drafts: drafts)
+        )
+    }
+
+    private static func runtimeSection(_ text: String) -> PiPromptPreview.Section {
+        PiPromptPreview.Section(
+            id: "runtime",
+            kind: .runtime,
+            title: "Runtime additions",
+            sourceLabel: nil,
+            sourcePath: nil,
+            content: text
+        )
     }
 
     private static func content(for url: URL, drafts: [String: String]) -> String {

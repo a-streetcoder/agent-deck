@@ -148,7 +148,7 @@ struct SetupChecklistView: View {
 
             Divider()
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(spacing: 0) {
                         if isRefreshing && items.isEmpty {

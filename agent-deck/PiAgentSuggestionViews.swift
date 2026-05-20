@@ -242,7 +242,7 @@ struct PiAgentSkillUsePill: View {
                         .foregroundStyle(.secondary)
                 }
                 Divider()
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     Text(skill?.body.isEmpty == false ? skill!.body : (skill?.filePath ?? "Skill details are not available in \(AppBrand.displayName)'s current scan snapshot."))
                         .font(.caption.monospaced())
                         .textSelection(.enabled)

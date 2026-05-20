@@ -1566,7 +1566,7 @@ private struct AgentEditSheet: View {
 
             // Content
             if let _ = draft {
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                         switch selectedTab {
                         case .config: editConfigTab

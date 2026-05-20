@@ -971,7 +971,7 @@ struct SkillsScreen: View {
                             .font(.caption2)
                             .foregroundStyle(AppTheme.mutedText)
 
-                        ScrollView {
+                        ScrollView(showsIndicators: false) {
                             LazyVStack(alignment: .leading, spacing: 0) {
                                 if filteredImportCandidates.isEmpty {
                                     Text(importSearchIsActive ? "No importable skills match your search." : "No new importable skills were found. Already-imported skills are hidden.")

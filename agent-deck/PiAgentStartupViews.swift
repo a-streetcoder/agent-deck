@@ -97,7 +97,7 @@ struct PiAgentStartupResourcesPopover: View {
 
             Divider()
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {
                     if isEmpty {
                         Text("No agents, skills, prompts, or environment overrides were discovered for this session.")

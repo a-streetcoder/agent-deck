@@ -1454,6 +1454,7 @@ struct PiAgentScreen: View {
                             }
                         }
                         .listStyle(.plain)
+                        .scrollIndicators(.hidden)
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
                         .animation(.snappy(duration: 0.24), value: visibleSessionIDs)
@@ -2038,7 +2039,7 @@ struct PiAgentScreen: View {
 
             Divider()
 
-            ScrollView(showsIndicators: true) {
+            ScrollView(showsIndicators: false) {
                 PiAgentTranscriptStack(alignment: .leading, spacing: 12) {
                     ForEach(snapshot.earlierVisibleItems) { item in
                         transcriptTimelineItemView(item, snapshot: snapshot)

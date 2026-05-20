@@ -208,6 +208,7 @@ struct MemoryScreen: View {
             }
         }
         .listStyle(.plain)
+        .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .frame(minWidth: 310, idealWidth: 360, maxWidth: 440, minHeight: 430)
@@ -355,7 +356,7 @@ private struct MemoryDetailView: View {
                     Text("Memory Body")
                         .font(.headline)
                         .fontWidth(.expanded)
-                    ScrollView {
+                    ScrollView(showsIndicators: false) {
                         MarkdownTextView(source: document.body.isEmpty ? "_No body._" : document.body)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)

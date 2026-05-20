@@ -371,7 +371,7 @@ struct AgentModelQuickEditorSheet: View {
                 Spacer()
             }
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     ForEach(context.sections) { section in
                         if !section.agents.isEmpty {

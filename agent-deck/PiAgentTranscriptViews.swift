@@ -1184,10 +1184,10 @@ private struct PiAgentCompactDiffPreview: View {
             ForEach(displayLines.indices, id: \.self) { index in
                 let line = displayLines[index]
                 HStack(spacing: 6) {
-                    Text(line.prefix)
+                    Text(line.gutter)
                         .font(.caption2.monospaced().weight(.semibold))
                         .foregroundStyle(line.color)
-                        .frame(width: 12, alignment: .trailing)
+                        .frame(width: 40, alignment: .trailing)
                     Text(line.content.isEmpty ? " " : line.content)
                         .font(.caption2.monospaced())
                         .foregroundStyle(line.color)
@@ -1232,16 +1232,34 @@ private struct PiAgentCompactDiffPreview: View {
 
     private struct Line: Hashable {
         let prefix: String
+        let lineNumber: String
         let content: String
 
         init(raw: String) {
             if raw.hasPrefix("@@") {
                 prefix = "…"
+                lineNumber = ""
                 content = raw
-            } else {
-                prefix = String(raw.prefix(1))
-                content = String(raw.dropFirst()).trimmingCharacters(in: .whitespaces)
+                return
             }
+            guard let first = raw.first, first == "+" || first == "-" || first == " " else {
+                prefix = " "
+                lineNumber = ""
+                content = raw.trimmingCharacters(in: .whitespaces)
+                return
+            }
+            // Pi's edit diffs prefix each line with its source line number padded
+            // for alignment. Split that off so it renders in its own gutter column
+            // instead of as a fixed whitespace gap baked into the content.
+            prefix = String(first)
+            let trimmedLeading = raw.dropFirst().drop(while: { $0 == " " })
+            let numberPart = trimmedLeading.prefix(while: { $0.isNumber })
+            lineNumber = String(numberPart)
+            content = String(trimmedLeading.dropFirst(numberPart.count).drop(while: { $0 == " " }))
+        }
+
+        var gutter: String {
+            lineNumber.isEmpty ? prefix : "\(prefix) \(lineNumber)"
         }
 
         var color: Color {
@@ -1870,7 +1888,7 @@ struct PiAgentPromptAuditPopover: View {
                 )
             }
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 Text(text.isEmpty ? "No prompt content captured." : text)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
@@ -2260,7 +2278,7 @@ private struct AttachmentPreviewPopover: View {
     }
 
     private func pastePreviewBody(paste: PiAgentPasteAttachment) -> some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             Text(paste.text)
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
@@ -2276,7 +2294,7 @@ private struct AttachmentPreviewPopover: View {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 80)
         } else if let text = filePreviewText {
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 Text(String(text.prefix(12_000)))
                     .font(.caption.monospaced())
                     .textSelection(.enabled)

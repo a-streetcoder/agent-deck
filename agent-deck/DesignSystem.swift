@@ -11,14 +11,14 @@ enum AppTheme {
     static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
 
     // Brand accent comes from the `AccentColor` asset catalog colorset (currently
-    // Apple's mint) — one source of truth that also drives the macOS global
-    // accent. The three derived shades below are hand-tuned mint-family variants;
+    // Apple's cyan) — one source of truth that also drives the macOS global
+    // accent. The three derived shades below are hand-tuned cyan-family variants;
     // if the colorset hue ever changes they must be regenerated to match,
     // otherwise the primary-button gradient and strokes will clash with it.
     static let brandAccent = Color("AccentColor")
-    static let brandAccentBright = adaptiveColor(light: RGB(74, 222, 212), dark: RGB(130, 240, 232))
-    static let brandAccentDeep = adaptiveColor(light: RGB(0, 138, 130), dark: RGB(44, 130, 124))
-    static let brandAccentShadow = adaptiveColor(light: RGB(206, 244, 240), dark: RGB(30, 70, 66))
+    static let brandAccentBright = adaptiveColor(light: RGB(105, 200, 245), dark: RGB(150, 228, 255))
+    static let brandAccentDeep = adaptiveColor(light: RGB(20, 112, 168), dark: RGB(56, 140, 192))
+    static let brandAccentShadow = adaptiveColor(light: RGB(213, 238, 250), dark: RGB(28, 58, 80))
     // Halfway between the original Color.purple and a fully softened variant — keeps
     // the original's punch in light mode while easing the dark-mode saturation just
     // enough to sit on the dark transcript surface without screaming.
@@ -547,6 +547,55 @@ struct AppCard<Content: View, Trailing: View>: View {
         }
         .padding(AppTheme.cardPadding)
         .appContentSurface()
+    }
+}
+
+/// The standard header for a modal sheet: a tinted icon tile, a title with an
+/// optional monospaced subtitle and a muted metadata line, and trailing actions
+/// (typically a Copy and a Done button). Includes the trailing `Divider` so
+/// every sheet that adopts it lines up identically.
+struct AppSheetHeader<Trailing: View>: View {
+    let systemImage: String
+    let title: String
+    var subtitle: String? = nil
+    var metadata: String? = nil
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(AppTheme.brandAccent)
+                    .frame(width: 32, height: 32)
+                    .background(AppTheme.brandAccent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    if let metadata {
+                        Text(metadata)
+                            .font(.caption2)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                }
+
+                Spacer(minLength: 12)
+
+                trailing()
+            }
+            .padding(18)
+
+            Divider()
+        }
     }
 }
 

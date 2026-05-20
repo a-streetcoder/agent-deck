@@ -826,7 +826,7 @@ struct PiNativeSubagentGraphSheet: View {
                 }
             }
             Divider()
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach((run.children ?? []).sorted { $0.index < $1.index }) { child in
                         graphChildCard(child)

@@ -15,7 +15,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case doctor = "Doctor"
     case piDocs = "Docs"
     case credits = "Credits"
-    case listShowcase = "List Showcase"
 
     var id: String { rawValue }
 
@@ -35,7 +34,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .doctor: return "stethoscope"
         case .piDocs: return "book"
         case .credits: return "info.circle"
-        case .listShowcase: return "list.bullet.rectangle"
         }
     }
 
@@ -69,7 +67,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .runtime:
             return [.models, .environment, .doctor]
         case .reference:
-            return [.piDocs, .credits, .listShowcase]
+            return [.piDocs, .credits]
         }
     }
 }

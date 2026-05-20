@@ -577,7 +577,7 @@ struct ContentView: View {
             Button {
                 agentModelQuickEditor = currentAgentModelQuickEditorContext
             } label: {
-                Image(systemName: "cpu")
+                Label("Quick Edit Models", systemImage: "cpu")
             }
             .toolbarNeutralChrome()
             .help("Quick edit agent models and thinking")
@@ -618,17 +618,15 @@ struct ContentView: View {
     }
 
     private func replacementAgentButton(for agent: EffectiveAgentRecord) -> some View {
-        ControlGroup {
-            Button {
-                editingAgent = nil
-                agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
-            } label: {
-                Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .help("Create a global replacement for this builtin agent")
-            .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
+        Button {
+            editingAgent = nil
+            agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
+        } label: {
+            Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
         }
         .toolbarNeutralChrome()
+        .help("Create a global replacement for this builtin agent")
+        .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
     }
 
     private var subagentsInfoButton: some View {
@@ -647,18 +645,16 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var environmentPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                if viewModel.selectedProjectPath == nil {
-                    Button {
-                        envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                    } label: {
-                        Label("New Key", systemImage: "plus")
-                    }
-                    .toolbarPrimaryActionChrome()
-                    .help("Create a global environment key")
-                } else {
-                    newEnvKeyScopedMenu
+            if viewModel.selectedProjectPath == nil {
+                Button {
+                    envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                } label: {
+                    Label("New Key", systemImage: "plus")
                 }
+                .toolbarPrimaryActionChrome()
+                .help("Create a global environment key")
+            } else {
+                newEnvKeyScopedMenu
             }
         }
     }
@@ -942,8 +938,6 @@ struct ContentView: View {
             PiDocsScreen()
         case .credits:
             CreditsScreen()
-        case .listShowcase:
-            NativeListShowcaseScreen()
         }
     }
 

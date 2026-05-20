@@ -993,7 +993,7 @@ private struct PiAgentComposerProjectPickerPopover: View {
 
             Divider()
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(spacing: 2) {
                     ForEach(projects) { project in
                         Button {

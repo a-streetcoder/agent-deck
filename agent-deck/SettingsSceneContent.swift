@@ -84,7 +84,7 @@ private struct SettingsForm<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: SettingsLayout.sectionSpacing) {
                 content
             }
