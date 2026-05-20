@@ -30,7 +30,6 @@ enum AppTheme {
     // fixed opacity scale below. Dark variants are desaturated and lightened so
     // the tints sit calmly on the dark transcript surface instead of
     // over-saturating the way raw system colors (.orange/.red/.indigo) do.
-    static let roleAssistant = brandAccent
     static let roleUser = assistantAccent
     static let roleThinking = adaptiveColor(light: RGB(86, 100, 214), dark: RGB(140, 151, 232))
     static let roleTool = adaptiveColor(light: RGB(184, 121, 28), dark: RGB(221, 168, 78))

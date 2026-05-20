@@ -589,7 +589,7 @@ struct DoctorScreen: View {
                             .resizable()
                             .renderingMode(.template)
                             .scaledToFit()
-                            .foregroundStyle(piAgentStatusColor)
+                            .foregroundStyle(AppTheme.piLogo.gradient)
                             .padding(13)
                     }
                     .frame(width: 54, height: 54)
@@ -600,6 +600,12 @@ struct DoctorScreen: View {
                                 .font(.title3.weight(.semibold))
                                 .fontWidth(.expanded)
                             AppLabelTag(text: piAgentStatusLabel, color: piAgentStatusColor)
+                            if let version = piRuntimeStatus?.currentVersion, !version.isEmpty {
+                                Text(version)
+                                    .font(.callout)
+                                    .monospacedDigit()
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
                         }
                         if let status = piRuntimeStatus {
                             Text(status.detail)
@@ -621,11 +627,6 @@ struct DoctorScreen: View {
                     if !status.isInstalled {
                         piCommandChip("npm install -g @earendil-works/pi-coding-agent", buttonLabel: "Install in Terminal") { viewModel.openPiInstallInTerminal() }
                     } else {
-                        let versionRows = piVersionRows(for: status)
-                        if !versionRows.isEmpty {
-                            AppKeyValueList(rows: versionRows)
-                        }
-
                         switch status.updateState {
                         case .some(.updateAvailable):
                             piCommandChip("pi update pi", buttonLabel: "Update in Terminal") { viewModel.openPiSelfUpdateInTerminal() }
@@ -642,17 +643,6 @@ struct DoctorScreen: View {
             }
             .padding(.vertical, 10)
         }
-    }
-
-    private func piVersionRows(for status: PiAgentRuntimeStatus) -> [(String, String)] {
-        var rows: [(String, String)] = []
-        if let v = status.currentVersion.flatMap({ $0.isEmpty ? nil : $0 }) {
-            rows.append(("Current", v))
-        }
-        if case let .updateAvailable(latest) = status.updateState {
-            rows.append(("Latest", latest))
-        }
-        return rows
     }
 
     private func piCommandChip(_ command: String, buttonLabel: String = "Run in Terminal", action: (() -> Void)? = nil) -> some View {

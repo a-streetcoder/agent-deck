@@ -2325,6 +2325,9 @@ struct PiAgentTranscriptCard: View {
                 .resizable()
                 .scaledToFit()
                 .foregroundStyle(AppTheme.piLogo.gradient)
+                // Rendered smaller than its 16pt slot so the filled pi mark
+                // optically matches the SF Symbols the other roles use.
+                .frame(width: 13, height: 13)
                 .frame(width: 16, height: 16)
         } else {
             Image(systemName: icon)
@@ -2429,7 +2432,7 @@ struct PiAgentTranscriptCard: View {
     private var roleBase: Color {
         switch entry.role {
         case .user: return AppTheme.roleUser
-        case .assistant: return AppTheme.roleAssistant
+        case .assistant: return AppTheme.piLogo
         case .thinking: return AppTheme.roleThinking
         case .tool: return AppTheme.roleTool
         case .error: return AppTheme.roleError
@@ -2438,14 +2441,16 @@ struct PiAgentTranscriptCard: View {
         }
     }
 
-    /// Status and raw cards use the neutral system surface rather than a tinted
-    /// role color — they're informational, not part of the conversation.
+    /// Assistant, status, and raw cards sit on the neutral surface rather than a
+    /// tinted role color — the assistant is the calm conversational baseline;
+    /// status and raw are informational. The tinted cards are user / thinking /
+    /// tool / error / stderr.
     private var usesNeutralSurface: Bool {
-        entry.role == .status || entry.role == .raw
+        entry.role == .assistant || entry.role == .status || entry.role == .raw
     }
 
     private var headerColor: Color {
-        entry.role == .assistant ? AppTheme.roleAssistant : .primary
+        entry.role == .assistant ? AppTheme.piLogo : .primary
     }
 
     private var backgroundStyle: AnyShapeStyle {
