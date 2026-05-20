@@ -760,23 +760,9 @@ private struct PiSystemInstructionsProjectDetail: View {
                                 .appControlSurface(cornerRadius: 10)
                         }
 
-                        instructionSection(
-                            title: "Base system prompt",
-                            description: "Pi uses the first existing source in this group: project `.pi/SYSTEM.md`, then global `~/.pi/agent/SYSTEM.md`, then the built-in Pi prompt.",
-                            files: files(for: .base)
-                        )
-
-                        instructionSection(
-                            title: "Append system prompt",
-                            description: "Pi appends one file from this group: project `.pi/APPEND_SYSTEM.md` if it exists, otherwise global `~/.pi/agent/APPEND_SYSTEM.md`. When Agent Deck adds parent append content, this active file is preserved first.",
-                            files: files(for: .append)
-                        )
-
-                        instructionSection(
-                            title: "Context files",
-                            description: "Pi appends the global context file, then one `AGENTS.md`/`CLAUDE.md` file per ancestor/current directory. Within a directory, `AGENTS.md` wins over `CLAUDE.md`.",
-                            files: files(for: .context)
-                        )
+                        instructionSection(title: "Base system prompt", files: files(for: .base))
+                        instructionSection(title: "Append system prompt", files: files(for: .append))
+                        instructionSection(title: "Context files", files: files(for: .context))
                     }
                     .padding(AppTheme.pagePadding)
                 }
@@ -859,27 +845,62 @@ private struct PiSystemInstructionsProjectDetail: View {
         instructionFiles.filter { $0.role == role }
     }
 
-    private func instructionSection(title: String, description: String, files: [PiInstructionFile]) -> some View {
+    private func instructionSection(title: String, files: [PiInstructionFile]) -> some View {
         AppCard(title: title) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(description)
+                Text(sectionStatus(for: files))
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                ForEach(files) { file in
-                    PiInstructionFileEditor(
-                        file: file,
-                        text: Binding(
-                            get: { drafts[file.id, default: ""] },
-                            set: { drafts[file.id] = $0 }
-                        ),
-                        isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
-                        save: { save(file) },
-                        revealInFinder: { revealInFinder(file) }
-                    )
+                if files.count == 2 {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(files) { file in
+                            PiInstructionFileEditor(
+                                file: file,
+                                text: Binding(
+                                    get: { drafts[file.id, default: ""] },
+                                    set: { drafts[file.id] = $0 }
+                                ),
+                                isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
+                                isInPair: true,
+                                save: { save(file) },
+                                revealInFinder: { revealInFinder(file) }
+                            )
+                        }
+                    }
+                } else {
+                    ForEach(files) { file in
+                        PiInstructionFileEditor(
+                            file: file,
+                            text: Binding(
+                                get: { drafts[file.id, default: ""] },
+                                set: { drafts[file.id] = $0 }
+                            ),
+                            isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
+                            save: { save(file) },
+                            revealInFinder: { revealInFinder(file) }
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    private func sectionStatus(for files: [PiInstructionFile]) -> String {
+        let active = files.first(where: { $0.status == .active })
+        let isProject = active?.title.hasPrefix("Project") == true
+        switch files.first?.role {
+        case .base:
+            guard active != nil else { return "No custom base prompt — Pi uses its built-in system prompt." }
+            return isProject ? "Using project file — overrides global and built-in." : "No project file — using global SYSTEM.md."
+        case .append:
+            guard active != nil else { return "No append prompt active." }
+            return isProject ? "Using project file — global file is ignored." : "No project file — using global APPEND_SYSTEM.md."
+        case .context:
+            return "Pi appends one context file per directory. AGENTS.md wins over CLAUDE.md within the same directory."
+        case nil:
+            return ""
         }
     }
 
@@ -946,11 +967,15 @@ private struct PiInstructionFileEditor: View {
     let file: PiInstructionFile
     @Binding var text: String
     let isDirty: Bool
+    var isInPair: Bool = false
     let save: () -> Void
     let revealInFinder: () -> Void
 
     @State private var isEditorPresented = false
     @State private var sheetDraft = ""
+
+    private var isActive: Bool { file.status == .active }
+    private var isDimmed: Bool { isInPair && !isActive }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -967,14 +992,16 @@ private struct PiInstructionFileEditor: View {
                 .frame(minHeight: 96, maxHeight: 150)
                 .appControlSurface(cornerRadius: 10)
             } else {
-                Text("No file yet. Create it only if this scope needs a custom prompt part.")
+                Text(file.note)
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .appPanelSurface(cornerRadius: 12)
+        .appContentSurface(cornerRadius: 12, isSelected: isActive)
+        .saturation(isDimmed ? 0.1 : 1.0)
+        .opacity(isDimmed ? 0.55 : 1.0)
         .sheet(isPresented: $isEditorPresented) {
             PiInstructionFileEditorSheet(
                 file: file,
@@ -1003,9 +1030,15 @@ private struct PiInstructionFileEditor: View {
                     Text(file.title)
                         .font(.subheadline.weight(.semibold))
                         .fontWidth(.expanded)
-                    Text(file.status.label)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(file.status.color)
+                    if file.status == .active {
+                        Text("Active")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.green)
+                    } else if file.status == .shadowed {
+                        Text("Overridden")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
                     if isDirty {
                         Text("Unsaved")
                             .font(.caption2.weight(.semibold))
@@ -1059,9 +1092,9 @@ private struct PiInstructionFileEditor: View {
 
     private var iconName: String {
         switch file.status {
-        case .active: return "checkmark.circle"
-        case .shadowed: return "moon"
-        case .available: return file.exists ? "doc.text" : "doc.badge.plus"
+        case .active: return "checkmark.circle.fill"
+        case .shadowed: return "moon.fill"
+        case .available: return "doc.badge.plus"
         }
     }
 
