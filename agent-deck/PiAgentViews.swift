@@ -450,10 +450,17 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var contentRevisionByID: [String: Int] = [:]
         // Heights are populated by two paths:
         //  1. `heightOfRow` returns the item's estimator (cached) when there's no measurement.
-        //  2. The cell measures itself after configure() and reports back via `reportMeasuredHeight`.
-        // The table re-queries heightOfRow only when `noteHeightOfRows` is called, which we
-        // do (debounced ~16ms) when a reported height differs from the cache.
+        //  2. The coordinator measures via a dedicated OFFSCREEN cell (not the
+        //     live in-table cell) after content changes. The live cell never
+        //     inflates to the 100,000pt measurement frame, so it can never be
+        //     observed at the wrong size during the brief restore window.
+        // `noteHeightOfRows` runs debounced ~16ms when a measured height differs.
         private var heightByID: [String: CGFloat] = [:]
+        // Reusable offscreen cell for measurement. Never added to any view
+        // hierarchy. Configured with the item under measurement, then
+        // `measuredHeight` does the 100,000pt frame trick on this cell only —
+        // the live cells in the table are never touched.
+        private var measurementCell: TranscriptTableCellView?
         private var pendingHeightIDs = Set<String>()
         private var pendingHeightWork: DispatchWorkItem?
         private var pendingScrollWork: DispatchWorkItem?
@@ -487,8 +494,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let cell = (tableView.makeView(withIdentifier: TranscriptTableCellView.reuseIdentifier, owner: nil) as? TranscriptTableCellView)
                     ?? TranscriptTableCellView(frame: .zero)
                 cell.identifier = TranscriptTableCellView.reuseIdentifier
-                cell.onHeightChanged = { [weak self] itemID, height in
-                    self?.reportMeasuredHeight(height, forItemID: itemID)
+                // The live cell signals async size changes (image loads, etc.)
+                // back to the coordinator, which re-measures via the offscreen
+                // cell. The live cell never inflates itself.
+                cell.onAsyncSizeChanged = { [weak self] itemID in
+                    self?.scheduleOffscreenRemeasure(forItemID: itemID)
                 }
                 self.configure(cell, with: item, row: row)
                 return cell
@@ -690,13 +700,45 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func configure(_ cell: TranscriptTableCellView, with item: PiAgentAppKitTranscriptItem, row: Int) {
             let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
-            // The cell self-measures inside configure() and calls onHeightChanged
-            // with its natural height. We don't need to call measure() manually.
-            cell.configure(item: item, width: width)
+            // Update the live cell's rootView only — no measurement here. The
+            // live cell never inflates; if content changed (or we have no
+            // cached height yet) we measure via the offscreen cell instead so
+            // the live cell stays at its NSTableView-assigned frame.
+            let changed = cell.configure(item: item, width: width)
+            if changed || heightByID[item.id] == nil {
+                measureOffscreen(itemID: item.id, width: width)
+            }
         }
 
-        /// Called by a cell after it has measured its natural height. Updates the
-        /// cache and (debounced) tells the table to re-tile the changed row.
+        /// Measure an item using the dedicated offscreen cell. The offscreen
+        /// cell is never added to a view hierarchy, so inflating its frame to
+        /// the 100,000pt measurement size has no visual consequences — unlike
+        /// inflating a live in-table cell, which used to paint at the wrong
+        /// size during the brief restore window.
+        private func measureOffscreen(itemID: String, width: CGFloat) {
+            guard let item = itemByID[itemID], width > 1 else { return }
+            let cell = measurementCell ?? TranscriptTableCellView(frame: .zero)
+            measurementCell = cell
+            cell.configure(item: item, width: width)
+            let measured = cell.measuredHeight(width: width)
+            guard measured.isFinite, measured > 0 else { return }
+            reportMeasuredHeight(ceil(measured), forItemID: itemID)
+        }
+
+        /// Debounced re-measurement entry point used when a live cell signals
+        /// an async size change (image load, TextKit settle). Coalesces bursts
+        /// so multiple layout passes within one frame produce a single
+        /// offscreen measurement.
+        fileprivate func scheduleOffscreenRemeasure(forItemID itemID: String) {
+            let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
+            DispatchQueue.main.async { [weak self] in
+                self?.measureOffscreen(itemID: itemID, width: width)
+            }
+        }
+
+        /// Called after the coordinator measures an item via the offscreen
+        /// cell. Updates the cache and (debounced) tells the table to re-tile
+        /// the changed row.
         func reportMeasuredHeight(_ height: CGFloat, forItemID itemID: String) {
             let existing = heightByID[itemID]
             heightByID[itemID] = height
@@ -874,23 +916,21 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
     final class TranscriptTableCellView: NSTableCellView {
         static let reuseIdentifier = NSUserInterfaceItemIdentifier("PiAgentTranscriptTableCell")
-        private var hostingView: NSHostingView<AnyView>?
-        private var configuredItemID: String?
+        fileprivate var hostingView: NSHostingView<AnyView>?
+        fileprivate var configuredItemID: String?
         private var configuredRevision: Int?
-        private var configuredWidth: CGFloat = 0
-        private var lastReportedHeight: CGFloat = -1
-        // Re-entry guard. reportNaturalHeightIfChanged mutates the cell's frame, which
-        // can trigger another `layout()` pass; without this flag the measurement
-        // would recurse and saturate the runloop.
-        private var isMeasuring = false
-        // De-dupe deferred measurement requests so each layout pass enqueues at most
-        // one async re-measure.
-        private var pendingDeferredMeasure = false
+        fileprivate var configuredWidth: CGFloat = 0
+        fileprivate var lastIntrinsicHeight: CGFloat = -1
+        // De-dupe async-size-change notifications so multiple layout passes
+        // within one frame produce at most one re-measure request.
+        private var pendingAsyncSignal = false
 
-        /// Callback the cell invokes after measuring its natural height. Wired by
-        /// the Coordinator at cell-vend time. Posts `(itemID, height)` so the
-        /// coordinator can update its height cache and tell the table to re-tile.
-        var onHeightChanged: ((String, CGFloat) -> Void)?
+        /// Wired by the coordinator at cell-vend time. Fired when the cell
+        /// detects that its hosted SwiftUI content's intrinsic size has grown
+        /// after the initial measurement (image loads, TextKit settle, etc.).
+        /// The coordinator responds by measuring via its OFFSCREEN cell — the
+        /// live cell itself never inflates. Live cells are display-only.
+        var onAsyncSizeChanged: ((String) -> Void)?
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -907,10 +947,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let revisionChanged = configuredRevision != item.contentRevision
             guard itemChanged || revisionChanged || widthChanged else { return false }
 
-            // Reset the reported-height tracker if the *item* changed — when the cell
-            // is reused for a new row, the previous lastReportedHeight is meaningless
-            // and would suppress the new row's first measurement.
-            if itemChanged { lastReportedHeight = -1 }
+            // Reset the intrinsic-tracker if the *item* changed — when the cell
+            // is reused for a new row, the previous tracker value is meaningless.
+            if itemChanged { lastIntrinsicHeight = -1 }
 
             configuredItemID = item.id
             configuredRevision = item.contentRevision
@@ -933,38 +972,48 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 ])
                 self.hostingView = hostingView
             }
-            reportNaturalHeightIfChanged(width: width, itemID: item.id)
             return true
         }
 
-        /// Schedule a re-measurement after the current AppKit layout pass settles.
-        /// We can't call `layoutSubtreeIfNeeded()` from within `-layout` (AppKit
-        /// forbids it: "not legal to call -layoutSubtreeIfNeeded on a view which is
-        /// already being laid out"), and inflating our own frame inside that pass
-        /// produces an infinite update loop. Deferring to the next runloop tick
-        /// catches post-layout size changes (image loads, TextKit settles) without
-        /// recursing.
+        /// AppKit's per-pass layout hook. We use it ONLY to detect that the
+        /// hosted SwiftUI content's intrinsic size has changed *after* the
+        /// coordinator's initial offscreen measurement — e.g. when an image
+        /// finishes loading inside a markdown card and SwiftUI re-lays out.
+        /// We never measure or mutate the cell's own frame here; we just
+        /// signal the coordinator, which re-measures on the offscreen cell.
         override func layout() {
             super.layout()
-            guard configuredItemID != nil, configuredWidth > 1, !pendingDeferredMeasure else { return }
-            pendingDeferredMeasure = true
+            guard !pendingAsyncSignal,
+                  let itemID = configuredItemID,
+                  let hostingView,
+                  configuredWidth > 1 else { return }
+            let intrinsic = hostingView.intrinsicContentSize.height
+            // Skip when intrinsic isn't yet known or hasn't drifted from what
+            // we last signalled. Drift threshold > 1pt: smaller deltas are
+            // typically anti-aliasing noise, not real content growth.
+            guard intrinsic > 0, intrinsic.isFinite,
+                  abs(intrinsic - lastIntrinsicHeight) > 1 else { return }
+            lastIntrinsicHeight = intrinsic
+            pendingAsyncSignal = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.pendingDeferredMeasure = false
-                guard let itemID = self.configuredItemID else { return }
-                self.reportNaturalHeightIfChanged(width: self.configuredWidth, itemID: itemID)
+                self.pendingAsyncSignal = false
+                self.onAsyncSizeChanged?(itemID)
             }
         }
 
-        private func reportNaturalHeightIfChanged(width: CGFloat, itemID: String) {
-            guard !isMeasuring, let hostingView, width > 1 else { return }
-            isMeasuring = true
-            defer { isMeasuring = false }
-            // Use a measurement frame tall enough that SwiftUI's required-bottom
-            // constraint doesn't compress the content into a truncated fittingSize.
-            // We restore the frame before returning so the cell never paints at the
-            // inflated height — NSTableView's actual frame is reapplied immediately
-            // after the synchronous measurement.
+        /// Synchronous measurement helper. The COORDINATOR's offscreen
+        /// `measurementCell` calls this — live cells in the table never do,
+        /// because inflating a visible cell to the measurement frame can be
+        /// observed mid-paint. Safe on the offscreen cell because it's not
+        /// in any view hierarchy.
+        func measuredHeight(width: CGFloat) -> CGFloat {
+            guard let hostingView else { return 0 }
+            // Give SwiftUI's required-bottom constraint enough vertical room
+            // that fittingSize reports the natural content height rather than
+            // a truncated value. We restore the frame after measuring; on the
+            // offscreen cell this restore is academic (it's never painted)
+            // but kept for symmetry.
             let originalFrame = frame
             let measuringFrame = CGRect(x: 0, y: 0, width: width, height: 100_000)
             if frame != measuringFrame { frame = measuringFrame }
@@ -972,12 +1021,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             layoutSubtreeIfNeeded()
             let natural = hostingView.fittingSize.height
             if frame != originalFrame { frame = originalFrame }
-            guard natural.isFinite, natural > 0 else { return }
-            let rounded = ceil(natural)
-            if abs(rounded - lastReportedHeight) > 0.5 {
-                lastReportedHeight = rounded
-                onHeightChanged?(itemID, rounded)
-            }
+            return natural
         }
     }
 }
