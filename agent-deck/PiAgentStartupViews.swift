@@ -34,77 +34,97 @@ private extension Array where Element == PiStartupResourceItem {
     }
 }
 
-struct PiAgentStartupResourcesCard: View {
+/// Compact keyboard-shortcut strip printed at the top of the transcript. Not a
+/// card — just the hint chips. Replaces the old expandable
+/// `PiAgentStartupResourcesCard`: the in-transcript expandable block never
+/// re-measured reliably inside the AppKit table, so the session resources
+/// moved to a toolbar popover (`PiAgentStartupResourcesPopover`) and the
+/// shortcuts stay here as a fixed-height, always-visible row.
+struct PiAgentShortcutsStrip: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            hintChip(["↩"], "send / steer")
+            hintChip(["⇧", "↩"], "newline")
+            hintChip(["Esc"], "stop running turn")
+            hintChip(["Esc", "Esc"], "clear input")
+            hintChip(["/"], "commands")
+            hintChip(["@"], "file suggestions")
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func hintChip(_ keys: [String], _ label: String) -> some View {
+        HStack(spacing: 5) {
+            HStack(spacing: 3) {
+                ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+                    AppKeyCap(key)
+                }
+            }
+            Text(label)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+    }
+}
+
+/// Session resources (Context / Environment / Agents / Skills / Prompts) shown
+/// as a toolbar popover instead of an in-transcript expandable card. Reachable
+/// from the `info.circle` button grouped with the transcript-display eye.
+struct PiAgentStartupResourcesPopover: View {
     @ObservedObject var viewModel: AppViewModel
     let session: PiAgentSessionRecord
-    var onExpansionChange: () -> Void = {}
-    @State private var isExpanded = false
 
     var body: some View {
-        AppRowCard {
-            VStack(alignment: .leading, spacing: 16) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                    onExpansionChange()
-                } label: {
-                    header
-                }
-                .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image("pi")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(AppTheme.brandAccent)
+                Text("Session resources")
+                    .font(.headline)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
 
-                if isExpanded {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            resourceSection("Context", icon: "doc.text", color: .blue, items: contextItems, columns: 2)
-                            resourceSection("Environment", icon: "key", color: .green, items: envItems, columns: 2)
-                        }
-                        resourceSection("Agents", icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 3, showsDetails: true)
-                        resourceSection("Skills", icon: "wand.and.stars", color: AppTheme.assistantAccent, items: skillItems)
-                        resourceSection("Prompts", icon: "text.badge.star", color: .indigo, items: promptItems)
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if isEmpty {
+                        Text("No agents, skills, prompts, or environment overrides were discovered for this session.")
+                            .font(.callout)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        resourceSection("Context", icon: "doc.text", color: .blue, items: contextItems, columns: 1)
+                        resourceSection("Environment", icon: "key", color: .green, items: envItems, columns: 1)
+                        resourceSection("Agents", icon: "rectangle.connected.to.line.below", color: .teal, items: agentItems, columns: 1, showsDetails: true)
+                        resourceSection("Skills", icon: "wand.and.stars", color: AppTheme.assistantAccent, items: skillItems, columns: 1)
+                        resourceSection("Prompts", icon: "text.badge.star", color: .indigo, items: promptItems, columns: 1)
                     }
-                    .transition(.opacity)
                 }
+                .padding(14)
             }
         }
+        .frame(width: 460, height: 480)
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image("pi")
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .frame(width: 24, height: 24)
-                .foregroundStyle(AppTheme.brandAccent)
-                .padding(9)
-                .background(Circle().fill(AppTheme.brandAccent.opacity(0.12)))
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Pi startup resources")
-                    .font(.title3.bold())
-                    .fontWidth(.expanded)
-                GlassEffectContainer(spacing: 4) {
-                    HStack(spacing: 6) {
-                        hintChip("↩", "send / steer")
-                        hintChip("⇧/⌘/⌥ ↩", "newline")
-                        hintChip("Esc", "stop running turn")
-                        hintChip("Esc Esc", "clear input")
-                        hintChip("/", "commands")
-                        hintChip("@", "file suggestions")
-                    }
-                }
-            }
-            Spacer()
-            Image(systemName: "chevron.down")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(AppTheme.mutedText)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(AppTheme.contentSubtleFill))
-                .rotationEffect(.degrees(isExpanded ? 180 : 0))
-        }
-        .contentShape(Rectangle())
+    private var isEmpty: Bool {
+        contextItems.isEmpty && envItems.isEmpty && agentItems.isEmpty
+            && skillItems.isEmpty && promptItems.isEmpty
     }
+
+    // MARK: - Resource items
 
     private var contextItems: [PiStartupResourceItem] {
         let agents = URL(fileURLWithPath: session.projectPath).appendingPathComponent("AGENTS.md")
@@ -127,18 +147,18 @@ struct PiAgentStartupResourcesCard: View {
             .filter { $0.resolved.disabled != true }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return enabled.map { agent in
-                let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
-                let modelSuffix = agent.resolved.model.map { " · \($0)" } ?? ""
-                let source = agent.resolutionKind.rawValue
-                let detail = [description, source + modelSuffix]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-                return .init(title: agent.name, detail: detail, kind: .agent(agent.id))
-            }
+            let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let modelSuffix = agent.resolved.model.map { " · \($0)" } ?? ""
+            let source = agent.resolutionKind.rawValue
+            let detail = [description, source + modelSuffix]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            return .init(title: agent.name, detail: detail, kind: .agent(agent.id))
+        }
     }
 
     private var skillItems: [PiStartupResourceItem] {
-        return startupSnapshot.skills
+        startupSnapshot.skills
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { skill in
                 let scope = skill.source.kind == .project ? "Project" : skill.source.kind.rawValue
@@ -166,34 +186,26 @@ struct PiAgentStartupResourcesCard: View {
         }
     }
 
-    @ViewBuilder
-    private func resourceSection(_ title: String, icon: String, color: Color, items: [PiStartupResourceItem], columns: Int = 5, showsDetails: Bool = false) -> some View {
-        if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-                    .frame(width: 18)
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-            }
+    // MARK: - Section / chip
 
-            let rows = chunk(items, size: columns)
-            Grid(horizontalSpacing: 8, verticalSpacing: 7) {
-                ForEach(rows.indices, id: \.self) { index in
-                    let row = rows[index]
-                    GridRow {
-                        ForEach(row) { item in
-                            resourceChip(item, showsDetail: showsDetails)
-                        }
-                        ForEach(0..<max(columns - row.count, 0), id: \.self) { _ in
-                            Color.clear.frame(height: 1)
-                        }
+    @ViewBuilder
+    private func resourceSection(_ title: String, icon: String, color: Color, items: [PiStartupResourceItem], columns: Int = 1, showsDetails: Bool = false) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .foregroundStyle(color)
+                        .frame(width: 18)
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                }
+                VStack(spacing: 6) {
+                    ForEach(items) { item in
+                        resourceChip(item, showsDetail: showsDetails)
                     }
                 }
             }
-        }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(
@@ -204,31 +216,7 @@ struct PiAgentStartupResourcesCard: View {
         }
     }
 
-    private func chunk(_ items: [PiStartupResourceItem], size: Int) -> [[PiStartupResourceItem]] {
-        stride(from: 0, to: items.count, by: max(size, 1)).map { start in
-            Array(items[start..<min(start + max(size, 1), items.count)])
-        }
-    }
-
-    private func hintChip(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(key)
-                .font(.caption.monospaced())
-                .lineLimit(1)
-                .foregroundStyle(.primary)
-            Text(label)
-                .font(.caption)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(AppTheme.mutedText)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(minHeight: 26)
-        .appGlassCapsule()
-    }
-
-    private func resourceChip(_ item: PiStartupResourceItem, isOverflow: Bool = false, showsDetail: Bool = false) -> some View {
+    private func resourceChip(_ item: PiStartupResourceItem, showsDetail: Bool = false) -> some View {
         Button {
             openResource(item)
         } label: {
@@ -237,7 +225,7 @@ struct PiAgentStartupResourcesCard: View {
                     .font(.caption.monospaced().weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .foregroundStyle(isOverflow ? AppTheme.brandAccent : .primary)
+                    .foregroundStyle(.primary)
                 if showsDetail, let detail = item.detail, !detail.isEmpty {
                     Text(detail)
                         .font(.caption2)
@@ -252,7 +240,7 @@ struct PiAgentStartupResourcesCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isOverflow ? AppTheme.brandAccent.opacity(0.10) : AppTheme.contentFill.opacity(0.75))
+                    .fill(AppTheme.contentFill.opacity(0.75))
             )
         }
         .buttonStyle(.plain)

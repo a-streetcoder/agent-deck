@@ -1068,7 +1068,6 @@ struct PiAgentScreen: View {
     @StateObject private var transcriptCache = PiAgentTranscriptRenderCache()
     @State private var transcriptBottomScrollRequest = 0
     @State private var transcriptIsPinnedToBottom = true
-    @State private var startupResourcesLayoutRevision = 0
     @State private var showArchivedPreCompactionTranscript = false
     @State private var isEarlierTranscriptSheetPresented = false
     @State private var cachedVisibleSessions: [PiAgentSessionRecord] = []
@@ -1530,14 +1529,14 @@ struct PiAgentScreen: View {
         var items: [PiAgentAppKitTranscriptItem] = []
 
         if let session = store.selectedSession {
-            items.append(PiAgentAppKitTranscriptItem(
-                id: "startup-resources-\(session.id.uuidString)",
-                view: AnyView(PiAgentStartupResourcesCard(viewModel: viewModel, session: session) {
-                    startupResourcesLayoutRevision &+= 1
-                }),
-                contentRevision: chromeRevision &+ startupResourcesLayoutRevision,
-                estimatedHeight: { _ in 110 }
-            ))
+            if viewModel.appSettings.piAgentTranscriptVisibility.showShortcutsStrip {
+                items.append(PiAgentAppKitTranscriptItem(
+                    id: "shortcuts-strip-\(session.id.uuidString)",
+                    view: AnyView(PiAgentShortcutsStrip()),
+                    contentRevision: 0,
+                    estimatedHeight: { _ in 40 }
+                ))
+            }
             if let finalSystemPrompt = session.finalSystemPrompt {
                 items.append(PiAgentAppKitTranscriptItem(
                     id: "system-prompt-\(session.id.uuidString)",

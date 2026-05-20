@@ -449,6 +449,34 @@ struct AppPage<Content: View>: View {
     }
 }
 
+/// A single keycap — a rounded-rectangle key glyph. Shared by the Settings
+/// shortcuts list and the Pi agent shortcut strip so the keyboard styling
+/// stays consistent across the app.
+struct AppKeyCap: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.primary)
+            .frame(minWidth: 22, minHeight: 22)
+            .padding(.horizontal, text.count > 1 ? 5 : 0)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(AppTheme.contentSubtleFill)
+                    .shadow(color: .black.opacity(0.08), radius: 0, x: 0, y: 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(AppTheme.contentStroke, lineWidth: 1)
+            }
+    }
+}
+
 struct AppCard<Content: View, Trailing: View>: View {
     let title: String?
     @ViewBuilder let trailing: Trailing

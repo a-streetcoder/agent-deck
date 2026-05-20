@@ -184,6 +184,13 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
                 .foregroundStyle(AppTheme.mutedText)
 
             optionRow(
+                title: "Keyboard shortcuts",
+                subtitle: "Show the shortcut strip at the top of the transcript",
+                systemImage: "keyboard",
+                isOn: visibility.showShortcutsStrip,
+                keyPath: \.showShortcutsStrip
+            )
+            optionRow(
                 title: "Thinking",
                 subtitle: "Show Pi reasoning blocks",
                 systemImage: "brain.head.profile",

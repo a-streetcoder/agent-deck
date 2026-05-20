@@ -81,11 +81,13 @@ struct ContentView: View {
     @State private var showingDisableAllProjectsAlert = false
     @State private var showingPiAgentDeleteAlert = false
     @State private var isPiAgentTranscriptOptionsPresented = false
+    @State private var isPiAgentStartupResourcesPresented = false
     @State private var isPiAgentSubagentsPopoverPresented = false
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
     @State private var isIssuesFilterPopoverPresented = false
+    @State private var isAgentsFilterPopoverPresented = false
     #if DEBUG
     /// Flip to `true` when testing onboarding.
     private static let forceOnboardingOnLaunch = false
@@ -518,30 +520,19 @@ struct ContentView: View {
             }
         }
 
-        if viewModel.selectedSidebarItem == .agents {
-            ToolbarItem(placement: .navigation) { agentFilterMenu }
-        }
-
     }
 
-    private var agentFilterMenu: some View {
-        Menu {
-            ForEach(AgentFilter.allCases) { filter in
-                Button {
-                    viewModel.selectedAgentFilter = filter
-                } label: {
-                    if viewModel.selectedAgentFilter == filter {
-                        Label(filter.rawValue, systemImage: "checkmark")
-                    } else {
-                        Text(filter.rawValue)
-                    }
-                }
-            }
+    private var agentsFilterButton: some View {
+        Button {
+            isAgentsFilterPopoverPresented.toggle()
         } label: {
-            Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+            Label("Filter", systemImage: viewModel.selectedAgentFilter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
         }
         .toolbarNeutralChrome()
         .help("Filter agents")
+        .popover(isPresented: $isAgentsFilterPopoverPresented, arrowEdge: .bottom) {
+            AgentsFilterPopover(viewModel: viewModel)
+        }
     }
 
     @ToolbarContentBuilder
@@ -596,6 +587,10 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var agentsPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) { agentsFilterButton }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
         ToolbarItem(placement: .primaryAction) {
             Button {
                 agentModelQuickEditor = currentAgentModelQuickEditorContext
@@ -764,7 +759,15 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var piAgentPrimaryToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) { piAgentTranscriptDisplayButton }
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                piAgentStartupInfoButton
+                piAgentTranscriptDisplayButton
+            } label: {
+                Label("Session", systemImage: "info.circle")
+            }
+            .toolbarNeutralChrome()
+        }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
@@ -804,7 +807,21 @@ struct ContentView: View {
         .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
             PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
         }
-        .toolbarNeutralChrome()
+    }
+
+    private var piAgentStartupInfoButton: some View {
+        Button {
+            isPiAgentStartupResourcesPresented.toggle()
+        } label: {
+            Label("Session Resources", systemImage: "info.circle")
+        }
+        .help("Agents, skills, prompts, and environment available to this session")
+        .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+        .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
+            if let session = viewModel.piAgentSessionStore.selectedSession {
+                PiAgentStartupResourcesPopover(viewModel: viewModel, session: session)
+            }
+        }
     }
 
     @ToolbarContentBuilder

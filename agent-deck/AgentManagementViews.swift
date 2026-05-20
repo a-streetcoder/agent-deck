@@ -3,6 +3,53 @@ import ImagePlayground
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct AgentsFilterPopover: View {
+    @ObservedObject var viewModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Filter agents")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                Spacer()
+                if viewModel.selectedAgentFilter != .all {
+                    Button("Clear") { viewModel.selectedAgentFilter = .all }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }
+            }
+            .padding(.bottom, 2)
+
+            ForEach(AgentFilter.allCases) { filter in
+                filterRow(filter)
+            }
+        }
+        .padding(14)
+        .frame(width: 240)
+    }
+
+    private func filterRow(_ filter: AgentFilter) -> some View {
+        let isOn = viewModel.selectedAgentFilter == filter
+        return Button {
+            viewModel.selectedAgentFilter = filter
+            dismiss()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isOn ? AppTheme.brandAccent : AppTheme.mutedText)
+                Text(filter.rawValue)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct AgentsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String

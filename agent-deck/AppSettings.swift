@@ -9,6 +9,7 @@ enum AppAppearanceMode: String, Codable, CaseIterable, Identifiable {
 }
 
 struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
+    var showShortcutsStrip: Bool = true
     var showThinking: Bool = false
     var showWebActivity: Bool = true
     var showToolCalls: Bool = false
@@ -17,6 +18,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
     var showDiffs: Bool = true
 
     enum CodingKeys: String, CodingKey {
+        case showShortcutsStrip
         case showThinking
         case showWebActivity
         case showToolCalls
@@ -29,6 +31,7 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        showShortcutsStrip = try container.decodeIfPresent(Bool.self, forKey: .showShortcutsStrip) ?? true
         showThinking = try container.decodeIfPresent(Bool.self, forKey: .showThinking) ?? false
         showWebActivity = try container.decodeIfPresent(Bool.self, forKey: .showWebActivity) ?? true
         showToolCalls = try container.decodeIfPresent(Bool.self, forKey: .showToolCalls) ?? false
