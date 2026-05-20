@@ -141,7 +141,7 @@ struct IssuesScreen: View {
         } else {
             HSplitView {
                 issueList(items: visibleItems, totalShown: board.shownCount, totalCount: board.totalCount, incomplete: board.incompleteResults)
-                    .frame(minWidth: 360, idealWidth: 440, maxWidth: 540)
+                    .frame(minWidth: 380, idealWidth: 500, maxWidth: 600)
                 detailColumn
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }

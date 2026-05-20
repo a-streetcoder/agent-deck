@@ -955,13 +955,12 @@ final class AppViewModel: NSObject, ObservableObject {
                           self.selectedGitHubProject?.gitHubRemote == remote,
                           self.githubIssueStateFilter == state else { return }
 
-                    self.githubProjectBoard = snapshot
-                    self.githubProjectBoardCacheKey = cacheKey
-                    self.githubProjectBoardFetchedAt = Date()
-                    self.githubIsLoadingProjectBoard = false
-
+                    // Compute selection before publishing the board so the first
+                    // render of boardContent already has a selection (avoids a
+                    // "no-selection" layout pass that jumps the split divider).
                     let visibleItems = self.filteredBoardItems(from: snapshot)
                     let visibleItemIDs = Set(visibleItems.map(\.id))
+
                     if let selectedID = self.githubSelectedWorkItem?.id,
                        !visibleItemIDs.contains(selectedID) {
                         self.githubIssueDetailRequestID += 1
@@ -972,8 +971,21 @@ final class AppViewModel: NSObject, ObservableObject {
                         self.githubIsSubmittingComment = false
                     }
 
+                    var autoSelectItem: GitHubWorkItem?
                     if self.githubSelectedWorkItem == nil, let first = visibleItems.first {
-                        self.selectWorkItem(first)
+                        self.githubSelectedWorkItem = first
+                        self.githubIssueDetail = nil
+                        self.githubCommentDraft = ""
+                        autoSelectItem = first
+                    }
+
+                    self.githubProjectBoard = snapshot
+                    self.githubProjectBoardCacheKey = cacheKey
+                    self.githubProjectBoardFetchedAt = Date()
+                    self.githubIsLoadingProjectBoard = false
+
+                    if let item = autoSelectItem {
+                        self.loadIssueDetail(for: item)
                     }
                 }
             } catch {
