@@ -15,7 +15,9 @@ struct SettingsSceneContent: View {
         }
         .tabViewStyle(.automatic)
         .frame(minWidth: 700, idealWidth: 780, minHeight: 560, idealHeight: 640)
-        .tint(AppTheme.brandAccent)
+        // No scene-wide .tint: it bled the brand accent into every `.glass`
+        // secondary button, overriding their neutral design-system intent.
+        // Controls that need the accent (pickers, primary buttons) tint locally.
         .background(AppTheme.windowBackground)
     }
 
