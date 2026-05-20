@@ -13,6 +13,9 @@ final class PiAgentSessionStore: ObservableObject {
     @Published private(set) var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]] = [:]
     @Published private(set) var sessionPlansBySessionID: [UUID: PiSessionPlanRecord] = [:]
     @Published private(set) var sessionPlanEventsBySessionID: [UUID: [PiSessionPlanEventRecord]] = [:]
+    /// Live, RPC-derived activity for sessions with a turn in flight. Not persisted —
+    /// it only describes the current process and is cleared when a turn ends.
+    @Published private(set) var processingActivityBySessionID: [UUID: PiAgentProcessingActivity] = [:]
     @Published var selectedSessionID: UUID?
     @Published var lastError: String?
     var newSessionSubagentsEnabled = true
@@ -625,11 +628,27 @@ final class PiAgentSessionStore: ObservableObject {
             supervisorRequestsBySessionID[sessionID] = nil
             sessionPlansBySessionID[sessionID] = nil
             sessionPlanEventsBySessionID[sessionID] = nil
+            processingActivityBySessionID[sessionID] = nil
         }
         if let currentSelectedSessionID = selectedSessionID, existingIDs.contains(currentSelectedSessionID) {
             selectedSessionID = sessions.first?.id
         }
         saveStructuralChange()
+    }
+
+    func processingActivity(for sessionID: UUID) -> PiAgentProcessingActivity? {
+        processingActivityBySessionID[sessionID]
+    }
+
+    /// Records what Pi is doing now. Skips the write when unchanged so repeated
+    /// streaming deltas don't republish and re-render the transcript.
+    func setProcessingActivity(_ activity: PiAgentProcessingActivity?, for sessionID: UUID) {
+        if processingActivityBySessionID[sessionID] == activity { return }
+        if let activity {
+            processingActivityBySessionID[sessionID] = activity
+        } else {
+            processingActivityBySessionID.removeValue(forKey: sessionID)
+        }
     }
 
     func clearTranscript(for sessionID: UUID) {

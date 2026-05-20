@@ -172,6 +172,57 @@ struct TerminalApplicationOption: Identifiable, Hashable {
     var id: String { path ?? Self.defaultID }
 }
 
+/// Terminal applications Agent Deck can reliably open a fresh window in and have it
+/// run a prepared script. Terminal and iTerm are driven through AppleScript; Ghostty,
+/// kitty, Alacritty and WezTerm expose a command-line flag that runs a given command
+/// in a new window. Terminals without any such mechanism — notably Warp and Hyper —
+/// are intentionally unsupported: there is no dependable way to make them run our
+/// Pi session/update script.
+enum SupportedTerminal: CaseIterable {
+    case appleTerminal
+    case iTerm
+    case ghostty
+    case kitty
+    case alacritty
+    case wezTerm
+
+    /// Lowercased `.app` bundle file name, used to recognise a chosen application.
+    var bundleName: String {
+        switch self {
+        case .appleTerminal: return "terminal.app"
+        case .iTerm: return "iterm.app"
+        case .ghostty: return "ghostty.app"
+        case .kitty: return "kitty.app"
+        case .alacritty: return "alacritty.app"
+        case .wezTerm: return "wezterm.app"
+        }
+    }
+
+    /// For the CLI-driven terminals, the executable inside `Contents/MacOS` and the
+    /// argument(s) that must precede the `/bin/zsh <script>` invocation. `nil` for the
+    /// AppleScript-driven terminals (Terminal, iTerm).
+    var commandLineLauncher: (executable: String, leadingArguments: [String])? {
+        switch self {
+        case .appleTerminal, .iTerm: return nil
+        case .ghostty: return ("ghostty", ["-e"])
+        case .kitty: return ("kitty", [])
+        case .alacritty: return ("alacritty", ["-e"])
+        case .wezTerm: return ("wezterm", ["start", "--"])
+        }
+    }
+
+    /// Human-readable list of every supported terminal, for help text and warnings.
+    static let displayList = "Terminal, iTerm, Ghostty, kitty, Alacritty, and WezTerm"
+
+    /// Resolves the terminal identified by an application bundle path, if it is one
+    /// Agent Deck supports.
+    init?(appPath: String) {
+        let name = URL(fileURLWithPath: appPath).lastPathComponent.lowercased()
+        guard let match = Self.allCases.first(where: { $0.bundleName == name }) else { return nil }
+        self = match
+    }
+}
+
 @MainActor
 final class AppSettingsStore {
     static let shared = AppSettingsStore()

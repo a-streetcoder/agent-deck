@@ -740,11 +740,19 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private func configure(_ cell: TranscriptTableCellView, with item: PiAgentAppKitTranscriptItem, row: Int) {
             let width = max(contentWidth, tableView?.tableColumns.first?.width ?? 200)
             // Update the live cell's rootView only — no measurement here. The
-            // live cell never inflates; if content changed (or we have no
-            // cached height yet) we measure via the offscreen cell instead so
-            // the live cell stays at its NSTableView-assigned frame.
-            let changed = cell.configure(item: item, width: width)
-            if changed || measuredHeightByID[item.id] == nil {
+            // live cell never inflates; if we have no cached height yet we
+            // measure via the offscreen cell instead so the live cell stays at
+            // its NSTableView-assigned frame.
+            cell.configure(item: item, width: width)
+            // Measure only when no cached height exists. Content and width
+            // changes already evict `measuredHeightByID` upstream (see `apply`
+            // and `updateColumnWidthIfNeeded`), so a missing entry is the
+            // complete signal for "needs measurement". The previous `changed ||`
+            // also fired on every cell *reuse* during scroll — forcing a full
+            // offscreen NSHostingView render + TextKit layout for rows whose
+            // height was already known. That redundant pass was ~14% of
+            // main-thread time while scrolling.
+            if measuredHeightByID[item.id] == nil {
                 measureOffscreen(itemID: item.id, width: width)
             }
         }
@@ -2134,10 +2142,29 @@ struct PiAgentScreen: View {
             return subagentMessage
         }
 
+        // The RPC-derived activity knows exactly what Pi is doing this instant —
+        // it distinguishes a running tool from a finished one and reasoning from
+        // an empty turn-start placeholder, neither of which the transcript can.
+        if let activity = store.processingActivity(for: session.id) {
+            return processingMessage(for: activity)
+        }
+
+        // Fallback for a session that is active but has no live activity yet
+        // (e.g. just reattached): infer from the last transcript entry.
         if let lastEntry = store.selectedTranscript.last {
             return processingMessage(after: lastEntry)
         }
         return "Working"
+    }
+
+    private func processingMessage(for activity: PiAgentProcessingActivity) -> String {
+        switch activity {
+        case .preparing: return "Preparing response"
+        case .reasoning: return "Reasoning"
+        case .responding: return "Writing response"
+        case let .runningTool(toolName): return toolProcessingMessage(forToolName: toolName)
+        case .awaitingModel: return "Working"
+        }
     }
 
     private func processingMessage(after entry: PiAgentTranscriptEntry) -> String? {
@@ -2183,10 +2210,15 @@ struct PiAgentScreen: View {
         let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard title.hasPrefix("Tool:") else { return "Running tool" }
         let toolName = title.dropFirst("Tool:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-        switch toolName {
+        return toolProcessingMessage(forToolName: toolName)
+    }
+
+    private func toolProcessingMessage(forToolName toolName: String) -> String {
+        switch toolName.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "managed_subagent": return "Starting subagent"
         case "managed_parallel": return "Starting parallel agents"
-        default: return toolName.isEmpty ? "Running tool" : "Running \(toolName)"
+        case let name where name.isEmpty: return "Running tool"
+        case let name: return "Running \(name)"
         }
     }
 

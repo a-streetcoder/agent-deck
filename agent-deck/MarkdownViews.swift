@@ -109,6 +109,15 @@ private final class NativeMarkdownTextContainer: NSView {
     private var isDismantled = false
     private var lastMeasuredWidth: CGFloat = 0
     private var lastMeasuredHeight: CGFloat = 0
+    /// Memoized result of `measureHeight(forWidth:)`, keyed by width. Lives only
+    /// for the current runloop turn (see `scheduleHeightCacheInvalidation`): long
+    /// enough to collapse SwiftUI's burst of `sizeThatFits` probes into one
+    /// TextKit layout, short enough that a later pass always re-measures — so a
+    /// height taken before the content settled can never get frozen (that froze
+    /// too-short rows and cropped cards). Also wiped in `configure` on any
+    /// document change.
+    private var heightCache: (width: CGFloat, height: CGFloat)?
+    private var heightCacheInvalidationScheduled = false
     var onHeightChange: ((CGFloat) -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -144,6 +153,9 @@ private final class NativeMarkdownTextContainer: NSView {
         }
         let previous = lastDocument
         lastDocument = document
+        // The document changed (the unchanged case returned at the guard above),
+        // so any cached height is now stale. `measureHeight(forWidth:)` repopulates.
+        heightCache = nil
         // Try the cheap streaming-friendly path first: when only the last block's text
         // changed (and its kind stayed the same), update that block's text view in place
         // instead of rebuilding the whole NSStackView. This is the hot path for every
@@ -275,12 +287,36 @@ private final class NativeMarkdownTextContainer: NSView {
     // body iteration is gone.
     func measureHeight(forWidth width: CGFloat) -> CGFloat {
         guard width > 1 else { return 0 }
+        // SwiftUI's layout probes call `sizeThatFits` — and thus this — several
+        // times in immediate succession at the same width. Serve those repeats
+        // from the runloop-scoped cache; a fresh pass (after layout settles, or
+        // a scroll-back) finds the cache cleared and re-measures.
+        if let heightCache, abs(heightCache.width - width) < 0.5 {
+            return heightCache.height
+        }
         configureWidthConstraint(to: width)
         // Force layout so the per-block AutoSizingMarkdownTextView intrinsics resolve
         // before we ask the stack for its fitting size — without this, freshly-rebuilt
         // children may still report stale heights.
         stackView.layoutSubtreeIfNeeded()
-        return ceil(stackView.fittingSize.height)
+        let height = ceil(stackView.fittingSize.height)
+        heightCache = (width, height)
+        scheduleHeightCacheInvalidation()
+        return height
+    }
+
+    /// Drop the height cache at the end of the current runloop turn. Keeping it
+    /// only that long means the within-pass `sizeThatFits` burst is deduped, but
+    /// every subsequent layout pass re-measures — preserving the self-healing
+    /// re-measurement the transcript table's drift detector relies on.
+    private func scheduleHeightCacheInvalidation() {
+        guard !heightCacheInvalidationScheduled else { return }
+        heightCacheInvalidationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.heightCacheInvalidationScheduled = false
+            self.heightCache = nil
+        }
     }
 
     // Must be side-effect-free: AppKit calls this during the window's update-constraints
@@ -363,7 +399,9 @@ private final class NativeMarkdownTextContainer: NSView {
         }
 
         guard abs(lastMeasuredWidth - width) > 0.5 || lastDocument != nil else { return }
-        let height = ceil(stackView.fittingSize.height)
+        // Route through the memoized path — when width and document are unchanged
+        // this is a cache hit and avoids a redundant TextKit layout per scroll pass.
+        let height = measureHeight(forWidth: width)
         guard abs(lastMeasuredHeight - height) > 0.5 || abs(lastMeasuredWidth - width) > 0.5 else { return }
         lastMeasuredWidth = width
         lastMeasuredHeight = height

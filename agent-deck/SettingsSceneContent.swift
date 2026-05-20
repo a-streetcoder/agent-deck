@@ -386,6 +386,13 @@ private struct AgentSettingsTab: View {
                     Button("Use macOS Default") { viewModel.resetPiAgentTerminalApplicationToDefault() }
                         .appSecondaryButton()
                 }
+
+                SettingsRow(title: "") {
+                    Text("Supported terminals: \(SupportedTerminal.displayList). Others (such as Warp) can't be driven to open a new window and run a command.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

@@ -1013,6 +1013,26 @@ enum PiAgentTranscriptRole: String, Codable, Hashable {
     case raw
 }
 
+/// What Pi is doing *right now* during a live turn, derived from the RPC event
+/// stream rather than from the last transcript entry. The transcript can only
+/// say "the most recent thing that produced an entry"; it cannot tell a tool
+/// that is still running apart from one that finished several seconds ago, and
+/// it places the turn-start placeholder after streaming thinking. The runner
+/// already handles every RPC event, so stamping the activity there is exact and
+/// costs one dictionary write per event boundary.
+enum PiAgentProcessingActivity: Equatable, Hashable {
+    /// Turn started; model call in flight but nothing emitted yet.
+    case preparing
+    /// `thinking_delta` is streaming.
+    case reasoning
+    /// `text_delta` is streaming.
+    case responding
+    /// A tool is executing (between `tool_execution_start` and `…_end`).
+    case runningTool(String)
+    /// A tool finished or a message ended; the next model call is in flight.
+    case awaitingModel
+}
+
 struct PiAgentUIRequest: Identifiable, Hashable {
     enum Method: String, Hashable {
         case select

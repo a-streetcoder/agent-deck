@@ -12,12 +12,24 @@ final class AppSettingsController {
         let sharedStore = AppSettingsStore.shared
         self.store = sharedStore
         self.settings = sharedStore.settings
+        discardUnsupportedTerminalSelection()
     }
 
     @MainActor
     init(store: AppSettingsStore) {
         self.store = store
         self.settings = store.settings
+        discardUnsupportedTerminalSelection()
+    }
+
+    /// Earlier builds allowed selecting any terminal app, including ones Agent Deck
+    /// cannot drive (Warp, Hyper). Drop such a stale selection so terminal actions
+    /// fall back to macOS Terminal instead of silently doing nothing.
+    private func discardUnsupportedTerminalSelection() {
+        guard let path = settings.piAgentTerminalApplicationPath, !path.isEmpty,
+              SupportedTerminal(appPath: path) == nil else { return }
+        settings.piAgentTerminalApplicationPath = nil
+        persist()
     }
 
     var gitHubBoardCacheLifetime: TimeInterval {
@@ -84,16 +96,15 @@ final class AppSettingsController {
 
     var piAgentTerminalApplicationOptions: [TerminalApplicationOption] {
         var options = [TerminalApplicationOption(name: "macOS Default", path: nil)]
+        // Only terminals Agent Deck can reliably drive (see `SupportedTerminal`).
         let candidates = [
             "/System/Applications/Utilities/Terminal.app",
             "/Applications/Utilities/Terminal.app",
             "/Applications/iTerm.app",
-            "/Applications/Warp.app",
             "/Applications/Ghostty.app",
-            "/Applications/WezTerm.app",
-            "/Applications/Alacritty.app",
             "/Applications/kitty.app",
-            "/Applications/Hyper.app"
+            "/Applications/Alacritty.app",
+            "/Applications/WezTerm.app"
         ]
 
         var seen = Set(options.map(\.id))
@@ -103,8 +114,11 @@ final class AppSettingsController {
             options.append(option)
         }
 
+        // A previously chosen terminal in a non-standard location stays selectable, but
+        // only if it is one we support.
         if let selectedPath = settings.piAgentTerminalApplicationPath,
-           !seen.contains(selectedPath) {
+           !seen.contains(selectedPath),
+           SupportedTerminal(appPath: selectedPath) != nil {
             options.append(TerminalApplicationOption(name: URL(fileURLWithPath: selectedPath).deletingPathExtension().lastPathComponent, path: selectedPath))
         }
 
@@ -317,6 +331,16 @@ final class AppSettingsController {
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
 
         guard panel.runModal() == .OK, let url = panel.url else { return false }
+
+        guard SupportedTerminal(appPath: url.path) != nil else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Unsupported terminal app"
+            alert.informativeText = "\(AppBrand.displayName) can only run Pi sessions in \(SupportedTerminal.displayList). Other terminals provide no reliable way to open a new window and run a command."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return false
+        }
         return setPiAgentTerminalApplicationPath(url.path)
     }
 

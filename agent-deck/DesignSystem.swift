@@ -648,7 +648,10 @@ struct AppLabelTag: View {
             .fontWidth(.expanded)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .glassEffect(.regular.tint(color.opacity(0.18)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(color.opacity(0.55), lineWidth: 1)
+            )
             .foregroundStyle(color)
     }
 }

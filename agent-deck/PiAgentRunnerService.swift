@@ -709,6 +709,7 @@ final class PiAgentRunnerService {
                 thinkingEntryIDsBySessionID[sessionID] = nil
                 thinkingTextBySessionID[sessionID] = nil
                 store.upsert(.init(id: entryID, sessionID: sessionID, role: .assistant, title: "Assistant", text: "", rawJSON: nil))
+                store.setProcessingActivity(.preparing, for: sessionID)
             }
         case "agent_end", "turn_end":
             scheduleIdleConfirmation(sessionID: sessionID)
@@ -1044,11 +1045,13 @@ final class PiAgentRunnerService {
                 let entryID = thinkingEntryIDsBySessionID[sessionID] ?? UUID()
                 thinkingEntryIDsBySessionID[sessionID] = entryID
                 thinkingTextBySessionID[sessionID, default: ""] += delta
+                store.setProcessingActivity(.reasoning, for: sessionID)
                 scheduleStreamingFlush(sessionID: sessionID)
             } else {
                 let entryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
                 assistantEntryIDsBySessionID[sessionID] = entryID
                 assistantTextBySessionID[sessionID, default: ""] += delta
+                store.setProcessingActivity(.responding, for: sessionID)
                 scheduleStreamingFlush(sessionID: sessionID)
             }
         case "toolcall_start":
@@ -1125,6 +1128,7 @@ final class PiAgentRunnerService {
         idleParkingTasksBySessionID[sessionID] = nil
         streamFlushTasksBySessionID[sessionID]?.cancel()
         streamFlushTasksBySessionID[sessionID] = nil
+        store.setProcessingActivity(nil, for: sessionID)
         assistantEntryIDsBySessionID[sessionID] = nil
         assistantTextBySessionID[sessionID] = nil
         thinkingEntryIDsBySessionID[sessionID] = nil
@@ -1180,6 +1184,7 @@ final class PiAgentRunnerService {
             // the renderer keeps pre-tool reasoning visually above the tool, and any new
             // post-tool reasoning opens a fresh thinking entry with a later timestamp.
             finalizeStreamingThinking(sessionID: sessionID)
+            store.setProcessingActivity(.runningTool(toolName), for: sessionID)
             text = event.args?.compactDescription ?? "Starting…"
         case "tool_execution_update":
             text = extractText(from: event.partialResult ?? .null).isEmpty ? (event.partialResult?.compactDescription ?? "Running…") : extractText(from: event.partialResult ?? .null)
@@ -1187,6 +1192,9 @@ final class PiAgentRunnerService {
             // Also close out on tool end — by the time the next thinking_delta arrives,
             // we want a brand-new thinking entry whose timestamp is after this tool's.
             finalizeStreamingThinking(sessionID: sessionID)
+            // The tool has finished; the indicator must stop saying "Running <tool>"
+            // while Pi spends the next few seconds on its follow-up model call.
+            store.setProcessingActivity(.awaitingModel, for: sessionID)
             let resultText = extractText(from: event.result ?? .null)
             text = resultText.isEmpty ? (event.result?.compactDescription ?? "Completed.") : resultText
             toolEntryIDsByCallID[toolKey] = nil
@@ -1700,6 +1708,9 @@ final class PiAgentRunnerService {
             if !status.isActive {
                 record.isCompacting = false
             }
+        }
+        if !status.isActive {
+            store.setProcessingActivity(nil, for: sessionID)
         }
     }
 }

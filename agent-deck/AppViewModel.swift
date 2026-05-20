@@ -1666,7 +1666,7 @@ final class AppViewModel: NSObject, ObservableObject {
         do {
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-            openTerminalScript(scriptURL, command: updateCommand, for: operationID)
+            openTerminalScript(scriptURL, for: operationID)
         } catch {
             NSLog("Failed to create Pi update terminal script: \(error.localizedDescription)")
         }
@@ -1691,7 +1691,7 @@ final class AppViewModel: NSObject, ObservableObject {
         do {
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-            openTerminalScript(scriptURL, command: installCommand, for: operationID)
+            openTerminalScript(scriptURL, for: operationID)
         } catch {
             NSLog("Failed to create Pi install terminal script: \(error.localizedDescription)")
         }
@@ -1725,7 +1725,7 @@ final class AppViewModel: NSObject, ObservableObject {
         do {
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-            openTerminalScript(scriptURL, command: resumeCommand, for: session.id)
+            openTerminalScript(scriptURL, for: session.id)
         } catch {
             piAgentSessionStore.updateSession(session.id) { record in
                 record.lastError = error.localizedDescription
@@ -1758,31 +1758,67 @@ final class AppViewModel: NSObject, ObservableObject {
         """
     }
 
-    private func openTerminalScript(_ scriptURL: URL, command: String, for sessionID: UUID) {
-        let selectedTerminalPath = appSettings.piAgentTerminalApplicationPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let selectedTerminalName = selectedTerminalPath.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() }
+    private func openTerminalScript(_ scriptURL: URL, for sessionID: UUID) {
+        let trimmedPath = appSettings.piAgentTerminalApplicationPath?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if selectedTerminalPath == nil || selectedTerminalName == "terminal.app" {
-            if openInAppleTerminal(command: command, sessionID: sessionID) { return }
+        // No explicit choice → macOS Terminal.
+        guard let selectedTerminalPath = trimmedPath, !selectedTerminalPath.isEmpty else {
+            if openInAppleTerminal(scriptURL: scriptURL, sessionID: sessionID) { return }
             openCommandFile(scriptURL, withApplicationAt: defaultTerminalURL(), sessionID: sessionID)
             return
         }
-        if selectedTerminalName == "iterm.app" {
-            if openInITerm(command: command, sessionID: sessionID) { return }
-            openCommandFile(scriptURL, withApplicationAt: selectedTerminalPath.map(URL.init(fileURLWithPath:)), sessionID: sessionID)
-            return
-        }
 
-        guard let terminalPath = selectedTerminalPath, !terminalPath.isEmpty else { return }
-        let terminalURL = URL(fileURLWithPath: terminalPath)
-        guard FileManager.default.fileExists(atPath: terminalURL.path) else {
-            piAgentSessionStore.updateSession(sessionID) { record in
-                record.lastError = "Selected terminal app no longer exists. Choose another app in Settings."
+        // An unrecognised app should not survive the validation in Settings, but a stale
+        // selection from an older build still might — fall back to a best-effort open.
+        guard let terminal = SupportedTerminal(appPath: selectedTerminalPath) else {
+            let terminalURL = URL(fileURLWithPath: selectedTerminalPath)
+            guard FileManager.default.fileExists(atPath: terminalURL.path) else {
+                piAgentSessionStore.updateSession(sessionID) { record in
+                    record.lastError = "Selected terminal app no longer exists. Choose another app in Settings."
+                }
+                return
             }
+            openCommandFile(scriptURL, withApplicationAt: terminalURL, sessionID: sessionID)
             return
         }
 
-        openCommandFile(scriptURL, withApplicationAt: terminalURL, sessionID: sessionID)
+        switch terminal {
+        case .appleTerminal:
+            if openInAppleTerminal(scriptURL: scriptURL, sessionID: sessionID) { return }
+            openCommandFile(scriptURL, withApplicationAt: defaultTerminalURL(), sessionID: sessionID)
+        case .iTerm:
+            if openInITerm(scriptURL: scriptURL, sessionID: sessionID) { return }
+            openCommandFile(scriptURL, withApplicationAt: URL(fileURLWithPath: selectedTerminalPath), sessionID: sessionID)
+        case .ghostty, .kitty, .alacritty, .wezTerm:
+            if launchTerminalCLI(terminal, appPath: selectedTerminalPath, scriptURL: scriptURL, sessionID: sessionID) { return }
+            openCommandFile(scriptURL, withApplicationAt: URL(fileURLWithPath: selectedTerminalPath), sessionID: sessionID)
+        }
+    }
+
+    /// Launches a CLI-driven terminal (Ghostty, kitty, Alacritty, WezTerm) so it opens a
+    /// new window running the prepared `.command` script via `/bin/zsh`. Returns `false`
+    /// if the terminal's executable could not be found or started.
+    @discardableResult
+    private func launchTerminalCLI(_ terminal: SupportedTerminal, appPath: String, scriptURL: URL, sessionID: UUID) -> Bool {
+        guard let launcher = terminal.commandLineLauncher else { return false }
+        let executableURL = URL(fileURLWithPath: appPath)
+            .appendingPathComponent("Contents/MacOS", isDirectory: true)
+            .appendingPathComponent(launcher.executable)
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else { return false }
+
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = launcher.leadingArguments + ["/bin/zsh", scriptURL.path]
+        do {
+            try process.run()
+            return true
+        } catch {
+            let name = URL(fileURLWithPath: appPath).deletingPathExtension().lastPathComponent
+            piAgentSessionStore.updateSession(sessionID) { record in
+                record.lastError = "Could not launch \(name): \(error.localizedDescription)"
+            }
+            return false
+        }
     }
 
     private func openCommandFile(_ scriptURL: URL, withApplicationAt terminalURL: URL?, sessionID: UUID) {
@@ -1818,23 +1854,30 @@ final class AppViewModel: NSObject, ObservableObject {
         .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
+    /// Runs the prepared `#!/bin/zsh` `.command` file in Terminal. We point `do script`
+    /// at the script path (chmod 755 + shebang) rather than typing the raw multi-line
+    /// command, so behavior no longer depends on the user's interactive login shell.
     @discardableResult
-    private func openInAppleTerminal(command: String, sessionID: UUID) -> Bool {
+    private func openInAppleTerminal(scriptURL: URL, sessionID: UUID) -> Bool {
         let script = """
         tell application "Terminal"
             activate
-            do script "\(appleScriptEscaped(command))"
+            do script "\(appleScriptEscaped(scriptURL.path))"
         end tell
         """
         return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open Terminal.")
     }
 
+    /// Runs the prepared `.command` file in iTerm. iTerm's `command` parameter must be a
+    /// single executable to exec — passing a multi-line shell snippet makes iTerm try to
+    /// exec a bogus argv[0] and end the session immediately ("session ended very soon
+    /// after starting"). The script file is executable with a shebang, so exec works.
     @discardableResult
-    private func openInITerm(command: String, sessionID: UUID) -> Bool {
+    private func openInITerm(scriptURL: URL, sessionID: UUID) -> Bool {
         let script = """
         tell application "iTerm"
             activate
-            create window with default profile command "\(appleScriptEscaped(command))"
+            create window with default profile command "\(appleScriptEscaped(scriptURL.path))"
         end tell
         """
         return runAppleScript(script, sessionID: sessionID, fallbackMessage: "Could not open iTerm.")
