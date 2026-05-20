@@ -1155,6 +1155,7 @@ private struct MarkdownWebView: NSViewRepresentable {
         overflow-x: hidden;
         color: #222222;
         background-color: #FAFAFA;
+        border-radius: 12px;
         -webkit-font-smoothing: antialiased;
         -webkit-user-select: text;
     }

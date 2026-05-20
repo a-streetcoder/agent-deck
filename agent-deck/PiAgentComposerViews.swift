@@ -58,6 +58,7 @@ struct PiAgentComposerBox: View {
     @Binding var images: [PiAgentImageAttachment]
     @Binding var files: [PiAgentFileAttachment]
     @Binding var folders: [PiAgentFolderAttachment]
+    @Binding var issueAttachment: PiAgentIssueAttachment?
     @Binding var attachmentError: String?
     @Binding var inputMode: PiAgentInputMode
     let isRunning: Bool
@@ -80,12 +81,18 @@ struct PiAgentComposerBox: View {
     let onCreateSessionForProject: (DiscoveredProject) -> Void
     let onClear: () -> Void
     @State private var isDropTargeted = false
+    @State private var isIssuePickerPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !images.isEmpty || !files.isEmpty || !folders.isEmpty {
+            if !images.isEmpty || !files.isEmpty || !folders.isEmpty || issueAttachment != nil {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
+                        if let issueAttachment {
+                            PiAgentIssueAttachmentChip(issue: issueAttachment) {
+                                self.issueAttachment = nil
+                            }
+                        }
                         ForEach(images) { image in
                             PiAgentImageAttachmentThumbnail(image: image) {
                                 images.removeAll { $0.id == image.id }
@@ -240,11 +247,42 @@ struct PiAgentComposerBox: View {
             }
             return true
         }
+        .task {
+            viewModel.ensureComposerIssuesLoaded()
+        }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var composerActionControls: some View {
         AppControlGroup(spacing: 6) {
+            if viewModel.githubConnectionState.isConnected && viewModel.selectedGitHubProject?.gitHubRemote != nil {
+                Button {
+                    isIssuePickerPresented.toggle()
+                } label: {
+                    Image("github")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(width: 24, height: 24)
+                        .appGlassCircle()
+                }
+                .buttonStyle(.plain)
+                .help("Attach GitHub issue")
+                .accessibilityLabel("Attach GitHub issue")
+                .popover(isPresented: $isIssuePickerPresented, arrowEdge: .bottom) {
+                    PiAgentIssuePickerPopover(
+                        viewModel: viewModel,
+                        onSelect: { issue in
+                            issueAttachment = issue
+                            attachmentError = nil
+                            isIssuePickerPresented = false
+                        }
+                    )
+                }
+            }
+
             Button(action: attachImagesFromOpenPanel) {
                 Image(systemName: "paperclip")
                     .font(.caption.weight(.semibold))
@@ -616,6 +654,135 @@ struct PiAgentFolderAttachmentChip: View {
             systemImage: "folder",
             onRemove: onRemove
         )
+    }
+}
+
+struct PiAgentIssueAttachmentChip: View {
+    let issue: PiAgentIssueAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image("github")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(width: 13, height: 13)
+                .foregroundStyle(AppTheme.mutedText)
+            Text("#\(issue.number) \(issue.title)")
+                .lineLimit(1)
+                .truncationMode(.head)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .appGlassCapsule()
+        .help(issue.repository)
+    }
+}
+
+private struct PiAgentIssuePickerPopover: View {
+    @ObservedObject var viewModel: AppViewModel
+    let onSelect: (PiAgentIssueAttachment) -> Void
+
+    @State private var query = ""
+    @State private var isLoading = false
+    @State private var loadingIssueID: String?
+    @State private var errorText: String?
+
+    private var items: [GitHubWorkItem] {
+        let source = viewModel.githubComposerIssueItems
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return source }
+        let needle = query.lowercased()
+        return source.filter { item in
+            item.title.lowercased().contains(needle)
+            || item.repository.lowercased().contains(needle)
+            || "#\(item.number)".contains(needle)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Attach GitHub Issue")
+                .font(.headline)
+
+            TextField("Search visible issues", text: $query)
+                .textFieldStyle(.roundedBorder)
+
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            if items.isEmpty {
+                Text(emptyStateText)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .frame(width: 400, alignment: .leading)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(items.prefix(20)) { item in
+                            ZStack(alignment: .topTrailing) {
+                                GitHubIssueListRow(
+                                    item: item,
+                                    isSelected: false,
+                                    onSelect: { attach(item) }
+                                )
+                                if loadingIssueID == item.id && isLoading {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .padding(12)
+                                }
+                            }
+                            .disabled(isLoading)
+                        }
+                    }
+                }
+                .frame(width: 420, height: 320)
+            }
+        }
+        .padding(12)
+        .onAppear {
+            viewModel.ensureComposerIssuesLoaded()
+        }
+    }
+
+    private var emptyStateText: String {
+        if !viewModel.githubConnectionState.isConnected {
+            return "Connect GitHub first to attach an issue."
+        }
+        if viewModel.selectedGitHubProject?.gitHubRemote != nil {
+            return viewModel.githubIsLoadingProjectBoard
+                ? "Loading issues for the selected repository…"
+                : "No issues loaded for the selected repository yet."
+        }
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "No matching issues."
+        }
+        return "Select a GitHub project to attach one of its issues."
+    }
+
+    private func attach(_ item: GitHubWorkItem) {
+        isLoading = true
+        loadingIssueID = item.id
+        errorText = nil
+        viewModel.fetchPiAgentIssueAttachment(for: item) { result in
+            isLoading = false
+            loadingIssueID = nil
+            switch result {
+            case .success(let issue):
+                onSelect(issue)
+            case .failure(let error):
+                errorText = error.localizedDescription
+            }
+        }
     }
 }
 

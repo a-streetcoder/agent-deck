@@ -510,18 +510,24 @@ struct AppKeyCap: View {
 
 struct AppCard<Content: View, Trailing: View>: View {
     let title: String?
+    let info: String?
     @ViewBuilder let trailing: Trailing
     @ViewBuilder let content: Content
 
-    init(title: String? = nil, @ViewBuilder trailing: () -> Trailing = { EmptyView() }, @ViewBuilder content: () -> Content) {
+    init(title: String? = nil, info: String? = nil, @ViewBuilder trailing: () -> Trailing = { EmptyView() }, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.info = info
         self.trailing = trailing()
         self.content = content()
     }
 
+    private var showsHeader: Bool {
+        title != nil || info != nil || !(Trailing.self == EmptyView.self)
+    }
+
     var body: some View {
         Group {
-            if title == nil && !(Trailing.self == EmptyView.self) {
+            if title == nil && info == nil && !(Trailing.self == EmptyView.self) {
                 HStack(alignment: .top, spacing: AppTheme.contentSpacing) {
                     content
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -529,12 +535,15 @@ struct AppCard<Content: View, Trailing: View>: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: AppTheme.contentSpacing) {
-                    if title != nil || !(Trailing.self == EmptyView.self) {
-                        HStack(alignment: .firstTextBaseline) {
+                    if showsHeader {
+                        HStack(alignment: .center) {
                             if let title {
                                 Text(title)
                                     .font(.headline)
                                     .fontWidth(.expanded)
+                            }
+                            if let info {
+                                AppHelpButton(title: title ?? "Details", text: info)
                             }
                             Spacer()
                             trailing
@@ -660,7 +669,6 @@ struct AppListSectionHeader: View {
     let title: String
     let info: String?
     let tint: Color?
-    @State private var isInfoPresented = false
 
     init(_ title: String, info: String? = nil, tint: Color? = nil) {
         self.title = title
@@ -677,20 +685,7 @@ struct AppListSectionHeader: View {
                 .textCase(nil)
 
             if let info {
-                Button {
-                    isInfoPresented.toggle()
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help(info)
-                .accessibilityLabel("About \(title)")
-                .popover(isPresented: $isInfoPresented, arrowEdge: .bottom) {
-                    AppListSectionInfoPopover(title: title, message: info)
-                }
+                AppHelpButton(title: title, text: info)
             }
 
             Spacer(minLength: 0)
@@ -700,31 +695,11 @@ struct AppListSectionHeader: View {
     }
 }
 
-private struct AppListSectionInfoPopover: View {
-    let title: String
-    let message: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: "info.circle")
-                .font(.headline)
-                .fontWidth(.expanded)
-                .foregroundStyle(.primary)
-
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(AppTheme.mutedText)
-                .lineLimit(nil)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-        }
-        .padding(16)
-        .frame(width: 380, alignment: .leading)
-    }
-}
-
-struct FieldHelpButton: View {
+/// The single shared inline "?" help affordance. Used for field-level help
+/// (no `title` — a compact text-only popover) and, with a `title`, for
+/// section/card headers (a titled popover that explains how the section works).
+struct AppHelpButton: View {
+    var title: String? = nil
     let text: String
     @State private var isPresented = false
 
@@ -736,7 +711,32 @@ struct FieldHelpButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title.map { "About \($0)" } ?? "Help")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            popoverContent
+        }
+    }
+
+    @ViewBuilder
+    private var popoverContent: some View {
+        if let title {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(title, systemImage: "questionmark.circle")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
+
+                Text(text)
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            .padding(16)
+            .frame(width: 360, alignment: .leading)
+        } else {
             Text(text)
                 .font(.callout)
                 .foregroundStyle(AppTheme.mutedText)

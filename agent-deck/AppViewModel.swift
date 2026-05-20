@@ -133,6 +133,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
     private(set) var piAgentPendingComposerText: String?
+    private(set) var piAgentPendingIssueAttachment: PiAgentIssueAttachment?
     let piAgentSessionStore = PiAgentSessionStore()
     let agentMemoryStore = AgentMemoryStore()
     let agentImageStore = AgentImageStore()
@@ -318,6 +319,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let rootURL = configuredProjectsRootURL
         let externalSkillPaths = appSettings.externalSkillPaths
+        let externalPromptPaths = appSettings.externalPromptPaths
         refreshRequestID += 1
         let requestID = refreshRequestID
         isRefreshingProjects = true
@@ -330,6 +332,7 @@ final class AppViewModel: NSObject, ObservableObject {
                 selectedProjectPath: selectedProjectPath,
                 preferencesByPath: preferencesByPath,
                 externalSkillPaths: externalSkillPaths,
+                externalPromptPaths: externalPromptPaths,
                 scanAllProjects: shouldScanAllProjects,
                 extraProjectPathsToScan: extraProjectPathsToScan
             )
@@ -423,7 +426,7 @@ final class AppViewModel: NSObject, ObservableObject {
         panel.message = "Choose a repo or project root to add to \(AppBrand.displayName)."
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        addProject(url)
+        addProject(url, selectingAfterAdd: true)
     }
 
     var suggestedExternalSkillsDirectoryURL: URL {
@@ -566,6 +569,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func addProject(_ url: URL, selectingAfterAdd: Bool = false) {
         let standardizedURL = url.standardizedFileURL
         projectPreferencesStore.addProjectPath(standardizedURL.path)
+        projectPreferencesStore.setEnabled(true, for: standardizedURL.path)
         projectPreferencesByPath = projectPreferencesStore.preferencesByPath
 
         if selectingAfterAdd {
@@ -1021,6 +1025,20 @@ final class AppViewModel: NSObject, ObservableObject {
         filteredBoardItems(from: githubProjectBoard)
     }
 
+    var githubComposerIssueItems: [GitHubWorkItem] {
+        if let remote = selectedGitHubProject?.gitHubRemote {
+            if let githubProjectBoard {
+                return filteredBoardItems(from: githubProjectBoard)
+            }
+            if let githubAggregateBoard {
+                let filtered = filteredBoardItems(from: githubAggregateBoard)
+                return filtered.filter { $0.repository.caseInsensitiveCompare(remote.nameWithOwner) == .orderedSame }
+            }
+            return []
+        }
+        return filteredBoardItems(from: githubAggregateBoard)
+    }
+
     var githubAvailableAuthors: [String] {
         guard let board = githubProjectBoard else { return [] }
         var seen: Set<String> = []
@@ -1401,6 +1419,40 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    func fetchPiAgentIssueAttachment(for item: GitHubWorkItem, completion: @escaping (Result<PiAgentIssueAttachment, Error>) -> Void) {
+        guard let session = gitHubSession else {
+            completion(.failure(GitHubAPIClient.APIError.requestFailed(statusCode: 0, message: "Connect GitHub first.")))
+            return
+        }
+
+        Task {
+            do {
+                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
+                let detail = try await service.fetchDetail(for: item)
+                await MainActor.run {
+                    completion(.success(PiAgentIssueAttachment(detail: detail)))
+                }
+            } catch {
+                await MainActor.run {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    func ensureComposerIssuesLoaded() {
+        Task {
+            await prepareGitHubScreen()
+            await MainActor.run {
+                if selectedGitHubProject?.gitHubRemote != nil {
+                    refreshProjectBoard(force: false)
+                } else if githubAggregateBoard == nil, !gitHubProjects.isEmpty {
+                    refreshAggregateBoard()
+                }
+            }
+        }
+    }
+
     func openPiAgentForSelectedProject() {
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
@@ -1467,12 +1519,19 @@ final class AppViewModel: NSObject, ObservableObject {
             issueURL: detail.item.url
         )
         ensurePiAgentModelCatalogLoaded()
-        piAgentPendingComposerText = PiIssuePromptBuilder.issuePrompt(detail: detail, project: project)
+        piAgentPendingComposerText = PiIssuePromptBuilder.issueDraft(detail: detail, project: project)
+        piAgentPendingIssueAttachment = PiAgentIssueAttachment(detail: detail)
     }
 
     func consumePendingPiAgentComposerText() -> String? {
         guard let pending = piAgentPendingComposerText else { return nil }
         piAgentPendingComposerText = nil
+        return pending
+    }
+
+    func consumePendingPiAgentIssueAttachment() -> PiAgentIssueAttachment? {
+        let pending = piAgentPendingIssueAttachment
+        piAgentPendingIssueAttachment = nil
         return pending
     }
 
@@ -2593,21 +2652,32 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
         guard let session = piAgentSessionStore.selectedSession else { return }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if images.isEmpty, trimmed == "/compact" || trimmed.hasPrefix("/compact ") {
-            let instructions = trimmed.hasPrefix("/compact ") ? String(trimmed.dropFirst("/compact ".count)) : nil
+        let visibleText = (transcriptText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveText: String
+        if let issueAttachment {
+            effectiveText = PiIssuePromptBuilder.rpcMessage(
+                userText: text,
+                issue: issueAttachment,
+                projectName: session.projectName,
+                projectPath: session.worktreePath ?? session.projectPath
+            )
+        } else {
+            effectiveText = text
+        }
+        if images.isEmpty, visibleText == "/compact" || visibleText.hasPrefix("/compact ") {
+            let instructions = visibleText.hasPrefix("/compact ") ? String(visibleText.dropFirst("/compact ".count)) : nil
             piAgentRunner.compact(session: session, customInstructions: instructions)
             return
         }
-        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: trimmed)
+        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: visibleText.isEmpty ? effectiveText.trimmingCharacters(in: .whitespacesAndNewlines) : visibleText)
         if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
-            piAgentRunner.resume(session: session, initialPrompt: text, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments)
+            piAgentRunner.resume(session: session, initialPrompt: effectiveText, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
             isPiAgentInspectorPresented = selectedSidebarItem != .agent
             return
         }
-        piAgentRunner.send(text, mode: mode, to: session.id, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments)
+        piAgentRunner.send(effectiveText, mode: mode, to: session.id, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
     }
 
     private func schedulePiAgentTitleUpdateIfNeeded(sessionID: UUID, plan: PiSessionPlanRecord) {
@@ -4368,6 +4438,7 @@ final class AppViewModel: NSObject, ObservableObject {
             selectedProjectPath: selectedProjectPath,
             preferencesByPath: projectPreferencesStore.preferencesByPath,
             externalSkillPaths: appSettings.externalSkillPaths,
+            externalPromptPaths: appSettings.externalPromptPaths,
             scanAllProjects: true
         )
         applyRefreshSnapshot(result, includeModels: false)
@@ -4527,25 +4598,35 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func replacePromptSettingsPaths(oldURLs: [URL], newURL: URL) throws {
+    private func replacePromptSettingsPaths(oldURLs: [URL], newURL: URL?) throws {
         let oldPaths = Set(oldURLs.map { $0.standardizedFileURL.path })
         for settingsPath in allSettingsPaths() {
             var root = try loadJSONDictionary(at: settingsPath)
             guard let prompts = root["prompts"] else { continue }
             let baseURL = URL(fileURLWithPath: settingsPath).deletingLastPathComponent()
             var changed = false
-            func replacement(for entry: String) -> String {
+            func replacement(for entry: String) -> String? {
                 let resolved = resolveSettingsPath(entry, baseURL: baseURL).standardizedFileURL.path
                 guard oldPaths.contains(resolved) else { return entry }
                 changed = true
+                guard let newURL else { return nil }
                 return rewrittenSettingsPath(for: newURL, originalEntry: entry, baseURL: baseURL)
             }
             if let value = prompts as? String {
-                root["prompts"] = replacement(for: value)
+                if let updatedValue = replacement(for: value) {
+                    root["prompts"] = updatedValue
+                } else {
+                    root.removeValue(forKey: "prompts")
+                }
             } else if let values = prompts as? [Any] {
-                root["prompts"] = values.map { value -> Any in
+                let updatedValues = values.compactMap { value -> Any? in
                     guard let entry = value as? String else { return value }
                     return replacement(for: entry)
+                }
+                if updatedValues.isEmpty {
+                    root.removeValue(forKey: "prompts")
+                } else {
+                    root["prompts"] = updatedValues
                 }
             }
             guard changed else { continue }
@@ -4598,7 +4679,10 @@ final class AppViewModel: NSObject, ObservableObject {
         try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
     }
 
-    func createLibraryPromptTemplate() throws {
+    /// Creates an empty library prompt template and returns the file URL so the
+    /// caller can immediately open it in the markdown editor.
+    @discardableResult
+    func createLibraryPromptTemplate() throws -> URL {
         let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
         var candidate = "new-prompt"
@@ -4611,7 +4695,7 @@ final class AppViewModel: NSObject, ObservableObject {
         let text = """
         ---
         description: Describe this reusable prompt template.
-        argument-hint: <task>
+        argument-hint: "<task>"
         ---
 
         Write the reusable prompt template here. Use $ARGUMENTS where all slash-command arguments should be inserted.
@@ -4619,6 +4703,100 @@ final class AppViewModel: NSObject, ObservableObject {
         try text.write(to: url, atomically: true, encoding: .utf8)
         refresh(includeModels: false)
         selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == candidate }?.id ?? selectedCommandItemID
+        return url
+    }
+
+    /// Registers an external prompt template file as a referenced library prompt
+    /// and returns the source URL. The file stays where the user keeps it — Agent
+    /// Deck scans and edits it in place, mirroring how external skills are imported.
+    @discardableResult
+    func importPromptTemplate(from sourceURL: URL) throws -> URL {
+        let standardizedURL = sourceURL.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: standardizedURL.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        if appSettingsController.addExternalPromptPaths([standardizedURL.path]) {
+            appSettings = appSettingsController.settings
+        }
+        refresh(includeModels: false)
+        let importedName = standardizedURL.deletingPathExtension().lastPathComponent
+        selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == importedName }?.id ?? selectedCommandItemID
+        return standardizedURL
+    }
+
+    /// Presents a file picker for choosing a single markdown prompt file to import.
+    func choosePromptFileToImport(completion: @escaping (URL?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Import Prompt"
+        panel.message = "Choose a markdown file to reference in the \(AppBrand.displayName) prompt library. The file stays where it is and is edited in place."
+        let markdownTypes = ["md", "markdown", "mdown", "txt"].compactMap { UTType(filenameExtension: $0) }
+        panel.allowedContentTypes = markdownTypes.isEmpty ? [.plainText] : markdownTypes + [.plainText]
+
+        let handler: (NSApplication.ModalResponse) -> Void = { response in
+            DispatchQueue.main.async {
+                guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                    completion(nil)
+                    return
+                }
+                completion(url)
+            }
+        }
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: handler)
+        } else {
+            panel.begin(completionHandler: handler)
+        }
+    }
+
+    /// Creates a new library skill folder (`~/.pi/agent/skills/<name>/SKILL.md`)
+    /// and returns the `SKILL.md` URL so the caller can open it in the editor.
+    @discardableResult
+    func createLibrarySkill() throws -> URL {
+        let fileManager = FileManager.default
+        let skillsRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true)
+        var candidate = "new-skill"
+        var index = 2
+        while fileManager.fileExists(atPath: skillsRoot.appendingPathComponent(candidate, isDirectory: true).path) {
+            candidate = "new-skill-\(index)"
+            index += 1
+        }
+        let skillDirectory = skillsRoot.appendingPathComponent(candidate, isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        let url = skillDirectory.appendingPathComponent("SKILL.md")
+        let text = """
+        ---
+        name: \(candidate)
+        description: Describe what this skill does and when Pi should use it.
+        ---
+
+        # \(candidate)
+
+        Document the skill instructions here.
+        """
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedSkillID = allVisibleSkillRecords.first { $0.name == candidate }?.id ?? selectedSkillID
+        return url
+    }
+
+    /// The skills import folder to reuse without prompting — the configured
+    /// default, or the last folder picked. Returns `nil` when neither is set,
+    /// so the import flow can fall back to a folder picker the first time.
+    var rememberedSkillsImportDirectoryURL: URL? {
+        let fileManager = FileManager.default
+        func validDirectoryURL(for path: String?) -> URL? {
+            guard let rawPath = path?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else { return nil }
+            let url = URL(fileURLWithPath: rawPath, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+            return url
+        }
+        return validDirectoryURL(for: appSettings.defaultSkillsImportRootPath)
+            ?? validDirectoryURL(for: UserDefaults.standard.string(forKey: lastExternalSkillsDirectoryDefaultsKey))
     }
 
     func prompt(_ prompt: PromptTemplateRecord, isEnabledFor project: DiscoveredProject) -> Bool {
@@ -4657,6 +4835,38 @@ final class AppViewModel: NSObject, ObservableObject {
         refresh(includeModels: false)
     }
 
+    func canDeletePrompt(_ prompt: PromptTemplateRecord) -> Bool {
+        switch prompt.source.kind {
+        case .package:
+            return false
+        case .builtin, .global, .project, .legacyProject, .override, .library:
+            return true
+        }
+    }
+
+    func deletePrompt(_ prompt: PromptTemplateRecord) throws {
+        guard canDeletePrompt(prompt) else { throw CocoaError(.fileWriteNoPermission) }
+
+        // Imported prompts are referenced in place — removing one only un-registers
+        // the path. The user's original file is never trashed.
+        if prompt.discoveryKind == .externalReference {
+            try removePromptReferences(named: prompt.name)
+            _ = appSettingsController.removeExternalPromptPaths([prompt.filePath])
+            appSettings = appSettingsController.settings
+            refresh(includeModels: false, scanAllProjects: true)
+            selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
+            return
+        }
+
+        try removePromptReferences(named: prompt.name)
+        let fileURL = URL(fileURLWithPath: prompt.filePath).standardizedFileURL
+        try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
+        try replacePromptSettingsPaths(oldURLs: [fileURL], newURL: nil)
+        appSettings = appSettingsController.settings
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
+    }
+
     func agent(_ agent: AgentRecord, isEnabledFor project: DiscoveredProject) -> Bool {
         projectPreference(for: project.path).assignedAgentNames.contains(agent.name)
     }
@@ -4688,7 +4898,7 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func skillNamed(_ skillName: String, isRuntimeVisibleIn project: DiscoveredProject) -> Bool {
-        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths).scan(projectRoot: project.url)
+        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths).scan(projectRoot: project.url)
         let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
         return matches.count == 1
     }
@@ -4799,6 +5009,47 @@ final class AppViewModel: NSObject, ObservableObject {
     func moveAgentToLibrary(_ agent: AgentRecord) throws {
         _ = try ensureLibraryAgent(for: agent)
         refresh(includeModels: false)
+    }
+
+    /// Custom and library agents own a real file that can be removed. Builtin and
+    /// package agents are read-only — they are disabled or overridden, not deleted.
+    func canDeleteAgent(_ agent: AgentRecord) -> Bool {
+        switch agent.source.kind {
+        case .builtin, .package:
+            return false
+        case .global, .project, .legacyProject, .override, .library:
+            return true
+        }
+    }
+
+    func deleteAgent(_ agent: AgentRecord) throws {
+        guard canDeleteAgent(agent) else { throw CocoaError(.fileWriteNoPermission) }
+
+        try removeAgentReferences(named: agent.name)
+        let fileURL = URL(fileURLWithPath: agent.filePath).standardizedFileURL
+        try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
+        refresh(includeModels: false, scanAllProjects: true)
+        selectedAgentID = filteredAgents.first?.id
+    }
+
+    private func removeAgentReferences(named agentName: String) throws {
+        _ = appSettingsController.setDefaultAgent(agentName, enabled: false)
+        appSettings = appSettingsController.settings
+
+        for projectPath in projectPreferencesStore.preferencesByPath.keys {
+            projectPreferencesStore.setAssignedAgent(agentName, assigned: false, for: projectPath)
+        }
+        applyProjectPreferenceChanges()
+    }
+
+    private func removePromptReferences(named promptName: String) throws {
+        _ = appSettingsController.setDefaultPromptTemplate(promptName, enabled: false)
+        appSettings = appSettingsController.settings
+
+        for projectPath in projectPreferencesStore.preferencesByPath.keys {
+            projectPreferencesStore.setAssignedPromptTemplate(promptName, assigned: false, for: projectPath)
+        }
+        applyProjectPreferenceChanges()
     }
 
     func addSkillToSelectedProject(_ skill: SkillRecord) throws {
@@ -5423,7 +5674,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func currentWatchedURLsForAutoRefresh() -> [URL] {
         watchedURLsForAutoRefresh.isEmpty
-            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths)
+            ? AppRefreshService.watchedURLs(projects: selectedDiscoveredProject.map { [$0] } ?? [], snapshot: snapshot, externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths)
             : watchedURLsForAutoRefresh
     }
 

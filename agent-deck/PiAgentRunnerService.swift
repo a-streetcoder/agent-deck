@@ -124,20 +124,22 @@ final class PiAgentRunnerService {
             issueNumber: detail.item.number,
             issueURL: detail.item.url
         )
-        let prompt = PiIssuePromptBuilder.issuePrompt(detail: detail, project: project)
-        start(session: session, projectURL: project.url, initialPrompt: prompt)
+        let issueAttachment = PiAgentIssueAttachment(detail: detail)
+        let draft = PiIssuePromptBuilder.issueDraft(detail: detail, project: project)
+        let prompt = PiIssuePromptBuilder.rpcMessage(userText: draft, issue: issueAttachment, projectName: project.name, projectPath: project.path)
+        start(session: session, projectURL: project.url, initialPrompt: prompt, initialTranscriptText: draft, initialIssueAttachment: issueAttachment)
     }
 
-    func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
         let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
         // If Pi has already created a session file, always resume it before sending a new prompt.
         // Otherwise an idle follow-up (or a model change followed by Send) starts a fresh Pi session
         // and the chat appears to lose context.
         let canResumePiSession = session.piSessionFile != nil
-        start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialTranscriptText: transcriptText, initialImages: images, initialPasteAttachments: pasteAttachments, resumeExisting: canResumePiSession)
+        start(session: session, projectURL: projectURL, initialPrompt: initialPrompt, initialTranscriptText: transcriptText, initialImages: images, initialPasteAttachments: pasteAttachments, initialIssueAttachment: issueAttachment, resumeExisting: canResumePiSession)
     }
 
-    private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
         let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
         start(
             session: session,
@@ -146,6 +148,7 @@ final class PiAgentRunnerService {
             initialTranscriptText: transcriptText,
             initialImages: images,
             initialPasteAttachments: pasteAttachments,
+            initialIssueAttachment: issueAttachment,
             resumeExisting: session.piSessionFile != nil,
             recordStopTranscript: false
         )
@@ -161,7 +164,7 @@ final class PiAgentRunnerService {
         restartForLaunchConfiguration(session: session)
     }
 
-    func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, transcriptText displayText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = []) {
+    func send(_ text: String, mode: PiAgentInputMode, to sessionID: UUID, transcriptText displayText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !images.isEmpty else { return }
         let message = userMessage(trimmed, images: images)
@@ -176,11 +179,11 @@ final class PiAgentRunnerService {
         if effectiveMode == .prompt,
            pendingConfigurationRestartSessionIDs.remove(sessionID) != nil,
            let session = store.sessions.first(where: { $0.id == sessionID }) {
-            restartForLaunchConfiguration(session: session, initialPrompt: text, transcriptText: displayText, images: images, pasteAttachments: pasteAttachments)
+            restartForLaunchConfiguration(session: session, initialPrompt: text, transcriptText: displayText, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
             return
         }
         let transcriptMessage = displayText.map { userMessage($0, images: images) } ?? message
-        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(images: images, pasteAttachments: pasteAttachments)))
+        store.append(.init(sessionID: sessionID, role: .user, title: transcriptTitle(for: effectiveMode, isStreaming: isStreaming), text: transcriptText(transcriptMessage, images: images), rawJSON: transcriptAttachmentJSON(images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)))
         switch effectiveMode {
         case .prompt:
             // Harmless when Pi is idle, but prevents dropped messages if our local
@@ -321,7 +324,7 @@ final class PiAgentRunnerService {
         }
     }
 
-    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialTranscriptText: String? = nil, initialImages: [PiAgentImageAttachment] = [], initialPasteAttachments: [PiAgentPasteAttachment] = [], resumeExisting: Bool = false, recordStopTranscript: Bool = true) {
+    private func start(session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?, initialTranscriptText: String? = nil, initialImages: [PiAgentImageAttachment] = [], initialPasteAttachments: [PiAgentPasteAttachment] = [], initialIssueAttachment: PiAgentIssueAttachment? = nil, resumeExisting: Bool = false, recordStopTranscript: Bool = true) {
         stop(sessionID: session.id, recordTranscript: recordStopTranscript)
         cancelIdleParking(for: session.id)
         parkingClientRunIDsBySessionID[session.id] = nil
@@ -331,7 +334,7 @@ final class PiAgentRunnerService {
         if !trimmedInitialPrompt.isEmpty || !initialImages.isEmpty {
             let message = userMessage(trimmedInitialPrompt, images: initialImages)
             let transcriptMessage = initialTranscriptText.map { userMessage($0, images: initialImages) } ?? message
-            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(images: initialImages, pasteAttachments: initialPasteAttachments)))
+            store.append(.init(sessionID: session.id, role: .user, title: "Initial Prompt", text: transcriptText(transcriptMessage, images: initialImages), rawJSON: transcriptAttachmentJSON(images: initialImages, pasteAttachments: initialPasteAttachments, issueAttachment: initialIssueAttachment)))
         }
 
         do {
@@ -613,7 +616,7 @@ final class PiAgentRunnerService {
         visibleUserText(text, imageReferences: Set(images.compactMap { $0.fileReference ?? $0.name }))
     }
 
-    private func transcriptAttachmentJSON(images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment] = []) -> String? {
+    private func transcriptAttachmentJSON(images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) -> String? {
         var payload: [String: Any] = [:]
         if !images.isEmpty,
            let imageData = try? JSONEncoder().encode(images),
@@ -624,6 +627,11 @@ final class PiAgentRunnerService {
            let pasteData = try? JSONEncoder().encode(pasteAttachments),
            let pasteObject = try? JSONSerialization.jsonObject(with: pasteData) {
             payload["pastes"] = pasteObject
+        }
+        if let issueAttachment,
+           let issueData = try? JSONEncoder().encode(issueAttachment),
+           let issueObject = try? JSONSerialization.jsonObject(with: issueData) {
+            payload["issue"] = issueObject
         }
         guard !payload.isEmpty,
               let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -1184,7 +1192,10 @@ final class PiAgentRunnerService {
             // the renderer keeps pre-tool reasoning visually above the tool, and any new
             // post-tool reasoning opens a fresh thinking entry with a later timestamp.
             finalizeStreamingThinking(sessionID: sessionID)
-            store.setProcessingActivity(.runningTool(toolName), for: sessionID)
+            store.setProcessingActivity(
+                .runningTool(name: toolName, detail: toolActivityDetail(toolName: toolName, args: event.args)),
+                for: sessionID
+            )
             text = event.args?.compactDescription ?? "Starting…"
         case "tool_execution_update":
             text = extractText(from: event.partialResult ?? .null).isEmpty ? (event.partialResult?.compactDescription ?? "Running…") : extractText(from: event.partialResult ?? .null)
@@ -1226,6 +1237,35 @@ final class PiAgentRunnerService {
         ), before: assistantEntryIDsBySessionID[sessionID], persist: false)
         thinkingEntryIDsBySessionID[sessionID] = nil
         thinkingTextBySessionID[sessionID] = nil
+    }
+
+    /// Pulls the one meaningful argument out of a tool call — the file it
+    /// touches, the command it runs, the query it searches — so the processing
+    /// indicator can say "Editing PiAgentViews.swift" instead of "Running edit".
+    /// Returns `nil` for tools with no concise target.
+    private func toolActivityDetail(toolName: String, args: JSONValue?) -> String? {
+        guard let args else { return nil }
+        switch toolName {
+        case "read", "edit", "write":
+            guard let path = args["path"]?.stringValue else { return nil }
+            let component = (path.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).lastPathComponent
+            return component.isEmpty ? nil : component
+        case "bash":
+            return condensedSingleLine(args["command"]?.stringValue)
+        case "web_search", "code_search":
+            return condensedSingleLine(args["query"]?.stringValue)
+        default:
+            return nil
+        }
+    }
+
+    /// Collapses a possibly multi-line argument to its first non-empty line so
+    /// it reads cleanly in the single-line indicator bar.
+    private func condensedSingleLine(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let firstLine = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? raw
+        let condensed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        return condensed.isEmpty ? nil : condensed
     }
 
     private func handleCompaction(_ event: PiAgentRPCEvent, rawLine: String, sessionID: UUID) {

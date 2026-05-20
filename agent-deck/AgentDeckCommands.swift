@@ -184,6 +184,7 @@ struct AgentDeckCommandsScope: View, Equatable {
 
 struct AgentDeckCommands: Commands {
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.agentDeckCommands) private var context
 
     var body: some Commands {
@@ -192,10 +193,7 @@ struct AgentDeckCommands: Commands {
 
         CommandGroup(replacing: .appInfo) {
             Button("About \(AppBrand.displayName)") {
-                NSApp.orderFrontStandardAboutPanel(options: [
-                    .applicationName: AppBrand.displayName,
-                    .applicationVersion: AppBrand.marketingVersionWithStatus
-                ])
+                openWindow(id: AboutWindow.id)
             }
             Button("Check for Updates…") {
                 AgentDeckAppDelegate.shared?.updater.checkForUpdates()

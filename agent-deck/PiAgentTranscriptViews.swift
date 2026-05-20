@@ -1923,6 +1923,7 @@ private struct PiAgentUserMessageContent: View {
         let fileAttachments: [FileAttachmentPreview]
         let folderAttachments: [FolderAttachmentPreview]
         let pasteAttachments: [PiAgentPasteAttachment]
+        let issueAttachment: PiAgentIssueAttachment?
     }
 
     @MainActor private static var parsedContentCache: [String: ParsedContent] = [:]
@@ -1935,8 +1936,11 @@ private struct PiAgentUserMessageContent: View {
                 MarkdownTextView(source: messageText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty || !folderAttachments.isEmpty || !pasteAttachments.isEmpty {
+            if !imageAttachments.isEmpty || !legacyImageNames.isEmpty || !fileAttachments.isEmpty || !folderAttachments.isEmpty || !pasteAttachments.isEmpty || issueAttachment != nil {
                 HStack(alignment: .top, spacing: 8) {
+                    if let issueAttachment {
+                        attachmentChip(name: "#\(issueAttachment.number) \(issueAttachment.title)", systemImage: "exclamationmark.circle", attachment: .issue(issueAttachment))
+                    }
                     ForEach(imageAttachments.prefix(6)) { image in
                         attachmentChip(name: image.name, systemImage: "photo", attachment: .image(image))
                     }
@@ -1974,6 +1978,7 @@ private struct PiAgentUserMessageContent: View {
     private var fileAttachments: [FileAttachmentPreview] { parsedContent.fileAttachments }
     private var legacyImageNames: [String] { parsedContent.legacyImageNames }
     private var pasteAttachments: [PiAgentPasteAttachment] { parsedContent.pasteAttachments }
+    private var issueAttachment: PiAgentIssueAttachment? { parsedContent.issueAttachment }
 
     @MainActor
     private static func parsedContent(for entry: PiAgentTranscriptEntry) -> ParsedContent {
@@ -1987,6 +1992,7 @@ private struct PiAgentUserMessageContent: View {
         let messageWithoutPastes = removingPasteMarkers(from: base, pasteAttachments: pasteAttachments)
         let messageText = removingFolderReferences(from: removingFileTags(from: messageWithoutPastes)).trimmingCharacters(in: .whitespacesAndNewlines)
         let imageAttachments = images(for: entry)
+        let issueAttachment = issue(for: entry)
         let inlineFileTags = inlineFileTags(in: entry.text)
         let folderAttachments = uniqueFolders(folderReferences(in: entry.text).map { path in
             FolderAttachmentPreview(name: URL(fileURLWithPath: path, isDirectory: true).lastPathComponent, path: path)
@@ -2008,7 +2014,8 @@ private struct PiAgentUserMessageContent: View {
             legacyImageNames: legacyImageNames,
             fileAttachments: fileAttachments,
             folderAttachments: folderAttachments,
-            pasteAttachments: pasteAttachments
+            pasteAttachments: pasteAttachments,
+            issueAttachment: issueAttachment
         )
         parsedContentCache[key] = parsed
         parsedContentCacheOrder.append(key)
@@ -2145,6 +2152,7 @@ private struct PiAgentUserMessageContent: View {
     private struct AttachmentPayload: Decodable {
         let images: [PiAgentImageAttachment]?
         let pastes: [PiAgentPasteAttachment]?
+        let issue: PiAgentIssueAttachment?
     }
 
     private static func attachmentPayload(for entry: PiAgentTranscriptEntry) -> AttachmentPayload? {
@@ -2160,7 +2168,11 @@ private struct PiAgentUserMessageContent: View {
         attachmentPayload(for: entry)?.pastes ?? []
     }
 
-    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count + folderAttachments.count + pasteAttachments.count - 12) }
+    private static func issue(for entry: PiAgentTranscriptEntry) -> PiAgentIssueAttachment? {
+        attachmentPayload(for: entry)?.issue
+    }
+
+    private var hiddenCount: Int { max(0, imageAttachments.count + legacyImageNames.count + fileAttachments.count + folderAttachments.count + pasteAttachments.count + (issueAttachment == nil ? 0 : 1) - 12) }
 
     private func attachmentChip(name: String, systemImage: String, attachment: AttachmentPreview) -> some View {
         Button { preview = attachment } label: {
@@ -2209,6 +2221,7 @@ private enum AttachmentPreview: Identifiable, Hashable {
     case file(FileAttachmentPreview)
     case folder(FolderAttachmentPreview)
     case paste(PiAgentPasteAttachment)
+    case issue(PiAgentIssueAttachment)
     case missing(String)
 
     var id: String {
@@ -2217,6 +2230,7 @@ private enum AttachmentPreview: Identifiable, Hashable {
         case .file(let file): return "file-\(file.id)"
         case .folder(let folder): return "folder-\(folder.id)"
         case .paste(let paste): return "paste-\(paste.id)-\(paste.marker)"
+        case .issue(let issue): return "issue-\(issue.id)"
         case .missing(let name): return "missing-\(name)"
         }
     }
@@ -2275,6 +2289,8 @@ private struct AttachmentPreviewPopover: View {
             folderPreviewBody(folder: folder)
         case .paste(let paste):
             pastePreviewBody(paste: paste)
+        case .issue(let issue):
+            issuePreviewBody(issue: issue)
         case .missing:
             empty("Preview is not available for older attachment metadata.")
         }
@@ -2289,6 +2305,59 @@ private struct AttachmentPreviewPopover: View {
                 .padding(8)
         }
         .frame(maxHeight: 240)
+        .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+    }
+
+    private func issuePreviewBody(issue: PiAgentIssueAttachment) -> some View {
+        let commentsText = issue.comments.map { comment in
+            """
+            \(comment.author) · \(comment.createdAt.formatted(date: .abbreviated, time: .shortened))
+            \(comment.body)
+            """
+        }
+        .joined(separator: "\n\n")
+        return ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(issue.repository)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                Text("#\(issue.number) \(issue.title)")
+                    .font(.body.weight(.semibold))
+                if let author = issue.author, !author.isEmpty {
+                    Text("Author: \(author)")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Text("State: \(issue.state)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                if !issue.labels.isEmpty {
+                    Text("Labels: \(issue.labels.joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Text("Comments: \(issue.comments.count)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                if !issue.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Divider()
+                    Text(issue.body)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !issue.comments.isEmpty {
+                    Divider()
+                    Text(commentsText)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+        }
+        .frame(maxHeight: 320)
         .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
     }
 
@@ -2357,6 +2426,7 @@ private struct AttachmentPreviewPopover: View {
         case .file(let file): return file.name
         case .folder(let folder): return folder.name
         case .paste(let paste): return paste.marker
+        case .issue(let issue): return "#\(issue.number) \(issue.title)"
         case .missing(let name): return name
         }
     }
@@ -2367,6 +2437,7 @@ private struct AttachmentPreviewPopover: View {
         case .file: return "doc.text"
         case .folder: return "folder"
         case .paste: return "doc.plaintext"
+        case .issue: return "exclamationmark.circle"
         }
     }
 
@@ -2460,13 +2531,6 @@ struct PiAgentTranscriptCard: View {
             PiAgentToolTranscriptView(entry: entry)
         } else if entry.role == .thinking {
             thinkingContent
-        } else if entry.role == .assistant && entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            HStack(spacing: 10) {
-                Text("Pi is thinking")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
-                PiAgentTypingIndicator()
-            }
         } else if entry.role == .user, let skillUse = skillUse {
             VStack(alignment: .leading, spacing: 8) {
                 PiAgentSkillUsePill(skill: skillUse.skill, invocation: skillUse.invocation)

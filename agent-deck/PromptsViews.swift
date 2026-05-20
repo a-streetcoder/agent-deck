@@ -5,6 +5,9 @@ struct PromptsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var promptPendingRename: PromptTemplateRecord?
+    @State private var promptPendingDeletion: PromptTemplateRecord?
+    @State private var hoveredPromptID: PromptTemplateRecord.ID?
+    @State private var promptEditTarget: MarkdownFileEditTarget?
 
     var body: some View {
         HSplitView {
@@ -33,6 +36,40 @@ struct PromptsScreen: View {
                 makePreview: { viewModel.renamePreview(for: prompt, to: $0) },
                 onRename: { try viewModel.renamePrompt(prompt, to: $0) }
             )
+        }
+        .sheet(item: $promptEditTarget) { target in
+            MarkdownFileEditorSheet(target: target) {
+                viewModel.refresh(includeModels: false, scanAllProjects: true)
+            }
+        }
+        .alert("Delete Prompt?", isPresented: Binding(
+            get: { promptPendingDeletion != nil },
+            set: { if !$0 { promptPendingDeletion = nil } }
+        ), presenting: promptPendingDeletion) { prompt in
+            if prompt.discoveryKind == .externalReference {
+                Button("Remove Reference", role: .destructive) {
+                    deletePrompt(prompt)
+                }
+            } else {
+                Button("Move to Trash", role: .destructive) {
+                    deletePrompt(prompt)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                promptPendingDeletion = nil
+            }
+        } message: { prompt in
+            if prompt.discoveryKind == .externalReference {
+                Text("Stop referencing \"\(prompt.invocation)\" and remove its Default and project assignments? The original file is not deleted.")
+            } else {
+                Text("Move \"\(prompt.invocation)\" to the Trash and remove its Default and project assignments?")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .agentDeckNewPromptRequested)) { _ in
+            createNewPrompt()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .agentDeckImportPromptRequested)) { _ in
+            importPrompt()
         }
         .onAppear {
             Task { @MainActor in
@@ -178,7 +215,7 @@ struct PromptsScreen: View {
     }
 
     private func promptListRow(_ prompt: PromptTemplateRecord) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: promptIcon(prompt))
                 .foregroundStyle(promptColor(prompt))
                 .frame(width: 18)
@@ -196,15 +233,52 @@ struct PromptsScreen: View {
                     nativePill(argumentHint, symbol: "text.cursor", color: promptColor(prompt))
                 }
             }
+
+            Spacer(minLength: 0)
+
+            if viewModel.canRenamePrompt(prompt) {
+                Button {
+                    promptEditTarget = makePromptEditTarget(prompt)
+                } label: {
+                    Text("Edit")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .appGlassCapsule()
+                }
+                .buttonStyle(.plain)
+                .opacity(hoveredPromptID == prompt.id ? 1 : 0)
+                .help("Edit prompt template")
+                .animation(.easeInOut(duration: 0.15), value: hoveredPromptID == prompt.id)
+            }
+        }
+        .onHover { hovering in
+            hoveredPromptID = hovering ? prompt.id : nil
         }
         .padding(.vertical, 6)
         .listRowSeparator(.hidden, edges: .top)
-        .badge(prompt.source.kind.rawValue)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                promptPendingDeletion = prompt
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(!viewModel.canDeletePrompt(prompt))
+        }
         .contextMenu {
             Button {
                 copyCommandValue(prompt.invocation)
             } label: {
                 Label("Copy Invocation", systemImage: "doc.on.doc")
+            }
+
+            if viewModel.canRenamePrompt(prompt) {
+                Button {
+                    promptEditTarget = makePromptEditTarget(prompt)
+                } label: {
+                    Label("Edit Prompt", systemImage: "square.and.pencil")
+                }
             }
 
             Divider()
@@ -222,6 +296,15 @@ struct PromptsScreen: View {
                 Label("Reveal in Finder", systemImage: "finder")
             }
             .disabled(prompt.filePath.isEmpty)
+
+            Divider()
+
+            Button(role: .destructive) {
+                promptPendingDeletion = prompt
+            } label: {
+                Label("Delete Prompt", systemImage: "trash")
+            }
+            .disabled(!viewModel.canDeletePrompt(prompt))
         }
     }
 
@@ -253,69 +336,124 @@ struct PromptsScreen: View {
     }
 
     private func promptDetail(_ prompt: PromptTemplateRecord) -> some View {
-        AppPage(prompt.invocation, subtitle: prompt.description) {
+        AppPage(prompt.invocation, subtitle: prompt.filePath) {
+            AppCard(title: prompt.name) {
+                MarkdownDocumentView(source: prompt.body, minimumHeight: 120)
+            }
+
             if prompt.source.kind == .package {
                 AppCard(title: "Package Prompt") {
                     Text("This prompt template is package-managed and read-only.")
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else {
-                AppCard(title: "Location") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Agent Deck scans prompt templates into a catalog. Parent Pi sessions launch with --no-prompt-templates and receive only Default and Project prompt assignments via --prompt-template.")
-                            .foregroundStyle(AppTheme.mutedText)
-                            .fixedSize(horizontal: false, vertical: true)
-                        AppKeyValueList(rows: [
-                            ("Source", prompt.source.kind.rawValue),
-                            ("Discovery", prompt.discoveryKind.rawValue),
-                            ("Path", prompt.filePath)
-                        ])
-                        HStack(spacing: 10) {
-                            Button("Rename…") { promptPendingRename = prompt }
-                                .disabled(!viewModel.canRenamePrompt(prompt))
-                            if prompt.source.kind != .library {
-                                Button("Move to Library") { do { try viewModel.movePromptToLibrary(prompt) } catch { NSSound.beep() } }
-                            }
+            }
+
+            if prompt.discoveryKind == .externalReference {
+                AppCard(title: "Imported Prompt") {
+                    Text("This prompt is referenced in place. Edits in \(AppBrand.displayName) save to the original file, and removing it only un-registers the reference — the file is not deleted.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            AppCard(title: "Default Prompt") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Default prompts are passed to every parent Pi Agent session with explicit `--prompt-template` flags.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if viewModel.promptIsEnabledGlobally(prompt) {
+                        Button("Remove Default") {
+                            do { try viewModel.disablePromptGlobally(prompt) }
+                            catch { NSSound.beep() }
                         }
+                        .appSecondaryButton()
+                    } else {
+                        Button("Make Default") {
+                            do { try viewModel.enablePromptGlobally(prompt) }
+                            catch { NSSound.beep() }
+                        }
+                        .appPrimaryButton()
                     }
                 }
             }
 
-            AppCard(title: "Assignments") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Toggle("Default prompt", isOn: Binding(
-                            get: { viewModel.promptIsEnabledGlobally(prompt) },
-                            set: { enabled in
-                                do {
-                                    if enabled { try viewModel.enablePromptGlobally(prompt) }
-                                    else { try viewModel.disablePromptGlobally(prompt) }
-                                } catch {
-                                    NSSound.beep()
+            if !viewModel.promptIsEnabledGlobally(prompt) && !viewModel.enabledProjects.isEmpty {
+                AppCard(title: "Project Assignment") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Check each project that should load this prompt. Project assignment is stored in Agent Deck and does not create or remove prompt files.")
+                            .foregroundStyle(AppTheme.mutedText)
+
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(viewModel.enabledProjects) { project in
+                                ProjectAssignmentToggleRow(
+                                    project: project,
+                                    isOn: Binding(
+                                        get: { viewModel.prompt(prompt, isEnabledFor: project) },
+                                        set: { enabled in
+                                            do { try viewModel.setPrompt(prompt, enabled: enabled, for: project) }
+                                            catch { NSSound.beep() }
+                                        }
+                                    )
+                                )
+
+                                if project.id != viewModel.enabledProjects.last?.id {
+                                    Divider()
                                 }
                             }
-                        ))
-                        Text("Default prompts are passed to every parent Pi Agent session with explicit --prompt-template flags.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-
-                        if !viewModel.enabledProjects.isEmpty {
-                            Divider()
-                            Text("Project assignments")
-                                .font(.headline)
-                            ForEach(viewModel.enabledProjects) { project in
-                                Toggle(project.name, isOn: Binding(
-                                    get: { viewModel.prompt(prompt, isEnabledFor: project) },
-                                    set: { enabled in do { try viewModel.setPrompt(prompt, enabled: enabled, for: project) } catch { NSSound.beep() } }
-                                ))
-                            }
                         }
                     }
                 }
-
-            AppCard(title: "Template") {
-                MarkdownDocumentView(source: prompt.body, minimumHeight: 120)
             }
+
+        }
+    }
+
+    private func makePromptEditTarget(_ prompt: PromptTemplateRecord) -> MarkdownFileEditTarget {
+        MarkdownFileEditTarget(
+            title: "Edit \(prompt.invocation)",
+            path: prompt.filePath,
+            note: "Editing the raw prompt markdown. Changes apply after you save."
+        )
+    }
+
+    private func createNewPrompt() {
+        do {
+            let url = try viewModel.createLibraryPromptTemplate()
+            promptEditTarget = MarkdownFileEditTarget(
+                title: "New Prompt",
+                path: url.path,
+                note: "A new prompt template was created. Edit it, then save."
+            )
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func importPrompt() {
+        viewModel.choosePromptFileToImport { url in
+            guard let url else { return }
+            do {
+                _ = try viewModel.importPromptTemplate(from: url)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func assignedProjectSummary(_ prompt: PromptTemplateRecord) -> String {
+        let projects = viewModel.assignedProjects(for: prompt).map(\.name)
+        return projects.isEmpty ? "—" : projects.joined(separator: ", ")
+    }
+
+    private func deletePrompt(_ prompt: PromptTemplateRecord) {
+        do {
+            try viewModel.deletePrompt(prompt)
+            promptPendingDeletion = nil
+        } catch {
+            promptPendingDeletion = nil
+            NSSound.beep()
         }
     }
 }

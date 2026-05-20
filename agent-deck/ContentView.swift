@@ -134,11 +134,6 @@ struct ContentView: View {
                             .font(AppFonts.kemcoPixelBold(size: 18))
                             .foregroundStyle(.primary)
                     }
-
-//                    Text(AppBrand.betaBadgeText)
-//                        .font(AppFonts.kemcoPixelBold(size: 18))
-//                        .foregroundStyle(AppTheme.brandAccent.gradient)
-//                        .accessibilityLabel(AppBrand.betaBadgeText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
@@ -678,33 +673,20 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var promptsPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                do { try viewModel.createLibraryPromptTemplate() }
-                catch { NSSound.beep() }
+            Menu {
+                Button("New Prompt") {
+                    NotificationCenter.default.post(name: .agentDeckNewPromptRequested, object: nil)
+                }
+                Button("Import Prompt…") {
+                    NotificationCenter.default.post(name: .agentDeckImportPromptRequested, object: nil)
+                }
             } label: {
                 Label("New", systemImage: "plus")
             }
+            .menuIndicator(.hidden)
             .toolbarPrimaryActionChrome()
-            .help("Create a new library prompt template")
+            .help("Create a new prompt template or import an existing markdown file")
         }
-
-        if let prompt = viewModel.selectedPromptTemplate {
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) { promptMoreMenu(prompt: prompt) }
-        }
-    }
-
-    private func promptMoreMenu(prompt: PromptTemplateRecord) -> some View {
-        Menu {
-            Button("Open Raw File") { openPromptFile(prompt.filePath) }
-            Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
-            AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
-            AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
-        } label: {
-            Label("More", systemImage: "ellipsis.circle")
-        }
-        .toolbarNeutralChrome()
-        .help("More actions for the selected prompt")
     }
 
     @ToolbarContentBuilder
@@ -725,12 +707,18 @@ struct ContentView: View {
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+            Menu {
+                Button("New Skill") {
+                    NotificationCenter.default.post(name: .agentDeckNewSkillRequested, object: nil)
+                }
+                Button("Import Skill…") {
+                    NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+                }
             } label: {
-                Label("Import Skills", systemImage: "plus")
+                Label("New", systemImage: "plus")
             }
-            .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
+            .menuIndicator(.hidden)
+            .help("Create a new skill or import skill folders from an external source")
             .toolbarPrimaryActionChrome()
         }
     }
@@ -934,10 +922,6 @@ struct ContentView: View {
             )
         case .doctor:
             DoctorScreen(viewModel: viewModel)
-        case .piDocs:
-            PiDocsScreen()
-        case .credits:
-            CreditsScreen()
         }
     }
 

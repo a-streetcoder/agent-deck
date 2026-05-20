@@ -3,9 +3,11 @@ import Foundation
 nonisolated struct PiScanner {
     private let fileManager = FileManager.default
     private let externalSkillPaths: Set<String>
+    private let externalPromptPaths: Set<String>
 
-    init(externalSkillPaths: Set<String> = []) {
+    init(externalSkillPaths: Set<String> = [], externalPromptPaths: Set<String> = []) {
         self.externalSkillPaths = externalSkillPaths
+        self.externalPromptPaths = externalPromptPaths
     }
 
     func scan(projectRoot: URL?) -> ScanSnapshot {
@@ -68,7 +70,10 @@ nonisolated struct PiScanner {
             globalSettings: globalSettingsSummary,
             projectSettings: projectSettingsSummary
         )
-        let libraryPromptTemplates = scanPromptTemplates(at: libraryPrompts, scope: .library, discoveryKind: .standardDirectory, packageName: nil)
+        let libraryPromptTemplates = dedupePromptTemplates(
+            scanPromptTemplates(at: libraryPrompts, scope: .library, discoveryKind: .standardDirectory, packageName: nil)
+                + scanExternalPrompts(paths: externalPromptPaths)
+        )
 
         let effectiveAgents = resolveAgents(
             projectRoot: projectRoot?.path,
@@ -182,6 +187,34 @@ nonisolated struct PiScanner {
     /// produces two `SkillRecord`s with the same content, which then surfaces as a
     /// "Duplicate skill name" diagnostic. Resolving to the canonical path collapses these
     /// to a single record while preserving scan order (first occurrence wins).
+    /// Scans prompt template files referenced in place via `externalPromptPaths`.
+    /// Each registered path is expected to be a single `.md` file that stays where
+    /// the user keeps it; Agent Deck never copies it into the prompt library.
+    private func scanExternalPrompts(paths: Set<String>) -> [PromptTemplateRecord] {
+        var records: [PromptTemplateRecord] = []
+        var seenPaths = Set<String>()
+
+        for path in paths.sorted() {
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  url.pathExtension == "md",
+                  let record = scanPromptTemplateFile(at: url, scope: .library, discoveryKind: .externalReference, packageName: nil)
+            else { continue }
+
+            let standardizedPath = URL(fileURLWithPath: record.filePath).standardizedFileURL.path
+            guard seenPaths.insert(standardizedPath).inserted else { continue }
+            records.append(record)
+        }
+
+        return records.sorted { lhs, rhs in
+            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return lhs.filePath < rhs.filePath
+        }
+    }
+
     private func deduplicatedByCanonicalPath(_ skills: [SkillRecord]) -> [SkillRecord] {
         var seen: Set<String> = []
         var result: [SkillRecord] = []

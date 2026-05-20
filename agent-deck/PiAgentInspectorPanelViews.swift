@@ -11,6 +11,7 @@ struct PiAgentInspectorPanel: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
+    @State private var composerIssueAttachment: PiAgentIssueAttachment?
     @State private var composerAttachmentError: String?
 
     var body: some View {
@@ -75,12 +76,13 @@ struct PiAgentInspectorPanel: View {
                     images: $composerImages,
                     files: $composerFiles,
                     folders: $composerFolders,
+                    issueAttachment: $composerIssueAttachment,
                     attachmentError: $composerAttachmentError,
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     isDisabled: isCompacting,
                     placeholder: isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Message Pi…"),
-                    canSend: !isCompacting && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+                    canSend: !isCompacting && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil),
                     canCreateSession: false,
                     createSessionProjects: [],
                     path: session.worktreePath ?? session.projectPath,

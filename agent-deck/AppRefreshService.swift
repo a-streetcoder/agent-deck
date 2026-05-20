@@ -21,11 +21,12 @@ nonisolated struct AppRefreshService: Sendable {
         selectedProjectPath: String?,
         preferencesByPath: [String: ProjectPreference],
         externalSkillPaths: Set<String>,
+        externalPromptPaths: Set<String>,
         scanAllProjects: Bool = true,
         extraProjectPathsToScan: Set<String> = []
     ) -> AppRefreshSnapshot {
         let discovery = ProjectDiscovery()
-        let scanner = PiScanner(externalSkillPaths: externalSkillPaths)
+        let scanner = PiScanner(externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths)
         let discoveredProjects = discovery.discoverProjects(
             rootDirectoryURL: rootURL,
             additionalProjectPaths: Array(preferencesByPath.keys),
@@ -58,7 +59,7 @@ nonisolated struct AppRefreshService: Sendable {
         } else {
             projectsToWatch = scanAllProjects ? enabledProjects : projectsToScan
         }
-        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: externalSkillPaths)
+        let watchedURLs = Self.watchedURLs(projects: projectsToWatch, snapshot: selectedProjectSnapshot ?? globalSnapshot, externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths)
         let watchFingerprint = FileWatchFingerprint.make(urls: watchedURLs)
 
         return AppRefreshSnapshot(
@@ -76,7 +77,7 @@ nonisolated struct AppRefreshService: Sendable {
         )
     }
 
-    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot, externalSkillPaths: Set<String>) -> [URL] {
+    static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot, externalSkillPaths: Set<String>, externalPromptPaths: Set<String>) -> [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let globalAgentRoot = home.appendingPathComponent(".pi/agent", isDirectory: true)
         let legacyGlobalAgentRoot = home.appendingPathComponent(".agents", isDirectory: true)
@@ -107,6 +108,7 @@ nonisolated struct AppRefreshService: Sendable {
         urls += snapshot.skills.map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.librarySkills.map { URL(fileURLWithPath: $0.filePath) }
         urls += externalSkillPaths.map { URL(fileURLWithPath: $0) }
+        urls += externalPromptPaths.map { URL(fileURLWithPath: $0) }
         urls += (snapshot.promptTemplates + snapshot.libraryPromptTemplates).map { URL(fileURLWithPath: $0.filePath) }
         urls += snapshot.settings.flatMap(\.prompts).map { URL(fileURLWithPath: $0) }
 

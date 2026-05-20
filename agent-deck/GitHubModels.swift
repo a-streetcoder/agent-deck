@@ -321,3 +321,85 @@ nonisolated struct GitHubIssueDetail: Hashable {
         )
     }
 }
+
+nonisolated struct PiAgentIssueCommentAttachment: Identifiable, Codable, Hashable {
+    let id: Int
+    let author: String
+    let body: String
+    let createdAt: Date
+    let updatedAt: Date
+    let url: URL
+
+    init(comment: GitHubIssueComment) {
+        self.id = comment.id
+        self.author = comment.author
+        self.body = comment.body
+        self.createdAt = comment.createdAt
+        self.updatedAt = comment.updatedAt
+        self.url = comment.url
+    }
+}
+
+nonisolated struct PiAgentIssueReferenceAttachment: Codable, Hashable {
+    let repository: String
+    let number: Int
+    let title: String
+    let url: URL
+    let state: String
+    let type: String?
+
+    init(reference: GitHubIssueReference) {
+        self.repository = reference.repository
+        self.number = reference.number
+        self.title = reference.title
+        self.url = reference.url
+        self.state = reference.state
+        self.type = reference.type
+    }
+}
+
+nonisolated struct PiAgentIssueAttachment: Identifiable, Codable, Hashable {
+    let repository: String
+    let number: Int
+    let title: String
+    let url: URL
+    let state: String
+    let type: String?
+    let author: String?
+    let labels: [String]
+    let assignees: [String]
+    let createdAt: Date
+    let updatedAt: Date
+    let closedAt: Date?
+    let stateReason: String?
+    let body: String
+    let parent: PiAgentIssueReferenceAttachment?
+    let subIssues: [PiAgentIssueReferenceAttachment]
+    let blockedBy: [PiAgentIssueReferenceAttachment]
+    let blocking: [PiAgentIssueReferenceAttachment]
+    let comments: [PiAgentIssueCommentAttachment]
+
+    var id: String { "\(repository)#\(number)" }
+
+    init(detail: GitHubIssueDetail) {
+        self.repository = detail.item.repository
+        self.number = detail.item.number
+        self.title = detail.item.title
+        self.url = detail.item.url
+        self.state = detail.state
+        self.type = detail.type
+        self.author = detail.author
+        self.labels = detail.labels
+        self.assignees = detail.assignees
+        self.createdAt = detail.createdAt
+        self.updatedAt = detail.updatedAt
+        self.closedAt = detail.closedAt
+        self.stateReason = detail.stateReason
+        self.body = detail.body
+        self.parent = detail.parent.map(PiAgentIssueReferenceAttachment.init(reference:))
+        self.subIssues = detail.subIssues.map(PiAgentIssueReferenceAttachment.init(reference:))
+        self.blockedBy = detail.blockedBy.map(PiAgentIssueReferenceAttachment.init(reference:))
+        self.blocking = detail.blocking.map(PiAgentIssueReferenceAttachment.init(reference:))
+        self.comments = detail.comments.map(PiAgentIssueCommentAttachment.init(comment:))
+    }
+}

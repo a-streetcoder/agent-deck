@@ -1028,7 +1028,10 @@ enum PiAgentProcessingActivity: Equatable, Hashable {
     /// `text_delta` is streaming.
     case responding
     /// A tool is executing (between `tool_execution_start` and `…_end`).
-    case runningTool(String)
+    /// `detail` is the tool's target — a file name, command, or query —
+    /// extracted from its arguments, or `nil` when there is nothing concise
+    /// to show.
+    case runningTool(name: String, detail: String?)
     /// A tool finished or a message ended; the next model call is in flight.
     case awaitingModel
 }

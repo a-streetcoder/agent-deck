@@ -157,6 +157,10 @@ final class AppSettingsController {
         settings.defaultPromptTemplateNames
     }
 
+    var externalPromptPaths: Set<String> {
+        settings.externalPromptPaths
+    }
+
     var shouldShowContextSmartZoneHint: Bool {
         settings.showContextSmartZoneHint
     }
@@ -458,6 +462,46 @@ final class AppSettingsController {
         paths.remove(normalizedOldPath)
         paths.insert(normalizedNewPath)
         settings.externalSkillPaths = paths
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func addExternalPromptPaths(_ paths: [String]) -> Bool {
+        let normalizedPaths = paths
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            .filter { !$0.isEmpty }
+        guard !normalizedPaths.isEmpty else { return false }
+        var existingPaths = settings.externalPromptPaths
+        for path in normalizedPaths {
+            existingPaths.insert(path)
+        }
+        guard existingPaths != settings.externalPromptPaths else { return false }
+        settings.externalPromptPaths = existingPaths
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func removeExternalPromptPaths(_ paths: Set<String>) -> Bool {
+        let normalizedPaths = Set(paths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        guard !normalizedPaths.isEmpty else { return false }
+        let updatedPaths = settings.externalPromptPaths.subtracting(normalizedPaths)
+        guard updatedPaths != settings.externalPromptPaths else { return false }
+        settings.externalPromptPaths = updatedPaths
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func replaceExternalPromptPath(from oldPath: String, to newPath: String) -> Bool {
+        let normalizedOldPath = URL(fileURLWithPath: oldPath).standardizedFileURL.path
+        let normalizedNewPath = URL(fileURLWithPath: newPath).standardizedFileURL.path
+        guard normalizedOldPath != normalizedNewPath, settings.externalPromptPaths.contains(normalizedOldPath) else { return false }
+        var paths = settings.externalPromptPaths
+        paths.remove(normalizedOldPath)
+        paths.insert(normalizedNewPath)
+        settings.externalPromptPaths = paths
         persist()
         return true
     }

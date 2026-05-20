@@ -79,6 +79,8 @@ struct SkillsScreen: View {
     @State private var skillActionErrorMessage: String?
     @State private var skillPendingDeletion: SkillRecord?
     @State private var skillPendingRename: SkillRecord?
+    @State private var hoveredSkillID: SkillRecord.ID?
+    @State private var skillEditTarget: MarkdownFileEditTarget?
 
     var body: some View {
         HSplitView {
@@ -114,8 +116,16 @@ struct SkillsScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckImportSkillsRequested)) { _ in
             beginSkillImport()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .agentDeckNewSkillRequested)) { _ in
+            createNewSkill()
+        }
         .sheet(isPresented: $isImportSheetPresented) {
             importSkillsSheet
+        }
+        .sheet(item: $skillEditTarget) { target in
+            MarkdownFileEditorSheet(target: target) {
+                viewModel.refresh(includeModels: false, scanAllProjects: true)
+            }
         }
         .sheet(item: $skillPendingRename) { skill in
             RenameResourceSheet(
@@ -349,6 +359,9 @@ struct SkillsScreen: View {
                         ("Path", skill.filePath)
                     ])
                     HStack {
+                        if viewModel.canRenameSkill(skill) {
+                            Button("Edit…") { skillEditTarget = makeSkillEditTarget(skill) }
+                        }
                         Button("Rename…") { skillPendingRename = skill }
                             .disabled(!viewModel.canRenameSkill(skill))
                         Button("Reveal in Finder") { revealSkillInFinder(skill) }
@@ -574,7 +587,7 @@ struct SkillsScreen: View {
         let isActive = skillHasAnyAssignment(skill)
         let isInactive = inactive ?? !isActive
         let hasWarnings = !warningsForSkill(skill).isEmpty
-        return HStack(alignment: .top, spacing: 10) {
+        return HStack(alignment: .center, spacing: 10) {
             Image(systemName: hasWarnings ? "exclamationmark.triangle.fill" : skillIcon(skill))
                 .foregroundStyle(hasWarnings ? .orange : skillColor(skill))
                 .frame(width: 18)
@@ -590,6 +603,28 @@ struct SkillsScreen: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+
+            Spacer(minLength: 0)
+
+            if viewModel.canRenameSkill(skill) {
+                Button {
+                    skillEditTarget = makeSkillEditTarget(skill)
+                } label: {
+                    Text("Edit")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .appGlassCapsule()
+                }
+                .buttonStyle(.plain)
+                .opacity(hoveredSkillID == skill.id ? 1 : 0)
+                .help("Edit SKILL.md")
+                .animation(.easeInOut(duration: 0.15), value: hoveredSkillID == skill.id)
+            }
+        }
+        .onHover { hovering in
+            hoveredSkillID = hovering ? skill.id : nil
         }
         .padding(.vertical, 5)
         .listRowSeparator(.hidden, edges: .top)
@@ -604,6 +639,13 @@ struct SkillsScreen: View {
             .disabled(!viewModel.canDeleteSkill(skill))
         }
         .contextMenu {
+            Button {
+                skillEditTarget = makeSkillEditTarget(skill)
+            } label: {
+                Label("Edit SKILL.md", systemImage: "square.and.pencil")
+            }
+            .disabled(!viewModel.canRenameSkill(skill))
+
             Button {
                 revealSkillInFinder(skill)
             } label: {
@@ -1058,6 +1100,28 @@ struct SkillsScreen: View {
         }
     }
 
+    private func makeSkillEditTarget(_ skill: SkillRecord) -> MarkdownFileEditTarget {
+        MarkdownFileEditTarget(
+            title: "Edit \(skill.name)",
+            path: skill.filePath,
+            note: "Editing the raw SKILL.md. Changes apply after you save."
+        )
+    }
+
+    private func createNewSkill() {
+        do {
+            let url = try viewModel.createLibrarySkill()
+            skillEditTarget = MarkdownFileEditTarget(
+                title: "New Skill",
+                path: url.path,
+                note: "A new skill folder was created. Edit its SKILL.md, then save."
+            )
+        } catch {
+            NSSound.beep()
+            importErrorMessage = "Could not create a new skill: \(error.localizedDescription)"
+        }
+    }
+
     private func beginSkillImport() {
         importErrorMessage = nil
         importSummaryMessage = nil
@@ -1065,8 +1129,17 @@ struct SkillsScreen: View {
         importSearchText = ""
         selectedImportCandidateIDs.removeAll()
         importSourceURL = nil
-        shouldPromptForImportSource = true
-        isImportSheetPresented = true
+
+        // Reuse the configured or last-used skills folder instead of prompting
+        // every time. The import sheet still offers "Choose Different Folder".
+        if let remembered = viewModel.rememberedSkillsImportDirectoryURL {
+            shouldPromptForImportSource = false
+            isImportSheetPresented = true
+            loadImportCandidates(from: remembered)
+        } else {
+            shouldPromptForImportSource = true
+            isImportSheetPresented = true
+        }
     }
 
     private func chooseDifferentImportFolder() {

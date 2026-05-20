@@ -93,5 +93,14 @@ struct agent_deckApp: App {
         .commands {
             AgentDeckCommands()
         }
+
+        Window("About \(AppBrand.displayName)", id: AboutWindow.id) {
+            AboutView()
+                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 440, height: 560)
+        .defaultPosition(.center)
     }
 }

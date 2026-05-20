@@ -174,6 +174,7 @@ nonisolated enum PromptTemplateDiscoveryKind: String, Hashable, Sendable {
     case standardDirectory = "Standard Directory"
     case settings = "Settings"
     case package = "Package"
+    case externalReference = "Imported Reference"
 }
 
 nonisolated struct PromptTemplateRecord: Identifiable, Hashable, Sendable {

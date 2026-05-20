@@ -1,8 +1,6 @@
 import Foundation
 
 enum AppBrand {
-    nonisolated static let betaBadgeText = "Beta"
-
     nonisolated static var titleWords: [String] {
         displayName.components(separatedBy: " ")
     }
@@ -18,10 +16,10 @@ enum AppBrand {
         return "Agent Deck"
     }
 
-    nonisolated static var marketingVersionWithStatus: String {
+    nonisolated static var marketingVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        let trimmedVersion = version?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmedVersion, !trimmedVersion.isEmpty else { return betaBadgeText }
-        return "\(trimmedVersion) \(betaBadgeText)"
+        let trimmed = version?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return "1.0" }
+        return trimmed
     }
 }

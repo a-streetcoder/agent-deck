@@ -1163,6 +1163,7 @@ struct PiAgentScreen: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
+    @State private var composerIssueAttachment: PiAgentIssueAttachment?
     @State private var composerAttachmentError: String?
     @State private var composerHistoryIndex: Int?
     @State private var composerHistoryDraft = ""
@@ -2162,7 +2163,7 @@ struct PiAgentScreen: View {
         case .preparing: return "Preparing response"
         case .reasoning: return "Reasoning"
         case .responding: return "Writing response"
-        case let .runningTool(toolName): return toolProcessingMessage(forToolName: toolName)
+        case let .runningTool(toolName, detail): return toolProcessingMessage(forToolName: toolName, detail: detail)
         case .awaitingModel: return "Working"
         }
     }
@@ -2213,12 +2214,30 @@ struct PiAgentScreen: View {
         return toolProcessingMessage(forToolName: toolName)
     }
 
-    private func toolProcessingMessage(forToolName toolName: String) -> String {
-        switch toolName.trimmingCharacters(in: .whitespacesAndNewlines) {
+    /// Turns a raw Pi tool name (and, when available, its target) into a
+    /// human phrase: `edit` + `PiAgentViews.swift` → "Editing PiAgentViews.swift".
+    /// Unknown tools fall back to their de-underscored name so a new Pi tool
+    /// still reads acceptably without a code change.
+    private func toolProcessingMessage(forToolName toolName: String, detail: String? = nil) -> String {
+        let name = toolName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = (trimmedDetail?.isEmpty == false) ? trimmedDetail : nil
+        switch name {
+        case "bash": return target.map { "Running \($0)" } ?? "Running a command"
+        case "read": return target.map { "Reading \($0)" } ?? "Reading a file"
+        case "edit": return target.map { "Editing \($0)" } ?? "Editing a file"
+        case "write": return target.map { "Writing \($0)" } ?? "Writing a file"
+        case "web_search": return target.map { "Searching the web for \($0)" } ?? "Searching the web"
+        case "code_search": return target.map { "Searching the code for \($0)" } ?? "Searching the code"
+        case "get_search_content", "fetch_content": return "Fetching a page"
+        case "update_session_plan", "set_session_plan": return "Updating the plan"
         case "managed_subagent": return "Starting subagent"
         case "managed_parallel": return "Starting parallel agents"
-        case let name where name.isEmpty: return "Running tool"
-        case let name: return "Running \(name)"
+        case "ask_user": return "Waiting for your input"
+        case "agent_deck_memory_write", "agent_deck_memory_mark_stale": return "Updating memory"
+        case "list_supervisor_requests", "answer_supervisor_request": return "Coordinating subagents"
+        case "": return "Running tool"
+        default: return "Running \(name.replacingOccurrences(of: "_", with: " "))"
         }
     }
 
@@ -2309,12 +2328,13 @@ struct PiAgentScreen: View {
                 images: $composerImages,
                 files: $composerFiles,
                 folders: $composerFolders,
+                issueAttachment: $composerIssueAttachment,
                 attachmentError: $composerAttachmentError,
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 isDisabled: isCompacting,
                 placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
-                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: viewModel.selectedDiscoveredProject == nil ? piAgentNewSessionProjects : [],
                 path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
@@ -2543,6 +2563,7 @@ struct PiAgentScreen: View {
         resetComposerHistoryNavigation()
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
+            composerIssueAttachment = viewModel.consumePendingPiAgentIssueAttachment()
             composerPasteAttachments = []
             nextComposerPasteID = 1
             composerImages = []
@@ -2564,6 +2585,7 @@ struct PiAgentScreen: View {
         composerImages = draft.images
         composerFiles = draft.files
         composerFolders = draft.folders
+        composerIssueAttachment = nil
         composerAttachmentError = nil
     }
 
@@ -2581,6 +2603,7 @@ struct PiAgentScreen: View {
         composerImages = []
         composerFiles = []
         composerFolders = []
+        composerIssueAttachment = nil
         composerAttachmentError = nil
     }
 
@@ -2598,7 +2621,7 @@ struct PiAgentScreen: View {
     private func createSessionFromComposer(for project: DiscoveredProject?) {
         guard store.selectedSession == nil else { return }
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
-        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
+        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil
         if let project {
             viewModel.createPiAgentDraft(for: project)
         } else {
@@ -2614,7 +2637,7 @@ struct PiAgentScreen: View {
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let transcriptMessage = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
@@ -2622,7 +2645,7 @@ struct PiAgentScreen: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         beginTranscriptAutoScrollTurn()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
         requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
@@ -2844,6 +2867,7 @@ private struct PiAgentComposerPanel: View {
     @State private var composerImages: [PiAgentImageAttachment] = []
     @State private var composerFiles: [PiAgentFileAttachment] = []
     @State private var composerFolders: [PiAgentFolderAttachment] = []
+    @State private var composerIssueAttachment: PiAgentIssueAttachment?
     @State private var composerAttachmentError: String?
     @State private var frozenRuntimeFooterSession: PiAgentSessionRecord?
 
@@ -2865,12 +2889,13 @@ private struct PiAgentComposerPanel: View {
             images: $composerImages,
             files: $composerFiles,
             folders: $composerFolders,
+            issueAttachment: $composerIssueAttachment,
             attachmentError: $composerAttachmentError,
             inputMode: $inputMode,
             isRunning: isRunning,
             isDisabled: isCompacting,
             placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
-            canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty),
+            canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil),
             canCreateSession: !isCompacting && store.selectedSession == nil,
             createSessionProjects: viewModel.selectedDiscoveredProject == nil ? piAgentNewSessionProjects : [],
             path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
@@ -3047,6 +3072,7 @@ private struct PiAgentComposerPanel: View {
     private func loadComposerDraft(for sessionID: UUID?) {
         if let pending = viewModel.consumePendingPiAgentComposerText() {
             composerText = pending
+            composerIssueAttachment = viewModel.consumePendingPiAgentIssueAttachment()
             composerPasteAttachments = []
             nextComposerPasteID = 1
             composerImages = []
@@ -3068,6 +3094,7 @@ private struct PiAgentComposerPanel: View {
         composerImages = draft.images
         composerFiles = draft.files
         composerFolders = draft.folders
+        composerIssueAttachment = nil
         composerAttachmentError = nil
     }
 
@@ -3084,6 +3111,7 @@ private struct PiAgentComposerPanel: View {
         composerImages = []
         composerFiles = []
         composerFolders = []
+        composerIssueAttachment = nil
         composerAttachmentError = nil
     }
 
@@ -3094,7 +3122,7 @@ private struct PiAgentComposerPanel: View {
     private func createSessionFromComposer(for project: DiscoveredProject?) {
         guard store.selectedSession == nil else { return }
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: composerPasteAttachments)
-        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty
+        let shouldSend = !expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil
         if let project {
             viewModel.createPiAgentDraft(for: project)
         } else {
@@ -3110,7 +3138,7 @@ private struct PiAgentComposerPanel: View {
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let message = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let transcriptMessage = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty else { return }
+        guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
         let combined = [expandFileReferences(in: message), payload].filter { !$0.isEmpty }.joined(separator: "\n\n")
@@ -3118,7 +3146,7 @@ private struct PiAgentComposerPanel: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         onWillSend()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
         onDidSend()
         clearComposerInput()
         if let sentSessionID {

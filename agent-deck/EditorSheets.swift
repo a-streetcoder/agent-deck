@@ -46,6 +46,110 @@ struct EnvEditorSheet: View {
     }
 }
 
+/// A markdown file the user can open in `MarkdownFileEditorSheet`. Identified by
+/// its path so it can drive a `.sheet(item:)` presentation.
+struct MarkdownFileEditTarget: Identifiable {
+    let title: String
+    let path: String
+    let note: String?
+
+    var id: String { path }
+    var url: URL { URL(fileURLWithPath: path) }
+    var displayPath: String { (path as NSString).abbreviatingWithTildeInPath }
+}
+
+/// Standardized sheet for editing a markdown file's raw contents. Mirrors the
+/// system-prompt instruction editor: header + path + monospaced `TextEditor` +
+/// Cancel/Save. Loads the file on appear and writes it back on save.
+struct MarkdownFileEditorSheet: View {
+    let target: MarkdownFileEditTarget
+    /// Called after the file is successfully written, so the caller can refresh.
+    let onSaved: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String = ""
+    @State private var hasLoaded = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(target.title)
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text(target.displayPath)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let note = target.note {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer()
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([target.url])
+                } label: {
+                    Label("Reveal", systemImage: "folder")
+                }
+            }
+            .padding(18)
+
+            Divider()
+
+            TextEditor(text: $text)
+                .font(.system(.body, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(12)
+                .frame(minHeight: 360)
+                .disabled(!hasLoaded || errorMessage != nil)
+
+            Divider()
+
+            HStack {
+                if let errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") { save() }
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!hasLoaded || errorMessage != nil)
+            }
+            .padding(16)
+        }
+        .frame(width: 760, height: 560)
+        .task {
+            guard !hasLoaded else { return }
+            do {
+                text = try String(contentsOf: target.url, encoding: .utf8)
+                hasLoaded = true
+            } catch {
+                errorMessage = "Could not open this file: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func save() {
+        do {
+            try text.write(to: target.url, atomically: true, encoding: .utf8)
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = "Could not save: \(error.localizedDescription)"
+            NSSound.beep()
+        }
+    }
+}
+
 struct AgentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State var draft: AgentEditorDraft
@@ -280,7 +384,7 @@ struct AgentEditorSheet: View {
         HStack(spacing: 6) {
             Text(title)
             if let help {
-                FieldHelpButton(text: help)
+                AppHelpButton(text: help)
             }
         }
     }

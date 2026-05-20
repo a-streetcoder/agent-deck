@@ -94,6 +94,7 @@ struct AgentsScreen: View {
                         },
                         canRenameAgent: { viewModel.canRenameAgent($0) },
                         renameAgent: { agent, name in try viewModel.renameAgent(agent, to: name) },
+                        deleteAgent: { try viewModel.deleteAgent($0) },
                         projects: viewModel.enabledProjects,
                         imageStore: viewModel.agentImageStore,
                         autoGenerateAvatarPrompts: viewModel.appSettings.autoGenerateAgentAvatarPrompts,
@@ -399,6 +400,7 @@ private struct AgentLibraryPane: View {
     let onEditAgent: (EffectiveAgentRecord) -> Void
     @State private var warningPopoverAgentID: String?
     @State private var hoveredAgentID: String?
+    @State private var pendingDeleteAgentID: EffectiveAgentRecord.ID?
 
     private var imageStore: AgentImageStore { viewModel.agentImageStore }
 
@@ -473,6 +475,19 @@ private struct AgentLibraryPane: View {
             }
         }
         .appListStyle()
+        .alert("Delete Agent?", isPresented: Binding(
+            get: { pendingDeleteAgentRecord != nil },
+            set: { if !$0 { pendingDeleteAgentID = nil } }
+        ), presenting: pendingDeleteAgentRecord) { record in
+            Button("Move to Trash", role: .destructive) {
+                deleteAgent(record)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteAgentID = nil
+            }
+        } message: { record in
+            Text("Move \"\(record.name)\" to the Trash and remove its Default and project assignments?")
+        }
     }
 
     private var activeCustomAgents: [EffectiveAgentRecord] {
@@ -614,6 +629,13 @@ private struct AgentLibraryPane: View {
         .opacity(isMuted ? 0.62 : 1)
         .saturation(isMuted ? 0.25 : 1)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDeleteAgentID = agent.id
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(!canDeleteAgent(agent))
+
             if agent.resolved.disabled == true {
                 Button {
                     do { try viewModel.setAgentDisabled(false, for: agent) }
@@ -670,6 +692,15 @@ private struct AgentLibraryPane: View {
                     Label("Disable Agent", systemImage: "nosign")
                 }
             }
+
+            Divider()
+
+            Button(role: .destructive) {
+                pendingDeleteAgentID = agent.id
+            } label: {
+                Label("Delete Agent", systemImage: "trash")
+            }
+            .disabled(!canDeleteAgent(agent))
         }
     }
 
@@ -745,6 +776,29 @@ private struct AgentLibraryPane: View {
         guard let path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
+
+    private var pendingDeleteAgentRecord: AgentRecord? {
+        guard let pendingDeleteAgentID,
+              let agent = filteredAgents.first(where: { $0.id == pendingDeleteAgentID }) else {
+            return nil
+        }
+        return agent.winningRecord
+    }
+
+    private func canDeleteAgent(_ agent: EffectiveAgentRecord) -> Bool {
+        guard let record = agent.winningRecord else { return false }
+        return viewModel.canDeleteAgent(record)
+    }
+
+    private func deleteAgent(_ record: AgentRecord) {
+        do {
+            try viewModel.deleteAgent(record)
+            pendingDeleteAgentID = nil
+        } catch {
+            pendingDeleteAgentID = nil
+            NSSound.beep()
+        }
+    }
 }
 
 private func libraryManagedAgentRecord(for agent: EffectiveAgentRecord, libraryAgents: [AgentRecord]) -> AgentRecord? {
@@ -777,6 +831,7 @@ private struct AgentDetailView: View {
     let moveAgentToLibrary: (AgentRecord) throws -> Void
     let canRenameAgent: (EffectiveAgentRecord) -> Bool
     let renameAgent: (EffectiveAgentRecord, String) throws -> Void
+    let deleteAgent: (AgentRecord) throws -> Void
     let projects: [DiscoveredProject]
     @ObservedObject var imageStore: AgentImageStore
     let autoGenerateAvatarPrompts: Bool
@@ -791,6 +846,8 @@ private struct AgentDetailView: View {
     @State private var isAgentNameHovered = false
     @FocusState private var isAgentNameFocused: Bool
     @State private var renameErrorMessage: String?
+    @State private var isDeleteConfirmationPresented = false
+    @State private var deleteErrorMessage: String?
 
     var body: some View {
         AppPage(agent.name, subtitle: agent.resolved.description.isEmpty ? nil : agent.resolved.description) {
@@ -798,7 +855,25 @@ private struct AgentDetailView: View {
             promptTab
             toolsTab
             skillsTab
-            advancedTab
+            deleteSection
+        }
+        .alert(
+            "Delete \(agent.name)?",
+            isPresented: $isDeleteConfirmationPresented,
+            presenting: deletableAgentRecord
+        ) { record in
+            Button("Move to Trash", role: .destructive) {
+                do {
+                    deleteErrorMessage = nil
+                    try deleteAgent(record)
+                } catch {
+                    deleteErrorMessage = error.localizedDescription
+                    NSSound.beep()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This moves the agent file to the Trash and removes its global and project assignments.")
         }
         .fileImporter(isPresented: $isAvatarImporterPresented, allowedContentTypes: [.image]) { result in
             handleAvatarImport(result)
@@ -822,6 +897,7 @@ private struct AgentDetailView: View {
             cancelAgentRename()
             renameErrorMessage = nil
             avatarMessage = nil
+            deleteErrorMessage = nil
         }
     }
 
@@ -1044,17 +1120,16 @@ private struct AgentDetailView: View {
             AppCard {
                 agentAvatarEditor
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     let rows = configuredFieldRows
-                    if rows.isEmpty {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        readOnlyFieldRow(row.0, value: row.1)
+                    }
+                    if let path = agent.sourcePath {
+                        readOnlyFieldRow("File", value: path, isLast: true)
+                    } else if rows.isEmpty {
                         Text("Using Pi defaults")
                             .foregroundStyle(AppTheme.mutedText)
-                    } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                                readOnlyFieldRow(row.0, value: row.1, isLast: index == rows.count - 1)
-                            }
-                        }
                     }
                 }
             }
@@ -1094,35 +1169,45 @@ private struct AgentDetailView: View {
     }
 
     private var toolsTab: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Tools & Extensions") {
-                VStack(alignment: .leading, spacing: 16) {
-                    let tools = (agent.resolved.tools ?? []) + (agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }
-                    if tools.isEmpty {
-                        readOnlyFieldRow("Tool Access", value: "Pi defaults")
-                    } else {
-                        readOnlyFieldRow("Tools", value: tools.joined(separator: ", "))
-                    }
-                    if let exts = agent.resolved.extensions {
-                        readOnlyFieldRow("Extensions", value: exts.isEmpty ? "—" : exts.joined(separator: ", "), isLast: true)
-                    }
+        let tools = (agent.resolved.tools ?? []) + (agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" }
+        let extensions = agent.resolved.extensions ?? []
+        return VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+            AppCard(title: "Tools", info: Self.toolAccessInfo) {
+                if tools.isEmpty {
+                    Text("Uses Pi's default built-in tools.")
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    iconList(tools, systemImage: "wrench.and.screwdriver", tint: .blue)
                 }
             }
 
-            AppCard(title: "How Tool Access Works") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• If `tools` is omitted, the child gets Pi's normal default built-in tools.")
-                    Text("• If `tools` is set, it acts like an allowlist for regular tool names.")
-                    Text("• Extensions are offered from installed package references Pi already knows about.")
+            if !extensions.isEmpty {
+                AppCard(title: "Extensions") {
+                    iconList(extensions, systemImage: "puzzlepiece.extension", tint: .blue)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
+    private func iconList(_ items: [String], systemImage: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(items, id: \.self) { item in
+                HStack(spacing: 10) {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(tint)
+                        .frame(width: 18)
+                    Text(item)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var skillsTab: some View {
         VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Skills") {
+            AppCard(title: "Skills", info: Self.skillsInfo) {
                 VStack(alignment: .leading, spacing: 16) {
                     let issues = skillVisibilityIssues(agent)
                     if !issues.isEmpty {
@@ -1131,26 +1216,65 @@ private struct AgentDetailView: View {
                     if agent.resolved.skills.isEmpty {
                         Text("No explicit skills")
                             .foregroundStyle(AppTheme.mutedText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(agent.resolved.skills, id: \.self) { skill in
-                                HStack(spacing: 10) {
-                                    Image(systemName: "sparkles").foregroundStyle(.green)
-                                    Text(skill)
-                                }
-                            }
-                        }
+                        iconList(agent.resolved.skills, systemImage: "sparkles", tint: .green)
                     }
                 }
             }
+        }
+    }
 
-            AppCard(title: "How Skills Work") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("• Assigned skills are attached to this agent through Pi's native `--skill` support.")
-                    Text("• Agents do not inherit parent/default/project skills; assign required skills explicitly.")
-                    Text("• If this agent has a tool allowlist and assigned skills, include `read` so Pi can load the skill files.")
+    private static let toolAccessInfo = """
+    If tools is omitted, the agent gets Pi's normal default built-in tools.
+
+    If tools is set, it acts like an allowlist for regular tool names.
+
+    Extensions are offered from installed package references Pi already knows about.
+    """
+
+    private static let skillsInfo = """
+    Assigned skills are attached to this agent through Pi's native --skill support.
+
+    Agents do not inherit parent, default, or project skills; assign required skills explicitly.
+
+    If this agent has a tool allowlist and assigned skills, include the read tool so Pi can load the skill files.
+    """
+
+    private var deletableAgentRecord: AgentRecord? {
+        guard let record = agent.projectCustom ?? agent.globalCustom ?? managedAgent else { return nil }
+        switch record.source.kind {
+        case .builtin, .package:
+            return nil
+        case .global, .project, .legacyProject, .override, .library:
+            return record
+        }
+    }
+
+    @ViewBuilder
+    private var deleteSection: some View {
+        if deletableAgentRecord != nil {
+            AppCard(title: "Delete Agent") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Move this agent's file to the Trash and remove its global and project assignments.")
+                        .font(.callout)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let deleteErrorMessage {
+                        Text(deleteErrorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Button("Delete Agent", role: .destructive) {
+                        deleteErrorMessage = nil
+                        isDeleteConfirmationPresented = true
+                    }
+                    .appDestructiveButton()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -1295,49 +1419,6 @@ private struct AgentDetailView: View {
         }
     }
 
-    private var advancedTab: some View {
-        VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-            AppCard(title: "Source Files") {
-                AppKeyValueList(rows: [
-                    ("Builtin File", agent.builtin?.filePath ?? "—"),
-                    ("Global File", agent.globalCustom?.filePath ?? "—"),
-                    ("Project File", agent.projectCustom?.filePath ?? "—"),
-                    ("Global Override", agent.userOverride?.settingsPath ?? "—"),
-                    ("Project Override", agent.projectOverride?.settingsPath ?? "—"),
-                    ("Write Target", writeTargetSummary)
-                ])
-            }
-
-            AppCard(title: "Resolved Frontmatter") {
-                Text(prettyJSONObject(resolvedFrontmatter))
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if !agent.resolved.unknownFields.isEmpty {
-                AppCard(title: "Unknown Fields") {
-                    Text(prettyJSONObject(agent.resolved.unknownFields.mapValues { $0 }))
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-
-            if let rawFrontmatter = agent.winningRecord?.rawFrontmatter, !rawFrontmatter.isEmpty {
-                AppCard(title: "Raw Frontmatter") {
-                    Text(prettyJSONObject(rawFrontmatter.mapValues { $0 }))
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-    }
-
     // MARK: Helpers
 
     private var resolvedPromptDiffers: Bool {
@@ -1364,42 +1445,6 @@ private struct AgentDetailView: View {
         agent.builtin != nil && agent.globalCustom == nil && agent.projectCustom == nil
     }
 
-    private var writeTargetSummary: String {
-        if agent.builtin != nil, agent.globalCustom == nil, agent.projectCustom == nil {
-            return agent.userOverride?.settingsPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/settings.json").path
-        }
-        return agent.sourcePath ?? "—"
-    }
-
-    private var extensionsSummary: String {
-        guard let extensions = agent.resolved.extensions else { return "Default / inherited" }
-        return extensions.isEmpty ? "None" : extensions.joined(separator: ", ")
-    }
-
-    private var resolvedFrontmatter: [String: Any] {
-        var values: [String: Any] = [
-            "name": agent.resolved.name,
-            "description": agent.resolved.description,
-            "systemPromptMode": agent.resolved.systemPromptMode ?? "",
-            "disabled": agent.resolved.disabled as Any,
-            "skills": agent.resolved.skills
-        ]
-        if let whenToUse = agent.resolved.whenToUse { values["whenToUse"] = whenToUse }
-        if let model = agent.resolved.model { values["model"] = model }
-        if !agent.resolved.fallbackModels.isEmpty { values["fallbackModels"] = agent.resolved.fallbackModels }
-        if let thinking = agent.resolved.thinking { values["thinking"] = thinking }
-        if let tools = agent.resolved.tools { values["tools"] = tools + (agent.resolved.mcpDirectTools ?? []).map { "mcp:\($0)" } }
-        if let extensions = agent.resolved.extensions { values["extensions"] = extensions }
-        if let output = agent.resolved.output { values["output"] = output }
-        if let defaultExpectedOutcome = agent.resolved.defaultExpectedOutcome { values["defaultExpectedOutcome"] = defaultExpectedOutcome.rawValue }
-        if let reads = agent.resolved.defaultReads { values["defaultReads"] = reads }
-        if let defaultProgress = agent.resolved.defaultProgress { values["defaultProgress"] = defaultProgress }
-        if let interactive = agent.resolved.interactive { values["interactive"] = interactive }
-        if let maxSubagentDepth = agent.resolved.maxSubagentDepth { values["maxSubagentDepth"] = maxSubagentDepth }
-        for (key, value) in agent.resolved.unknownFields { values[key] = value }
-        return values
-    }
-
     @ViewBuilder
     private func readOnlyFieldRow(_ title: String, value: String, isLast: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -1409,7 +1454,7 @@ private struct AgentDetailView: View {
                     .fontWidth(.expanded)
                     .foregroundStyle(AppTheme.mutedText)
                 if let help = fieldHelpText(for: title) {
-                    FieldHelpButton(text: help)
+                    AppHelpButton(text: help)
                 }
             }
             Text(value)
@@ -1939,7 +1984,7 @@ private struct AgentEditSheet: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(AppTheme.mutedText)
                 if let help = agentFieldHelpText(for: title) {
-                    FieldHelpButton(text: help)
+                    AppHelpButton(text: help)
                 }
             }
             .frame(width: 170, alignment: .leading)
