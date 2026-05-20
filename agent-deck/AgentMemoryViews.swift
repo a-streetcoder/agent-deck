@@ -3,7 +3,7 @@ import SwiftUI
 struct MemoryScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @ObservedObject var memoryStore: AgentMemoryStore
-    @State private var searchText = ""
+    @Binding var searchText: String
     @State private var selectedStatus: AgentMemoryStatus?
     @State private var selectedKind: AgentMemoryKind?
     @State private var selectedRecordID: String?
@@ -131,10 +131,6 @@ struct MemoryScreen: View {
 
     private var filterBar: some View {
         HStack(spacing: 10) {
-            TextField("Search memories", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 220)
-
             Picker("Status", selection: Binding(
                 get: { selectedStatus?.rawValue ?? "all" },
                 set: { selectedStatus = $0 == "all" ? nil : AgentMemoryStatus(rawValue: $0) }

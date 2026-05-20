@@ -3,6 +3,7 @@ import SwiftUI
 
 struct IssuesScreen: View {
     @ObservedObject var viewModel: AppViewModel
+    @Binding var searchText: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -128,14 +129,16 @@ struct IssuesScreen: View {
 
     @ViewBuilder
     private func boardContent(board: GitHubBoardSnapshot) -> some View {
-        let visibleItems = viewModel.filteredBoardItems(from: board)
+        let visibleItems = searchFiltered(viewModel.filteredBoardItems(from: board))
+        let query = trimmedSearchQuery
         let filtersActive = viewModel.githubAuthorFilter != nil || !viewModel.githubLabelFilters.isEmpty
+        let narrowed = filtersActive || !query.isEmpty
 
         if visibleItems.isEmpty {
             ContentUnavailableView(
                 "No Matching Issues",
-                systemImage: filtersActive ? "line.3.horizontal.decrease.circle" : "checkmark.circle",
-                description: Text(filtersActive ? "Try clearing the filters or changing the state." : "There are no \(viewModel.githubIssueStateFilter.rawValue.lowercased()) issues for this repository.")
+                systemImage: narrowed ? "line.3.horizontal.decrease.circle" : "checkmark.circle",
+                description: Text(emptyStateMessage(query: query, filtersActive: filtersActive))
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -205,6 +208,35 @@ struct IssuesScreen: View {
         .padding(.horizontal, AppTheme.pagePadding)
         .padding(.vertical, 10)
         .background(Color.red.opacity(0.07))
+    }
+
+    // MARK: - Search
+
+    private var trimmedSearchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func searchFiltered(_ items: [GitHubWorkItem]) -> [GitHubWorkItem] {
+        let query = trimmedSearchQuery
+        guard !query.isEmpty else { return items }
+        return items.filter { item in
+            if item.title.lowercased().contains(query) { return true }
+            if String(item.number).contains(query) { return true }
+            if let author = item.author, author.lowercased().contains(query) { return true }
+            if item.labels.contains(where: { $0.lowercased().contains(query) }) { return true }
+            if item.body.lowercased().contains(query) { return true }
+            return false
+        }
+    }
+
+    private func emptyStateMessage(query: String, filtersActive: Bool) -> String {
+        if !query.isEmpty {
+            return "No issues match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”."
+        }
+        if filtersActive {
+            return "Try clearing the filters or changing the state."
+        }
+        return "There are no \(viewModel.githubIssueStateFilter.rawValue.lowercased()) issues for this repository."
     }
 
     // MARK: - Helpers

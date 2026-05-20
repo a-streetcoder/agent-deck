@@ -72,6 +72,9 @@ struct ContentView: View {
     @State private var projectFilterText = ""
     @State private var debouncedProjectFilterText = ""
     @State private var agentSearchText = ""
+    @State private var issueSearchText = ""
+    @State private var memorySearchText = ""
+    @State private var projectSearchText = ""
     @State private var skillSearchText = ""
     @State private var promptSearchText = ""
     @State private var piAgentSessionSearchText = ""
@@ -305,7 +308,7 @@ struct ContentView: View {
 
     private var toolbarSearchIsVisible: Bool {
         switch viewModel.selectedSidebarItem {
-        case .agents, .skills, .prompts, .agent:
+        case .projects, .agents, .issues, .memory, .skills, .prompts, .agent:
             return true
         default:
             return false
@@ -314,7 +317,10 @@ struct ContentView: View {
 
     private var toolbarSearchPrompt: String {
         switch viewModel.selectedSidebarItem {
+        case .projects: return "Search projects"
         case .agents: return "Search agents"
+        case .issues: return "Search issues"
+        case .memory: return "Search memories"
         case .skills: return "Search skills"
         case .prompts: return "Search prompts"
         case .agent: return "Search sessions"
@@ -326,7 +332,10 @@ struct ContentView: View {
         Binding(
             get: {
                 switch viewModel.selectedSidebarItem {
+                case .projects: return projectSearchText
                 case .agents: return agentSearchText
+                case .issues: return issueSearchText
+                case .memory: return memorySearchText
                 case .skills: return skillSearchText
                 case .prompts: return promptSearchText
                 case .agent: return piAgentSessionSearchText
@@ -335,7 +344,10 @@ struct ContentView: View {
             },
             set: { value in
                 switch viewModel.selectedSidebarItem {
+                case .projects: projectSearchText = value
                 case .agents: agentSearchText = value
+                case .issues: issueSearchText = value
+                case .memory: memorySearchText = value
                 case .skills: skillSearchText = value
                 case .prompts: promptSearchText = value
                 case .agent: piAgentSessionSearchText = value
@@ -880,13 +892,13 @@ struct ContentView: View {
     private var detailView: some View {
         switch viewModel.selectedSidebarItem {
         case .projects:
-            ProjectsScreen(viewModel: viewModel)
+            ProjectsScreen(viewModel: viewModel, searchText: $projectSearchText)
         case .instructions:
             SystemInstructionsScreen(viewModel: viewModel)
         case .memory:
-            MemoryScreen(viewModel: viewModel, memoryStore: viewModel.agentMemoryStore)
+            MemoryScreen(viewModel: viewModel, memoryStore: viewModel.agentMemoryStore, searchText: $memorySearchText)
         case .issues:
-            IssuesScreen(viewModel: viewModel)
+            IssuesScreen(viewModel: viewModel, searchText: $issueSearchText)
         case .agents:
             AgentsScreen(
                 viewModel: viewModel,

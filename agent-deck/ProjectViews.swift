@@ -590,8 +590,8 @@ struct ProjectsScreen: View {
     }
 
     @ObservedObject var viewModel: AppViewModel
+    @Binding var searchText: String
     @State private var filter: Filter = .enabled
-    @State private var searchText = ""
     @State private var debouncedSearchText = ""
     @State private var agentsRecapProject: DiscoveredProject?
     @State private var skillsRecapProject: DiscoveredProject?
@@ -666,22 +666,14 @@ struct ProjectsScreen: View {
 
     private var projectList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                SearchFieldWithProgress(
-                    placeholder: "Search projects",
-                    text: $searchText,
-                    isLoading: isSearchDebouncing
-                )
-
-                Picker("Filter", selection: $filter) {
-                    ForEach(Filter.allCases) { option in
-                        Text(option.rawValue).tag(option)
-                    }
+            Picker("Filter", selection: $filter) {
+                ForEach(Filter.allCases) { option in
+                    Text(option.rawValue).tag(option)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 320)
             }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
 
             Text("Manage project visibility, favorites, icons, and assigned resource summaries. Use the System Prompt view to inspect and edit Pi instruction files.")
                 .font(.caption)
@@ -712,10 +704,6 @@ struct ProjectsScreen: View {
                 }
             }
         }
-    }
-
-    private var isSearchDebouncing: Bool {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != debouncedSearchText
     }
 
     private var visibleProjects: [DiscoveredProject] {
