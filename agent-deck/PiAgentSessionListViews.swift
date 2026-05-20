@@ -517,7 +517,7 @@ struct PiAgentProcessingIndicatorBar: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(AppTheme.brandAccent.gradient)
+                    .foregroundStyle(AppTheme.piLogo.gradient)
                     .frame(width: 14, height: 14)
                 Text(message)
                     .font(.callout.weight(.semibold))

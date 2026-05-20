@@ -19,6 +19,11 @@ enum AppTheme {
     // enough to sit on the dark transcript surface without screaming.
     static let assistantAccent = adaptiveColor(light: RGB(155, 82, 207), dark: RGB(186, 110, 238))
 
+    // Official Pi coding-agent brand mark. Near-black (#09090B) on light, white
+    // on dark — the pi logo should read as a logo, not a tinted glyph. Apply
+    // `.gradient` on the icon to match the rest of the brand-mark treatment.
+    static let piLogo = adaptiveColor(light: RGB(9, 9, 11), dark: RGB(255, 255, 255))
+
     // Native (TextKit) markdown surfaces — code fences, frontmatter, quote bar.
     // Mirror the WKWebView CSS palette so HTML and native markdown look identical.
     static let codeBlockFill = adaptiveColor(light: RGB(240, 240, 240), dark: RGB(30, 30, 32))

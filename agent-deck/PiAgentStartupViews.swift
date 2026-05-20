@@ -86,7 +86,7 @@ struct PiAgentStartupResourcesPopover: View {
                     .renderingMode(.template)
                     .scaledToFit()
                     .frame(width: 16, height: 16)
-                    .foregroundStyle(AppTheme.brandAccent.gradient)
+                    .foregroundStyle(AppTheme.piLogo.gradient)
                 Text("Session resources")
                     .font(.headline)
                 Spacer(minLength: 0)

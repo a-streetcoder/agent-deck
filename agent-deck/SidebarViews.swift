@@ -56,7 +56,7 @@ struct PiAgentSidebarButton: View {
                     .renderingMode(.template)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 18, height: 18)
-                    .foregroundStyle(AppTheme.brandAccent.gradient)
+                    .foregroundStyle(AppTheme.piLogo.gradient)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pi Agent")
