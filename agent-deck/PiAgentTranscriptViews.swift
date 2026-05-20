@@ -638,12 +638,12 @@ extension EnvironmentValues {
 enum PiAgentBubbleWidth {
     // Agent reply / tool / plan card width — fixed, content-independent.
     static let replyCapMultiplier: CGFloat = 0.72
-    static let replyCapMax: CGFloat = 700
+    static let replyCapMax: CGFloat = 720
 
     // User (question) bubble — hugs the message text, within these bounds.
     static let userCapMultiplier: CGFloat = 0.62
-    static let userCapMax: CGFloat = 700
-    static let userMinWidth: CGFloat = 130
+    static let userCapMax: CGFloat = 720
+    static let userMinWidth: CGFloat = 120
     static let userChrome: CGFloat = 34   // card h-padding (14*2) + a little slack
 
     /// Fixed width for an agent reply / tool / plan card.
@@ -1181,23 +1181,26 @@ private struct PiAgentCompactDiffPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(displayLines.indices, id: \.self) { index in
-                let line = displayLines[index]
-                HStack(spacing: 6) {
-                    Text(line.gutter)
-                        .font(.caption2.monospaced().weight(.semibold))
-                        .foregroundStyle(line.color)
-                        .frame(width: 40, alignment: .trailing)
-                    Text(line.content.isEmpty ? " " : line.content)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(line.color)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(displayLines.indices, id: \.self) { index in
+                    let line = displayLines[index]
+                    HStack(spacing: 9) {
+                        Text(line.gutter)
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .foregroundStyle(line.color)
+                            .frame(width: 40, alignment: .trailing)
+                        Text(line.content.isEmpty ? " " : line.content)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(line.color)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 1)
+                    .background(line.background)
                 }
-                .padding(.vertical, 1)
-                .background(line.background)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             if canExpand {
                 Button {
                     withAnimation(reduceMotion ? nil : .snappy(duration: 0.18)) {

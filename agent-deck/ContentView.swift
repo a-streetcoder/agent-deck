@@ -135,10 +135,10 @@ struct ContentView: View {
                             .foregroundStyle(.primary)
                     }
 
-                    Text(AppBrand.betaBadgeText)
-                        .font(AppFonts.kemcoPixelBold(size: 18))
-                        .foregroundStyle(AppTheme.brandAccent.gradient)
-                        .accessibilityLabel(AppBrand.betaBadgeText)
+//                    Text(AppBrand.betaBadgeText)
+//                        .font(AppFonts.kemcoPixelBold(size: 18))
+//                        .foregroundStyle(AppTheme.brandAccent.gradient)
+//                        .accessibilityLabel(AppBrand.betaBadgeText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
