@@ -30,8 +30,7 @@ final class UpdaterService: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// If a background check is already in flight (common when the user opens
     /// the menu shortly after launch), `canCheckForUpdates` reports false and
     /// `checkForUpdates(_:)` silently drops the call. Poll briefly for the
-    /// in-flight session to settle before giving up. Pattern lifted from
-    /// osaurus's UpdaterService.
+    /// in-flight session to settle before giving up.
     func checkForUpdates() {
         if controller.updater.canCheckForUpdates {
             controller.checkForUpdates(nil)

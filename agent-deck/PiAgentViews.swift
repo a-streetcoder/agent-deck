@@ -1403,19 +1403,6 @@ struct PiAgentScreen: View {
                         .help("Delete selected sessions")
                         .accessibilityLabel("Delete selected sessions")
                     }
-                    if !scopedSessions.isEmpty {
-                        AppCircleIconButton(
-                            style: .soft,
-                            tint: Color.red,
-                            size: 30,
-                            help: viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project",
-                            role: .destructive,
-                            action: { requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true) }
-                        ) {
-                            Image(systemName: "eraser")
-                        }
-                        .accessibilityLabel(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
-                    }
                     if viewModel.selectedDiscoveredProject == nil {
                         PiAgentAddSessionMenuButton(
                             projects: piAgentNewSessionProjects,

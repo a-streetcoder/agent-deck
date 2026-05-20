@@ -298,11 +298,21 @@ private final class NativeMarkdownTextContainer: NSView {
                 widthConstraint.constant = width
             }
         } else {
-            let constraint = stackView.widthAnchor.constraint(equalToConstant: width)
-            constraint.priority = .required
-            constraint.isActive = true
-            widthConstraint = constraint
+            widthConstraint = makeWidthConstraint(width)
         }
+    }
+
+    // The stack is already pinned to both container edges, so its width is fully
+    // determined by the host frame once the view is laid out. This explicit width
+    // constraint exists only to drive `fittingSize` during SwiftUI's measurement
+    // pass (when the container has no resolved width yet). Keeping it below
+    // `.required` lets it yield to the edge pins instead of conflicting with them
+    // when SwiftUI's fractional proposal differs from the pixel-rounded frame.
+    private func makeWidthConstraint(_ width: CGFloat) -> NSLayoutConstraint {
+        let constraint = stackView.widthAnchor.constraint(equalToConstant: width)
+        constraint.priority = .required - 1
+        constraint.isActive = true
+        return constraint
     }
 
     private func rebuild(document: CachedMarkdownDocument) {
@@ -349,10 +359,7 @@ private final class NativeMarkdownTextContainer: NSView {
         if let widthConstraint {
             widthConstraint.constant = width
         } else {
-            let constraint = stackView.widthAnchor.constraint(equalToConstant: width)
-            constraint.priority = .required
-            constraint.isActive = true
-            widthConstraint = constraint
+            widthConstraint = makeWidthConstraint(width)
         }
 
         guard abs(lastMeasuredWidth - width) > 0.5 || lastDocument != nil else { return }
