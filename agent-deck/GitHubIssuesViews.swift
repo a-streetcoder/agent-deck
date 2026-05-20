@@ -32,13 +32,13 @@ struct GitHubIssueListRow: View {
                     .multilineTextAlignment(.leading)
 
                 if !item.labels.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(item.labels.prefix(4), id: \.self) { label in
-                                AppLabelTag(text: label, color: .secondary)
-                            }
+                    HStack(spacing: 6) {
+                        ForEach(item.labels.prefix(4), id: \.self) { label in
+                            AppLabelTag(text: label, color: .secondary)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
                 }
 
                 HStack(spacing: 8) {
@@ -54,7 +54,6 @@ struct GitHubIssueListRow: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected ? AppTheme.selectionFill : Color.clear)

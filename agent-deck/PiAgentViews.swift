@@ -393,6 +393,12 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         scrollView.scrollerStyle = .overlay
         scrollView.horizontalScrollElasticity = .none
         scrollView.usesPredominantAxisScrolling = true
+        // Pin the clip view to x = 0 so the transcript can never be panned
+        // horizontally, even if a width desync transiently makes the document
+        // view wider than the clip view during a resize or split-divider drag.
+        let clipView = TranscriptClipView()
+        clipView.drawsBackground = false
+        scrollView.contentView = clipView
         scrollView.documentView = tableView
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.postsFrameChangedNotifications = true
@@ -640,6 +646,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard abs(width - contentWidth) > 0.5 else { return }
             contentWidth = width
             tableView.tableColumns.first?.width = width
+            // Re-fit the table to the clip view so the document view shrinks
+            // with it. Setting only the column width leaves the table's own
+            // frame stale and wider than the visible area, which lets the
+            // transcript be panned/cropped horizontally after a resize.
+            tableView.sizeLastColumnToFit()
 
             // Heights are width-specific. Wipe the cache so heightOfRow falls back to the
             // item estimator until cells re-measure for the new width.
@@ -901,6 +912,18 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 return est
             }
             return estimatedRowHeight
+        }
+    }
+
+    /// Clip view for the transcript scroll view. The transcript never scrolls
+    /// horizontally, so the bounds origin is pinned to x = 0 — this guarantees
+    /// the content can't be panned sideways even if the document view is
+    /// transiently wider than the clip view during a resize or divider drag.
+    final class TranscriptClipView: NSClipView {
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+            var rect = super.constrainBoundsRect(proposedBounds)
+            rect.origin.x = 0
+            return rect
         }
     }
 
