@@ -45,6 +45,7 @@ struct PiAgentSidebarButton: View {
     let runningSessionCount: Int
     let needsAttentionCount: Int
     let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     private var hasRunningSessions: Bool { runningSessionCount > 0 }
 
@@ -99,7 +100,9 @@ struct PiAgentSidebarButton: View {
             .modifier(SidebarSurface(isSelected: isSelected))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isSelected ? AppTheme.piLogo.opacity(0.30) : AppTheme.contentStroke, lineWidth: 1)
+                    .stroke(isSelected
+                            ? (colorScheme == .dark ? AppTheme.accentSelectionStroke : AppTheme.piLogo.opacity(0.30))
+                            : AppTheme.contentStroke, lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
                 if needsAttentionCount > 0 {
@@ -156,10 +159,12 @@ struct PiAgentSidebarButton: View {
 }
 
 /// Active-state surface for the Pi Agent sidebar button. Both states sit on the
-/// neutral fill; the selected state layers a faint monochrome wash of the Pi
-/// brand color on top (near-black on light, white on dark) — no teal, no glass.
+/// neutral fill; the selected state layers a faint wash on top. Light mode uses
+/// a monochrome Pi-brand wash (near-black); dark mode uses the brand accent —
+/// the white Pi-mono wash blended into the dark sidebar.
 private struct SidebarSurface: ViewModifier {
     let isSelected: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         content.background {
@@ -168,7 +173,7 @@ private struct SidebarSurface: ViewModifier {
                     .fill(AppTheme.contentSubtleFill)
                 if isSelected {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(AppTheme.piLogo.opacity(0.12))
+                        .fill(colorScheme == .dark ? AppTheme.accentSelectionFill : AppTheme.piLogo.opacity(0.12))
                 }
             }
         }

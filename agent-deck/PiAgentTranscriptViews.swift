@@ -2393,6 +2393,7 @@ struct PiAgentTranscriptCard: View {
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
     @State private var isThinkingExpanded = true
+    @Environment(\.colorScheme) private var colorScheme
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -2569,6 +2570,12 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var backgroundStyle: AnyShapeStyle {
+        // Dark mode: the Pi reply bubble takes a brand-accent tint so it reads
+        // as conversation, not another neutral tool/diff card it blends into.
+        // Light mode keeps the neutral surface — the cards stay distinct there.
+        if entry.role == .assistant, colorScheme == .dark {
+            return AnyShapeStyle(AppTheme.brandAccent.opacity(AppTheme.roleFillOpacity).gradient)
+        }
         if usesNeutralSurface {
             return AnyShapeStyle(AppTheme.contentSubtleFill.opacity(0.7).gradient)
         }
@@ -2577,7 +2584,10 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var strokeColor: Color {
-        usesNeutralSurface
+        if entry.role == .assistant, colorScheme == .dark {
+            return AppTheme.brandAccent.opacity(AppTheme.roleStrokeOpacity)
+        }
+        return usesNeutralSurface
             ? AppTheme.contentStroke
             : roleBase.opacity(AppTheme.roleStrokeOpacity)
     }
