@@ -846,45 +846,20 @@ private struct PiSystemInstructionsProjectDetail: View {
     }
 
     private func instructionSection(title: String, files: [PiInstructionFile]) -> some View {
-        AppCard(title: title) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(sectionStatus(for: files))
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if files.count == 2 {
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(files) { file in
-                            PiInstructionFileEditor(
-                                file: file,
-                                text: Binding(
-                                    get: { drafts[file.id, default: ""] },
-                                    set: { drafts[file.id] = $0 }
-                                ),
-                                isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
-                                isInPair: true,
-                                save: { save(file) },
-                                revealInFinder: { revealInFinder(file) }
-                            )
-                        }
-                    }
-                } else {
-                    ForEach(files) { file in
-                        PiInstructionFileEditor(
-                            file: file,
-                            text: Binding(
-                                get: { drafts[file.id, default: ""] },
-                                set: { drafts[file.id] = $0 }
-                            ),
-                            isDirty: drafts[file.id, default: ""] != originals[file.id, default: ""],
-                            save: { save(file) },
-                            revealInFinder: { revealInFinder(file) }
-                        )
-                    }
-                }
-            }
-        }
+        PiInstructionRoleSection(
+            title: title,
+            statusText: sectionStatus(for: files),
+            groups: PiInstructionFile.competitionGroups(for: files),
+            draft: { file in
+                Binding(
+                    get: { drafts[file.id, default: ""] },
+                    set: { drafts[file.id] = $0 }
+                )
+            },
+            isDirty: { file in drafts[file.id, default: ""] != originals[file.id, default: ""] },
+            save: { file in save(file) },
+            revealInFinder: { file in revealInFinder(file) }
+        )
     }
 
     private func sectionStatus(for files: [PiInstructionFile]) -> String {
@@ -898,7 +873,7 @@ private struct PiSystemInstructionsProjectDetail: View {
             guard active != nil else { return "No append prompt active." }
             return isProject ? "Using project file — global file is ignored." : "No project file — using global APPEND_SYSTEM.md."
         case .context:
-            return "Pi appends one context file per directory. AGENTS.md wins over CLAUDE.md within the same directory."
+            return "Pi appends one context file per directory — every directory below contributes its own file. Within a directory AGENTS.md wins over CLAUDE.md; the highlighted card is the file Pi loads."
         case nil:
             return ""
         }
@@ -1009,6 +984,7 @@ private struct PiInstructionFileEditor: View {
                 Text(file.note)
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
@@ -1044,15 +1020,9 @@ private struct PiInstructionFileEditor: View {
                     Text(file.title)
                         .font(.subheadline.weight(.semibold))
                         .fontWidth(.expanded)
-                    if file.status == .active {
-                        Text("Active")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.green)
-                    } else if file.status == .shadowed {
-                        Text("Overridden")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    statusBadge
                     if isDirty {
                         Text("Unsaved")
                             .font(.caption2.weight(.semibold))
@@ -1118,6 +1088,130 @@ private struct PiInstructionFileEditor: View {
         case .shadowed: return .secondary
         case .available: return AppTheme.mutedText
         }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch file.status {
+        case .active:
+            Text("Active")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.green)
+        case .shadowed:
+            Text(shadowedLabel)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        case .available:
+            EmptyView()
+        }
+    }
+
+    // A shadowed fallback names the file that beat it, so precedence is
+    // explicit ("Overridden by Project AGENTS.md"). Outside a competition,
+    // or when the winner can't be named, it simply reads "Overridden".
+    private var shadowedLabel: String {
+        if let winner = competition?.winnerTitle, winner != file.title {
+            return "Overridden by \(winner)"
+        }
+        return "Overridden"
+    }
+}
+
+/// One titled section ("Base system prompt", "Context files", …) of the
+/// System Prompt view. Each role is split into competition groups, and every
+/// group is laid out as an equal-width row so competing files are easy to
+/// compare and the file Pi actually loads is obvious.
+private struct PiInstructionRoleSection: View {
+    let title: String
+    let statusText: String
+    let groups: [PiInstructionFile.CompetitionGroup]
+    let draft: (PiInstructionFile) -> Binding<String>
+    let isDirty: (PiInstructionFile) -> Bool
+    let save: (PiInstructionFile) -> Void
+    let revealInFinder: (PiInstructionFile) -> Void
+
+    var body: some View {
+        AppCard(title: title) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(groups) { group in
+                    competitionRow(group)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func competitionRow(_ group: PiInstructionFile.CompetitionGroup) -> some View {
+        let isContested = group.files.count > 1
+        VStack(alignment: .leading, spacing: 7) {
+            if let label = group.label {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.caption2)
+                    Text(label)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .foregroundStyle(AppTheme.mutedText)
+            }
+
+            EqualColumns(items: group.files, spacing: 10) { file in
+                PiInstructionFileEditor(
+                    file: file,
+                    text: draft(file),
+                    isDirty: isDirty(file),
+                    competition: isContested
+                        ? PiInstructionFileEditor.Competition(
+                            hasWinner: group.winner != nil,
+                            winnerTitle: group.winner?.title
+                        )
+                        : nil,
+                    save: { save(file) },
+                    revealInFinder: { revealInFinder(file) }
+                )
+            }
+        }
+    }
+}
+
+/// Lays children out in equal-width columns by measuring the row and dividing
+/// the available width evenly, so N competing cards always get 1/N each
+/// regardless of their individual content. A single child keeps its own width.
+private struct EqualColumns<Item: Identifiable, Cell: View>: View {
+    let items: [Item]
+    let spacing: CGFloat
+    @ViewBuilder let cell: (Item) -> Cell
+
+    @State private var rowWidth: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: spacing) {
+            ForEach(items) { item in
+                cell(item)
+                    .frame(width: columnWidth)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            rowWidth = width
+        }
+    }
+
+    private var columnWidth: CGFloat? {
+        let count = items.count
+        guard count > 1, rowWidth > 0 else { return nil }
+        let usableWidth = rowWidth - spacing * CGFloat(count - 1)
+        return max(1, usableWidth / CGFloat(count))
     }
 }
 

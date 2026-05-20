@@ -10,10 +10,15 @@ enum AppTheme {
     static let toolbarIconFrame = CGSize(width: 26, height: 20)
     static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
 
+    // Brand accent comes from the `AccentColor` asset catalog colorset (currently
+    // Apple's mint) — one source of truth that also drives the macOS global
+    // accent. The three derived shades below are hand-tuned mint-family variants;
+    // if the colorset hue ever changes they must be regenerated to match,
+    // otherwise the primary-button gradient and strokes will clash with it.
     static let brandAccent = Color("AccentColor")
-    static let brandAccentBright = adaptiveColor(light: RGB(44, 205, 199), dark: RGB(96, 232, 224))
-    static let brandAccentDeep = adaptiveColor(light: RGB(13, 132, 129), dark: RGB(49, 122, 121))
-    static let brandAccentShadow = adaptiveColor(light: RGB(207, 245, 243), dark: RGB(37, 72, 74))
+    static let brandAccentBright = adaptiveColor(light: RGB(74, 222, 212), dark: RGB(130, 240, 232))
+    static let brandAccentDeep = adaptiveColor(light: RGB(0, 138, 130), dark: RGB(44, 130, 124))
+    static let brandAccentShadow = adaptiveColor(light: RGB(206, 244, 240), dark: RGB(30, 70, 66))
     // Halfway between the original Color.purple and a fully softened variant — keeps
     // the original's punch in light mode while easing the dark-mode saturation just
     // enough to sit on the dark transcript surface without screaming.

@@ -1046,7 +1046,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             configuredRevision = item.contentRevision
             configuredWidth = width
 
-            let root = AnyView(item.view.frame(width: width, alignment: .topLeading))
+            let root = AnyView(
+                item.view
+                    .frame(width: width, alignment: .topLeading)
+                    .environment(\.transcriptContentWidth, width)
+            )
             if let hostingView {
                 hostingView.rootView = root
             } else {

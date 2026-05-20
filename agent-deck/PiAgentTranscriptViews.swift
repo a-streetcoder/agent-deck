@@ -604,6 +604,47 @@ extension String {
     }
 }
 
+// MARK: - Dynamic bubble width
+
+/// The transcript pane's current content width, published by the AppKit table
+/// cell host (`TranscriptTableCellView.configure`). Chat bubbles read this to
+/// size themselves as a fraction of the pane — no `GeometryReader`, no extra
+/// measurement pass: it is the same width the cell already applies via
+/// `.frame(width:)`, so it is stable and only changes on an actual resize.
+private struct TranscriptContentWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 880
+}
+
+extension EnvironmentValues {
+    var transcriptContentWidth: CGFloat {
+        get { self[TranscriptContentWidthKey.self] }
+        set { self[TranscriptContentWidthKey.self] = newValue }
+    }
+}
+
+/// Resolves chat-bubble max widths as a clamped fraction of the transcript
+/// pane width. All bubble-width tuning lives here.
+enum PiAgentBubbleWidth {
+    /// Fraction of the transcript pane width a bubble may occupy.
+    static let userMultiplier: CGFloat = 0.60
+    static let replyMultiplier: CGFloat = 0.95
+    /// Clamp bounds keep bubbles readable on very small / very large windows.
+    static let userMin: CGFloat = 340
+    static let userMax: CGFloat = 600
+    static let replyMin: CGFloat = 480
+    static let replyMax: CGFloat = 1024
+
+    /// Max width for a user (question) bubble.
+    static func user(for width: CGFloat) -> CGFloat {
+        min(max(width * userMultiplier, userMin), userMax)
+    }
+
+    /// Max width for an agent reply / tool / plan card.
+    static func reply(for width: CGFloat) -> CGFloat {
+        min(max(width * replyMultiplier, replyMin), replyMax)
+    }
+}
+
 /// Hover-driven copy-button wrapper for thread messages. Used by
 /// `PiAgentTranscriptThreadCard` to place a glass copy button beside user
 /// bubbles and assistant cards.
@@ -671,6 +712,8 @@ struct PiAgentTranscriptThreadCard: View {
     let nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
     let nativeSubagentCard: (PiSubagentRunRecord) -> PiNativeSubagentRunCard
 
+    @Environment(\.transcriptContentWidth) private var transcriptContentWidth
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let question = thread.question {
@@ -679,7 +722,7 @@ struct PiAgentTranscriptThreadCard: View {
                 ThreadMessageRow(
                     copyText: question.text,
                     copyOn: .leading,
-                    cardMaxWidth: 520
+                    cardMaxWidth: PiAgentBubbleWidth.user(for: transcriptContentWidth)
                 ) {
                     PiAgentTranscriptCard(entry: question, style: .question, skills: skills)
                         .id(question.id)
@@ -694,7 +737,7 @@ struct PiAgentTranscriptThreadCard: View {
                         ThreadMessageRow(
                             copyText: copyText(for: child),
                             copyOn: .trailing,
-                            cardMaxWidth: 900
+                            cardMaxWidth: PiAgentBubbleWidth.reply(for: transcriptContentWidth)
                         ) {
                             childView(child)
                         }
@@ -704,7 +747,7 @@ struct PiAgentTranscriptThreadCard: View {
                             ThreadMessageRow(
                                 copyText: event.items.map(\.title).joined(separator: "\n"),
                                 copyOn: .trailing,
-                                cardMaxWidth: 900
+                                cardMaxWidth: PiAgentBubbleWidth.reply(for: transcriptContentWidth)
                             ) {
                                 PiAgentCurrentPlanCard(event: event)
                                     .id(event.id)

@@ -759,15 +759,11 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var piAgentPrimaryToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                piAgentStartupInfoButton
-                piAgentTranscriptDisplayButton
-            } label: {
-                Label("Session", systemImage: "info.circle")
-            }
-            .toolbarNeutralChrome()
-        }
+        ToolbarItem(placement: .primaryAction) { piAgentStartupInfoButton }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) { piAgentTranscriptDisplayButton }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
@@ -803,6 +799,7 @@ struct ContentView: View {
         } label: {
             Label("Transcript Display", systemImage: "eye")
         }
+        .toolbarNeutralChrome()
         .help("Choose what appears in the agent transcript")
         .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
             PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
@@ -815,6 +812,7 @@ struct ContentView: View {
         } label: {
             Label("Session Resources", systemImage: "info.circle")
         }
+        .toolbarNeutralChrome()
         .help("Agents, skills, prompts, and environment available to this session")
         .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
         .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
