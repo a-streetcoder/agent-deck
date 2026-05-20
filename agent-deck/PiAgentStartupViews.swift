@@ -45,8 +45,8 @@ struct PiAgentShortcutsStrip: View {
         HStack(spacing: 14) {
             hintChip(["↩"], "send / steer")
             hintChip(["⇧", "↩"], "newline")
-            hintChip(["⎋"], "stop running turn")
-            hintChip(["⎋×2"], "clear input")
+            hintChip(["esc"], "stop running turn")
+            hintChip(["esc ×2"], "clear input")
             hintChip(["/"], "commands")
             hintChip(["@"], "file suggestions")
             Spacer(minLength: 0)

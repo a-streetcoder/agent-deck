@@ -492,7 +492,7 @@ struct AppKeyCap: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .font(.system(size: text.count > 1 ? 10 : 12, weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
             .frame(minWidth: 22, minHeight: 22)
             .padding(.horizontal, text.count > 1 ? 5 : 0)
