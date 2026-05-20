@@ -99,7 +99,7 @@ struct PiAgentSidebarButton: View {
             .modifier(SidebarSurface(isSelected: isSelected))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                    .stroke(isSelected ? AppTheme.piLogo.opacity(0.30) : AppTheme.contentStroke, lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
                 if needsAttentionCount > 0 {
@@ -155,20 +155,22 @@ struct PiAgentSidebarButton: View {
 
 }
 
-/// Active-state surface for the Pi Agent sidebar button. Selected uses the
-/// app's Liquid Glass material (matching the toolbar/composer chrome);
-/// unselected keeps the neutral fill.
+/// Active-state surface for the Pi Agent sidebar button. Both states sit on the
+/// neutral fill; the selected state layers a faint monochrome wash of the Pi
+/// brand color on top (near-black on light, white on dark) — no teal, no glass.
 private struct SidebarSurface: ViewModifier {
     let isSelected: Bool
 
     func body(content: Content) -> some View {
-        if isSelected {
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        } else {
-            content.background(
+        content.background {
+            ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(AppTheme.contentSubtleFill)
-            )
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(AppTheme.piLogo.opacity(0.12))
+                }
+            }
         }
     }
 }
