@@ -143,7 +143,7 @@ struct IssuesScreen: View {
                 issueList(items: visibleItems, totalShown: board.shownCount, totalCount: board.totalCount, incomplete: board.incompleteResults)
                     .frame(minWidth: 380, idealWidth: 500, maxWidth: 600)
                 detailColumn
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }
