@@ -1314,17 +1314,16 @@ struct PiAgentScreen: View {
                         .accessibilityLabel("Delete selected sessions")
                     }
                     if !scopedSessions.isEmpty {
-                        Button(role: .destructive) {
-                            requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true)
-                        } label: {
+                        AppCircleIconButton(
+                            style: .soft,
+                            tint: Color.red,
+                            size: 30,
+                            help: viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project",
+                            role: .destructive,
+                            action: { requestDeleteSessions(Set(scopedSessions.map(\.id)), isClearAll: true) }
+                        ) {
                             Image(systemName: "eraser")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 30, height: 30)
-                                .background(Circle().fill(Color.red.opacity(0.10)))
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.red)
-                        .help(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
                         .accessibilityLabel(viewModel.selectedProjectPath == nil ? "Clear all sessions and transcripts" : "Clear sessions and transcripts for this project")
                     }
                     if viewModel.selectedDiscoveredProject == nil {

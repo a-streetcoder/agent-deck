@@ -145,6 +145,57 @@ extension View {
     }
 }
 
+/// Centralized circle icon button with consistent sizing across the app. The
+/// system `.glassProminent`/`.glass` button styles add their own padding around
+/// the label, so identical labels can render at different sizes depending on
+/// the style. This view bypasses that by composing the chrome manually — the
+/// `size` argument is the EXACT diameter, not a hint to the system.
+///
+/// Two variants:
+///  - `.prominent` — tinted glass circle with high-contrast (accent-foreground)
+///    symbol. Use for primary icon CTAs (send, etc.).
+///  - `.soft` — low-opacity tinted glass circle with the tint color used for
+///    both the chrome hint and the symbol. Use for secondary icon actions
+///    (add-session `+`, clear, etc.).
+struct AppCircleIconButton<Symbol: View>: View {
+    enum Style { case prominent, soft }
+
+    var style: Style = .soft
+    var tint: Color = AppTheme.brandAccent
+    var size: CGFloat = 30
+    var help: String? = nil
+    var role: ButtonRole? = nil
+    let action: () -> Void
+    @ViewBuilder var symbol: () -> Symbol
+
+    var body: some View {
+        Button(role: role, action: action) {
+            symbol()
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(symbolColor)
+                .frame(width: size, height: size)
+                .glassEffect(.regular.tint(tintMaterial), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help ?? "")
+    }
+
+    private var symbolColor: Color {
+        switch style {
+        case .prominent: return AppTheme.accentForeground
+        case .soft: return tint
+        }
+    }
+
+    private var tintMaterial: Color {
+        switch style {
+        case .prominent: return tint
+        case .soft: return tint.opacity(0.18)
+        }
+    }
+}
+
 struct AppLoadingView: View {
     let title: String
 

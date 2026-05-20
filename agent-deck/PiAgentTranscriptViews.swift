@@ -1772,7 +1772,7 @@ private struct PiAgentUserMessageContent: View {
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(AppTheme.mutedText)
                             .padding(8)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+                            .appGlassCapsule()
                     }
                 }
             }
@@ -1988,7 +1988,7 @@ private struct PiAgentUserMessageContent: View {
             .font(.caption2)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.contentSubtleFill))
+            .appGlassCapsule()
         }
         .buttonStyle(.plain)
         .help("Preview \(name)")

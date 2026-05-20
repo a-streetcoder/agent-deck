@@ -1038,17 +1038,17 @@ struct PiAgentSendButton: View {
     let stopAction: () -> Void
 
     var body: some View {
-        Button(action: isRunning ? stopAction : sendAction) {
+        AppCircleIconButton(
+            style: .prominent,
+            tint: tintColor,
+            size: 30,
+            help: isRunning ? "Stop Pi Agent" : "Send message",
+            action: isRunning ? stopAction : sendAction
+        ) {
             Image(systemName: isRunning ? "stop.fill" : "arrow.up")
-                .font(.system(size: 14, weight: .bold))
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 34, height: 34)
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.circle)
-        .tint(tintColor)
         .disabled(!isRunning && !canSend)
-        .help(isRunning ? "Stop Pi Agent" : "Send message")
         .accessibilityLabel(isRunning ? "Stop Pi Agent" : "Send message")
         .background {
             Button("Stop Pi Agent", action: stopAction)

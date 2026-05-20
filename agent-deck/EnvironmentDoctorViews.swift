@@ -124,7 +124,7 @@ struct EnvironmentScreen: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.contentSubtleFill))
+                        .appGlassCapsule()
 
                     Button {
                         toggleReveal(for: row.key)
@@ -673,7 +673,7 @@ struct DoctorScreen: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppTheme.contentSubtleFill))
+            .appGlassCapsule()
 
             if let action {
                 Button(buttonLabel, action: action)

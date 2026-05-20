@@ -38,12 +38,15 @@ struct PiAgentAddSessionButton: View {
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        Button(action: action) {
-            PiAgentAddSessionButtonLabel(showsChevron: false)
+        AppCircleIconButton(
+            style: .soft,
+            tint: isEnabled ? AppTheme.brandAccent : AppTheme.mutedText,
+            size: 30,
+            help: "New Pi Agent session",
+            action: action
+        ) {
+            Image(systemName: "plus")
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.circle)
-        .tint(isEnabled ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.35))
         .accessibilityLabel("New Pi Agent session")
     }
 }
@@ -57,12 +60,15 @@ struct PiAgentAddSessionMenuButton: View {
     @State private var isPresented = false
 
     var body: some View {
-        Button(action: buttonAction) {
-            PiAgentAddSessionButtonLabel(showsChevron: false)
+        AppCircleIconButton(
+            style: .soft,
+            tint: isEnabled ? AppTheme.brandAccent : AppTheme.mutedText,
+            size: 30,
+            help: "New Pi Agent session",
+            action: buttonAction
+        ) {
+            Image(systemName: "plus")
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.circle)
-        .tint(isEnabled ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.35))
         .accessibilityLabel("New Pi Agent session")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             PiAgentProjectPickerPopover(
