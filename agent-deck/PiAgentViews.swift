@@ -2145,7 +2145,7 @@ struct PiAgentScreen: View {
         if let lastEntry = store.selectedTranscript.last {
             return processingMessage(after: lastEntry)
         }
-        return "Pi is working"
+        return "Working"
     }
 
     private func processingMessage(after entry: PiAgentTranscriptEntry) -> String? {
@@ -2153,7 +2153,7 @@ struct PiAgentScreen: View {
         case .assistant:
             return entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Preparing response" : "Writing response"
         case .error, .stderr:
-            return "Pi is working"
+            return "Working"
         case .tool:
             if entry.text.localizedCaseInsensitiveContains("waiting for user input") { return nil }
             return toolProcessingMessage(for: entry)
@@ -2168,7 +2168,7 @@ struct PiAgentScreen: View {
         case .thinking:
             return "Reasoning"
         case .raw:
-            return "Pi is working"
+            return "Working"
         }
     }
 

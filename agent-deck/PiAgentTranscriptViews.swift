@@ -2318,7 +2318,7 @@ struct PiAgentTranscriptCard: View {
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .foregroundStyle(color)
+                .foregroundStyle(AppTheme.brandAccent.gradient)
                 .frame(width: 16, height: 16)
         } else {
             Image(systemName: icon)
