@@ -429,6 +429,58 @@ private struct PiGlobalSystemInstructionsDetail: View {
     }
 }
 
+/// Read-only, selectable, monospaced text backed by AppKit's `NSTextView`.
+///
+/// SwiftUI's `ScrollView { Text(...).textSelection(.enabled) }` keeps a
+/// selection overlay across the entire string and re-rasterizes one tall
+/// layer while scrolling, which makes large documents (assembled system
+/// prompts) janky. `NSTextView` is backed by TextKit: with non-contiguous
+/// layout it lays out and selects only the visible portion on demand.
+private struct ReadOnlyMonospacedTextView: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.textColor = .labelColor
+        let captionSize = NSFont.preferredFont(forTextStyle: .caption1).pointSize
+        textView.font = NSFont.monospacedSystemFont(ofSize: captionSize, weight: .regular)
+        textView.textContainerInset = NSSize(width: 16, height: 16)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        // Accessing `layoutManager` opts into TextKit 1, where non-contiguous
+        // layout keeps scrolling smooth for large documents.
+        textView.layoutManager?.allowsNonContiguousLayout = true
+        textView.string = text
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+}
+
 private struct PiGlobalSystemPromptPreviewSheet: View {
     let preview: String
     @Environment(\.dismiss) private var dismiss
@@ -451,13 +503,7 @@ private struct PiGlobalSystemPromptPreviewSheet: View {
 
             Divider()
 
-            ScrollView {
-                Text(preview)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-            }
+            ReadOnlyMonospacedTextView(text: preview)
         }
         .frame(minWidth: 760, minHeight: 620)
     }
@@ -971,15 +1017,19 @@ private struct PiInstructionFileEditor: View {
             headerRow
 
             if showsPreview {
-                ScrollView {
-                    Text(previewText)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                }
-                .frame(minHeight: 96, maxHeight: 150)
-                .appControlSurface(cornerRadius: 10)
+                // A static, truncated snippet — deliberately not a nested
+                // ScrollView. One ScrollView per card traps the page's scroll
+                // wheel and forces SwiftUI to composite a scrollable, selectable
+                // text layer for every card, which makes the page scroll
+                // sluggishly. The full content stays available via the Edit sheet.
+                Text(previewText)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(10)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                    .appControlSurface(cornerRadius: 10)
             } else {
                 Text(file.note)
                     .font(.caption)
@@ -1326,13 +1376,7 @@ private struct PiSystemPromptPreviewSheet: View {
 
             Divider()
 
-            ScrollView {
-                Text(preview)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-            }
+            ReadOnlyMonospacedTextView(text: preview)
         }
         .frame(minWidth: 760, minHeight: 620)
     }
