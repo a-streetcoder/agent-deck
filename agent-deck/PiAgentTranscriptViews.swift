@@ -761,14 +761,20 @@ struct PiAgentTranscriptThreadCard: View {
     private func toolGroupView(_ group: PiAgentThreadToolGroup) -> some View {
         let webActivities = group.activities.filter(\.isWebActivity)
         let toolActivities = group.activities.filter { !$0.isWebActivity }
-        if visibility.showWebActivity, !webActivities.isEmpty {
-            PiAgentWebActivitySummaryView(activities: webActivities)
-        }
-        if visibility.showToolCalls, !toolActivities.isEmpty {
-            PiAgentActivitySummaryView(activities: toolActivities)
-        }
-        if visibility.showDiffs {
-            PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+        // A tool group can emit several cards (web activity, tool calls, diffs).
+        // They MUST be wrapped in a VStack — without an explicit vertical
+        // container the sibling cards have no imposed arrangement, and the
+        // enclosing row lays them out side by side instead of stacked.
+        VStack(alignment: .leading, spacing: 8) {
+            if visibility.showWebActivity, !webActivities.isEmpty {
+                PiAgentWebActivitySummaryView(activities: webActivities)
+            }
+            if visibility.showToolCalls, !toolActivities.isEmpty {
+                PiAgentActivitySummaryView(activities: toolActivities)
+            }
+            if visibility.showDiffs {
+                PiAgentThreadDiffSummaryView(activities: toolActivities, projectPath: projectPath)
+            }
         }
     }
 
