@@ -1152,16 +1152,16 @@ private struct PiAgentCompactDiffPreview: View {
 
         var color: Color {
             switch prefix {
-            case "+": return .green
-            case "-": return .red
+            case "+": return AppTheme.diffAdded
+            case "-": return AppTheme.diffRemoved
             default: return AppTheme.mutedText
             }
         }
 
         var background: Color {
             switch prefix {
-            case "+": return Color.green.opacity(0.10)
-            case "-": return Color.red.opacity(0.10)
+            case "+": return AppTheme.diffAdded.opacity(AppTheme.roleFillStrongOpacity)
+            case "-": return AppTheme.diffRemoved.opacity(AppTheme.roleFillStrongOpacity)
             default: return Color.clear
             }
         }
@@ -1178,7 +1178,7 @@ struct PiAgentWebActivitySummaryView: View {
             HStack(spacing: 8) {
                 Image(systemName: "globe")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(hasErrors ? .red : AppTheme.mutedText)
+                    .foregroundStyle(hasErrors ? AppTheme.roleError : AppTheme.mutedText)
                 Text(title)
                     .font(.caption.weight(.semibold))
                 Text(callCountText)
@@ -1193,7 +1193,7 @@ struct PiAgentWebActivitySummaryView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Image(systemName: row.icon)
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(row.isError ? .red : AppTheme.mutedText)
+                                .foregroundStyle(row.isError ? AppTheme.roleError : AppTheme.mutedText)
                                 .frame(width: 14)
                             Text(row.title)
                                 .font(.caption.weight(.semibold))
@@ -1342,7 +1342,7 @@ struct PiAgentActivitySummaryView: View {
         HStack(spacing: 10) {
             Image(systemName: hasErrors ? "exclamationmark.triangle" : "wrench.and.screwdriver")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(hasErrors ? .red : AppTheme.mutedText)
+                .foregroundStyle(hasErrors ? AppTheme.roleError : AppTheme.mutedText)
             Text("Tools")
                 .font(.caption.weight(.semibold))
             Text(callCountText)
@@ -1385,10 +1385,10 @@ struct PiAgentActivitySummaryView: View {
                 .padding(.vertical, 1)
                 .background(Capsule(style: .continuous).fill(AppTheme.contentStroke.opacity(0.55)))
         }
-        .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
+        .foregroundStyle(activity.isError ? AppTheme.roleError : AppTheme.mutedText)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill((activity.isError ? Color.red : AppTheme.contentStroke).opacity(0.12)))
+        .background(Capsule(style: .continuous).fill((activity.isError ? AppTheme.roleError : AppTheme.contentStroke).opacity(AppTheme.roleChipOpacity)))
     }
 
     private func displayName(for name: String, count: Int) -> String {
@@ -1437,7 +1437,7 @@ struct PiAgentActivityDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: icon)
-                        .foregroundStyle(activity.isError ? .red : AppTheme.mutedText)
+                        .foregroundStyle(activity.isError ? AppTheme.roleError : AppTheme.mutedText)
                     Text(activity.name)
                         .font(.caption.weight(.semibold))
                     if activity.count > 1 {
@@ -1605,7 +1605,7 @@ struct PiAgentStatusTranscriptRow: View {
 
     private var color: Color {
         if entry.title == "Compaction" { return .secondary }
-        if entry.role == .error { return .red }
+        if entry.role == .error { return AppTheme.roleError }
         return .secondary
     }
 
@@ -2423,42 +2423,43 @@ struct PiAgentTranscriptCard: View {
         return entry.title
     }
 
+    /// Single base color per role. The card's background fill, border stroke,
+    /// and icon/label tint are all derived from this through AppTheme's fixed
+    /// opacity scale, so a role reads consistently and adapts to light/dark.
+    private var roleBase: Color {
+        switch entry.role {
+        case .user: return AppTheme.roleUser
+        case .assistant: return AppTheme.roleAssistant
+        case .thinking: return AppTheme.roleThinking
+        case .tool: return AppTheme.roleTool
+        case .error: return AppTheme.roleError
+        case .stderr: return AppTheme.roleStderr
+        case .status, .raw: return AppTheme.roleStatus
+        }
+    }
+
+    /// Status and raw cards use the neutral system surface rather than a tinted
+    /// role color — they're informational, not part of the conversation.
+    private var usesNeutralSurface: Bool {
+        entry.role == .status || entry.role == .raw
+    }
+
     private var headerColor: Color {
-        entry.role == .assistant ? AppTheme.brandAccent : .primary
+        entry.role == .assistant ? AppTheme.roleAssistant : .primary
     }
 
     private var backgroundStyle: AnyShapeStyle {
-        switch entry.role {
-        case .user:
-            return AnyShapeStyle(AppTheme.assistantAccent.opacity(0.06).gradient)
-        case .assistant:
-            return AnyShapeStyle((style == .question ? AppTheme.brandAccent.opacity(0.10) : AppTheme.brandAccent.opacity(0.08)).gradient)
-        case .thinking:
-            return AnyShapeStyle(Color.indigo.opacity(0.07).gradient)
-        case .tool:
-            return AnyShapeStyle((style == .threadChild ? Color.orange.opacity(0.05) : Color.orange.opacity(0.08)).gradient)
-        case .status:
+        if usesNeutralSurface {
             return AnyShapeStyle(AppTheme.contentSubtleFill.opacity(0.7).gradient)
-        case .error:
-            return AnyShapeStyle(Color.red.opacity(0.08).gradient)
-        case .stderr:
-            return AnyShapeStyle(Color.pink.opacity(0.08).gradient)
-        case .raw:
-            return AnyShapeStyle(AppTheme.contentSubtleFill.gradient)
         }
+        let fill = style == .question ? AppTheme.roleFillStrongOpacity : AppTheme.roleFillOpacity
+        return AnyShapeStyle(roleBase.opacity(fill).gradient)
     }
 
     private var strokeColor: Color {
-        switch entry.role {
-        case .user: return AppTheme.assistantAccent.opacity(0.18)
-        case .assistant: return AppTheme.brandAccent.opacity(0.2)
-        case .thinking: return Color.indigo.opacity(0.18)
-        case .tool: return Color.orange.opacity(0.2)
-        case .error: return Color.red.opacity(0.22)
-        case .stderr: return Color.pink.opacity(0.2)
-        case .status: return AppTheme.contentStroke
-        case .raw: return AppTheme.contentStroke
-        }
+        usesNeutralSurface
+            ? AppTheme.contentStroke
+            : roleBase.opacity(AppTheme.roleStrokeOpacity)
     }
 
     private var icon: String {
@@ -2474,18 +2475,7 @@ struct PiAgentTranscriptCard: View {
         }
     }
 
-    private var color: Color {
-        switch entry.role {
-        case .user: return AppTheme.assistantAccent
-        case .assistant: return AppTheme.brandAccent
-        case .thinking: return .indigo
-        case .tool: return .orange
-        case .status: return .secondary
-        case .error: return .red
-        case .stderr: return .pink
-        case .raw: return .secondary
-        }
-    }
+    private var color: Color { roleBase }
 
     private var copyText: String {
         entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2568,6 +2558,6 @@ struct PiAgentToolTranscriptView: View {
     }
 
     private var color: Color {
-        entry.role == .error ? .red : .orange
+        entry.role == .error ? AppTheme.roleError : AppTheme.roleTool
     }
 }

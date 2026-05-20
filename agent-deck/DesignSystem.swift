@@ -24,6 +24,28 @@ enum AppTheme {
     // `.gradient` on the icon to match the rest of the brand-mark treatment.
     static let piLogo = adaptiveColor(light: RGB(9, 9, 11), dark: RGB(255, 255, 255))
 
+    // MARK: Transcript role accents
+    // Every transcript message card derives its background fill, border stroke,
+    // and icon/label tint from a single role base color, applied through the
+    // fixed opacity scale below. Dark variants are desaturated and lightened so
+    // the tints sit calmly on the dark transcript surface instead of
+    // over-saturating the way raw system colors (.orange/.red/.indigo) do.
+    static let roleAssistant = brandAccent
+    static let roleUser = assistantAccent
+    static let roleThinking = adaptiveColor(light: RGB(86, 100, 214), dark: RGB(140, 151, 232))
+    static let roleTool = adaptiveColor(light: RGB(184, 121, 28), dark: RGB(221, 168, 78))
+    static let roleError = adaptiveColor(light: RGB(206, 59, 59), dark: RGB(229, 116, 108))
+    static let roleStderr = adaptiveColor(light: RGB(192, 70, 126), dark: RGB(224, 138, 178))
+    static let roleStatus = mutedText
+    // Diff line accents.
+    static let diffAdded = adaptiveColor(light: RGB(47, 158, 92), dark: RGB(86, 201, 138))
+    static let diffRemoved = roleError
+    // Fixed tint scale for role-derived surfaces — replaces ad-hoc per-role opacities.
+    static let roleFillOpacity = 0.08
+    static let roleFillStrongOpacity = 0.10
+    static let roleStrokeOpacity = 0.20
+    static let roleChipOpacity = 0.12
+
     // Native (TextKit) markdown surfaces — code fences, frontmatter, quote bar.
     // Mirror the WKWebView CSS palette so HTML and native markdown look identical.
     static let codeBlockFill = adaptiveColor(light: RGB(240, 240, 240), dark: RGB(30, 30, 32))
