@@ -622,49 +622,44 @@ extension EnvironmentValues {
     }
 }
 
-/// Chat-bubble width policy. Bubbles **hug their content** — a short message
-/// gets a small bubble, a long one grows up to a cap. The cap is a clamped
-/// fraction of the transcript pane width. All tuning lives here.
+/// Chat-bubble width policy — modeled on osaurus' chat implementation.
+///
+/// User (question) bubbles **hug their content**: a short message gets a small
+/// bubble. This is cheap and jump-free — a user message is immutable once sent,
+/// so its width is measured exactly once (then served from cache) and never
+/// changes afterwards (user messages never stream).
+///
+/// Agent reply / tool / plan cards use a **fixed width** (a clamped fraction of
+/// the pane, so it degrades gracefully on a narrow window). They never
+/// re-measure and never change width while a response streams in — preserving
+/// the transcript's "only the bottom child grows, and only vertically"
+/// zero-jumpiness design. Tune `replyCapMax` to taste.
 @MainActor
 enum PiAgentBubbleWidth {
-    // Caps — the ceiling a bubble may reach. Also the width used by structured
-    // reply cards (tools, plans) that always fill their column.
+    // Agent reply / tool / plan card width — fixed, content-independent.
+    static let replyCapMultiplier: CGFloat = 0.72
+    static let replyCapMax: CGFloat = 640
+
+    // User (question) bubble — hugs the message text, within these bounds.
     static let userCapMultiplier: CGFloat = 0.62
-    static let userCapMax: CGFloat = 560
-    static let replyCapMultiplier: CGFloat = 0.92
-    static let replyCapMax: CGFloat = 960
-
-    // Hugging — minimum bubble width + horizontal chrome (card padding plus a
-    // few points of slack) added to the measured text width.
+    static let userCapMax: CGFloat = 640
     static let userMinWidth: CGFloat = 130
-    static let replyMinWidth: CGFloat = 200
-    static let userChrome: CGFloat = 34
-    static let replyChrome: CGFloat = 30
+    static let userChrome: CGFloat = 34   // card h-padding (14*2) + a little slack
 
-    static func userCap(for paneWidth: CGFloat) -> CGFloat {
-        min(paneWidth * userCapMultiplier, userCapMax)
-    }
-
+    /// Fixed width for an agent reply / tool / plan card.
     static func replyCap(for paneWidth: CGFloat) -> CGFloat {
         min(paneWidth * replyCapMultiplier, replyCapMax)
     }
 
-    /// Width for a user (question) bubble — hugs the message text.
+    /// Content-hugging width for a user (question) bubble. Pure arithmetic plus
+    /// one cached text measurement — see `MessageTextWidth`.
     static func huggedUser(text: String, paneWidth: CGFloat) -> CGFloat {
-        hugged(text: text, cap: userCap(for: paneWidth), minWidth: userMinWidth, chrome: userChrome)
-    }
-
-    /// Width for an agent text reply — hugs the message text.
-    static func huggedReply(text: String, paneWidth: CGFloat) -> CGFloat {
-        hugged(text: text, cap: replyCap(for: paneWidth), minWidth: replyMinWidth, chrome: replyChrome)
-    }
-
-    private static func hugged(text: String, cap: CGFloat, minWidth: CGFloat, chrome: CGFloat) -> CGFloat {
+        let cap = min(paneWidth * userCapMultiplier, userCapMax)
         // Fenced code renders in a monospace font this measurement can't model;
-        // let those replies fill the column rather than risk wrapping code.
+        // let those messages fill the cap rather than risk wrapping code.
         if text.contains("```") { return cap }
-        let natural = MessageTextWidth.naturalWidth(of: text) + chrome
-        return min(cap, max(natural, min(minWidth, cap)))
+        let natural = MessageTextWidth.naturalWidth(of: text) + userChrome
+        return min(cap, max(natural, min(userMinWidth, cap)))
     }
 }
 
@@ -793,7 +788,7 @@ struct PiAgentTranscriptThreadCard: View {
                         ThreadMessageRow(
                             copyText: copyText(for: child),
                             copyOn: .trailing,
-                            cardMaxWidth: replyWidth(for: child)
+                            cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
                         ) {
                             childView(child)
                         }
@@ -812,20 +807,6 @@ struct PiAgentTranscriptThreadCard: View {
                     }
                 }
             }
-        }
-    }
-
-    /// Width for a thread-child bubble. Plain agent-text (and steering) replies
-    /// hug their content; structured cards (tools, thinking, status, errors,
-    /// subagent summaries) fill the reply column.
-    private func replyWidth(for child: PiAgentThreadChild) -> CGFloat {
-        switch child {
-        case let .assistant(entry) where PiAgentSubagentSummary(entry: entry) == nil:
-            return PiAgentBubbleWidth.huggedReply(text: entry.text, paneWidth: transcriptContentWidth)
-        case let .steering(entry):
-            return PiAgentBubbleWidth.huggedReply(text: entry.text, paneWidth: transcriptContentWidth)
-        default:
-            return PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
         }
     }
 

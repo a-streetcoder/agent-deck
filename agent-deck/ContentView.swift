@@ -742,30 +742,31 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var piAgentPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                Button {
-                    isPiAgentStartupResourcesPresented.toggle()
-                } label: {
-                    Label("Session Resources", systemImage: "info.circle")
-                }
-                .help("Agents, skills, prompts, and environment available to this session")
-                .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-
-                Button {
-                    isPiAgentTranscriptOptionsPresented.toggle()
-                } label: {
-                    Label("Transcript Display", systemImage: "eye")
-                }
-                .help("Choose what appears in the agent transcript")
+            Button {
+                isPiAgentStartupResourcesPresented.toggle()
             } label: {
-                Label("Session", systemImage: "info.circle")
+                Label("Session Resources", systemImage: "info.circle")
             }
             .toolbarNeutralChrome()
+            .help("Agents, skills, prompts, and environment available to this session")
+            .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
             .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
                 if let session = viewModel.piAgentSessionStore.selectedSession {
                     PiAgentStartupResourcesPopover(viewModel: viewModel, session: session)
                 }
             }
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                isPiAgentTranscriptOptionsPresented.toggle()
+            } label: {
+                Label("Transcript Display", systemImage: "eye")
+            }
+            .toolbarNeutralChrome()
+            .help("Choose what appears in the agent transcript")
             .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
                 PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
             }
@@ -787,15 +788,10 @@ struct ContentView: View {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                PiAgentOpenTerminalToolbarButton(
-                    viewModel: viewModel,
-                    store: viewModel.piAgentSessionStore
-                )
-            } label: {
-                Label("Terminal", systemImage: "terminal")
-            }
-            .toolbarNeutralChrome()
+            PiAgentOpenTerminalToolbarButton(
+                viewModel: viewModel,
+                store: viewModel.piAgentSessionStore
+            )
         }
     }
 
