@@ -613,45 +613,54 @@ struct PiAgentTranscriptThreadCard: View {
     let nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
     let nativeSubagentCard: (PiSubagentRunRecord) -> PiNativeSubagentRunCard
 
-    /// Cap for the user-question bubble width — 70% of the thread row,
-    /// matching the iMessage / osaurus convention. Observed via
-    /// `onGeometryChange` so it updates as the pane resizes.
-    @State private var rowWidth: CGFloat = 0
-    private var userBubbleMaxWidth: CGFloat {
-        max(180, rowWidth * 0.7)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let question = thread.question {
-                // iMessage-style right-aligned bubble for the user's question.
-                // The bubble hugs its content (PiAgentTranscriptCard uses
-                // maxWidth: nil for user bubbles); the leading Spacer pushes it
-                // right; the explicit maxWidth caps it at 70% of the row width
-                // so long messages wrap rather than spanning the whole pane.
+                // iMessage-style: right-aligned user bubble. Pushed right by a
+                // leading Spacer; capped at a fixed 520pt so long messages wrap
+                // instead of spanning the pane. Fixed cap (not proportional)
+                // because the proportional approaches we tried (onGeometryChange,
+                // containerRelativeFrame) both caused layout instability —
+                // onGeometryChange flashed on every resize tick, and
+                // containerRelativeFrame resolved to the wrong container in
+                // our AppKit-hosted scroll view and overflowed the row.
                 HStack(spacing: 0) {
                     Spacer(minLength: 60)
                     PiAgentTranscriptCard(entry: question, style: .question, skills: skills)
-                        .frame(maxWidth: userBubbleMaxWidth, alignment: .trailing)
+                        .frame(maxWidth: 520, alignment: .trailing)
                         .id(question.id)
                 }
             }
 
             if hasChildren {
+                // Assistant / tool / status children: mirrored layout — left-
+                // aligned with a trailing Spacer pushing the open space to the
+                // right, mirroring the user-bubble's leading Spacer. Capped at
+                // a fixed 900pt so wide windows don't stretch code blocks /
+                // diff cards edge-to-edge (Apple HIG ~"80% of row" convention,
+                // approximated as a fixed cap because every proportional
+                // approach we tried — onGeometryChange, containerRelativeFrame
+                // — produced layout instability inside the AppKit-hosted
+                // scrollView).
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(thread.children) { child in
-                        childView(child)
+                        HStack(spacing: 0) {
+                            childView(child)
+                                .frame(maxWidth: 900, alignment: .leading)
+                            Spacer(minLength: 60)
+                        }
                     }
                     if visibility.showPlans {
                         ForEach(latestPlanEvents) { event in
-                            PiAgentCurrentPlanCard(event: event)
-                                .id(event.id)
+                            HStack(spacing: 0) {
+                                PiAgentCurrentPlanCard(event: event)
+                                    .id(event.id)
+                                    .frame(maxWidth: 900, alignment: .leading)
+                                Spacer(minLength: 60)
+                            }
                         }
                     }
                 }
-                // Children are full-width left-aligned. The right-aligned user
-                // bubble above gives the conversational visual separation that
-                // the prior 24pt left-indent was substituting for.
             }
         }
     }
@@ -2199,7 +2208,6 @@ struct PiAgentTranscriptCard: View {
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
     @State private var isThinkingExpanded = true
-    @State private var isHovering = false
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -2218,18 +2226,7 @@ struct PiAgentTranscriptCard: View {
                     .font(.caption.weight(.semibold))
                     .fontWidth(.expanded)
                     .foregroundStyle(headerColor)
-                Spacer(minLength: 8)
-                // Always-mounted glass copy button. Opacity drives visibility so we
-                // get a single, smooth fade on hover instead of the swap-animation
-                // hiccup of the previous timestamp ⇄ button ZStack.
-                AppCopyIconButton(
-                    text: copyText,
-                    help: "Copy message",
-                    size: CGSize(width: 44, height: 22)
-                )
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
-                .accessibilityHidden(!isHovering)
+                Spacer(minLength: 0)
             }
 
             content
@@ -2237,9 +2234,8 @@ struct PiAgentTranscriptCard: View {
         .padding(.horizontal, style == .threadChild ? 12 : 14)
         .padding(.vertical, style == .threadChild ? 9 : 11)
         // User bubbles size to their content (the outer thread card caps the
-        // width at 520pt and pushes them right). Other cards stretch full-width
-        // as before. Internal alignment is always .leading so text reads
-        // naturally inside the bubble.
+        // width and pushes them right). Other cards stretch full-width as
+        // before. Internal alignment is always .leading so text reads naturally.
         .frame(maxWidth: isUserBubble ? nil : .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -2249,8 +2245,6 @@ struct PiAgentTranscriptCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(strokeColor, lineWidth: 1)
         )
-        .onHover { isHovering = $0 }
-        .animation(.easeInOut(duration: 0.18), value: isHovering)
     }
 
     @ViewBuilder

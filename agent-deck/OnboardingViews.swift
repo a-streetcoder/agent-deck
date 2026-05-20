@@ -178,11 +178,12 @@ struct SetupChecklistView: View {
                 Button("Back") {
                     onBack()
                 }
+                .appSecondaryButton()
                 Spacer()
                 Button(finishButtonTitle) {
                     onFinish(finishTarget)
                 }
-                .buttonStyle(.glassProminent)
+                .appPrimaryButton()
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
@@ -281,9 +282,11 @@ struct SetupChecklistView: View {
                     HStack(spacing: 8) {
                         if let action = item.action {
                             Button(action.buttonTitle) { perform(action) }
+                                .appPrimaryButton()
                         }
                         if let secondaryAction = item.secondaryAction {
                             Button(secondaryAction.buttonTitle) { perform(secondaryAction) }
+                                .appSecondaryButton()
                         }
                     }
                     .controlSize(.small)

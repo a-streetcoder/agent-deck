@@ -255,18 +255,21 @@ private struct PiGlobalSystemInstructionsDetail: View {
                     scopeCard
 
                     instructionSection(
+                        role: .base,
                         title: "Base system prompt",
                         description: "Global `~/.pi/agent/SYSTEM.md` replaces Pi’s built-in base prompt when a project does not provide `.pi/SYSTEM.md`.",
                         files: files(for: .base)
                     )
 
                     instructionSection(
+                        role: .append,
                         title: "Append system prompt",
                         description: "Global `~/.pi/agent/APPEND_SYSTEM.md` is appended when a project does not provide `.pi/APPEND_SYSTEM.md`.",
                         files: files(for: .append)
                     )
 
                     instructionSection(
+                        role: .context,
                         title: "Global context files",
                         description: "Pi loads one global context file. `AGENTS.md` wins over `CLAUDE.md` when both exist.",
                         files: files(for: .context)
@@ -359,13 +362,12 @@ private struct PiGlobalSystemInstructionsDetail: View {
         instructionFiles.filter { $0.role == role }
     }
 
-    private func instructionSection(title: String, description: String, files: [PiInstructionFile]) -> some View {
+    private func instructionSection(role: PiInstructionFile.Role, title: String, description: String, files: [PiInstructionFile]) -> some View {
         AppCard(title: title) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
+            PiInstructionSectionInfoButton(text: description)
+        } content: {
+            VStack(alignment: .leading, spacing: 14) {
+                PiInstructionResolutionHeader(role: role, files: files)
 
                 ForEach(files) { file in
                     PiInstructionFileEditor(
@@ -761,18 +763,21 @@ private struct PiSystemInstructionsProjectDetail: View {
                         }
 
                         instructionSection(
+                            role: .base,
                             title: "Base system prompt",
                             description: "Pi uses the first existing source in this group: project `.pi/SYSTEM.md`, then global `~/.pi/agent/SYSTEM.md`, then the built-in Pi prompt.",
                             files: files(for: .base)
                         )
 
                         instructionSection(
+                            role: .append,
                             title: "Append system prompt",
                             description: "Pi appends one file from this group: project `.pi/APPEND_SYSTEM.md` if it exists, otherwise global `~/.pi/agent/APPEND_SYSTEM.md`. When Agent Deck adds parent append content, this active file is preserved first.",
                             files: files(for: .append)
                         )
 
                         instructionSection(
+                            role: .context,
                             title: "Context files",
                             description: "Pi appends the global context file, then one `AGENTS.md`/`CLAUDE.md` file per ancestor/current directory. Within a directory, `AGENTS.md` wins over `CLAUDE.md`.",
                             files: files(for: .context)
@@ -859,13 +864,12 @@ private struct PiSystemInstructionsProjectDetail: View {
         instructionFiles.filter { $0.role == role }
     }
 
-    private func instructionSection(title: String, description: String, files: [PiInstructionFile]) -> some View {
+    private func instructionSection(role: PiInstructionFile.Role, title: String, description: String, files: [PiInstructionFile]) -> some View {
         AppCard(title: title) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .fixedSize(horizontal: false, vertical: true)
+            PiInstructionSectionInfoButton(text: description)
+        } content: {
+            VStack(alignment: .leading, spacing: 14) {
+                PiInstructionResolutionHeader(role: role, files: files)
 
                 ForEach(files) { file in
                     PiInstructionFileEditor(
@@ -942,6 +946,110 @@ private struct PiSystemInstructionsProjectDetail: View {
     }
 }
 
+private struct PiInstructionSectionInfoButton: View {
+    let text: String
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.body)
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .help("Show how this section is resolved")
+        .popover(isPresented: $isPresented, arrowEdge: .top) {
+            Text(.init(text))
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(14)
+                .frame(width: 360, alignment: .leading)
+        }
+    }
+}
+
+private struct PiInstructionResolutionHeader: View {
+    let role: PiInstructionFile.Role
+    let files: [PiInstructionFile]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                Text("Active:")
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(activeLabel)
+                    .foregroundStyle(.primary)
+            }
+            .font(.caption.weight(.semibold))
+
+            if let chain = chainPills {
+                HStack(spacing: 4) {
+                    ForEach(chain.indices, id: \.self) { idx in
+                        if idx > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(AppTheme.mutedText)
+                        }
+                        chainPill(chain[idx])
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var activeLabel: String {
+        let actives = files.filter { $0.status == .active }
+        if actives.count == 1 { return actives[0].title }
+        if actives.count > 1 { return "\(actives.count) files" }
+        switch role {
+        case .base: return "built-in default"
+        case .append: return "nothing appended"
+        case .context: return "no context file"
+        }
+    }
+
+    private struct ChainStep { let label: String; let isActive: Bool }
+
+    private var chainPills: [ChainStep]? {
+        guard role == .base || role == .append else { return nil }
+        var steps: [ChainStep] = []
+        if let project = files.first(where: { $0.title.hasPrefix("Project") }) {
+            steps.append(ChainStep(label: "Project", isActive: project.status == .active))
+        }
+        if let global = files.first(where: { $0.title.hasPrefix("Global") }) {
+            steps.append(ChainStep(label: "Global", isActive: global.status == .active))
+        }
+        let anyActive = steps.contains { $0.isActive }
+        let fallback = role == .base ? "Built-in" : "None"
+        steps.append(ChainStep(label: fallback, isActive: !anyActive))
+        return steps
+    }
+
+    @ViewBuilder
+    private func chainPill(_ step: ChainStep) -> some View {
+        Text(step.label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(step.isActive ? AppTheme.brandAccent.opacity(0.18) : Color.clear)
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(step.isActive ? AppTheme.brandAccent.opacity(0.65) : AppTheme.contentStroke, lineWidth: 1)
+            )
+            .foregroundStyle(step.isActive ? AppTheme.brandAccent : AppTheme.mutedText)
+    }
+}
+
 private struct PiInstructionFileEditor: View {
     let file: PiInstructionFile
     @Binding var text: String
@@ -953,28 +1061,13 @@ private struct PiInstructionFileEditor: View {
     @State private var sheetDraft = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            headerRow
-
-            if showsPreview {
-                ScrollView {
-                    Text(previewText)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                }
-                .frame(minHeight: 96, maxHeight: 150)
-                .appControlSurface(cornerRadius: 10)
+        Group {
+            if isCompact {
+                compactRow
             } else {
-                Text("No file yet. Create it only if this scope needs a custom prompt part.")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
+                fullCard
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appPanelSurface(cornerRadius: 12)
         .sheet(isPresented: $isEditorPresented) {
             PiInstructionFileEditorSheet(
                 file: file,
@@ -991,6 +1084,69 @@ private struct PiInstructionFileEditor: View {
         }
     }
 
+    private var isCompact: Bool {
+        !file.exists && !isDirty && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var fullCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            headerRow
+
+            ScrollView {
+                Text(previewText)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .frame(minHeight: 96, maxHeight: 150)
+            .appControlSurface(cornerRadius: 10)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appPanelSurface(cornerRadius: 12)
+    }
+
+    private var compactRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "plus.circle")
+                .font(.body)
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 22, height: 22)
+
+            Text(file.title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Text(file.displayPath)
+                .font(.caption.monospaced())
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer(minLength: 8)
+
+            Button("Create") {
+                sheetDraft = text
+                isEditorPresented = true
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Create this prompt file")
+
+            Button { revealInFinder() } label: {
+                Image(systemName: "folder")
+                    .font(.body)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Reveal parent folder in Finder")
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var headerRow: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: iconName)
@@ -1003,9 +1159,11 @@ private struct PiInstructionFileEditor: View {
                     Text(file.title)
                         .font(.subheadline.weight(.semibold))
                         .fontWidth(.expanded)
-                    Text(file.status.label)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(file.status.color)
+                    if let label = file.status.label {
+                        Text(label)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(file.status.color)
+                    }
                     if isDirty {
                         Text("Unsaved")
                             .font(.caption2.weight(.semibold))
@@ -1046,10 +1204,6 @@ private struct PiInstructionFileEditor: View {
             .controlSize(.small)
             .help(file.exists ? "Reveal in Finder" : "Reveal parent folder in Finder")
         }
-    }
-
-    private var showsPreview: Bool {
-        file.exists || isDirty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var previewText: String {
@@ -1484,11 +1638,11 @@ private struct PiInstructionFile: Identifiable, Hashable {
         case shadowed
         case available
 
-        var label: String {
+        var label: String? {
             switch self {
             case .active: "Active"
-            case .shadowed: "Shadowed"
-            case .available: "Available"
+            case .shadowed: "Overridden"
+            case .available: nil
             }
         }
 

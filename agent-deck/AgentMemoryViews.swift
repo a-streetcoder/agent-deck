@@ -164,6 +164,7 @@ struct MemoryScreen: View {
                 selectedStatus = nil
                 selectedKind = nil
             }
+            .appSecondaryButton()
             .disabled(searchText.isEmpty && selectedStatus == nil && selectedKind == nil)
         }
     }

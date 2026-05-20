@@ -992,6 +992,47 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// Applies the author and label filters on top of the board snapshot. State is
+    /// already applied server-side via `githubIssueStateFilter`.
+    func filteredBoardItems(from board: GitHubBoardSnapshot?) -> [GitHubWorkItem] {
+        guard let board else { return [] }
+        let author = githubAuthorFilter
+        let labels = githubLabelFilters
+        return board.allItems.filter { item in
+            if let author, item.author != author { return false }
+            if !labels.isEmpty, labels.isDisjoint(with: Set(item.labels)) { return false }
+            return true
+        }
+    }
+
+    var githubVisibleBoardItems: [GitHubWorkItem] {
+        filteredBoardItems(from: githubProjectBoard)
+    }
+
+    var githubAvailableAuthors: [String] {
+        guard let board = githubProjectBoard else { return [] }
+        var seen: Set<String> = []
+        var ordered: [String] = []
+        for item in board.allItems {
+            guard let author = item.author, !seen.contains(author) else { continue }
+            seen.insert(author)
+            ordered.append(author)
+        }
+        return ordered.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var githubAvailableLabels: [String] {
+        guard let board = githubProjectBoard else { return [] }
+        var seen: Set<String> = []
+        for item in board.allItems { seen.formUnion(item.labels) }
+        return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func resetIssueFilters() {
+        githubAuthorFilter = nil
+        githubLabelFilters = []
+    }
+
     func refreshRepositoryChanges(preservingDiffSelection: Bool = false, force: Bool = true) {
         guard let project = selectedDiscoveredProject, project.isGitRepository else {
             githubRepositoryChangesRequestID += 1
@@ -3002,9 +3043,17 @@ final class AppViewModel: NSObject, ObservableObject {
                 try await service.closeIssue(item)
                 await MainActor.run {
                     self.githubIsClosingIssue = false
+                    let closed = item.with(state: "closed", closedAt: Date())
+                    if let board = self.githubProjectBoard {
+                        self.githubProjectBoard = board.replacing(closed)
+                    }
+                    self.githubSelectedWorkItem = closed
+                    if let detail = self.githubIssueDetail, detail.item.id == closed.id {
+                        self.githubIssueDetail = detail.with(state: "closed", closedAt: closed.closedAt)
+                    }
+                    // Mark the board cache stale so the next user-initiated refresh
+                    // re-syncs with the server.
                     self.githubProjectBoardFetchedAt = nil
-                    self.refreshProjectBoard(force: true)
-                    self.loadIssueDetail(for: item)
                 }
             } catch {
                 await MainActor.run {

@@ -87,27 +87,61 @@ extension View {
         glassEffect(.regular, in: Capsule(style: .continuous))
     }
 
-    /// Tinted variant for primary actions (the `+` add-session button, etc.).
-    /// Includes `.interactive()` for the press-state material feedback Apple's
-    /// HIG calls out for prominent controls.
-    func appGlassCapsule(tint: Color) -> some View {
-        glassEffect(.regular.tint(tint).interactive(), in: Capsule(style: .continuous))
-    }
-
     /// Glass circle for icon-only chrome buttons (compact, attach, etc.).
     func appGlassCircle() -> some View {
         glassEffect(.regular, in: Circle())
-    }
-
-    /// Tinted glass circle for primary icon-only actions (send button, etc.).
-    func appGlassCircle(tint: Color) -> some View {
-        glassEffect(.regular.tint(tint).interactive(), in: Circle())
     }
 
     /// Glass rounded rectangle for larger chrome surfaces — popovers, dropdowns,
     /// floating panels. Use for non-capsule, non-circle navigation-layer surfaces.
     func appGlassPanel(cornerRadius: CGFloat = 12) -> some View {
         glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    // MARK: - Button style modifiers
+    //
+    // Every Button in the app should use one of these helpers. They bundle the
+    // Apple Liquid Glass button style + border shape + (optional) tint into a
+    // named semantic role so the design stays consistent and we can re-skin
+    // the system from one place. Guidance: agent-guidelines/LIQUID-GLASS.md.
+
+    /// Primary action — opaque tinted glass capsule. Use for the call-to-action
+    /// in dialogs, sheets, settings rows (Save, Done, Install, Submit,
+    /// Configure, Continue, etc.).
+    func appPrimaryButton(tint: Color = AppTheme.brandAccent) -> some View {
+        buttonStyle(.glassProminent)
+            .buttonBorderShape(.capsule)
+            .tint(tint)
+    }
+
+    /// Secondary action — translucent glass capsule. Use for Cancel, Refresh,
+    /// Reset, Choose Folder, inline utility buttons.
+    func appSecondaryButton() -> some View {
+        buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+    }
+
+    /// Destructive action — opaque red-tinted glass capsule. Use for Delete,
+    /// Remove, Move to Trash, Disconnect, Sign Out.
+    func appDestructiveButton() -> some View {
+        buttonStyle(.glassProminent)
+            .buttonBorderShape(.capsule)
+            .tint(Color.red)
+    }
+
+    /// Primary icon-only action — opaque tinted glass circle. Use for the send
+    /// arrow, add-session `+`, and similar floating call-to-action icons.
+    func appPrimaryCircleButton(tint: Color = AppTheme.brandAccent) -> some View {
+        buttonStyle(.glassProminent)
+            .buttonBorderShape(.circle)
+            .tint(tint)
+    }
+
+    /// Secondary icon-only action — translucent glass circle. Use for inline
+    /// icon utility buttons (refresh, x close, paperclip attach, compact).
+    func appSecondaryCircleButton() -> some View {
+        buttonStyle(.glass)
+            .buttonBorderShape(.circle)
     }
 }
 
@@ -248,7 +282,7 @@ struct AppPillButtonStyle: ButtonStyle {
 struct AppCopyIconButton: View {
     var text: String
     var help: String = "Copy"
-    var size = CGSize(width: 28, height: 22)
+    var size = CGSize(width: 28, height: 28)
     @State private var copied = false
 
     var body: some View {
@@ -257,25 +291,27 @@ struct AppCopyIconButton: View {
             NSPasteboard.general.setString(text, forType: .string)
             showCopiedFeedback()
         } label: {
-            // The label is a Rectangle-shape ZStack so the Button's hit area
-            // covers the entire frame, not just the SF Symbol's intrinsic
-            // glyph bounds. Inside the ZStack the Image is overlaid centered.
             ZStack {
                 Color.clear
+                    .contentShape(Capsule(style: .continuous))
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(copied ? Color.green : Color.primary)
+                    .foregroundStyle(.primary)
                     .contentTransition(.symbolEffect(.replace))
                     .accessibilityLabel(copied ? "Copied" : "Copy")
             }
             .frame(width: size.width, height: size.height)
-            .contentShape(Rectangle())
+            .glassEffect(.regular, in: Capsule(style: .continuous))
+            .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        // Glass chrome lives OUTSIDE the Button so it doesn't interfere with
-        // hit-testing. `.interactive()` gives us press-state material feedback
-        // on the full button area.
-        .glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
         .help(copied ? "Copied" : help)
     }
 

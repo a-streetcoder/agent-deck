@@ -197,6 +197,9 @@ struct AgentDeckCommands: Commands {
                     .applicationVersion: AppBrand.marketingVersionWithStatus
                 ])
             }
+            Button("Check for Updates…") {
+                AgentDeckAppDelegate.shared?.updater.checkForUpdates()
+            }
         }
 
         CommandGroup(replacing: .appSettings) {

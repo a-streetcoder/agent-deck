@@ -1041,13 +1041,12 @@ struct PiAgentSendButton: View {
         Button(action: isRunning ? stopAction : sendAction) {
             Image(systemName: isRunning ? "stop.fill" : "arrow.up")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(foregroundStyle)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 34, height: 34)
-                .appGlassCircle(tint: tintColor)
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
+        .tint(tintColor)
         .disabled(!isRunning && !canSend)
         .help(isRunning ? "Stop Pi Agent" : "Send message")
         .accessibilityLabel(isRunning ? "Stop Pi Agent" : "Send message")
@@ -1058,12 +1057,6 @@ struct PiAgentSendButton: View {
                 .hidden()
         }
         .animation(.snappy(duration: 0.22), value: isRunning)
-    }
-
-    private var foregroundStyle: AnyShapeStyle {
-        if isRunning { return AnyShapeStyle(Color.white.gradient) }
-        if canSend { return AnyShapeStyle(AppTheme.accentForeground.gradient) }
-        return AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
     }
 
     private var tintColor: Color {

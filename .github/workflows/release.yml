@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write   # gh release create + push the appcast commit
+
+jobs:
+  release:
+    name: Build, sign, notarize, publish
+    runs-on: macos-26
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Derive version
+        id: ver
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history so the appcast commit lands cleanly
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          for app in \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.5_beta_2.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app \
+            /Applications/Xcode_26.4_Release_Candidate.app; do
+            if [ -d "$app" ]; then
+              echo "DEVELOPER_DIR=$app/Contents/Developer" >> "$GITHUB_ENV"
+              echo "Selected $app"
+              exit 0
+            fi
+          done
+          echo "No Xcode 26.4+ install found" >&2
+          ls -1 /Applications | grep '^Xcode' || true
+          exit 1
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Install Sparkle tools
+        run: |
+          brew install --cask sparkle
+          # Symlink the binaries we need onto PATH from the versioned cask dir.
+          for bin in sign_update generate_appcast; do
+            ln -sf /opt/homebrew/Caskroom/sparkle/*/bin/$bin /usr/local/bin/$bin
+          done
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          echo "$MACOS_CERTIFICATE" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | xargs)
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+      - name: Set marketing version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          xcrun agvtool new-marketing-version "$VERSION"
+          xcrun agvtool new-version -all "${GITHUB_RUN_NUMBER:-1}"
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project agent-deck.xcodeproj \
+            -scheme agent-deck
+
+      - name: Archive
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          set -o pipefail
+          mkdir -p build/release
+          xcodebuild archive \
+            -project agent-deck.xcodeproj \
+            -scheme agent-deck \
+            -configuration Release \
+            -archivePath build/release/agent-deck.xcarchive \
+            CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=D37Z4S3883 \
+            ENABLE_HARDENED_RUNTIME=YES \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" 2>&1 | tee build/release/archive.log
+
+      - name: Export .app
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          cat > build/release/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>developer-id</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>D37Z4S3883</string>
+            <key>stripSwiftSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/release/agent-deck.xcarchive \
+            -exportPath build/release/export \
+            -exportOptionsPlist build/release/ExportOptions.plist
+
+      - name: Build branded DMG
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          DMG="build/release/Agent-Deck-${VERSION}.dmg"
+          create-dmg \
+            --volname "Agent Deck" \
+            --background "scripts/dmg/background.png" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 96 \
+            --icon "Agent Deck.app" 180 160 \
+            --hide-extension "Agent Deck.app" \
+            --app-drop-link 620 160 \
+            --no-internet-enable \
+            "$DMG" \
+            "build/release/export/Agent Deck.app"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+
+      - name: Sign DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+
+      - name: Notarize and staple
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo "$NOTARY_KEY" | base64 -d > "$RUNNER_TEMP/AuthKey.p8"
+          xcrun notarytool submit "$DMG" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature -v "$DMG"
+
+      - name: Sign update with Sparkle EdDSA key
+        id: edsig
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # sign_update accepts the raw base64 private key via --ed-key-file.
+          # Use process substitution so the key never lands on disk.
+          SIG_LINE=$(sign_update --ed-key-file <(printf '%s' "$SPARKLE_PRIVATE_KEY") "$DMG")
+          # SIG_LINE looks like:  sparkle:edSignature="..." length="..."
+          echo "fragment=$SIG_LINE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # First tag in repo may have no prior tag — fall back to plain notes.
+          if gh release create "$TAG" \
+              --title "Agent Deck $VERSION" \
+              --generate-notes \
+              "$DMG"; then
+            echo "Release created with generated notes"
+          else
+            gh release create "$TAG" \
+              --title "Agent Deck $VERSION" \
+              --notes "Release $VERSION" \
+              "$DMG"
+          fi
+
+      - name: Update appcast.xml
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          ED_FRAGMENT: ${{ steps.edsig.outputs.fragment }}
+        run: |
+          set -euo pipefail
+          PUBDATE=$(LC_ALL=en_US.UTF-8 date -u "+%a, %d %b %Y %H:%M:%S +0000")
+          NOTES=$(gh release view "$TAG" --json body --jq '.body' | sed 's/]]>/]]]]><![CDATA[>/g')
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Agent-Deck-${VERSION}.dmg"
+          MIN_OS=$(awk -F'= ' '/MACOSX_DEPLOYMENT_TARGET/ {gsub(/[";]/,"",$2); print $2; exit}' agent-deck.xcodeproj/project.pbxproj)
+          MIN_OS=${MIN_OS:-14.0}
+
+          ITEM=$(cat <<EOF
+              <item>
+                <title>${VERSION}</title>
+                <pubDate>${PUBDATE}</pubDate>
+                <sparkle:version>${GITHUB_RUN_NUMBER}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>${MIN_OS}</sparkle:minimumSystemVersion>
+                <enclosure url="${URL}" type="application/octet-stream" ${ED_FRAGMENT}/>
+                <description><![CDATA[
+          ${NOTES}
+                ]]></description>
+              </item>
+          EOF
+          )
+
+          python3 - <<PY
+          import re, pathlib, os
+          item = """${ITEM}"""
+          path = pathlib.Path("docs/appcast.xml")
+          xml = path.read_text()
+          # Insert the new <item> right after the <language> closing tag so newest
+          # items appear first in the feed.
+          new_xml, n = re.subn(
+              r"(</language>\s*)",
+              r"\1\n" + item + "\n",
+              xml,
+              count=1
+          )
+          if n == 0:
+              raise SystemExit("Could not find <language>...</language> in appcast.xml")
+          path.write_text(new_xml)
+          PY
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/appcast.xml
+          git commit -m "appcast: ${VERSION}"
+          git push origin HEAD:main

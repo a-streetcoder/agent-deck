@@ -279,8 +279,11 @@ private struct GeneralSettingsTab: View {
 
                 SettingsButtonRow {
                     Button("Choose Folder...") { viewModel.chooseProjectsRootDirectory() }
+                        .appSecondaryButton()
                     Button("Use Suggested") { viewModel.resetProjectsRootPathToDefault() }
+                        .appSecondaryButton()
                     Button("Reveal in Finder") { revealInFinder(viewModel.configuredProjectsRootPath) }
+                        .appSecondaryButton()
                 }
             }
 
@@ -294,12 +297,15 @@ private struct GeneralSettingsTab: View {
 
                 SettingsButtonRow {
                     Button("Choose Folder...") { viewModel.chooseDefaultSkillsImportDirectory() }
+                        .appSecondaryButton()
                     Button("Clear") { viewModel.resetDefaultSkillsImportRootPath() }
+                        .appSecondaryButton()
                     Button("Reveal in Finder") {
                         if let path = viewModel.appSettings.defaultSkillsImportRootPath, !path.isEmpty {
                             revealInFinder(path)
                         }
                     }
+                    .appSecondaryButton()
                     .disabled((viewModel.appSettings.defaultSkillsImportRootPath ?? "").isEmpty)
                 }
             }
@@ -374,7 +380,9 @@ private struct AgentSettingsTab: View {
 
                 SettingsValueButtonRow(title: "Application:", value: selectedTerminalPathText) {
                     Button("Choose Other...") { viewModel.choosePiAgentTerminalApplication() }
+                        .appSecondaryButton()
                     Button("Use macOS Default") { viewModel.resetPiAgentTerminalApplicationToDefault() }
+                        .appSecondaryButton()
                 }
             }
         }
@@ -477,6 +485,7 @@ private struct AutomationsSettingsTab: View {
                         Button("Refresh Models") {
                             viewModel.refreshModels()
                         }
+                        .appSecondaryButton()
                     }
                     .font(.footnote)
                     .padding(.leading, SettingsLayout.labelWidth + 16)

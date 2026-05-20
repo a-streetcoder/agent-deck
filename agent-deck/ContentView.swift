@@ -85,6 +85,7 @@ struct ContentView: View {
     @State private var navigationColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var agentModelQuickEditor: AgentModelQuickEditorContext?
     @State private var commandContext = AgentDeckCommandContext()
+    @State private var isIssuesFilterPopoverPresented = false
     #if DEBUG
     /// Flip to `true` when testing onboarding.
     private static let forceOnboardingOnLaunch = false
@@ -142,25 +143,7 @@ struct ContentView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 18)
 
-                List(selection: $viewModel.selectedSidebarItem) {
-                    ForEach(SidebarSection.allCases) { section in
-                        Section(section.rawValue) {
-                            ForEach(section.items) { item in
-                                SidebarNavigationRow(
-                                    item: item,
-                                    showsWarning: warnings[item] ?? false
-                                )
-                                .tag(item)
-                                .disabled(item == .instructions && viewModel.selectedProjectPath == nil)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .scrollIndicators(.hidden)
-                .tint(AppTheme.brandAccent)
-                .sidebarBottomFade(height: 34)
+                sidebarSectionsList(warnings: warnings)
 
                 PiAgentSidebarButton(
                     isSelected: viewModel.selectedSidebarItem == .agent,
@@ -228,260 +211,7 @@ struct ContentView: View {
         } message: {
             Text("This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName).")
         }
-        .toolbar {
-            if viewModel.selectedSidebarItem == .agent {
-                ToolbarItem(placement: .navigation) {
-                    Button(role: .destructive) {
-                        showingPiAgentDeleteAlert = true
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Delete the current Pi Agent session")
-                    .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-                }
-            }
-
-            if viewModel.selectedSidebarItem == .agents {
-                ToolbarItem(placement: .navigation) {
-                    Menu {
-                        ForEach(AgentFilter.allCases) { filter in
-                            Button {
-                                viewModel.selectedAgentFilter = filter
-                            } label: {
-                                if viewModel.selectedAgentFilter == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(filter.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Filter agents")
-                }
-            }
-
-            ToolbarSpacer(.flexible)
-
-            if viewModel.selectedSidebarItem == .projects {
-                ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        Button {
-                            viewModel.refresh(includeModels: false, scanAllProjects: true)
-                        } label: {
-                            Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
-                        }
-                        .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
-                        .toolbarNeutralChrome()
-                        .help("Refresh project discovery")
-                        .disabled(viewModel.isRefreshingProjects)
-
-                        Button {
-                            viewModel.chooseProjectRoot()
-                        } label: {
-                            Label("Add Project", systemImage: "plus")
-                        }
-                        .toolbarPrimaryActionChrome()
-                        .help("Add project manually")
-                    }
-                }
-            }
-
-            if viewModel.selectedSidebarItem == .agents {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        agentModelQuickEditor = currentAgentModelQuickEditorContext
-                    } label: {
-                        Image(systemName: "cpu")
-                    }
-                    .toolbarNeutralChrome()
-                    .help("Quick edit agent models and thinking")
-                    .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button("New Library Agent") {
-                            editingAgent = nil
-                            agentDraft = viewModel.makeNewAgentDraft(scope: .library)
-                        }
-                        if viewModel.selectedProjectPath != nil {
-                            Button("New Project Agent") {
-                                editingAgent = nil
-                                agentDraft = viewModel.makeNewAgentDraft(scope: .project)
-                            }
-                        }
-                    } label: {
-                        Label("New", systemImage: "plus")
-                    }
-                    .menuIndicator(.hidden)
-                    .toolbarPrimaryActionChrome()
-                    .help("Create a library agent, then choose global or project visibility")
-                }
-
-                if let agent = viewModel.selectedAgent {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                    ToolbarItem(placement: .primaryAction) {
-                        ControlGroup {
-                            Button {
-                                editingAgent = nil
-                                agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
-                            } label: {
-                                Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
-                            }
-                            .help("Create a global replacement for this builtin agent")
-                            .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
-                        }
-                        .toolbarNeutralChrome()
-                    }
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isSubagentsInfoPresented.toggle()
-                    } label: {
-                        Label("Info", systemImage: "info.circle")
-                    }
-                    .help("Explain subagent library visibility")
-                    .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
-                        SubagentsInfoPopover()
-                    }
-                    .toolbarNeutralChrome()
-                }
-            }
-
-            if viewModel.selectedSidebarItem == .environment {
-                ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        if viewModel.selectedProjectPath == nil {
-                            Button {
-                                envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                            } label: {
-                                Label("New Key", systemImage: "plus")
-                            }
-                            .toolbarPrimaryActionChrome()
-                            .help("Create a global environment key")
-                        } else {
-                            Menu {
-                                Button("Project .pi/.env") {
-                                    envDraft = viewModel.makeNewEnvDraft(scope: .project)
-                                }
-                                Button("Global ~/.pi/agent/.env") {
-                                    envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                                }
-                            } label: {
-                                Label("New Key", systemImage: "plus")
-                            }
-                            .menuIndicator(.hidden)
-                            .toolbarPrimaryActionChrome()
-                            .help("Choose where to store the new environment key")
-                        }
-                    }
-                }
-            }
-
-            if viewModel.selectedSidebarItem == .prompts {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        do { try viewModel.createLibraryPromptTemplate() }
-                        catch { NSSound.beep() }
-                    } label: {
-                        Label("New", systemImage: "plus")
-                    }
-                    .toolbarPrimaryActionChrome()
-                    .help("Create a new library prompt template")
-                }
-
-                if let prompt = viewModel.selectedPromptTemplate {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                    ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            Button("Open Raw File") { openPromptFile(prompt.filePath) }
-                            Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
-                            AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
-                            AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
-                        } label: {
-                            Label("More", systemImage: "ellipsis.circle")
-                        }
-                        .toolbarNeutralChrome()
-                        .help("More actions for the selected prompt")
-                    }
-                }
-            }
-
-            if viewModel.selectedSidebarItem == .skills {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isSkillsInfoPresented.toggle()
-                    } label: {
-                        Label("Info", systemImage: "info.circle")
-                    }
-                    .help("Explain Pi skill visibility")
-                    .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
-                        SkillsInfoPopover()
-                    }
-                    .toolbarNeutralChrome()
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
-                    } label: {
-                        Label("Import Skills", systemImage: "plus")
-                    }
-                    .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
-                    .toolbarPrimaryActionChrome()
-                }
-            }
-
-            if viewModel.selectedSidebarItem == .agent {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isPiAgentTranscriptOptionsPresented.toggle()
-                    } label: {
-                        Label("Transcript Display", systemImage: "eye")
-                    }
-                    .help("Choose what appears in the agent transcript")
-                    .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-                        PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
-                    }
-                    .toolbarNeutralChrome()
-                }
-
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-
-                if viewModel.shouldShowPiAgentGitActions {
-                    ToolbarItem(placement: .primaryAction) {
-                        ControlGroup {
-                            PiAgentCommitToolbarButton(viewModel: viewModel)
-                            PiAgentPushToolbarButton(viewModel: viewModel)
-                        } label: {
-                            Label("Git Actions", systemImage: "checkmark")
-                        }
-                        .toolbarNeutralChrome()
-                    }
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    ControlGroup {
-                        PiAgentOpenTerminalToolbarButton(
-                            viewModel: viewModel,
-                            store: viewModel.piAgentSessionStore
-                        )
-                    } label: {
-                        Label("Terminal", systemImage: "terminal")
-                    }
-                    .toolbarNeutralChrome()
-                }
-            }
-        }
+        .toolbar { mainToolbarContent }
         .task(id: projectFilterText) {
             let trimmed = projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
             try? await Task.sleep(for: .milliseconds(120))
@@ -727,6 +457,400 @@ struct ContentView: View {
         ctx.toggleSelectedAgentDisabled = {
             setSelectedAgentDisabled(!(selectedAgent?.resolved.disabled == true))
         }
+    }
+
+    private var issuesFiltersAreActive: Bool {
+        viewModel.githubAuthorFilter != nil || !viewModel.githubLabelFilters.isEmpty
+    }
+
+    private func openSelectedRepositoryOnGitHub() {
+        guard let remote = viewModel.selectedGitHubProject?.gitHubRemote,
+              let url = URL(string: "https://\(remote.host)/\(remote.nameWithOwner)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Extracted from `mainContent` so the type-checker doesn't choke on the
+    /// nested-ForEach inside a List inside a NavigationSplitView column. The
+    /// inlined version was tipping the compiler over "type-check in reasonable
+    /// time" after recent additions to the surrounding toolbar/body.
+    @ViewBuilder
+    private func sidebarSectionsList(warnings: [SidebarItem: Bool]) -> some View {
+        List(selection: $viewModel.selectedSidebarItem) {
+            ForEach(SidebarSection.allCases) { section in
+                Section(section.rawValue) {
+                    ForEach(section.items) { item in
+                        SidebarNavigationRow(
+                            item: item,
+                            showsWarning: warnings[item] ?? false
+                        )
+                        .tag(item)
+                        .disabled(item == .instructions && viewModel.selectedProjectPath == nil)
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
+        .tint(AppTheme.brandAccent)
+        .sidebarBottomFade(height: 34)
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbarContent: some ToolbarContent {
+        navigationToolbarItems
+        ToolbarSpacer(.flexible)
+        primaryActionToolbarItems
+    }
+
+    @ToolbarContentBuilder
+    private var navigationToolbarItems: some ToolbarContent {
+        if viewModel.selectedSidebarItem == .agent {
+            ToolbarItem(placement: .navigation) {
+                Button(role: .destructive) {
+                    showingPiAgentDeleteAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .toolbarNeutralChrome()
+                .help("Delete the current Pi Agent session")
+                .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+            }
+        }
+
+        if viewModel.selectedSidebarItem == .agents {
+            ToolbarItem(placement: .navigation) { agentFilterMenu }
+        }
+
+    }
+
+    private var agentFilterMenu: some View {
+        Menu {
+            ForEach(AgentFilter.allCases) { filter in
+                Button {
+                    viewModel.selectedAgentFilter = filter
+                } label: {
+                    if viewModel.selectedAgentFilter == filter {
+                        Label(filter.rawValue, systemImage: "checkmark")
+                    } else {
+                        Text(filter.rawValue)
+                    }
+                }
+            }
+        } label: {
+            Label(viewModel.selectedAgentFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .toolbarNeutralChrome()
+        .help("Filter agents")
+    }
+
+    @ToolbarContentBuilder
+    private var primaryActionToolbarItems: some ToolbarContent {
+        if viewModel.selectedSidebarItem == .projects {
+            projectsPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .issues {
+            issuesPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .agents {
+            agentsPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .environment {
+            environmentPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .prompts {
+            promptsPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .skills {
+            skillsPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .agent {
+            piAgentPrimaryToolbarContent
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var projectsPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                Button {
+                    viewModel.refresh(includeModels: false, scanAllProjects: true)
+                } label: {
+                    Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                }
+                .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
+                .toolbarNeutralChrome()
+                .help("Refresh project discovery")
+                .disabled(viewModel.isRefreshingProjects)
+
+                Button {
+                    viewModel.chooseProjectRoot()
+                } label: {
+                    Label("Add Project", systemImage: "plus")
+                }
+                .toolbarPrimaryActionChrome()
+                .help("Add project manually")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var agentsPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                agentModelQuickEditor = currentAgentModelQuickEditorContext
+            } label: {
+                Image(systemName: "cpu")
+            }
+            .toolbarNeutralChrome()
+            .help("Quick edit agent models and thinking")
+            .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) { newAgentMenu }
+
+        if let agent = viewModel.selectedAgent {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) { replacementAgentButton(for: agent) }
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(placement: .primaryAction) { subagentsInfoButton }
+    }
+
+    private var newAgentMenu: some View {
+        Menu {
+            Button("New Library Agent") {
+                editingAgent = nil
+                agentDraft = viewModel.makeNewAgentDraft(scope: .library)
+            }
+            if viewModel.selectedProjectPath != nil {
+                Button("New Project Agent") {
+                    editingAgent = nil
+                    agentDraft = viewModel.makeNewAgentDraft(scope: .project)
+                }
+            }
+        } label: {
+            Label("New", systemImage: "plus")
+        }
+        .menuIndicator(.hidden)
+        .toolbarPrimaryActionChrome()
+        .help("Create a library agent, then choose global or project visibility")
+    }
+
+    private func replacementAgentButton(for agent: EffectiveAgentRecord) -> some View {
+        ControlGroup {
+            Button {
+                editingAgent = nil
+                agentDraft = viewModel.makeReplacementAgentDraft(from: agent, scope: .global)
+            } label: {
+                Label("Replacement", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .help("Create a global replacement for this builtin agent")
+            .disabled(!(agent.builtin != nil && agent.globalCustom == nil))
+        }
+        .toolbarNeutralChrome()
+    }
+
+    private var subagentsInfoButton: some View {
+        Button {
+            isSubagentsInfoPresented.toggle()
+        } label: {
+            Label("Info", systemImage: "info.circle")
+        }
+        .help("Explain subagent library visibility")
+        .popover(isPresented: $isSubagentsInfoPresented, arrowEdge: .bottom) {
+            SubagentsInfoPopover()
+        }
+        .toolbarNeutralChrome()
+    }
+
+    @ToolbarContentBuilder
+    private var environmentPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                if viewModel.selectedProjectPath == nil {
+                    Button {
+                        envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                    } label: {
+                        Label("New Key", systemImage: "plus")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help("Create a global environment key")
+                } else {
+                    newEnvKeyScopedMenu
+                }
+            }
+        }
+    }
+
+    private var newEnvKeyScopedMenu: some View {
+        Menu {
+            Button("Project .pi/.env") {
+                envDraft = viewModel.makeNewEnvDraft(scope: .project)
+            }
+            Button("Global ~/.pi/agent/.env") {
+                envDraft = viewModel.makeNewEnvDraft(scope: .global)
+            }
+        } label: {
+            Label("New Key", systemImage: "plus")
+        }
+        .menuIndicator(.hidden)
+        .toolbarPrimaryActionChrome()
+        .help("Choose where to store the new environment key")
+    }
+
+    @ToolbarContentBuilder
+    private var promptsPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                do { try viewModel.createLibraryPromptTemplate() }
+                catch { NSSound.beep() }
+            } label: {
+                Label("New", systemImage: "plus")
+            }
+            .toolbarPrimaryActionChrome()
+            .help("Create a new library prompt template")
+        }
+
+        if let prompt = viewModel.selectedPromptTemplate {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) { promptMoreMenu(prompt: prompt) }
+        }
+    }
+
+    private func promptMoreMenu(prompt: PromptTemplateRecord) -> some View {
+        Menu {
+            Button("Open Raw File") { openPromptFile(prompt.filePath) }
+            Button("Reveal in Finder") { revealPromptFile(prompt.filePath) }
+            AppCopyTextButton(title: "Copy Invocation", text: prompt.invocation)
+            AppCopyTextButton(title: "Copy Prompt Path", text: prompt.filePath)
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
+        }
+        .toolbarNeutralChrome()
+        .help("More actions for the selected prompt")
+    }
+
+    @ToolbarContentBuilder
+    private var skillsPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                isSkillsInfoPresented.toggle()
+            } label: {
+                Label("Info", systemImage: "info.circle")
+            }
+            .help("Explain Pi skill visibility")
+            .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
+                SkillsInfoPopover()
+            }
+            .toolbarNeutralChrome()
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+            } label: {
+                Label("Import Skills", systemImage: "plus")
+            }
+            .help("Import skill folders from an external source into the \(AppBrand.displayName) library")
+            .toolbarPrimaryActionChrome()
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var piAgentPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) { piAgentTranscriptDisplayButton }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        if viewModel.shouldShowPiAgentGitActions {
+            ToolbarItem(placement: .primaryAction) {
+                ControlGroup {
+                    PiAgentCommitToolbarButton(viewModel: viewModel)
+                    PiAgentPushToolbarButton(viewModel: viewModel)
+                } label: {
+                    Label("Git Actions", systemImage: "checkmark")
+                }
+                .toolbarNeutralChrome()
+            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                PiAgentOpenTerminalToolbarButton(
+                    viewModel: viewModel,
+                    store: viewModel.piAgentSessionStore
+                )
+            } label: {
+                Label("Terminal", systemImage: "terminal")
+            }
+            .toolbarNeutralChrome()
+        }
+    }
+
+    private var piAgentTranscriptDisplayButton: some View {
+        Button {
+            isPiAgentTranscriptOptionsPresented.toggle()
+        } label: {
+            Label("Transcript Display", systemImage: "eye")
+        }
+        .help("Choose what appears in the agent transcript")
+        .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+            PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
+        }
+        .toolbarNeutralChrome()
+    }
+
+    @ToolbarContentBuilder
+    private var issuesPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) { issuesFilterButton }
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(placement: .primaryAction) { issuesOpenRepoButton }
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(placement: .primaryAction) { issuesRefreshButton }
+    }
+
+    private var issuesFilterButton: some View {
+        Button {
+            isIssuesFilterPopoverPresented.toggle()
+        } label: {
+            Label("Filter", systemImage: issuesFiltersAreActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+        .toolbarNeutralChrome()
+        .help("Filter issues")
+        .disabled(viewModel.selectedGitHubProject?.gitHubRemote == nil)
+        .popover(isPresented: $isIssuesFilterPopoverPresented, arrowEdge: .bottom) {
+            IssuesFiltersPopover(viewModel: viewModel)
+        }
+    }
+
+    private var issuesOpenRepoButton: some View {
+        Button {
+            openSelectedRepositoryOnGitHub()
+        } label: {
+            Label("Open Repository", systemImage: "arrow.up.forward.square")
+        }
+        .toolbarNeutralChrome()
+        .help("Open repository on GitHub")
+        .disabled(viewModel.selectedGitHubProject?.gitHubRemote == nil)
+    }
+
+    private var issuesRefreshButton: some View {
+        Button {
+            viewModel.refreshProjectBoard(force: true)
+        } label: {
+            Label(viewModel.githubIsLoadingProjectBoard ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+        }
+        .symbolEffect(.rotate.byLayer, isActive: viewModel.githubIsLoadingProjectBoard)
+        .toolbarNeutralChrome()
+        .help("Refresh issues")
+        .disabled(!viewModel.githubConnectionState.isConnected || viewModel.githubIsLoadingProjectBoard)
     }
 
     private var currentAgentModelQuickEditorContext: AgentModelQuickEditorContext {

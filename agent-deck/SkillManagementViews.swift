@@ -314,12 +314,13 @@ struct SkillsScreen: View {
                                 do { try viewModel.disableSkillGlobally(skill) }
                                 catch { presentSkillActionError(error, skill: skill, action: "disable global visibility") }
                             }
+                            .appSecondaryButton()
                         } else {
                             Button("Make Default") {
                                 do { try viewModel.enableSkillGlobally(skill) }
                                 catch { presentSkillActionError(error, skill: skill, action: "enable global visibility") }
                             }
-                            .buttonStyle(.glassProminent)
+                            .appPrimaryButton()
                         }
                     }
                 }
@@ -399,13 +400,16 @@ struct SkillsScreen: View {
                     Button("Search Catalog") {
                         searchText = warning.missingSkill
                     }
+                    .appSecondaryButton()
                     Button("Import Skills…") {
                         beginSkillImport()
                     }
+                    .appSecondaryButton()
                     if let agentPath = sourcePath(forAgentNamed: warning.agentName, projectPath: warning.project.path) {
                         Button("Reveal Agent File") {
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: agentPath)])
                         }
+                        .appSecondaryButton()
                     }
                 }
             }

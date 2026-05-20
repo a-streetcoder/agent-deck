@@ -23,9 +23,19 @@ private extension AppAppearanceMode {
 }
 
 final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    static weak var shared: AgentDeckAppDelegate?
+
+    let updater = UpdaterService()
+
+    override init() {
+        super.init()
+        AgentDeckAppDelegate.shared = self
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppFonts.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = self
+        updater.checkForUpdatesInBackground()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -68,6 +78,7 @@ struct agent_deckApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(viewModel)
+                .environmentObject(appDelegate.updater)
                 .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
         }
         .defaultSize(width: 1180, height: 760)
@@ -76,6 +87,7 @@ struct agent_deckApp: App {
         Settings {
             SettingsSceneContent()
                 .environmentObject(viewModel)
+                .environmentObject(appDelegate.updater)
                 .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
         }
         .commands {

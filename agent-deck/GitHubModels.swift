@@ -151,6 +151,30 @@ nonisolated struct GitHubWorkItem: Identifiable, Hashable {
     let closedAt: Date?
     let subIssuesSummary: GitHubSubIssuesSummary?
     let issueDependenciesSummary: GitHubIssueRelationshipSummary?
+
+    func with(state: String, closedAt: Date?) -> GitHubWorkItem {
+        GitHubWorkItem(
+            id: id,
+            number: number,
+            title: title,
+            repository: repository,
+            url: url,
+            isPullRequest: isPullRequest,
+            state: state,
+            stateReason: stateReason,
+            type: type,
+            labels: labels,
+            assignees: assignees,
+            author: author,
+            body: body,
+            commentCount: commentCount,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            closedAt: closedAt,
+            subIssuesSummary: subIssuesSummary,
+            issueDependenciesSummary: issueDependenciesSummary
+        )
+    }
 }
 
 nonisolated struct GitHubBoardColumn: Identifiable, Hashable {
@@ -173,6 +197,24 @@ nonisolated struct GitHubBoardSnapshot: Hashable {
         columns
             .flatMap(\.items)
             .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    func replacing(_ item: GitHubWorkItem) -> GitHubBoardSnapshot {
+        let updatedColumns = columns.map { column in
+            GitHubBoardColumn(
+                title: column.title,
+                items: column.items.map { $0.id == item.id ? item : $0 }
+            )
+        }
+        return GitHubBoardSnapshot(
+            columns: updatedColumns,
+            totalCount: totalCount,
+            shownCount: shownCount,
+            incompleteResults: incompleteResults,
+            queryDescription: queryDescription,
+            rateLimitRemaining: rateLimitRemaining,
+            rateLimitResetAt: rateLimitResetAt
+        )
     }
 }
 
@@ -257,4 +299,25 @@ nonisolated struct GitHubIssueDetail: Hashable {
     let blockedBy: [GitHubIssueReference]
     let blocking: [GitHubIssueReference]
     let comments: [GitHubIssueComment]
+
+    func with(state: String, closedAt: Date?) -> GitHubIssueDetail {
+        GitHubIssueDetail(
+            item: item.with(state: state, closedAt: closedAt),
+            body: body,
+            state: state,
+            stateReason: stateReason,
+            type: type,
+            author: author,
+            assignees: assignees,
+            labels: labels,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            closedAt: closedAt,
+            parent: parent,
+            subIssues: subIssues,
+            blockedBy: blockedBy,
+            blocking: blocking,
+            comments: comments
+        )
+    }
 }

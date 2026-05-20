@@ -677,7 +677,7 @@ struct DoctorScreen: View {
 
             if let action {
                 Button(buttonLabel, action: action)
-                    .buttonStyle(.glassProminent)
+                    .appPrimaryButton()
                     .controlSize(.small)
             }
         }
@@ -1027,6 +1027,7 @@ struct DoctorScreen: View {
                             Text(webFetchStatus.isInstalled ? "Reinstall Dependencies" : "Install Dependencies")
                         }
                     }
+                    .appPrimaryButton()
                     .disabled(isInstallingWebFetchDependencies)
 
                     Button {
@@ -1034,6 +1035,7 @@ struct DoctorScreen: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
+                    .appSecondaryCircleButton()
                     .disabled(isInstallingWebFetchDependencies)
                     .help("Refresh fallback dependency status")
                 }

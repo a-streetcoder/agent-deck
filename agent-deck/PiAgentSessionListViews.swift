@@ -39,9 +39,11 @@ struct PiAgentAddSessionButton: View {
 
     var body: some View {
         Button(action: action) {
-            PiAgentAddSessionButtonLabel(showsChevron: false, isEnabled: isEnabled)
+            PiAgentAddSessionButtonLabel(showsChevron: false)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
+        .tint(isEnabled ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.35))
         .accessibilityLabel("New Pi Agent session")
     }
 }
@@ -56,9 +58,11 @@ struct PiAgentAddSessionMenuButton: View {
 
     var body: some View {
         Button(action: buttonAction) {
-            PiAgentAddSessionButtonLabel(showsChevron: false, isEnabled: isEnabled)
+            PiAgentAddSessionButtonLabel(showsChevron: false)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
+        .tint(isEnabled ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.35))
         .accessibilityLabel("New Pi Agent session")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             PiAgentProjectPickerPopover(
@@ -159,7 +163,6 @@ private struct PiAgentProjectPickerPopover: View {
 
 private struct PiAgentAddSessionButtonLabel: View {
     let showsChevron: Bool
-    let isEnabled: Bool
 
     var body: some View {
         HStack(spacing: 3) {
@@ -170,20 +173,9 @@ private struct PiAgentAddSessionButtonLabel: View {
                     .font(.system(size: 8, weight: .bold))
             }
         }
-        .foregroundStyle(foregroundStyle)
         .frame(width: showsChevron ? 42 : 30, height: 30)
-        .appGlassCapsule(tint: tintColor)
-        .contentShape(Capsule(style: .continuous))
-    }
-
-    private var foregroundStyle: AnyShapeStyle {
-        isEnabled
-            ? AnyShapeStyle(AppTheme.accentForeground.gradient)
-            : AnyShapeStyle(AppTheme.mutedText.opacity(0.55).gradient)
-    }
-
-    private var tintColor: Color {
-        isEnabled ? AppTheme.brandAccent : AppTheme.mutedText.opacity(0.35)
+        // No background/foreground — the enclosing `.buttonStyle(.glassProminent)`
+        // owns the chrome (tint, contrast foreground, press animation).
     }
 }
 

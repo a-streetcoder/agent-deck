@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */ = {isa = PBXBuildFile; productRef = 24B3A7709E2E4A2A89175011 /* TourKit */; };
+		5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A92B5029E2E4A2A89175011 /* Sparkle */; };
 		8F5A2A6925B14789B7C0D431 /* bundled-agents in Resources */ = {isa = PBXBuildFile; fileRef = 4E1F0B28C6D84725B47F2D75 /* bundled-agents */; };
 		9D1B4A5C7E8F901234567890 /* bundled-skills in Resources */ = {isa = PBXBuildFile; fileRef = 9D1B4A5C7E8F901234567891 /* bundled-skills */; };
 /* End PBXBuildFile section */
@@ -67,6 +68,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				24B3A7719E2E4A2A89175011 /* TourKit in Frameworks */,
+				5A92B5039E2E4A2A89175011 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -121,6 +123,7 @@
 			name = "agent-deck";
 			packageProductDependencies = (
 				24B3A7709E2E4A2A89175011 /* TourKit */,
+				5A92B5029E2E4A2A89175011 /* Sparkle */,
 			);
 			productName = "agent-deck";
 			productReference = 6572B16B2FA2391500596CE4 /* Agent Deck.app */;
@@ -179,6 +182,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */,
+				5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6572B16C2FA2391500596CE4 /* Products */;
@@ -377,6 +381,10 @@
 				INFOPLIST_KEY_NSAccentColorName = AccentColor;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to open Terminal or iTerm and resume agent sessions.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
+				INFOPLIST_KEY_SUFeedURL = "https://a-streetcoder.github.io/agent-deck/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "REPLACE_WITH_SPARKLE_PUBLIC_KEY";
+				INFOPLIST_KEY_SUScheduledCheckInterval = 86400;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -418,6 +426,10 @@
 				INFOPLIST_KEY_NSAccentColorName = AccentColor;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "$(APP_PRODUCT_NAME) uses automation to open Terminal or iTerm and resume agent sessions.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
+				INFOPLIST_KEY_SUFeedURL = "https://a-streetcoder.github.io/agent-deck/appcast.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "REPLACE_WITH_SPARKLE_PUBLIC_KEY";
+				INFOPLIST_KEY_SUScheduledCheckInterval = 86400;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -527,6 +539,14 @@
 				minimumVersion = 1.0.0;
 			};
 		};
+		5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -534,6 +554,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 24B3A76F9E2E4A2A89175011 /* XCRemoteSwiftPackageReference "TourKit" */;
 			productName = TourKit;
+		};
+		5A92B5029E2E4A2A89175011 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5A92B5019E2E4A2A89175011 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
