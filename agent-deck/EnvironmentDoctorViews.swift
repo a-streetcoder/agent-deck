@@ -668,7 +668,6 @@ struct DoctorScreen: View {
             if let action {
                 Button(buttonLabel, action: action)
                     .appPrimaryButton()
-                    .controlSize(.small)
             }
         }
     }

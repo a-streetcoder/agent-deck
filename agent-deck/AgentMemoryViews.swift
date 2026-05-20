@@ -440,7 +440,6 @@ private struct MemoryInfoPanel: View {
             AppKeyValueList(rows: rows)
 
             AppCopyTextButton(title: "Copy Path", text: record.filePath)
-                .controlSize(.small)
         }
         .padding(12)
         .appContentSurface(cornerRadius: 12)

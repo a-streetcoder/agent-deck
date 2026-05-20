@@ -289,7 +289,6 @@ struct SetupChecklistView: View {
                                 .appSecondaryButton()
                         }
                     }
-                    .controlSize(.small)
                     .padding(.top, 2)
                 }
             }

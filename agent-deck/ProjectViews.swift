@@ -510,7 +510,6 @@ private struct PiPromptPreviewSectionView: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
                 AppCopyTextButton(text: section.content, help: "Copy this section")
-                    .controlSize(.small)
             }
 
             if section.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
