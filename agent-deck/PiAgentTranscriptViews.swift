@@ -638,11 +638,11 @@ extension EnvironmentValues {
 enum PiAgentBubbleWidth {
     // Agent reply / tool / plan card width — fixed, content-independent.
     static let replyCapMultiplier: CGFloat = 0.72
-    static let replyCapMax: CGFloat = 640
+    static let replyCapMax: CGFloat = 700
 
     // User (question) bubble — hugs the message text, within these bounds.
     static let userCapMultiplier: CGFloat = 0.62
-    static let userCapMax: CGFloat = 640
+    static let userCapMax: CGFloat = 700
     static let userMinWidth: CGFloat = 130
     static let userChrome: CGFloat = 34   // card h-padding (14*2) + a little slack
 
