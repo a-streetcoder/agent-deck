@@ -1494,8 +1494,7 @@ private struct ProjectAgentsRecapSheet: View {
                             imageURL: imageStore.imageURL(for: agent.name),
                             fallbackSystemImage: "rectangle.connected.to.line.below",
                             color: agent.resolved.disabled == true ? .red : color,
-                            size: 28,
-                            bundledImageName: bundledAvatarName(for: agent)
+                            size: 28
                         )
 
                         VStack(alignment: .leading, spacing: 3) {
@@ -1525,16 +1524,6 @@ private struct ProjectAgentsRecapSheet: View {
                     .background(AppTheme.contentFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
-        }
-    }
-
-    private func bundledAvatarName(for agent: EffectiveAgentRecord) -> String? {
-        guard agent.builtin != nil else { return nil }
-        switch agent.name {
-        case "coder", "explorer", "planner", "reviewer":
-            return "agent-avatar-\(agent.name)"
-        default:
-            return nil
         }
     }
 

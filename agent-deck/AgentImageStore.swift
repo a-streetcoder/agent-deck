@@ -137,16 +137,13 @@ struct AgentImageLoader {
         }
     }
 
-    static func image(at url: URL?, bundledImageName: String? = nil) -> NSImage? {
-        if let url {
-            if let cached = cache.object(forKey: url as NSURL) { return cached }
-            if let image = NSImage(contentsOf: url) {
-                cache.setObject(image, forKey: url as NSURL)
-                return image
-            }
+    static func image(at url: URL?) -> NSImage? {
+        guard let url else { return nil }
+        if let cached = cache.object(forKey: url as NSURL) { return cached }
+        if let image = NSImage(contentsOf: url) {
+            cache.setObject(image, forKey: url as NSURL)
+            return image
         }
-        // Bundled (asset-catalog) images are already cached by AppKit.
-        if let bundledImageName { return NSImage(named: bundledImageName) }
         return nil
     }
 }

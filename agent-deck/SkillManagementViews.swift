@@ -970,7 +970,6 @@ struct SkillsScreen: View {
                         AgentAssignmentToggleRow(
                             agent: agent,
                             imageURL: viewModel.agentImageStore.imageURL(for: agent.name),
-                            bundledImageName: bundledAvatarName(for: agent),
                             isInactive: title == "Inactive",
                             isOn: Binding(
                                 get: { viewModel.skill(skill, isAssignedTo: agent) },
@@ -1165,21 +1164,11 @@ struct SkillsScreen: View {
         """
     }
 
-    private func bundledAvatarName(for agent: EffectiveAgentRecord) -> String? {
-        guard agent.builtin != nil else { return nil }
-        switch agent.name {
-        case "coder", "explorer", "planner", "reviewer":
-            return "agent-avatar-\(agent.name)"
-        default:
-            return nil
-        }
-    }
 }
 
 private struct AgentAssignmentToggleRow: View {
     let agent: EffectiveAgentRecord
     let imageURL: URL?
-    let bundledImageName: String?
     let isInactive: Bool
     @Binding var isOn: Bool
 
@@ -1215,7 +1204,7 @@ private struct AgentAssignmentToggleRow: View {
                             .stroke(displayedIsOn ? AppTheme.accentSelectionStroke : AppTheme.contentStroke, lineWidth: 1)
                     }
 
-                if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
+                if let nsImage = AgentImageLoader.image(at: imageURL) {
                     Image(nsImage: nsImage)
                         .resizable()
                         .scaledToFill()

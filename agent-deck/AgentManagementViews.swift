@@ -136,7 +136,6 @@ struct AgentAvatarView: View {
     let fallbackSystemImage: String
     let color: Color
     var size: CGFloat = 32
-    var bundledImageName: String?
     // When true, fills the available height of the enclosing HStack as a square circle.
     var flexible: Bool = false
 
@@ -159,7 +158,7 @@ struct AgentAvatarView: View {
             Circle()
                 .stroke(color.opacity(0.18), lineWidth: 1)
 
-            if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
+            if let nsImage = AgentImageLoader.image(at: imageURL) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFill()
@@ -188,8 +187,6 @@ struct AgentAvatarView: View {
 
 private struct AgentAvatarHoverActionButton: View {
     let imageURL: URL?
-    let bundledImageName: String?
-    let isReadOnly: Bool
     let hasCustomImage: Bool
     let isGenerating: Bool
     let onRemove: () -> Void
@@ -205,8 +202,7 @@ private struct AgentAvatarHoverActionButton: View {
                 imageURL: imageURL,
                 fallbackSystemImage: "rectangle.connected.to.line.below",
                 color: AppTheme.assistantAccent,
-                size: size,
-                bundledImageName: bundledImageName
+                size: size
             )
 
             if isGenerating {
@@ -214,7 +210,7 @@ private struct AgentAvatarHoverActionButton: View {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
-            } else if !isReadOnly && isHovering {
+            } else if isHovering {
                 Circle().fill(Color.black.opacity(0.42))
                 Image(systemName: hasCustomImage ? "trash" : "photo.badge.plus")
                     .font(.system(size: 18, weight: .semibold))
@@ -226,14 +222,13 @@ private struct AgentAvatarHoverActionButton: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .contentShape(Circle())
-        .scaleEffect(isHovering && !isReadOnly ? 1.03 : 1)
+        .scaleEffect(isHovering ? 1.03 : 1)
         .animation(.easeOut(duration: 0.16), value: isHovering)
         .onHover { hovering in
-            guard !isReadOnly else { return }
             isHovering = hovering
         }
         .onTapGesture {
-            guard !isReadOnly, !isGenerating else { return }
+            guard !isGenerating else { return }
             if hasCustomImage {
                 onRemove()
             } else {
@@ -245,7 +240,6 @@ private struct AgentAvatarHoverActionButton: View {
     }
 
     private var helpText: String {
-        if isReadOnly { return "" }
         if isGenerating { return "Generating avatar…" }
         return hasCustomImage ? "Remove avatar image" : "Edit avatar image"
     }
@@ -547,16 +541,6 @@ private struct AgentLibraryPane: View {
         filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
     }
 
-    private func bundledAvatarName(for agent: EffectiveAgentRecord) -> String? {
-        guard agent.builtin != nil else { return nil }
-        switch agent.name {
-        case "coder", "explorer", "planner", "reviewer":
-            return "agent-avatar-\(agent.name)"
-        default:
-            return nil
-        }
-    }
-
     private var filteredAgents: [EffectiveAgentRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return viewModel.filteredAgents }
@@ -621,8 +605,7 @@ private struct AgentLibraryPane: View {
                 imageURL: imageStore.imageURL(for: agent.name),
                 fallbackSystemImage: icon(for: agent),
                 color: color(for: agent),
-                size: 40,
-                bundledImageName: bundledAvatarName(for: agent)
+                size: 40
             )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -998,8 +981,6 @@ private struct AgentDetailView: View {
         let hasCustomImage = imageStore.imageURL(for: agent.name) != nil
         AgentAvatarHoverActionButton(
             imageURL: imageStore.imageURL(for: agent.name),
-            bundledImageName: bundledAvatarName,
-            isReadOnly: isReadOnlyBuiltinAvatar,
             hasCustomImage: hasCustomImage,
             isGenerating: isGeneratingAvatarPrompt,
             onRemove: removeCustomAvatar,
@@ -1108,20 +1089,6 @@ private struct AgentDetailView: View {
 
     private var shouldAutoGenerateAvatarPrompt: Bool {
         autoGenerateAvatarPrompts
-    }
-
-    private var isReadOnlyBuiltinAvatar: Bool {
-        isPlainBuiltin && bundledAvatarName != nil
-    }
-
-    private var bundledAvatarName: String? {
-        guard isPlainBuiltin else { return nil }
-        switch agent.name {
-        case "coder", "explorer", "planner", "reviewer":
-            return "agent-avatar-\(agent.name)"
-        default:
-            return nil
-        }
     }
 
     private func generatedAvatarPrompt() async throws -> String {

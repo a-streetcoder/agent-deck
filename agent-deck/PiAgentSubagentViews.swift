@@ -200,7 +200,7 @@ struct PiNativeSubagentRunCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            PiSubagentActivityGlyph(color: statusColor, isActive: effectiveStatus.isActive, imageURL: imageStore.imageURL(for: run.agentName), bundledImageName: "agent-avatar-\(run.agentName)")
+            PiSubagentActivityGlyph(color: statusColor, isActive: effectiveStatus.isActive, imageURL: imageStore.imageURL(for: run.agentName))
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Text(run.agentName)
@@ -691,7 +691,6 @@ struct PiSubagentActivityGlyph: View {
     let color: Color
     let isActive: Bool
     var imageURL: URL? = nil
-    var bundledImageName: String? = nil
 
     var body: some View {
         ZStack {
@@ -711,7 +710,7 @@ struct PiSubagentActivityGlyph: View {
                 }
             }
 
-            if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
+            if let nsImage = AgentImageLoader.image(at: imageURL) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFill()

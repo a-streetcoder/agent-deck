@@ -889,10 +889,20 @@ struct ContentView: View {
             ToolbarSpacer(.fixed, placement: .primaryAction)
         }
 
-        // Info + create island — `New` is the tinted trailing member so the
-        // ControlGroup renders it as a filled prominent segment.
+        // Rescan + info + create island — `New` is the tinted trailing member
+        // so the ControlGroup renders it as a filled prominent segment.
         ToolbarItem(placement: .primaryAction) {
             ControlGroup {
+                Button {
+                    viewModel.refresh(includeModels: false, scanAllProjects: true)
+                } label: {
+                    Label(viewModel.isRefreshingProjects ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                }
+                .symbolEffect(.rotate.byLayer, isActive: viewModel.isRefreshingProjects)
+                .toolbarNeutralChrome()
+                .help("Rescan skills")
+                .disabled(viewModel.isRefreshingProjects)
+
                 Button {
                     isSkillsInfoPresented.toggle()
                 } label: {
