@@ -5645,6 +5645,7 @@ final class AppViewModel: NSObject {
         try removeSkillReferences(named: skill.name)
         try FileManager.default.trashItem(at: targetURL, resultingItemURL: nil)
         removeExternalSkillCatalogReferences(for: skill, deletedTarget: targetURL)
+        unlistSkillFromSyncedRepository(skill)
 
         // Hide the row immediately — no blocking rescan. SwiftUI updates the
         // list the instant the published set changes, like session deletion.
@@ -5657,6 +5658,77 @@ final class AppViewModel: NSObject {
         // Reconcile in the background; applyRefreshSnapshot prunes the pending
         // ID once the fresh snapshot confirms the skill is gone.
         refresh(includeModels: false, scanAllProjects: true)
+    }
+
+    /// True when `skill` was imported — its root path is tracked in
+    /// `externalSkillPaths` (a local-folder import or a Git-synced repo skill).
+    func isImportedSkill(_ skill: SkillRecord) -> Bool {
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        let rootPath = skillDeletionTargetURL(for: skill).standardizedFileURL.path
+        return appSettings.externalSkillPaths.contains { rawPath in
+            let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
+            return path == rootPath || path == fileURL.path
+        }
+    }
+
+    /// Un-import a skill: drop it from the catalog without trashing its files.
+    /// For a Git-synced skill the repository clone is kept; the skill is just
+    /// un-listed from that repository's synced set.
+    func removeSkillFromCatalog(_ skill: SkillRecord) throws {
+        guard isImportedSkill(skill) else { throw CocoaError(.fileWriteNoPermission) }
+
+        let fileURL = URL(fileURLWithPath: skill.filePath).standardizedFileURL
+        let rootURL = skillDeletionTargetURL(for: skill).standardizedFileURL
+
+        // Clear name-based assignments so no dangling missing-skill warning is
+        // left behind — same as deletion, minus the trashing.
+        try removeSkillReferences(named: skill.name)
+
+        let pathsToRemove = appSettings.externalSkillPaths.filter { rawPath in
+            let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
+            return path == rootURL.path || path == fileURL.path
+        }
+        if appSettingsController.removeExternalSkillPaths(pathsToRemove) {
+            appSettings = appSettingsController.settings
+        }
+        unlistSkillFromSyncedRepository(skill)
+
+        withAnimation(.snappy(duration: 0.18)) {
+            _ = pendingDeletedSkillIDs.insert(skill.id)
+        }
+        selectedSkillID = allVisibleSkillRecords.first?.id
+        refresh(includeModels: false, scanAllProjects: true)
+    }
+
+    /// Drop `skill` from its synced repository's tracked set, if it belongs to
+    /// one. When that leaves the repository with no synced skills, the whole
+    /// repository is un-registered — its record is removed (so it is no longer
+    /// polled for updates) and its app-managed clone is deleted.
+    private func unlistSkillFromSyncedRepository(_ skill: SkillRecord) {
+        guard let repository = importedRepository(for: skill) else { return }
+        let rootPath = skillDeletionTargetURL(for: skill).standardizedFileURL.path
+        let cloneURL = URL(fileURLWithPath: repository.clonePath, isDirectory: true).standardizedFileURL
+
+        var remaining = repository.syncedSkillRelativePaths
+        remaining.removeAll { relativePath in
+            let candidate = relativePath.isEmpty
+                ? cloneURL.path
+                : cloneURL.appendingPathComponent(relativePath, isDirectory: true).standardizedFileURL.path
+            return candidate == rootPath
+        }
+        guard remaining != repository.syncedSkillRelativePaths else { return }
+
+        if remaining.isEmpty {
+            // Nothing left synced from this repository — fully un-register it so
+            // it is no longer checked for updates, and drop its app-managed clone.
+            appSettingsController.removeImportedSkillRepository(id: repository.id)
+            try? FileManager.default.removeItem(at: cloneURL)
+        } else {
+            var updated = repository
+            updated.syncedSkillRelativePaths = remaining
+            appSettingsController.upsertImportedSkillRepository(updated)
+        }
+        appSettings = appSettingsController.settings
     }
 
     func skillIsEnabledGlobally(_ skill: SkillRecord) -> Bool {

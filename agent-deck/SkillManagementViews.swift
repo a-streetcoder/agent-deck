@@ -82,6 +82,8 @@ struct SkillsScreen: View {
     @State private var importSummaryMessage: String?
     @State private var skillActionErrorMessage: String?
     @State private var skillPendingDeletion: SkillRecord?
+    @State private var skillPendingRemoval: SkillRecord?
+    @State private var skillsPendingBatchRemoval: [SkillRecord]?
     @State private var skillPendingRename: SkillRecord?
     @State private var hoveredSkillID: SkillRecord.ID?
     @State private var skillEditTarget: MarkdownFileEditTarget?
@@ -92,6 +94,70 @@ struct SkillsScreen: View {
     @State private var skillUpdateConflict: SkillUpdateConflictContext?
 
     var body: some View {
+        skillsScreenWithSheets
+            .alert("Skill Import", isPresented: Binding(
+                get: { importSummaryMessage != nil },
+                set: { if !$0 { importSummaryMessage = nil } }
+            )) {
+                Button("OK") { importSummaryMessage = nil }
+            } message: {
+                Text(importSummaryMessage ?? "")
+            }
+            .alert("Skill Assignment", isPresented: Binding(
+                get: { skillActionErrorMessage != nil },
+                set: { if !$0 { skillActionErrorMessage = nil } }
+            )) {
+                Button("OK") { skillActionErrorMessage = nil }
+            } message: {
+                Text(skillActionErrorMessage ?? "")
+            }
+            .alert("Delete Skill?", isPresented: Binding(
+                get: { skillPendingDeletion != nil },
+                set: { if !$0 { skillPendingDeletion = nil } }
+            ), presenting: skillPendingDeletion) { skill in
+                Button("Move to Trash", role: .destructive) { deleteSkill(skill) }
+                Button("Cancel", role: .cancel) { skillPendingDeletion = nil }
+            } message: { skill in
+                Text("Move \"\(skill.name)\" to the Trash and remove its Default, project, and agent assignments?")
+            }
+            .alert("Delete Skills?", isPresented: Binding(
+                get: { skillsPendingBatchDeletion != nil },
+                set: { if !$0 { skillsPendingBatchDeletion = nil } }
+            ), presenting: skillsPendingBatchDeletion) { skills in
+                Button("Move \(skills.count) to Trash", role: .destructive) { batchDeleteSkills(skills) }
+                Button("Cancel", role: .cancel) { skillsPendingBatchDeletion = nil }
+            } message: { skills in
+                Text("Move \(skills.count) skills to the Trash and remove their Default, project, and agent assignments?")
+            }
+            .alert("Remove Skill?", isPresented: Binding(
+                get: { skillPendingRemoval != nil },
+                set: { if !$0 { skillPendingRemoval = nil } }
+            ), presenting: skillPendingRemoval) { skill in
+                Button("Remove from Catalog") { removeSkill(skill) }
+                Button("Cancel", role: .cancel) { skillPendingRemoval = nil }
+            } message: { skill in
+                Text("Remove \"\(skill.name)\" from the \(AppBrand.displayName) catalog and clear its Default, project, and agent assignments? The skill files are not deleted — a Git-synced clone is kept.")
+            }
+            .alert("Remove Skills?", isPresented: Binding(
+                get: { skillsPendingBatchRemoval != nil },
+                set: { if !$0 { skillsPendingBatchRemoval = nil } }
+            ), presenting: skillsPendingBatchRemoval) { skills in
+                Button("Remove \(skills.count) from Catalog") { batchRemoveSkills(skills) }
+                Button("Cancel", role: .cancel) { skillsPendingBatchRemoval = nil }
+            } message: { skills in
+                Text("Remove \(skills.count) skills from the \(AppBrand.displayName) catalog and clear their assignments? The skill files are not deleted.")
+            }
+            .alert("Skill Updates", isPresented: Binding(
+                get: { viewModel.skillBatchActionMessage != nil },
+                set: { if !$0 { viewModel.skillBatchActionMessage = nil } }
+            )) {
+                Button("OK") { viewModel.skillBatchActionMessage = nil }
+            } message: {
+                Text(viewModel.skillBatchActionMessage ?? "")
+            }
+    }
+
+    private var skillsScreenCore: some View {
         HSplitView {
             if viewModel.hasCompletedInitialRefresh {
                 skillLibraryContent
@@ -133,6 +199,10 @@ struct SkillsScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckNewSkillRequested)) { _ in
             createNewSkill()
         }
+    }
+
+    private var skillsScreenWithSheets: some View {
+        skillsScreenCore
         .sheet(isPresented: $isImportSheetPresented) {
             SkillImportSheet(viewModel: viewModel, isPresented: $isImportSheetPresented) { result in
                 importSummaryMessage = importSummary(for: result)
@@ -178,58 +248,6 @@ struct SkillsScreen: View {
                     skillUpdateStatusMessage = "Updated to the latest version."
                 }
             }
-        }
-        .alert("Skill Import", isPresented: Binding(
-            get: { importSummaryMessage != nil },
-            set: { if !$0 { importSummaryMessage = nil } }
-        )) {
-            Button("OK") { importSummaryMessage = nil }
-        } message: {
-            Text(importSummaryMessage ?? "")
-        }
-        .alert("Skill Assignment", isPresented: Binding(
-            get: { skillActionErrorMessage != nil },
-            set: { if !$0 { skillActionErrorMessage = nil } }
-        )) {
-            Button("OK") {
-                skillActionErrorMessage = nil
-            }
-        } message: {
-            Text(skillActionErrorMessage ?? "")
-        }
-        .alert("Delete Skill?", isPresented: Binding(
-            get: { skillPendingDeletion != nil },
-            set: { if !$0 { skillPendingDeletion = nil } }
-        ), presenting: skillPendingDeletion) { skill in
-            Button("Move to Trash", role: .destructive) {
-                deleteSkill(skill)
-            }
-            Button("Cancel", role: .cancel) {
-                skillPendingDeletion = nil
-            }
-        } message: { skill in
-            Text("Move \"\(skill.name)\" to the Trash and remove its Default, project, and agent assignments?")
-        }
-        .alert("Delete Skills?", isPresented: Binding(
-            get: { skillsPendingBatchDeletion != nil },
-            set: { if !$0 { skillsPendingBatchDeletion = nil } }
-        ), presenting: skillsPendingBatchDeletion) { skills in
-            Button("Move \(skills.count) to Trash", role: .destructive) {
-                batchDeleteSkills(skills)
-            }
-            Button("Cancel", role: .cancel) {
-                skillsPendingBatchDeletion = nil
-            }
-        } message: { skills in
-            Text("Move \(skills.count) skills to the Trash and remove their Default, project, and agent assignments?")
-        }
-        .alert("Skill Updates", isPresented: Binding(
-            get: { viewModel.skillBatchActionMessage != nil },
-            set: { if !$0 { viewModel.skillBatchActionMessage = nil } }
-        )) {
-            Button("OK") { viewModel.skillBatchActionMessage = nil }
-        } message: {
-            Text(viewModel.skillBatchActionMessage ?? "")
         }
     }
 
@@ -300,13 +318,22 @@ struct SkillsScreen: View {
     private func skillContextMenu(for ids: Set<SkillRecord.ID>) -> some View {
         let skills = managedSkills.filter { ids.contains($0.id) }
         if skills.count > 1 {
+            let importable = skills.filter { viewModel.isImportedSkill($0) }
             let deletable = skills.filter { viewModel.canDeleteSkill($0) }
-            Button(role: .destructive) {
-                skillsPendingBatchDeletion = deletable
-            } label: {
-                Label("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")", systemImage: "trash")
+            if !importable.isEmpty {
+                Button {
+                    skillsPendingBatchRemoval = importable
+                } label: {
+                    Label("Remove \(importable.count) from Catalog", systemImage: "minus.circle")
+                }
             }
-            .disabled(deletable.isEmpty)
+            if !deletable.isEmpty {
+                Button(role: .destructive) {
+                    skillsPendingBatchDeletion = deletable
+                } label: {
+                    Label("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")", systemImage: "trash")
+                }
+            }
         } else if let skill = skills.first {
             Button {
                 skillEditTarget = makeSkillEditTarget(skill)
@@ -328,14 +355,25 @@ struct SkillsScreen: View {
             }
             .disabled(!viewModel.canRenameSkill(skill))
 
-            Divider()
-
-            Button(role: .destructive) {
-                skillPendingDeletion = skill
-            } label: {
-                Label("Delete Skill", systemImage: "trash")
+            if viewModel.isImportedSkill(skill) || viewModel.canDeleteSkill(skill) {
+                Divider()
             }
-            .disabled(!viewModel.canDeleteSkill(skill))
+
+            if viewModel.isImportedSkill(skill) {
+                Button {
+                    skillPendingRemoval = skill
+                } label: {
+                    Label("Remove from Catalog", systemImage: "minus.circle")
+                }
+            }
+
+            if viewModel.canDeleteSkill(skill) {
+                Button(role: .destructive) {
+                    skillPendingDeletion = skill
+                } label: {
+                    Label("Delete Skill", systemImage: "trash")
+                }
+            }
         }
     }
 
@@ -888,12 +926,21 @@ struct SkillsScreen: View {
         .opacity(isInactive ? 0.62 : 1)
         .saturation(isInactive ? 0.25 : 1)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                skillPendingDeletion = skill
-            } label: {
-                Label("Delete", systemImage: "trash")
+            if viewModel.canDeleteSkill(skill) {
+                Button(role: .destructive) {
+                    skillPendingDeletion = skill
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
-            .disabled(!viewModel.canDeleteSkill(skill))
+            if viewModel.isImportedSkill(skill) {
+                Button {
+                    skillPendingRemoval = skill
+                } label: {
+                    Label("Remove", systemImage: "minus.circle")
+                }
+                .tint(.orange)
+            }
         }
     }
 
@@ -1079,9 +1126,38 @@ struct SkillsScreen: View {
         }
     }
 
+    private func removeSkill(_ skill: SkillRecord) {
+        do {
+            try viewModel.removeSkillFromCatalog(skill)
+            skillPendingRemoval = nil
+        } catch {
+            skillPendingRemoval = nil
+            presentSkillActionError(error, skill: skill, action: "remove this skill from the catalog")
+        }
+    }
+
+    private func batchRemoveSkills(_ skills: [SkillRecord]) {
+        var failed: [String] = []
+        for skill in skills {
+            do { try viewModel.removeSkillFromCatalog(skill) }
+            catch { failed.append(skill.name) }
+        }
+        skillsPendingBatchRemoval = nil
+        selectedSkillIDs = []
+        if !failed.isEmpty {
+            NSSound.beep()
+            skillActionErrorMessage = """
+            \(AppBrand.displayName) could not remove \(failed.count) skill\(failed.count == 1 ? "" : "s"): \(failed.joined(separator: ", ")).
+
+            Only imported skills can be removed from the catalog.
+            """
+        }
+    }
+
     @ViewBuilder
     private func batchSelectionDetail(_ skills: [SkillRecord]) -> some View {
         let deletable = skills.filter { viewModel.canDeleteSkill($0) }
+        let importable = skills.filter { viewModel.isImportedSkill($0) }
         AppCard(title: "\(skills.count) Skills Selected") {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Cmd- or Shift-click rows to adjust the selection. Right-click the list — or use the button below — to act on every selected skill at once.")
@@ -1109,11 +1185,27 @@ struct SkillsScreen: View {
                     }
                 }
 
-                Button("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")…") {
-                    skillsPendingBatchDeletion = deletable
+                HStack(spacing: 10) {
+                    if !importable.isEmpty {
+                        Button("Remove \(importable.count) from Catalog…") {
+                            skillsPendingBatchRemoval = importable
+                        }
+                        .appSecondaryButton()
+                    }
+
+                    Button("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")…") {
+                        skillsPendingBatchDeletion = deletable
+                    }
+                    .appDestructiveButton()
+                    .disabled(deletable.isEmpty)
                 }
-                .appDestructiveButton()
-                .disabled(deletable.isEmpty)
+
+                if !importable.isEmpty {
+                    Text("Remove un-imports a skill (its files and any Git clone are kept). Delete moves the skill folder to the Trash.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if deletable.count != skills.count {
                     Text("Bundled and package skills are protected and will not be deleted.")
