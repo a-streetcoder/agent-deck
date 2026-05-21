@@ -77,6 +77,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubConnectionState: GitHubConnectionState = .checking
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
     @Published var githubAuthorFilter: String?
+    @Published var githubAssigneeFilter: String?
     @Published var githubLabelFilters: Set<String> = []
     @Published var githubAggregateBoard: GitHubBoardSnapshot?
     @Published var githubProjectBoard: GitHubBoardSnapshot?
@@ -1012,15 +1013,17 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Applies the author and label filters on top of the board snapshot. State is
-    /// already applied server-side via `githubIssueStateFilter`.
+    /// Applies the author, assignee, and label filters on top of the board
+    /// snapshot. State is already applied server-side via `githubIssueStateFilter`.
     func filteredBoardItems(from board: GitHubBoardSnapshot?) -> [GitHubWorkItem] {
         guard let board else { return [] }
         let author = githubAuthorFilter
+        let assignee = githubAssigneeFilter
         let labels = githubLabelFilters
         return board.allItems.filter { item in
             if let author, item.author != author { return false }
-            if !labels.isEmpty, labels.isDisjoint(with: Set(item.labels)) { return false }
+            if let assignee, !item.assignees.contains(assignee) { return false }
+            if !labels.isEmpty, labels.isDisjoint(with: Set(item.labels.map(\.name))) { return false }
             return true
         }
     }
@@ -1055,15 +1058,28 @@ final class AppViewModel: NSObject, ObservableObject {
         return ordered.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    var githubAvailableLabels: [String] {
+    var githubAvailableAssignees: [String] {
         guard let board = githubProjectBoard else { return [] }
         var seen: Set<String> = []
-        for item in board.allItems { seen.formUnion(item.labels) }
+        for item in board.allItems { seen.formUnion(item.assignees) }
         return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var githubAvailableLabels: [GitHubLabel] {
+        guard let board = githubProjectBoard else { return [] }
+        var seen: Set<String> = []
+        var ordered: [GitHubLabel] = []
+        for item in board.allItems {
+            for label in item.labels where seen.insert(label.name).inserted {
+                ordered.append(label)
+            }
+        }
+        return ordered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func resetIssueFilters() {
         githubAuthorFilter = nil
+        githubAssigneeFilter = nil
         githubLabelFilters = []
     }
 

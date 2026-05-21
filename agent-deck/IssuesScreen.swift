@@ -28,6 +28,7 @@ struct IssuesScreen: View {
             viewModel.refreshProjectBoard(force: true)
         }
         .onChange(of: viewModel.githubAuthorFilter) { _, _ in reconcileSelectionWithFilters() }
+        .onChange(of: viewModel.githubAssigneeFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubLabelFilters) { _, _ in reconcileSelectionWithFilters() }
     }
 
@@ -131,7 +132,9 @@ struct IssuesScreen: View {
     private func boardContent(board: GitHubBoardSnapshot) -> some View {
         let visibleItems = searchFiltered(viewModel.filteredBoardItems(from: board))
         let query = trimmedSearchQuery
-        let filtersActive = viewModel.githubAuthorFilter != nil || !viewModel.githubLabelFilters.isEmpty
+        let filtersActive = viewModel.githubAuthorFilter != nil
+            || viewModel.githubAssigneeFilter != nil
+            || !viewModel.githubLabelFilters.isEmpty
         let narrowed = filtersActive || !query.isEmpty
 
         if visibleItems.isEmpty {
@@ -234,7 +237,7 @@ struct IssuesScreen: View {
             if item.title.lowercased().contains(query) { return true }
             if String(item.number).contains(query) { return true }
             if let author = item.author, author.lowercased().contains(query) { return true }
-            if item.labels.contains(where: { $0.lowercased().contains(query) }) { return true }
+            if item.labels.contains(where: { $0.name.lowercased().contains(query) }) { return true }
             if item.body.lowercased().contains(query) { return true }
             return false
         }
@@ -282,6 +285,8 @@ struct IssuesFiltersPopover: View {
             stateSection
             Divider()
             creatorSection
+            Divider()
+            assigneeSection
             if !viewModel.githubAvailableLabels.isEmpty {
                 Divider()
                 labelsSection
@@ -302,7 +307,9 @@ struct IssuesFiltersPopover: View {
     }
 
     private var filtersActive: Bool {
-        viewModel.githubAuthorFilter != nil || !viewModel.githubLabelFilters.isEmpty
+        viewModel.githubAuthorFilter != nil
+            || viewModel.githubAssigneeFilter != nil
+            || !viewModel.githubLabelFilters.isEmpty
     }
 
     private var stateSection: some View {
@@ -342,6 +349,30 @@ struct IssuesFiltersPopover: View {
         )
     }
 
+    private var assigneeSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("Assignee")
+            Picker("Assignee", selection: assigneeBinding) {
+                Text("Anyone").tag(String?.none)
+                if !viewModel.githubAvailableAssignees.isEmpty {
+                    Divider()
+                    ForEach(viewModel.githubAvailableAssignees, id: \.self) { assignee in
+                        Text(assignee).tag(String?.some(assignee))
+                    }
+                }
+            }
+            .labelsHidden()
+            .disabled(viewModel.githubAvailableAssignees.isEmpty)
+        }
+    }
+
+    private var assigneeBinding: Binding<String?> {
+        Binding(
+            get: { viewModel.githubAssigneeFilter },
+            set: { viewModel.githubAssigneeFilter = $0 }
+        )
+    }
+
     private var labelsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -355,7 +386,7 @@ struct IssuesFiltersPopover: View {
             }
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(viewModel.githubAvailableLabels, id: \.self) { label in
+                    ForEach(viewModel.githubAvailableLabels) { label in
                         labelToggleRow(label)
                     }
                 }
@@ -364,21 +395,20 @@ struct IssuesFiltersPopover: View {
         }
     }
 
-    private func labelToggleRow(_ label: String) -> some View {
-        let isOn = viewModel.githubLabelFilters.contains(label)
+    private func labelToggleRow(_ label: GitHubLabel) -> some View {
+        let isOn = viewModel.githubLabelFilters.contains(label.name)
         return Button {
             if isOn {
-                viewModel.githubLabelFilters.remove(label)
+                viewModel.githubLabelFilters.remove(label.name)
             } else {
-                viewModel.githubLabelFilters.insert(label)
+                viewModel.githubLabelFilters.insert(label.name)
             }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isOn ? "checkmark.square.fill" : "square")
                     .foregroundStyle(isOn ? AppTheme.brandAccent : AppTheme.mutedText)
-                Text(label)
-                    .lineLimit(1)
-                Spacer()
+                GitHubLabelTag(label: label)
+                Spacer(minLength: 0)
             }
             .padding(.vertical, 5)
             .contentShape(Rectangle())

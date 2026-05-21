@@ -791,6 +791,7 @@ private struct PiAgentIssuePickerPopover: View {
                         }
                     }
                 }
+                .defaultScrollAnchor(.top)
                 .frame(width: 420, height: 320)
             }
         }

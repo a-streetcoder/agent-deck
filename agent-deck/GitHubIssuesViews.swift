@@ -20,9 +20,9 @@ struct GitHubIssueListRow: View {
     private var tags: [IssueTag] {
         var result: [IssueTag] = []
         if let type = item.type, !type.isEmpty {
-            result.append(IssueTag(text: type, color: issueTypeColor(type)))
+            result.append(.type(type))
         }
-        result += item.labels.map { IssueTag(text: $0, color: .secondary) }
+        result += item.labels.map(IssueTag.label)
         return result
     }
 
@@ -74,8 +74,13 @@ struct GitHubIssueListRow: View {
 
     private var tagRow: some View {
         IssueTagFlowLayout(spacing: 6) {
-            ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
-                AppLabelTag(text: tag.text, color: tag.color)
+            ForEach(tags) { tag in
+                switch tag {
+                case let .type(value):
+                    AppLabelTag(text: value, color: issueTypeColor(value))
+                case let .label(label):
+                    GitHubLabelTag(label: label)
+                }
             }
         }
     }
@@ -151,9 +156,19 @@ struct GitHubIssueListRow: View {
     }
 }
 
-private struct IssueTag {
-    let text: String
-    let color: Color
+/// One chip in an issue card's tag strip — either the issue's native type
+/// (rendered as a stroked accent chip) or a GitHub label (glass-tinted with
+/// the label's own color).
+private enum IssueTag: Identifiable {
+    case type(String)
+    case label(GitHubLabel)
+
+    var id: String {
+        switch self {
+        case let .type(value): return "type:\(value)"
+        case let .label(label): return "label:\(label.name)"
+        }
+    }
 }
 
 /// Wrapping flow layout for the issue-card tag strip — lays chips left to right
@@ -366,11 +381,11 @@ struct GitHubIssueDetailView: View {
         }
     }
 
-    private func labelsRow(_ labels: [String]) -> some View {
+    private func labelsRow(_ labels: [GitHubLabel]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(labels, id: \.self) { label in
-                    AppLabelTag(text: label, color: .secondary)
+                ForEach(labels) { label in
+                    GitHubLabelTag(label: label)
                 }
             }
         }
@@ -580,6 +595,81 @@ private func issueTypeColor(_ issueType: String) -> Color {
         return .orange
     default:
         return .secondary
+    }
+}
+
+// MARK: - GitHub label chip
+
+/// A GitHub issue label rendered as a Liquid Glass capsule tinted with the
+/// label's own color (as reported by the GitHub API). Mirrors how GitHub's web
+/// UI color-codes labels, adapted to the app's dark glass chrome. Falls back to
+/// a neutral tint when the API omits a usable color.
+struct GitHubLabelTag: View {
+    let label: GitHubLabel
+
+    var body: some View {
+        let palette = GitHubLabelPalette(hex: label.color)
+        Text(label.name)
+            .font(.caption.weight(.semibold))
+            .fontWidth(.expanded)
+            .lineLimit(1)
+            .foregroundStyle(palette.text)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .glassEffect(.regular.tint(palette.tint), in: Capsule(style: .continuous))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(palette.stroke, lineWidth: 1)
+            )
+    }
+}
+
+/// Derives the three tones a label chip needs — a translucent glass tint, a
+/// legible foreground, and a hairline stroke — from a GitHub label hex color.
+/// Dark labels get their text lifted toward white so they stay readable on the
+/// app's dark surfaces.
+private struct GitHubLabelPalette {
+    let tint: Color
+    let text: Color
+    let stroke: Color
+
+    init(hex: String?) {
+        guard let rgb = GitHubLabelPalette.rgb(from: hex) else {
+            self.tint = Color.secondary.opacity(0.16)
+            self.text = Color.secondary
+            self.stroke = Color.secondary.opacity(0.4)
+            return
+        }
+
+        let base = Color(red: rgb.r, green: rgb.g, blue: rgb.b)
+        // Relative luminance (Rec. 709). Dark labels would render as unreadable
+        // text on the dark chrome, so blend them toward white.
+        let luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b
+        if luminance < 0.5 {
+            let lift = min(0.7, 0.62 - luminance)
+            self.text = Color(
+                red: rgb.r + (1 - rgb.r) * lift,
+                green: rgb.g + (1 - rgb.g) * lift,
+                blue: rgb.b + (1 - rgb.b) * lift
+            )
+        } else {
+            self.text = base
+        }
+        self.tint = base.opacity(0.28)
+        self.stroke = base.opacity(0.5)
+    }
+
+    /// Parses a GitHub label color (`"d73a4a"`, optionally `#`-prefixed) into
+    /// normalized RGB components, or `nil` when absent or malformed.
+    private static func rgb(from hex: String?) -> (r: Double, g: Double, b: Double)? {
+        guard let hex else { return nil }
+        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
+        guard cleaned.count == 6, let value = UInt32(cleaned, radix: 16) else { return nil }
+        return (
+            r: Double((value >> 16) & 0xFF) / 255,
+            g: Double((value >> 8) & 0xFF) / 255,
+            b: Double(value & 0xFF) / 255
+        )
     }
 }
 

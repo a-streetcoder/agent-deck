@@ -58,46 +58,75 @@ extension View {
 }
 
 private struct ScrollerHidingConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { configure(from: view) }
-        return view
+    func makeNSView(context: Context) -> ScrollerHidingProbe {
+        ScrollerHidingProbe()
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { configure(from: nsView) }
+    func updateNSView(_ nsView: ScrollerHidingProbe, context: Context) {
+        nsView.suppressScrollers()
+    }
+}
+
+/// A zero-cost probe inserted via `.background(...)`. It locates the sibling
+/// `NSScrollView` it is layered behind — by matching frames window-wide, since
+/// SwiftUI does not make the scroll view a reachable ancestor — and strips its
+/// scrollers. It re-applies whenever it (re)enters the hierarchy or SwiftUI
+/// re-renders, because `List` can otherwise quietly restore the scroller.
+final class ScrollerHidingProbe: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        suppressScrollers()
     }
 
-    private func configure(from view: NSView) {
-        guard let scrollView = enclosingScrollView(of: view) else { return }
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        suppressScrollers()
+    }
+
+    func suppressScrollers() {
+        // The target scroll view may not be laid out yet on the first pass, so
+        // retry across the next few runloop turns until it turns up.
+        for delay in [0.0, 0.1, 0.3, 0.6, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.applySuppression()
+            }
+        }
+    }
+
+    private func applySuppression() {
+        guard let scrollView = targetScrollView() else { return }
+        scrollView.scrollerStyle = .overlay
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
+        scrollView.verticalScroller?.isHidden = true
+        scrollView.horizontalScroller?.isHidden = true
     }
 
-    /// The configurator is installed via `.background(...)`, so the target
-    /// scroll view is usually a sibling rather than an ancestor — walk up and
-    /// search each ancestor's subtree until one turns up.
-    private func enclosingScrollView(of view: NSView) -> NSScrollView? {
-        if let direct = view.enclosingScrollView { return direct }
-        var node: NSView? = view
-        while let current = node {
-            if let scrollView = current as? NSScrollView { return scrollView }
-            for sibling in current.superview?.subviews ?? [] {
-                if let scrollView = scrollView(inSubtreeOf: sibling) { return scrollView }
+    /// Among every scroll view in the window, pick the smallest one that covers
+    /// most of this probe — that is the list/scroll view we are layered behind.
+    private func targetScrollView() -> NSScrollView? {
+        guard let contentView = window?.contentView else { return nil }
+        let probe = convert(bounds, to: nil)
+        let probeArea = probe.width * probe.height
+        guard probeArea > 1 else { return nil }
+
+        var best: NSScrollView?
+        var bestArea = CGFloat.greatestFiniteMagnitude
+        var stack: [NSView] = [contentView]
+        while let view = stack.popLast() {
+            stack.append(contentsOf: view.subviews)
+            guard let scrollView = view as? NSScrollView else { continue }
+            let frame = scrollView.convert(scrollView.bounds, to: nil)
+            let overlap = frame.intersection(probe)
+            guard overlap.width * overlap.height >= probeArea * 0.6 else { continue }
+            let area = frame.width * frame.height
+            if area < bestArea {
+                bestArea = area
+                best = scrollView
             }
-            node = current.superview
         }
-        return nil
-    }
-
-    private func scrollView(inSubtreeOf view: NSView) -> NSScrollView? {
-        if let scrollView = view as? NSScrollView { return scrollView }
-        for subview in view.subviews {
-            if let found = scrollView(inSubtreeOf: subview) { return found }
-        }
-        return nil
+        return best
     }
 }
 
