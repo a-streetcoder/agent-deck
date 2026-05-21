@@ -364,9 +364,10 @@ struct ContentView: View {
         .sheet(item: $envDraft) { draft in
             EnvEditorSheet(
                 draft: draft,
+                projectRoot: viewModel.selectedProjectPath,
                 onCancel: { envDraft = nil },
-                onSave: { updated in
-                    try viewModel.saveEnvDraft(updated)
+                onSave: { drafts in
+                    try viewModel.saveEnvDrafts(drafts)
                     envDraft = nil
                 }
             )
@@ -784,17 +785,17 @@ struct ContentView: View {
                 }
                 .toolbarNeutralChrome()
 
-                if viewModel.selectedProjectPath == nil {
-                    Button {
-                        envDraft = viewModel.makeNewEnvDraft(scope: .global)
-                    } label: {
-                        Label("New Key", systemImage: "plus")
-                    }
-                    .toolbarPrimaryActionChrome()
-                    .help("Create a global environment key")
-                } else {
-                    newEnvKeyScopedMenu
+                Button {
+                    // The sheet itself carries the scope picker now — open it
+                    // defaulting to Project when one is selected, else Global.
+                    let scope: AgentEditingTarget.CustomAgentScope =
+                        viewModel.selectedProjectPath == nil ? .global : .project
+                    envDraft = viewModel.makeNewEnvDraft(scope: scope)
+                } label: {
+                    Label("New Key", systemImage: "plus")
                 }
+                .toolbarPrimaryActionChrome()
+                .help("Add one or more environment keys")
             }
         }
     }
@@ -823,22 +824,6 @@ struct ContentView: View {
                 .help("Refresh models")
             }
         }
-    }
-
-    private var newEnvKeyScopedMenu: some View {
-        Menu {
-            Button("Project .pi/.env") {
-                envDraft = viewModel.makeNewEnvDraft(scope: .project)
-            }
-            Button("Global ~/.pi/agent/.env") {
-                envDraft = viewModel.makeNewEnvDraft(scope: .global)
-            }
-        } label: {
-            Label("New Key", systemImage: "plus")
-        }
-        .menuIndicator(.hidden)
-        .toolbarPrimaryActionChrome()
-        .help("Choose where to store the new environment key")
     }
 
     @ToolbarContentBuilder

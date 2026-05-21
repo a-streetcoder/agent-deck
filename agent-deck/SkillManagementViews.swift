@@ -93,6 +93,7 @@ struct SkillsScreen: View {
     @State private var skillPendingRename: SkillRecord?
     @State private var hoveredSkillID: SkillRecord.ID?
     @State private var skillEditTarget: MarkdownFileEditTarget?
+    @State private var newSkillDraft: NewSkillDraft?
 
     var body: some View {
         HSplitView {
@@ -141,6 +142,15 @@ struct SkillsScreen: View {
                 if target.isNew {
                     viewModel.selectedSkillID = viewModel.allVisibleSkillRecords.first { $0.filePath == target.path }?.id ?? viewModel.selectedSkillID
                 }
+            }
+        }
+        .sheet(item: $newSkillDraft) { draft in
+            NewSkillEditorSheet(draft: draft, destinationPath: viewModel.newLibrarySkillPath(for: draft.name.isEmpty ? "skill-name" : draft.name)) { savedDraft in
+                try viewModel.saveNewLibrarySkill(savedDraft)
+                let savedPath = viewModel.newLibrarySkillPath(for: savedDraft.name)
+                viewModel.refreshVisibleStateImmediately(scanAllProjects: true)
+                viewModel.refresh(includeModels: false, scanAllProjects: true)
+                viewModel.selectedSkillID = viewModel.allVisibleSkillRecords.first { $0.filePath == savedPath }?.id ?? viewModel.selectedSkillID
             }
         }
         .sheet(item: $skillPendingRename) { skill in
@@ -1022,8 +1032,6 @@ struct SkillsScreen: View {
                         }
                     }
                 }
-
-                Spacer(minLength: 0)
             }
             .padding(18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1046,7 +1054,7 @@ struct SkillsScreen: View {
             }
             .padding(16)
         }
-        .frame(minWidth: 760, minHeight: 680)
+        .frame(width: 760, height: 740)
         .task(id: shouldPromptForImportSource) {
             guard shouldPromptForImportSource else { return }
             shouldPromptForImportSource = false
@@ -1168,7 +1176,6 @@ struct SkillsScreen: View {
                     }
                 }
             }
-            .frame(minHeight: 280)
         }
     }
 
@@ -1181,13 +1188,7 @@ struct SkillsScreen: View {
     }
 
     private func createNewSkill() {
-        let draft = viewModel.newLibrarySkillDraft()
-        skillEditTarget = MarkdownFileEditTarget(
-            title: "New Skill",
-            path: draft.path,
-            note: "Edit this skill's SKILL.md, then save to add it to your library. Cancelling discards it.",
-            seedContent: draft.seedContent
-        )
+        newSkillDraft = viewModel.makeNewLibrarySkillDraft()
     }
 
     private func beginSkillImport() {

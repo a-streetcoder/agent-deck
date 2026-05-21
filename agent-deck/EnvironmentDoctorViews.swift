@@ -280,9 +280,10 @@ struct DoctorScreen: View {
         .sheet(item: $envDraft) { draft in
             EnvEditorSheet(
                 draft: draft,
+                projectRoot: viewModel.selectedProjectPath,
                 onCancel: { envDraft = nil },
-                onSave: { updated in
-                    try viewModel.saveEnvDraft(updated)
+                onSave: { drafts in
+                    try viewModel.saveEnvDrafts(drafts)
                     envDraft = nil
                     Task { await refreshSetupChecks() }
                 }

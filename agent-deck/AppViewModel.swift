@@ -4796,6 +4796,48 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    func makeNewLibrarySkillDraft() -> NewSkillDraft {
+        .init(
+            name: nextAvailableSkillName(),
+            description: "",
+            body: "Document the skill instructions here."
+        )
+    }
+
+    func newLibrarySkillPath(for name: String) -> String {
+        let skillsRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true)
+        return skillsRoot
+            .appendingPathComponent(name, isDirectory: true)
+            .appendingPathComponent("SKILL.md")
+            .path
+    }
+
+    func saveNewLibrarySkill(_ draft: NewSkillDraft) throws {
+        let name = try validateNewSkillName(draft.name)
+        let description = draft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !description.isEmpty else {
+            throw ResourceRenameError.invalidName("Description cannot be empty.")
+        }
+
+        let body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Document the skill instructions here."
+            : draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = """
+        ---
+        name: \(name)
+        description: \(description)
+        ---
+
+        # \(name)
+
+        \(body)
+        """
+
+        let fileURL = URL(fileURLWithPath: newLibrarySkillPath(for: name))
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
     /// Computes the path and seed content for a brand-new library skill
     /// (`~/.pi/agent/skills/<name>/SKILL.md`) without touching the disk. The
     /// folder and `SKILL.md` are written only when the user saves the editor
@@ -4804,12 +4846,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func newLibrarySkillDraft() -> (path: String, seedContent: String) {
         let fileManager = FileManager.default
         let skillsRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true)
-        var candidate = "new-skill"
-        var index = 2
-        while fileManager.fileExists(atPath: skillsRoot.appendingPathComponent(candidate, isDirectory: true).path) {
-            candidate = "new-skill-\(index)"
-            index += 1
-        }
+        let candidate = nextAvailableSkillName()
         let url = skillsRoot
             .appendingPathComponent(candidate, isDirectory: true)
             .appendingPathComponent("SKILL.md")
@@ -4824,6 +4861,32 @@ final class AppViewModel: NSObject, ObservableObject {
         Document the skill instructions here.
         """
         return (url.path, text)
+    }
+
+    private func nextAvailableSkillName() -> String {
+        let fileManager = FileManager.default
+        let skillsRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true)
+        var candidate = "new-skill"
+        var index = 2
+        while fileManager.fileExists(atPath: skillsRoot.appendingPathComponent(candidate, isDirectory: true).path) {
+            candidate = "new-skill-\(index)"
+            index += 1
+        }
+        return candidate
+    }
+
+    private func validateNewSkillName(_ requestedName: String) throws -> String {
+        let name = try ResourceRenameSupport.normalizedName(requestedName)
+        let pattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+        guard name.wholeMatch(of: pattern) != nil else {
+            throw ResourceRenameError.invalidName("Skill name must use lowercase letters, numbers, and single hyphens only.")
+        }
+
+        let fileURL = URL(fileURLWithPath: newLibrarySkillPath(for: name))
+        guard !FileManager.default.fileExists(atPath: fileURL.deletingLastPathComponent().path) else {
+            throw ResourceRenameError.destinationExists(fileURL.deletingLastPathComponent().path)
+        }
+        return name
     }
 
     /// The skills import folder to reuse without prompting — the configured
@@ -5481,9 +5544,24 @@ final class AppViewModel: NSObject, ObservableObject {
         envPersistence.makeNewDraft(scope: scope, projectRoot: selectedProjectPath, prefilledKey: prefilledKey)
     }
 
-    func saveEnvDraft(_ draft: EnvEditorDraft) throws {
-        try envPersistence.save(draft)
-        refreshAfterFileScopedChange(sourceKind: draft.scope, filePath: draft.path)
+    func saveEnvDrafts(_ drafts: [EnvEditorDraft]) throws {
+        guard !drafts.isEmpty else { return }
+        // A batch may target both the project and the global file, so refresh
+        // every distinct destination once. Recording inside the loop and
+        // refreshing in `defer` keeps refreshes running for files already
+        // written even if a later save throws.
+        var written: [(scope: ResourceScopeKind, path: String)] = []
+        defer {
+            for file in written {
+                refreshAfterFileScopedChange(sourceKind: file.scope, filePath: file.path)
+            }
+        }
+        for draft in drafts {
+            try envPersistence.save(draft)
+            if !written.contains(where: { $0.path == draft.path }) {
+                written.append((draft.scope, draft.path))
+            }
+        }
     }
 
     func deleteEnvKey(_ record: EnvKeyRecord) throws {

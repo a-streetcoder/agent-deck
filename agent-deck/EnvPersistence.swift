@@ -14,20 +14,29 @@ struct EnvPersistence {
     }
 
     func makeNewDraft(scope: AgentEditingTarget.CustomAgentScope, projectRoot: String?, prefilledKey: String? = nil) -> EnvEditorDraft {
-        let path = switch scope {
-        case .library, .global:
-            fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/.env").path
-        case .project:
-            URL(fileURLWithPath: projectRoot ?? "").appendingPathComponent(".pi/.env").path
-        }
-
+        let scopeKind: ResourceScopeKind = scope == .project ? .project : .global
         return EnvEditorDraft(
             originalKey: nil,
-            key: prefilledKey ?? "NEW_KEY",
+            key: prefilledKey ?? "",
             value: "",
-            path: path,
-            scope: scope == .project ? .project : .global
+            path: Self.envFilePath(scope: scopeKind, projectRoot: projectRoot),
+            scope: scopeKind
         )
+    }
+
+    /// Absolute path of the `.env` file backing a given scope. `project` resolves
+    /// to `<projectRoot>/.pi/.env`; every other scope resolves to the shared
+    /// `~/.pi/agent/.env`. Exposed statically so the editor sheet can retarget a
+    /// new key live when the user flips the scope picker.
+    static func envFilePath(scope: ResourceScopeKind, projectRoot: String?) -> String {
+        switch scope {
+        case .project:
+            return URL(fileURLWithPath: projectRoot ?? "")
+                .appendingPathComponent(".pi/.env").path
+        default:
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".pi/agent/.env").path
+        }
     }
 
     func save(_ draft: EnvEditorDraft) throws {

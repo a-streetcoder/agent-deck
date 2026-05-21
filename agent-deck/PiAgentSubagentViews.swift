@@ -789,7 +789,7 @@ struct PiNativeSubagentGraphSheet: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(width: 760, height: 620)
     }
 
     private func graphChildCard(_ child: PiSubagentChildRecord) -> some View {

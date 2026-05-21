@@ -1,48 +1,312 @@
 import AppKit
 import SwiftUI
 
+/// One editable key/value pair in `EnvEditorSheet`. The `id` keeps SwiftUI's
+/// `ForEach` stable while rows are added and removed; `isGlobal` routes a new
+/// key to the global `.env` file instead of the project one.
+private struct EnvKeyEntry: Identifiable, Equatable {
+    let id = UUID()
+    var key: String = ""
+    var value: String = ""
+    var isGlobal: Bool = false
+}
+
+/// Editor for environment keys. Creates one or more keys — each routed to the
+/// project or global `.env` file with its own toggle — or edits a single
+/// existing key. Follows the shared modal-sheet chrome (compact `.headline`
+/// header, dividers, Cancel/Save footer) and surfaces problems as an inline
+/// footer error instead of only beeping.
 struct EnvEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State var draft: EnvEditorDraft
+
+    let draft: EnvEditorDraft
+    /// Root of the active project, or `nil` when none is selected. With no
+    /// project open every new key is global and the per-row toggle is hidden.
+    let projectRoot: String?
     let onCancel: () -> Void
-    let onSave: (EnvEditorDraft) throws -> Void
+    /// Persists every draft the sheet produces — several when creating keys, a
+    /// single one when editing. Throwing surfaces as an inline footer error.
+    let onSave: ([EnvEditorDraft]) throws -> Void
+
+    @State private var entries: [EnvKeyEntry]
+    @State private var errorMessage: String?
+
+    init(
+        draft: EnvEditorDraft,
+        projectRoot: String?,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping ([EnvEditorDraft]) throws -> Void
+    ) {
+        self.draft = draft
+        self.projectRoot = projectRoot
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _entries = State(initialValue: [
+            EnvKeyEntry(key: draft.key, value: draft.value, isGlobal: draft.scope == .global)
+        ])
+    }
+
+    private var isNew: Bool { draft.originalKey == nil }
+    private let keyColumnWidth: CGFloat = 200
+    private let scopeColumnWidth: CGFloat = 56
+    private let removeColumnWidth: CGFloat = 22
+
+    /// The per-row Global toggle is only meaningful when creating keys with a
+    /// project open — otherwise every key is global and the column is hidden.
+    private var showsScopeColumn: Bool { isNew && projectRoot != nil }
+
+    private var globalEnvPath: String {
+        EnvPersistence.envFilePath(scope: .global, projectRoot: projectRoot)
+    }
+
+    private var projectEnvPath: String {
+        EnvPersistence.envFilePath(scope: .project, projectRoot: projectRoot)
+    }
+
+    private var canSave: Bool {
+        entries.contains { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private func abbreviate(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(draft.originalKey == nil ? "New Environment Key" : "Edit Environment Key")
-                .font(.title2.bold())
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            content
+            Divider()
+            footer
+        }
+        .frame(width: 600)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(isNew ? "New Environment Key" : "Edit Environment Key")
+                .font(.headline)
                 .fontWidth(.expanded)
-
-            Form {
-                Section("Key") {
-                    TextField("Key", text: $draft.key)
-                    TextField("Value", text: $draft.value)
-                    TextField("Path", text: .constant(draft.path))
-                        .disabled(true)
-                }
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    onCancel()
-                    dismiss()
-                }
-                Button("Save") {
-                    do {
-                        draft.key = draft.key.trimmingCharacters(in: .whitespacesAndNewlines)
-                        try onSave(draft)
-                        dismiss()
-                    } catch {
-                        NSSound.beep()
-                    }
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(draft.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if !isNew {
+                Text(abbreviate(draft.path))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
-        .padding(20)
-        .frame(minWidth: 620, minHeight: 240)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                columnHeaders
+                ForEach($entries) { $entry in
+                    keyRow($entry)
+                }
+            }
+
+            if isNew {
+                Button {
+                    entries.append(EnvKeyEntry())
+                } label: {
+                    Label("Add another key", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+
+                scopeLegend
+            }
+        }
+        .padding(18)
+        .onChange(of: entries) { _, _ in errorMessage = nil }
+    }
+
+    private var columnHeaders: some View {
+        HStack(spacing: 10) {
+            Text("Key")
+                .frame(width: keyColumnWidth, alignment: .leading)
+            Text("Value")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if showsScopeColumn {
+                Text("Global")
+                    .frame(width: scopeColumnWidth)
+            }
+            if isNew {
+                Color.clear.frame(width: removeColumnWidth, height: 1)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(AppTheme.mutedText)
+    }
+
+    @ViewBuilder
+    private func keyRow(_ entry: Binding<EnvKeyEntry>) -> some View {
+        HStack(spacing: 10) {
+            TextField("", text: entry.key)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: keyColumnWidth)
+            TextField("", text: entry.value)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+            if showsScopeColumn {
+                Toggle("", isOn: entry.isGlobal)
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .frame(width: scopeColumnWidth)
+                    .help("Store this key in the global ~/.pi/agent/.env file instead of the project's .pi/.env")
+            }
+            if isNew {
+                Button {
+                    entries.removeAll { $0.id == entry.wrappedValue.id }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .frame(width: removeColumnWidth)
+                .disabled(entries.count == 1)
+                .opacity(entries.count == 1 ? 0.3 : 1)
+                .help("Remove this key")
+            }
+        }
+    }
+
+    /// Maps the per-row Global toggle to concrete files so it's clear where
+    /// checked and unchecked keys are written.
+    private var scopeLegend: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if showsScopeColumn {
+                legendRow("Project", projectEnvPath)
+                legendRow("Global", globalEnvPath)
+            } else {
+                legendRow("Global", globalEnvPath)
+            }
+        }
+    }
+
+    private func legendRow(_ label: String, _ path: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(width: 50, alignment: .leading)
+            Text(abbreviate(path))
+                .font(.caption2.monospaced())
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button("Cancel") {
+                onCancel()
+                dismiss()
+            }
+            Button("Save") { save() }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canSave)
+        }
+        .padding(16)
+    }
+
+    private func save() {
+        errorMessage = nil
+        let drafts: [EnvEditorDraft]
+        do {
+            drafts = try buildDrafts()
+        } catch let error as ValidationError {
+            errorMessage = error.message
+            NSSound.beep()
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+            NSSound.beep()
+            return
+        }
+        do {
+            try onSave(drafts)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            NSSound.beep()
+        }
+    }
+
+    /// Validates the rows and turns them into drafts ready to persist. Throws a
+    /// `ValidationError` carrying a user-facing message on the first problem.
+    private func buildDrafts() throws -> [EnvEditorDraft] {
+        let cleaned = entries.map {
+            (
+                key: $0.key.trimmingCharacters(in: .whitespacesAndNewlines),
+                value: $0.value,
+                isGlobal: $0.isGlobal
+            )
+        }
+        // When creating, an untouched blank row is simply ignored; an edit keeps
+        // its single row so a cleared-out key still fails validation loudly.
+        let rows = isNew ? cleaned.filter { !($0.key.isEmpty && $0.value.isEmpty) } : cleaned
+
+        guard !rows.isEmpty else {
+            throw ValidationError("Enter a key name before saving.")
+        }
+
+        // A duplicate key is only a conflict within the same file — the same
+        // name in the project and global files is allowed.
+        var seenPerFile: [String: Set<String>] = [:]
+        return try rows.map { row in
+            guard !row.key.isEmpty else {
+                throw ValidationError("Every key needs a name.")
+            }
+            guard isValidEnvKey(row.key) else {
+                throw ValidationError("“\(row.key)” isn’t a valid key name — use letters, numbers, and underscores, and don’t start with a number.")
+            }
+
+            // An edit stays in the file its key already lives in; a new key
+            // follows its own Global toggle (always global with no project).
+            let scope: ResourceScopeKind
+            let path: String
+            if isNew {
+                scope = (row.isGlobal || projectRoot == nil) ? .global : .project
+                path = EnvPersistence.envFilePath(scope: scope, projectRoot: projectRoot)
+            } else {
+                scope = draft.scope
+                path = draft.path
+            }
+
+            guard seenPerFile[path, default: []].insert(row.key).inserted else {
+                throw ValidationError("“\(row.key)” is listed more than once.")
+            }
+            return EnvEditorDraft(
+                originalKey: draft.originalKey,
+                key: row.key,
+                value: row.value,
+                path: path,
+                scope: scope
+            )
+        }
+    }
+
+    private func isValidEnvKey(_ key: String) -> Bool {
+        key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+    }
+
+    private struct ValidationError: Error {
+        let message: String
+        init(_ message: String) { self.message = message }
     }
 }
 
@@ -172,6 +436,194 @@ struct MarkdownFileEditorSheet: View {
             errorMessage = "Could not save: \(error.localizedDescription)"
             NSSound.beep()
         }
+    }
+}
+
+struct NewSkillDraft: Identifiable {
+    var name: String
+    var description: String
+    var body: String
+
+    var id: String { name }
+}
+
+struct NewSkillEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var draft: NewSkillDraft
+    @State private var errorMessage: String?
+
+    let destinationPath: String
+    let onSave: (NewSkillDraft) throws -> Void
+
+    init(draft: NewSkillDraft, destinationPath: String, onSave: @escaping (NewSkillDraft) throws -> Void) {
+        _draft = State(initialValue: draft)
+        self.destinationPath = destinationPath
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("New Skill")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Text(destinationDisplayPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("Create the skill folder, frontmatter, and `SKILL.md` from these fields when you save.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(18)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Form {
+                        Section("Identity") {
+                            TextField("Skill name", text: nameBinding, prompt: Text("macos-development"))
+                            Text("Use a lowercase slug with letters, numbers, and hyphens. This becomes the folder name and frontmatter `name`.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.mutedText)
+
+                            TextField("Description", text: $draft.description, axis: .vertical)
+                                .lineLimit(2...4)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Instructions")
+                            .font(.headline)
+                            .fontWidth(.expanded)
+                        Text("The body of `SKILL.md`. A `# \(draft.name.isEmpty ? "skill-name" : draft.name)` heading is added automatically above it.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+
+                        TextEditor(text: $draft.body)
+                            .font(.system(.body, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 260)
+                            .padding(10)
+                            .background(AppTheme.contentFill)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(AppTheme.contentStroke, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Preview")
+                            .font(.headline)
+                            .fontWidth(.expanded)
+
+                        previewBlock
+                    }
+                }
+                .padding(18)
+            }
+
+            Divider()
+
+            HStack {
+                if let errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") { save() }
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
+            }
+            .padding(16)
+        }
+        .frame(width: 760, height: 640)
+    }
+
+    private var destinationDisplayPath: String {
+        (destinationPath as NSString).abbreviatingWithTildeInPath
+    }
+
+    private var canSave: Bool {
+        !draft.name.isEmpty && !draft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { draft.name },
+            set: { draft.name = Self.sanitizedSkillName($0) }
+        )
+    }
+
+    @ViewBuilder
+    private var previewBlock: some View {
+        let preview = """
+        ---
+        name: \(draft.name.isEmpty ? "skill-name" : draft.name)
+        description: \(draft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Describe what this skill does and when Pi should use it." : draft.description.trimmingCharacters(in: .whitespacesAndNewlines))
+        ---
+
+        # \(draft.name.isEmpty ? "skill-name" : draft.name)
+
+        \(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Document the skill instructions here." : draft.body.trimmingCharacters(in: .whitespacesAndNewlines))
+        """
+
+        Text(preview)
+            .font(.system(.caption, design: .monospaced))
+            .textSelection(.enabled)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.contentFill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(AppTheme.contentStroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func save() {
+        do {
+            draft.description = draft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            try onSave(draft)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            NSSound.beep()
+        }
+    }
+
+    private static func sanitizedSkillName(_ rawValue: String) -> String {
+        let lowercased = rawValue.lowercased()
+        var result = ""
+        var lastWasHyphen = false
+
+        for scalar in lowercased.unicodeScalars {
+            switch scalar {
+            case "a"..."z", "0"..."9":
+                result.unicodeScalars.append(scalar)
+                lastWasHyphen = false
+            case "-", "_", " ":
+                if !result.isEmpty, !lastWasHyphen {
+                    result.append("-")
+                    lastWasHyphen = true
+                }
+            default:
+                continue
+            }
+        }
+
+        while result.hasPrefix("-") { result.removeFirst() }
+        while result.hasSuffix("-") { result.removeLast() }
+        return result
     }
 }
 
@@ -409,7 +861,7 @@ struct AgentEditorSheet: View {
             }
             .padding(16)
         }
-        .frame(minWidth: 720, minHeight: 720)
+        .frame(width: 720, height: 720)
     }
 
     private var editorTitle: String {

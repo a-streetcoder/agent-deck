@@ -465,7 +465,7 @@ private struct PiPromptPreviewSheet: View {
                 .padding(18)
             }
         }
-        .frame(minWidth: 760, minHeight: 620)
+        .frame(width: 760, height: 620)
     }
 
     private var metadataLine: String {
