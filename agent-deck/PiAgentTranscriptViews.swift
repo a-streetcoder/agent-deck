@@ -250,6 +250,15 @@ struct PiAgentTranscriptThread: Identifiable, Hashable {
                     let normalized = arrival.entry.title == "Compaction"
                         ? normalizedCompaction(arrival.entry)
                         : arrival.entry
+                    // Collapse a consecutive run of Pi auto-retry statuses into one row.
+                    // Pi emits a "Retry" status per attempt plus a final auto_retry_end;
+                    // only the last is kept — it carries the full outcome. Keyed on the
+                    // Pi retry envelope, so this holds for every model provider.
+                    if normalized.title == "Retry",
+                       case .status(let previous)? = children.last,
+                       previous.title == "Retry" {
+                        children.removeLast()
+                    }
                     children.append(.status(normalized))
                 case .error:
                     flushGroup()
@@ -1670,7 +1679,9 @@ struct PiAgentStatusTranscriptRow: View {
     }
 
     var body: some View {
-        if entry.title == "Compaction" {
+        if let retry = ProviderRetryInfo(entry: entry) {
+            PiAgentRetryCard(info: retry, timestamp: entry.timestamp)
+        } else if entry.title == "Compaction" {
             compactionDivider
         } else {
             compactStatusRow
@@ -2538,7 +2549,6 @@ struct PiAgentTranscriptCard: View {
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
     @State private var isThinkingExpanded = true
-    @Environment(\.colorScheme) private var colorScheme
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -2686,7 +2696,7 @@ struct PiAgentTranscriptCard: View {
     private var roleBase: Color {
         switch entry.role {
         case .user: return AppTheme.roleUser
-        case .assistant: return AppTheme.piLogo
+        case .assistant: return AppTheme.brandAccent
         case .thinking: return AppTheme.roleThinking
         case .tool: return AppTheme.roleTool
         case .error: return AppTheme.roleError
@@ -2695,12 +2705,11 @@ struct PiAgentTranscriptCard: View {
         }
     }
 
-    /// Assistant, status, and raw cards sit on the neutral surface rather than a
-    /// tinted role color — the assistant is the calm conversational baseline;
-    /// status and raw are informational. The tinted cards are user / thinking /
-    /// tool / error / stderr.
+    /// Status and raw cards sit on the neutral surface rather than a tinted role
+    /// color — they are informational. Every other role (user / assistant /
+    /// thinking / tool / error / stderr) takes its role base tint.
     private var usesNeutralSurface: Bool {
-        entry.role == .assistant || entry.role == .status || entry.role == .raw
+        entry.role == .status || entry.role == .raw
     }
 
     private var headerColor: Color {
@@ -2708,12 +2717,9 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var backgroundStyle: AnyShapeStyle {
-        // Dark mode: the Pi reply bubble takes a brand-accent tint so it reads
-        // as conversation, not another neutral tool/diff card it blends into.
-        // Light mode keeps the neutral surface — the cards stay distinct there.
-        if entry.role == .assistant, colorScheme == .dark {
-            return AnyShapeStyle(AppTheme.brandAccent.opacity(AppTheme.roleFillOpacity).gradient)
-        }
+        // The Pi reply bubble takes a brand-accent tint through the same
+        // role-base path as the user bubble, so it reads as conversation rather
+        // than another neutral tool/diff card — light and dark alike.
         if usesNeutralSurface {
             return AnyShapeStyle(AppTheme.contentSubtleFill.opacity(0.7).gradient)
         }
@@ -2722,9 +2728,6 @@ struct PiAgentTranscriptCard: View {
     }
 
     private var strokeColor: Color {
-        if entry.role == .assistant, colorScheme == .dark {
-            return AppTheme.brandAccent.opacity(AppTheme.roleStrokeOpacity)
-        }
         return usesNeutralSurface
             ? AppTheme.contentStroke
             : roleBase.opacity(AppTheme.roleStrokeOpacity)

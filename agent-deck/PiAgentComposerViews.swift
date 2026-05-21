@@ -80,6 +80,7 @@ struct PiAgentComposerBox: View {
     let onCreateSession: () -> Void
     let onCreateSessionForProject: (DiscoveredProject) -> Void
     let onClear: () -> Void
+    var suggestionKeyBridge: ComposerSuggestionKeyBridge = ComposerSuggestionKeyBridge()
     @State private var isDropTargeted = false
     @State private var isIssuePickerPresented = false
 
@@ -135,7 +136,8 @@ struct PiAgentComposerBox: View {
                     onUnsupportedDrop: { attachmentError = "Drop images, files, or folders." },
                     onSend: onSend,
                     onClear: onClear,
-                    isDisabled: isDisabled
+                    isDisabled: isDisabled,
+                    suggestionKeyBridge: suggestionKeyBridge
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -401,6 +403,7 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     var onSend: () -> Void
     var onClear: () -> Void
     var isDisabled: Bool
+    var suggestionKeyBridge: ComposerSuggestionKeyBridge
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -508,6 +511,22 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
             guard !parent.isDisabled else { return }
             parent.onClear()
         }
+
+        func suggestionsActive() -> Bool {
+            parent.suggestionKeyBridge.isActive
+        }
+
+        func moveSuggestionHighlight(by delta: Int) {
+            parent.suggestionKeyBridge.onMove(delta)
+        }
+
+        func acceptSuggestionHighlight() -> Bool {
+            parent.suggestionKeyBridge.onAccept()
+        }
+
+        func dismissSuggestions() {
+            parent.suggestionKeyBridge.onDismiss()
+        }
     }
 }
 
@@ -522,6 +541,13 @@ protocol DropSafeNSTextViewDropHandler: AnyObject {
 protocol DropSafeNSTextViewKeyHandler: AnyObject {
     func send()
     func clear()
+    /// Whether the composer suggestion panel is currently shown. When true, the
+    /// text view routes arrows/Tab/Return/Escape to the suggestion handlers below.
+    func suggestionsActive() -> Bool
+    func moveSuggestionHighlight(by delta: Int)
+    /// Returns true if a highlighted suggestion was accepted (and the event consumed).
+    func acceptSuggestionHighlight() -> Bool
+    func dismissSuggestions()
 }
 
 @MainActor
@@ -568,6 +594,22 @@ final class DropSafeNSTextView: NSTextView {
         let characters = event.charactersIgnoringModifiers ?? ""
         let isReturn = characters == "\r" || characters == "\n"
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+
+        // While the suggestion panel is open, navigation keys drive the panel
+        // instead of the caret / send action.
+        if keyHandler?.suggestionsActive() == true {
+            switch event.keyCode {
+            case 126: keyHandler?.moveSuggestionHighlight(by: -1); return  // up arrow
+            case 125: keyHandler?.moveSuggestionHighlight(by: 1); return   // down arrow
+            case 53: keyHandler?.dismissSuggestions(); return              // escape
+            case 48: if keyHandler?.acceptSuggestionHighlight() == true { return }  // tab
+            default: break
+            }
+            if isReturn && modifiers.isEmpty, keyHandler?.acceptSuggestionHighlight() == true {
+                return
+            }
+        }
+
         if isReturn && modifiers.isEmpty {
             keyHandler?.send()
             return

@@ -1148,6 +1148,12 @@ struct PiAgentScreen: View {
     @ObservedObject var store: PiAgentSessionStore
     @Binding var sessionSearchText: String
     @State private var composerText = ""
+    @State private var composerSuggestionIndex = 0
+    @State private var composerSuggestionsDismissed = false
+    @State private var composerSuggestionScrollTick = 0
+    @State private var composerSuggestionHoverSuppressedUntil = Date.distantPast
+    @State private var fileSuggestionResults: [PiAgentFileSuggestion] = []
+    @State private var fileScanTask: Task<Void, Never>?
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var selectedSessionTitleDraft = ""
     @State private var renamingSessionID: UUID?
@@ -2321,7 +2327,21 @@ struct PiAgentScreen: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let isCompacting = store.selectedSession?.isCompacting == true
         let hasSelectedSession = store.selectedSession != nil
-        PiAgentComposerBox(
+        VStack(spacing: 6) {
+            if hasComposerSuggestions {
+                PiAgentCommandSuggestions(
+                    items: composerSuggestionItems,
+                    selectedIndex: composerSuggestionIndex,
+                    scrollTick: composerSuggestionScrollTick,
+                    onSelect: { item in insertComposerSuggestion(item.insertion) },
+                    onHover: { index in
+                        guard Date.now >= composerSuggestionHoverSuppressedUntil else { return }
+                        composerSuggestionIndex = index
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
+            }
+            PiAgentComposerBox(
                 text: $composerText,
                 pasteAttachments: $composerPasteAttachments,
                 nextPasteID: $nextComposerPasteID,
@@ -2345,30 +2365,22 @@ struct PiAgentScreen: View {
                 transcript: store.selectedTranscript,
                 supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
                 metricsSession: runtimeFooterSession(isRunning: isRunning),
-            onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
-            onStop: { viewModel.stopSelectedPiAgentSession() },
-            onCreateSession: createSessionFromComposer,
-            onCreateSessionForProject: createSessionFromComposer,
-            onClear: clearComposerInput
-        )
-        .popover(
-            isPresented: Binding(
-                get: { hasComposerSuggestions },
-                set: { _ in }
-            ),
-            attachmentAnchor: .point(UnitPoint(x: 0.04, y: 0.12)),
-            arrowEdge: .top
-        ) {
-            PiAgentCommandSuggestions(
-                commands: slashSuggestions,
-                skills: skillSlashSuggestions,
-                fileSuggestions: fileSuggestions,
-                onSelectFile: insertFileSuggestion,
-                onSelectCommand: insertSlashSuggestion
+                onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
+                onStop: { viewModel.stopSelectedPiAgentSession() },
+                onCreateSession: createSessionFromComposer,
+                onCreateSessionForProject: createSessionFromComposer,
+                onClear: clearComposerInput,
+                suggestionKeyBridge: composerSuggestionKeyBridge
             )
-            .padding(6)
         }
-        .zIndex(hasComposerSuggestions ? 20 : 0)
+        .animation(.easeOut(duration: 0.12), value: hasComposerSuggestions)
+        .onChange(of: composerText) { _, _ in
+            composerSuggestionIndex = 0
+            composerSuggestionsDismissed = false
+            composerSuggestionScrollTick += 1
+            composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
+            refreshFileSuggestions()
+        }
     }
 
     private var activeSuggestionToken: (token: String, range: Range<String.Index>)? {
@@ -2408,8 +2420,36 @@ struct PiAgentScreen: View {
         }
     }
 
+    private var composerSuggestionItems: [ComposerSuggestionItem] {
+        ComposerSuggestionItem.build(commands: slashSuggestions, skills: skillSlashSuggestions, files: fileSuggestions)
+    }
+
     private var hasComposerSuggestions: Bool {
-        !slashSuggestions.isEmpty || !skillSlashSuggestions.isEmpty || !fileSuggestions.isEmpty
+        !composerSuggestionsDismissed && !composerSuggestionItems.isEmpty
+    }
+
+    private var composerSuggestionKeyBridge: ComposerSuggestionKeyBridge {
+        ComposerSuggestionKeyBridge(
+            isActive: hasComposerSuggestions,
+            onMove: { delta in
+                let count = composerSuggestionItems.count
+                guard count > 0 else { return }
+                composerSuggestionIndex = min(max(composerSuggestionIndex + delta, 0), count - 1)
+                composerSuggestionScrollTick += 1
+                // Ignore hover briefly so the scroll sliding rows under a
+                // stationary pointer can't hijack the keyboard selection.
+                composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
+            },
+            onAccept: { acceptComposerSuggestion() },
+            onDismiss: { composerSuggestionsDismissed = true }
+        )
+    }
+
+    private func acceptComposerSuggestion() -> Bool {
+        let items = composerSuggestionItems
+        guard items.indices.contains(composerSuggestionIndex) else { return false }
+        insertComposerSuggestion(items[composerSuggestionIndex].insertion)
+        return true
     }
 
     private var slashSuggestions: [String] {
@@ -2476,17 +2516,35 @@ struct PiAgentScreen: View {
     }
 
     private var fileSuggestions: [PiAgentFileSuggestion] {
-        guard let session = store.selectedSession else { return [] }
-        guard case let .file(query) = composerSuggestionTrigger else { return [] }
-        return PiAgentFileSuggestion.scan(rootPath: session.worktreePath ?? session.projectPath, query: query)
+        guard case .file = composerSuggestionTrigger else { return [] }
+        return fileSuggestionResults
     }
 
-    private func insertFileSuggestion(_ suggestion: PiAgentFileSuggestion) {
-        replaceCurrentSuggestionToken(with: "@\(suggestion.relativePath)")
+    /// Re-scans `@`-file suggestions off the main thread, debounced. Called only
+    /// when the composer text changes — never on hover or arrow-key navigation —
+    /// so the filesystem walk never blocks typing or moving the highlight.
+    private func refreshFileSuggestions() {
+        fileScanTask?.cancel()
+        guard let session = store.selectedSession,
+              case let .file(query) = composerSuggestionTrigger else {
+            fileScanTask = nil
+            if !fileSuggestionResults.isEmpty { fileSuggestionResults = [] }
+            return
+        }
+        let rootPath = session.worktreePath ?? session.projectPath
+        fileScanTask = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            let results = await Task.detached(priority: .userInitiated) {
+                PiAgentFileSuggestion.scan(rootPath: rootPath, query: query)
+            }.value
+            guard !Task.isCancelled else { return }
+            fileSuggestionResults = results
+        }
     }
 
-    private func insertSlashSuggestion(_ command: String) {
-        replaceCurrentSuggestionToken(with: command)
+    private func insertComposerSuggestion(_ text: String) {
+        replaceCurrentSuggestionToken(with: text)
     }
 
     private var nativeSubagentRunsByID: [UUID: PiSubagentRunRecord] {
@@ -2861,6 +2919,12 @@ private struct PiAgentComposerPanel: View {
     let onDidSend: () -> Void
 
     @State private var composerText = ""
+    @State private var composerSuggestionIndex = 0
+    @State private var composerSuggestionsDismissed = false
+    @State private var composerSuggestionScrollTick = 0
+    @State private var composerSuggestionHoverSuppressedUntil = Date.distantPast
+    @State private var fileSuggestionResults: [PiAgentFileSuggestion] = []
+    @State private var fileScanTask: Task<Void, Never>?
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var composerPasteAttachments: [PiAgentPasteAttachment] = []
     @State private var nextComposerPasteID = 1
@@ -2882,51 +2946,60 @@ private struct PiAgentComposerPanel: View {
         let isCompacting = store.selectedSession?.isCompacting == true
         let hasSelectedSession = store.selectedSession != nil
 
-        PiAgentComposerBox(
-            text: $composerText,
-            pasteAttachments: $composerPasteAttachments,
-            nextPasteID: $nextComposerPasteID,
-            images: $composerImages,
-            files: $composerFiles,
-            folders: $composerFolders,
-            issueAttachment: $composerIssueAttachment,
-            attachmentError: $composerAttachmentError,
-            inputMode: $inputMode,
-            isRunning: isRunning,
-            isDisabled: isCompacting,
-            placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
-            canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil),
-            canCreateSession: !isCompacting && store.selectedSession == nil,
-            createSessionProjects: viewModel.selectedDiscoveredProject == nil ? piAgentNewSessionProjects : [],
-            path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-            onFiles: addFileAttachments,
-            onFolders: addFolderAttachments,
-            viewModel: viewModel,
-            footerSession: store.selectedSession,
-            transcript: store.selectedTranscript,
-            supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
-            metricsSession: runtimeFooterSession(isRunning: isRunning),
-            onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
-            onStop: { viewModel.stopSelectedPiAgentSession() },
-            onCreateSession: createSessionFromComposer,
-            onCreateSessionForProject: createSessionFromComposer,
-            onClear: clearComposerInput
-        )
-        .popover(
-            isPresented: Binding(get: { hasComposerSuggestions }, set: { _ in }),
-            attachmentAnchor: .point(UnitPoint(x: 0.04, y: 0.12)),
-            arrowEdge: .top
-        ) {
-            PiAgentCommandSuggestions(
-                commands: slashSuggestions,
-                skills: skillSlashSuggestions,
-                fileSuggestions: fileSuggestions,
-                onSelectFile: insertFileSuggestion,
-                onSelectCommand: insertSlashSuggestion
+        VStack(spacing: 6) {
+            if hasComposerSuggestions {
+                PiAgentCommandSuggestions(
+                    items: composerSuggestionItems,
+                    selectedIndex: composerSuggestionIndex,
+                    scrollTick: composerSuggestionScrollTick,
+                    onSelect: { item in insertComposerSuggestion(item.insertion) },
+                    onHover: { index in
+                        guard Date.now >= composerSuggestionHoverSuppressedUntil else { return }
+                        composerSuggestionIndex = index
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
+            }
+            PiAgentComposerBox(
+                text: $composerText,
+                pasteAttachments: $composerPasteAttachments,
+                nextPasteID: $nextComposerPasteID,
+                images: $composerImages,
+                files: $composerFiles,
+                folders: $composerFolders,
+                issueAttachment: $composerIssueAttachment,
+                attachmentError: $composerAttachmentError,
+                inputMode: $inputMode,
+                isRunning: isRunning,
+                isDisabled: isCompacting,
+                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix…")),
+                canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil),
+                canCreateSession: !isCompacting && store.selectedSession == nil,
+                createSessionProjects: viewModel.selectedDiscoveredProject == nil ? piAgentNewSessionProjects : [],
+                path: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
+                onFiles: addFileAttachments,
+                onFolders: addFolderAttachments,
+                viewModel: viewModel,
+                footerSession: store.selectedSession,
+                transcript: store.selectedTranscript,
+                supportedThinkingLevels: store.selectedSession.map(supportedThinkingLevels(for:)) ?? [],
+                metricsSession: runtimeFooterSession(isRunning: isRunning),
+                onSend: hasSelectedSession ? sendComposerMessage : createSessionFromComposer,
+                onStop: { viewModel.stopSelectedPiAgentSession() },
+                onCreateSession: createSessionFromComposer,
+                onCreateSessionForProject: createSessionFromComposer,
+                onClear: clearComposerInput,
+                suggestionKeyBridge: composerSuggestionKeyBridge
             )
-            .padding(6)
         }
-        .zIndex(hasComposerSuggestions ? 20 : 0)
+        .animation(.easeOut(duration: 0.12), value: hasComposerSuggestions)
+        .onChange(of: composerText) { _, _ in
+            composerSuggestionIndex = 0
+            composerSuggestionsDismissed = false
+            composerSuggestionScrollTick += 1
+            composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
+            refreshFileSuggestions()
+        }
         .onAppear {
             syncRuntimeFooterSnapshot()
             loadComposerDraft(for: store.selectedSession?.id)
@@ -2975,8 +3048,36 @@ private struct PiAgentComposerPanel: View {
         }
     }
 
+    private var composerSuggestionItems: [ComposerSuggestionItem] {
+        ComposerSuggestionItem.build(commands: slashSuggestions, skills: skillSlashSuggestions, files: fileSuggestions)
+    }
+
     private var hasComposerSuggestions: Bool {
-        !slashSuggestions.isEmpty || !skillSlashSuggestions.isEmpty || !fileSuggestions.isEmpty
+        !composerSuggestionsDismissed && !composerSuggestionItems.isEmpty
+    }
+
+    private var composerSuggestionKeyBridge: ComposerSuggestionKeyBridge {
+        ComposerSuggestionKeyBridge(
+            isActive: hasComposerSuggestions,
+            onMove: { delta in
+                let count = composerSuggestionItems.count
+                guard count > 0 else { return }
+                composerSuggestionIndex = min(max(composerSuggestionIndex + delta, 0), count - 1)
+                composerSuggestionScrollTick += 1
+                // Ignore hover briefly so the scroll sliding rows under a
+                // stationary pointer can't hijack the keyboard selection.
+                composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
+            },
+            onAccept: { acceptComposerSuggestion() },
+            onDismiss: { composerSuggestionsDismissed = true }
+        )
+    }
+
+    private func acceptComposerSuggestion() -> Bool {
+        let items = composerSuggestionItems
+        guard items.indices.contains(composerSuggestionIndex) else { return false }
+        insertComposerSuggestion(items[composerSuggestionIndex].insertion)
+        return true
     }
 
     private var slashSuggestions: [String] {
@@ -3032,17 +3133,35 @@ private struct PiAgentComposerPanel: View {
     }
 
     private var fileSuggestions: [PiAgentFileSuggestion] {
-        guard let session = store.selectedSession else { return [] }
-        guard case let .file(query) = composerSuggestionTrigger else { return [] }
-        return PiAgentFileSuggestion.scan(rootPath: session.worktreePath ?? session.projectPath, query: query)
+        guard case .file = composerSuggestionTrigger else { return [] }
+        return fileSuggestionResults
     }
 
-    private func insertFileSuggestion(_ suggestion: PiAgentFileSuggestion) {
-        replaceCurrentSuggestionToken(with: "@\(suggestion.relativePath)")
+    /// Re-scans `@`-file suggestions off the main thread, debounced. Called only
+    /// when the composer text changes — never on hover or arrow-key navigation —
+    /// so the filesystem walk never blocks typing or moving the highlight.
+    private func refreshFileSuggestions() {
+        fileScanTask?.cancel()
+        guard let session = store.selectedSession,
+              case let .file(query) = composerSuggestionTrigger else {
+            fileScanTask = nil
+            if !fileSuggestionResults.isEmpty { fileSuggestionResults = [] }
+            return
+        }
+        let rootPath = session.worktreePath ?? session.projectPath
+        fileScanTask = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            let results = await Task.detached(priority: .userInitiated) {
+                PiAgentFileSuggestion.scan(rootPath: rootPath, query: query)
+            }.value
+            guard !Task.isCancelled else { return }
+            fileSuggestionResults = results
+        }
     }
 
-    private func insertSlashSuggestion(_ command: String) {
-        replaceCurrentSuggestionToken(with: command)
+    private func insertComposerSuggestion(_ text: String) {
+        replaceCurrentSuggestionToken(with: text)
     }
 
     private func replaceCurrentSuggestionToken(with replacement: String) {

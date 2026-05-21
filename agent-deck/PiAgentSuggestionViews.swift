@@ -3,26 +3,59 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
-private extension View {
-    func suggestionBottomFade(height: CGFloat = 24) -> some View {
-        mask {
-            VStack(spacing: 0) {
-                Rectangle()
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black.opacity(0), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+/// One selectable row in the composer's `/`-command / `@`-file autocomplete.
+struct ComposerSuggestionItem: Identifiable, Equatable {
+    enum Kind: Equatable { case command, skill, file }
+
+    let id: String
+    let kind: Kind
+    let title: String
+    /// Text that replaces the active composer token when this item is accepted.
+    let insertion: String
+    let isDirectory: Bool
+
+    /// Builds the ordered, flat item list. Slash (`commands` + `skills`) and file
+    /// triggers are mutually exclusive, so at most one group is ever non-empty.
+    static func build(commands: [String], skills: [String], files: [PiAgentFileSuggestion]) -> [ComposerSuggestionItem] {
+        if !files.isEmpty {
+            return files.prefix(10).map { file in
+                ComposerSuggestionItem(
+                    id: "file:\(file.id)",
+                    kind: .file,
+                    title: file.relativePath,
+                    insertion: "@\(file.relativePath)",
+                    isDirectory: file.isDirectory
                 )
-                .frame(height: height)
             }
         }
+        var items: [ComposerSuggestionItem] = []
+        items += commands.map { command in
+            ComposerSuggestionItem(id: "command:\(command)", kind: .command, title: command, insertion: command, isDirectory: false)
+        }
+        items += skills.map { skill in
+            ComposerSuggestionItem(
+                id: "skill:\(skill)",
+                kind: .skill,
+                title: skill.replacingOccurrences(of: "/skill:", with: ""),
+                insertion: skill,
+                isDirectory: false
+            )
+        }
+        return items
     }
 }
 
-struct PiAgentFileSuggestion: Identifiable, Hashable {
+/// Bridges keyboard events from the composer's `NSTextView` to the suggestion
+/// panel. The text view stays first responder; these closures move the
+/// highlight, accept it, or dismiss the panel.
+struct ComposerSuggestionKeyBridge {
+    var isActive: Bool = false
+    var onMove: (Int) -> Void = { _ in }
+    var onAccept: () -> Bool = { false }
+    var onDismiss: () -> Void = {}
+}
+
+nonisolated struct PiAgentFileSuggestion: Identifiable, Hashable {
     private static let maxScanResults = 40
 
     let id: String
@@ -56,149 +89,136 @@ struct PiAgentFileSuggestion: Identifiable, Hashable {
     }
 }
 
+/// Inline command-palette dropdown rendered as a sibling directly above the
+/// composer (osaurus's `SlashCommandPopup` pattern) — no popover, no arrow, no
+/// overlay positioning. One flat scroll with a fixed, deterministic height.
 struct PiAgentCommandSuggestions: View {
-    let commands: [String]
-    let skills: [String]
-    let fileSuggestions: [PiAgentFileSuggestion]
-    let onSelectFile: (PiAgentFileSuggestion) -> Void
-    let onSelectCommand: (String) -> Void
+    let items: [ComposerSuggestionItem]
+    let selectedIndex: Int
+    /// Bumped only by keyboard navigation and typing — never by hover — so the
+    /// highlight is scrolled into view only on keyboard interaction.
+    let scrollTick: Int
+    let onSelect: (ComposerSuggestionItem) -> Void
+    let onHover: (Int) -> Void
 
-    private let maxPopoverHeight: CGFloat = 340
-    private let maxListHeight: CGFloat = 300
-    private let compactListHeight: CGFloat = 132
-    private let popoverWidth: CGFloat = 360
+    private let rowHeight: CGFloat = 32
+    private let headerHeight: CGFloat = 24
+    private let maxListHeight: CGFloat = 256
 
     var body: some View {
-        Group {
-            if !fileSuggestions.isEmpty {
-                suggestionPanel(
-                    title: fileSuggestions.count >= 10 ? "Files — showing top 10, keep typing to refine" : "Files",
-                    icon: "paperclip",
-                    maxHeight: maxListHeight,
-                    showsOverflowHint: fileSuggestions.prefix(10).count >= 8
-                ) {
-                    ForEach(fileSuggestions.prefix(10)) { suggestion in
-                        suggestionRow(action: { onSelectFile(suggestion) }) {
-                            Image(systemName: suggestion.isDirectory ? "folder" : "doc.text")
-                                .frame(width: 14)
-                            Text(suggestion.relativePath)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        if index == 0 || items[index - 1].kind != item.kind {
+                            sectionHeader(for: item.kind)
                         }
+                        row(item, index: index)
+                            .id(item.id)
                     }
                 }
-                .frame(width: popoverWidth, alignment: .leading)
-            } else if !commands.isEmpty || !skills.isEmpty {
-                slashSuggestionColumns
+                .padding(.vertical, 4)
             }
-        }
-        .frame(maxHeight: maxPopoverHeight, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private var slashSuggestionColumns: some View {
-        if !commands.isEmpty && !skills.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                suggestionPanel(title: "Commands", icon: "terminal", maxHeight: compactListHeight, showsOverflowHint: commands.count >= 4) {
-                    commandRows(commands)
-                }
-
-                Divider()
-                    .padding(.horizontal, 8)
-
-                suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: compactListHeight, showsOverflowHint: skills.count >= 4) {
-                    skillRows(skills)
+            .frame(height: listHeight)
+            .onChange(of: scrollTick) { _, _ in
+                guard items.indices.contains(selectedIndex) else { return }
+                withAnimation(.easeOut(duration: 0.1)) {
+                    // No anchor: scroll the minimum amount to reveal the row.
+                    // Already-visible rows don't move, so the list doesn't slide
+                    // under the pointer on every keypress.
+                    proxy.scrollTo(items[selectedIndex].id)
                 }
             }
-            .frame(width: popoverWidth, alignment: .topLeading)
-        } else if !commands.isEmpty {
-            suggestionPanel(title: "Commands", icon: "terminal", maxHeight: maxListHeight, showsOverflowHint: commands.count >= 8) {
-                commandRows(commands)
-            }
-            .frame(width: popoverWidth, alignment: .topLeading)
-        } else if !skills.isEmpty {
-            suggestionPanel(title: "Skills", icon: "sparkles", maxHeight: maxListHeight, showsOverflowHint: skills.count >= 8) {
-                skillRows(skills)
-            }
-            .frame(width: popoverWidth, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appGlassPanel(cornerRadius: 12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(AppTheme.contentStroke, lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 6)
     }
 
-    private func commandRows(_ items: [String]) -> some View {
-        ForEach(items, id: \.self) { command in
-            suggestionRow(action: { onSelectCommand(command) }) {
-                Text(command)
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+    /// Deterministic height — fixed row + header sizes, capped. No measurement,
+    /// no nested scrolls, so the content can never clip.
+    private var listHeight: CGFloat {
+        var sectionCount = 0
+        for (index, item) in items.enumerated() where index == 0 || items[index - 1].kind != item.kind {
+            sectionCount += 1
+        }
+        let content = CGFloat(items.count) * rowHeight + CGFloat(sectionCount) * headerHeight + 8
+        return min(content, maxListHeight)
+    }
+
+    private func sectionHeader(for kind: ComposerSuggestionItem.Kind) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: sectionIcon(kind))
+                .font(.system(size: 9, weight: .semibold))
+            Text(sectionTitle(kind))
+                .font(.caption2.weight(.semibold))
+            // File scans are capped at 10 results — surface the cap on the same
+            // row so the user knows to keep typing to narrow things down.
+            if kind == .file && items.count >= 10 {
+                Spacer(minLength: 8)
+                Text("showing top 10 — keep typing to refine")
+                    .font(.caption2.italic())
             }
         }
+        .foregroundStyle(AppTheme.mutedText)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: headerHeight, maxHeight: headerHeight, alignment: .leading)
     }
 
-    private func skillRows(_ items: [String]) -> some View {
-        ForEach(items, id: \.self) { command in
-            suggestionRow(action: { onSelectCommand(command) }) {
-                Text(command.replacingOccurrences(of: "/skill:", with: ""))
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-    }
-
-    private func suggestionSection(title: String, icon: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(.caption.monospaced().italic())
-            .fontWidth(.condensed)
-            .foregroundStyle(AppTheme.brandAccent)
-            .padding(.horizontal, 4)
-            .padding(.top, 2)
-            .padding(.bottom, 1)
-    }
-
-    private func suggestionRow<Content: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Content) -> some View {
-        Button(action: action) {
+    private func row(_ item: ComposerSuggestionItem, index: Int) -> some View {
+        let isSelected = index == selectedIndex
+        return Button {
+            onSelect(item)
+        } label: {
             HStack(spacing: 8) {
-                label()
+                Image(systemName: icon(for: item))
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
+                    .frame(width: 16)
+                Text(item.title)
+                    .font(.callout.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .padding(.horizontal, 10)
+            .frame(height: rowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? AppTheme.brandAccent.opacity(0.14) : Color.clear)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private func suggestionPanel<Content: View>(title: String? = nil, icon: String? = nil, maxHeight: CGFloat, showsOverflowHint: Bool, @ViewBuilder content: @escaping () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let title, let icon {
-                suggestionSection(title: title, icon: icon)
-            }
-            suggestionScroll(maxHeight: maxHeight, showsOverflowHint: showsOverflowHint, content: content)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-    }
-
-    @ViewBuilder
-    private func suggestionScroll<Content: View>(maxHeight: CGFloat, showsOverflowHint: Bool, @ViewBuilder content: @escaping () -> Content) -> some View {
-        let scrollView = ScrollView(showsIndicators: false) {
-            suggestionRows(content: content)
-        }
-        .frame(maxHeight: maxHeight)
-
-        if showsOverflowHint {
-            scrollView.suggestionBottomFade()
-        } else {
-            scrollView
+        .onHover { hovering in
+            if hovering { onHover(index) }
         }
     }
 
-    private func suggestionRows<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            content()
-                .font(.caption)
+    private func icon(for item: ComposerSuggestionItem) -> String {
+        switch item.kind {
+        case .command: return "terminal"
+        case .skill: return "sparkles"
+        case .file: return item.isDirectory ? "folder" : "doc.text"
+        }
+    }
+
+    private func sectionTitle(_ kind: ComposerSuggestionItem.Kind) -> String {
+        switch kind {
+        case .command: return "Commands"
+        case .skill: return "Skills"
+        case .file: return "Files"
+        }
+    }
+
+    private func sectionIcon(_ kind: ComposerSuggestionItem.Kind) -> String {
+        switch kind {
+        case .command: return "terminal"
+        case .skill: return "sparkles"
+        case .file: return "paperclip"
         }
     }
 }
