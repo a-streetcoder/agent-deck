@@ -68,7 +68,9 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
     @Published var selectedProjectPath: String?
     @Published var allProjectSnapshots: [String: ScanSnapshot] = [:]
-    @Published var availableModels: [AvailableModel] = []
+    @Published var availableModels: [AvailableModel] = [] {
+        didSet { rebuildAutomationModelCaches() }
+    }
     @Published var modelsLastUpdatedAt: Date?
     @Published private var piRuntimeSettingsRevision = 0
     private var cachedPiRuntimeSettingsObject: [String: Any]?
@@ -106,7 +108,9 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubIsRefreshingEverything = false
     @Published var githubLastError: String?
     @Published var githubLastStatusCheckAt: Date?
-    @Published var appSettings: AppSettings = AppSettings()
+    @Published var appSettings: AppSettings = AppSettings() {
+        didSet { rebuildAutomationModelCaches() }
+    }
     @Published private(set) var hasCompletedInitialRefresh = false
     @Published private(set) var cachedHasAgentWarnings = false
     @Published private(set) var cachedHasSkillWarnings = false
@@ -115,22 +119,20 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published private(set) var cachedPromptWarnings: [DiagnosticWarning] = []
     @Published private(set) var cachedSkillReferenceWarnings: [SkillReferenceWarning] = []
     @Published private(set) var cachedSkillVisibilityIssuesByAgentID: [String: [AgentSkillVisibilityIssue]] = [:]
+    // Automation-model lookup is cached. `FoundationModelAutomationService`
+    // queries Apple's Foundation Models availability API, and the Pi Agent
+    // toolbar reads `automationAvailableModels` on every `ContentView.body`
+    // eval (i.e. once per streaming token). The result only changes at real
+    // boundaries — see `rebuildAutomationModelCaches()`.
+    @Published private(set) var cachedFoundationAutomationModel: AvailableModel?
+    @Published private(set) var cachedAutomationAvailableModels: [AvailableModel] = []
     var enabledAvailableModels: [AvailableModel] {
         availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
     }
 
-    var foundationAutomationModel: AvailableModel? {
-        FoundationModelAutomationService.availableModel()
-    }
+    var foundationAutomationModel: AvailableModel? { cachedFoundationAutomationModel }
 
-    var automationAvailableModels: [AvailableModel] {
-        var models = enabledAvailableModels
-        if let foundationAutomationModel,
-           !models.contains(where: { $0.identifier == foundationAutomationModel.identifier }) {
-            models.insert(foundationAutomationModel, at: 0)
-        }
-        return models
-    }
+    var automationAvailableModels: [AvailableModel] { cachedAutomationAvailableModels }
     @Published var isPiAgentInspectorPresented = false
     @Published var showPiAgentAttentionOnly = false
     @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
@@ -3823,6 +3825,9 @@ final class AppViewModel: NSObject, ObservableObject {
     @objc private func handleAppDidBecomeActiveNotification(_ notification: Notification) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Re-sample Foundation Model availability — it may have changed
+            // (model finished downloading) while the app was inactive.
+            self.rebuildAutomationModelCaches()
             self.startAutoRefresh()
             self.refreshIfWatchedFilesChanged()
             self.acknowledgeVisibleSelectedPiAgentSession()
@@ -4958,6 +4963,22 @@ final class AppViewModel: NSObject, ObservableObject {
         let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths).scan(projectRoot: project.url)
         let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
         return matches.count == 1
+    }
+
+    /// Recomputes the cached automation-model lookup. Called only at real
+    /// boundaries — app launch / activation, a model-list reload, a settings
+    /// change — never per `ContentView.body` eval. Mirrors `rebuildWarningCaches`.
+    /// Triggered by the `didSet` on `availableModels` and `appSettings`, which
+    /// also covers app launch (init assigns `appSettings`).
+    private func rebuildAutomationModelCaches() {
+        let foundation = FoundationModelAutomationService.availableModel()
+        var models = enabledAvailableModels
+        if let foundation,
+           !models.contains(where: { $0.identifier == foundation.identifier }) {
+            models.insert(foundation, at: 0)
+        }
+        cachedFoundationAutomationModel = foundation
+        cachedAutomationAvailableModels = models
     }
 
     private func rebuildWarningCaches() {
