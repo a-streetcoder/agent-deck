@@ -66,6 +66,10 @@ private enum SkillWarningSelection: Identifiable, Hashable {
 struct SkillListMetadata {
     let isAssigned: Bool
     let hasWarnings: Bool
+    /// Globally enabled, or enabled for the currently-selected project — drives
+    /// the active/catalog split. Cached so the split isn't an O(skills) project-
+    /// preference scan on every body eval.
+    let isActiveForCurrentProject: Bool
 }
 
 struct SkillsScreen: View {
@@ -132,6 +136,7 @@ struct SkillsScreen: View {
         }
         .sheet(item: $skillEditTarget) { target in
             MarkdownFileEditorSheet(target: target) {
+                viewModel.refreshVisibleStateImmediately(scanAllProjects: true)
                 viewModel.refresh(includeModels: false, scanAllProjects: true)
                 if target.isNew {
                     viewModel.selectedSkillID = viewModel.allVisibleSkillRecords.first { $0.filePath == target.path }?.id ?? viewModel.selectedSkillID
@@ -214,7 +219,7 @@ struct SkillsScreen: View {
                         nativeEmptyRow("No skills are assigned for this project.")
                     }
                     ForEach(activeSkills, id: \.name) { skill in
-                        skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false), inactive: false)
+                        skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false, isActiveForCurrentProject: false), inactive: false)
                             .tag(skill.id)
                     }
                 }
@@ -228,7 +233,7 @@ struct SkillsScreen: View {
                         nativeEmptyRow("No default skills.")
                     }
                     ForEach(globalSkills, id: \.name) { skill in
-                        skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false), inactive: false)
+                        skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false, isActiveForCurrentProject: false), inactive: false)
                             .tag(skill.id)
                     }
                 }
@@ -244,7 +249,7 @@ struct SkillsScreen: View {
     private func catalogSection(skills: [SkillRecord], metadataByID: [SkillRecord.ID: SkillListMetadata]) -> some View {
         appListSection("Catalog", info: "Available skills. They are not injected until made Default, assigned to a project runtime, or assigned to a subagent.") {
             ForEach(skills, id: \.name) { skill in
-                skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false), inactive: true)
+                skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false, isActiveForCurrentProject: false), inactive: true)
                     .tag(skill.id)
             }
         }
@@ -552,6 +557,11 @@ struct SkillsScreen: View {
     }
 
     private func skillIsActiveForCurrentProject(_ skill: SkillRecord) -> Bool {
+        // Precomputed in AppViewModel's cachedSkillMetadataByID, rebuilt on
+        // data rescans. Live fallback covers the pre-first-scan window.
+        if let cached = viewModel.cachedSkillMetadataByID[skill.id] {
+            return cached.isActiveForCurrentProject
+        }
         if viewModel.skillIsEnabledGlobally(skill) { return true }
         if let selectedProject, viewModel.skill(skill, isEnabledFor: selectedProject) { return true }
         return false

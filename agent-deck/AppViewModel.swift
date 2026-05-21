@@ -4857,6 +4857,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func setPrompt(_ prompt: PromptTemplateRecord, enabled: Bool, for project: DiscoveredProject) throws {
         projectPreferencesStore.setAssignedPromptTemplate(prompt.name, assigned: enabled, for: project.path)
         applyProjectPreferenceChanges()
+        refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
         selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == prompt.name }?.id ?? selectedCommandItemID
     }
@@ -4896,6 +4897,7 @@ final class AppViewModel: NSObject, ObservableObject {
             try removePromptReferences(named: prompt.name)
             _ = appSettingsController.removeExternalPromptPaths([prompt.filePath])
             appSettings = appSettingsController.settings
+            refreshSynchronously(includeModels: false)
             refresh(includeModels: false, scanAllProjects: true)
             selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
             return
@@ -4906,6 +4908,7 @@ final class AppViewModel: NSObject, ObservableObject {
         try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
         try replacePromptSettingsPaths(oldURLs: [fileURL], newURL: nil)
         appSettings = appSettingsController.settings
+        refreshSynchronously(includeModels: false)
         refresh(includeModels: false, scanAllProjects: true)
         selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
     }
@@ -4997,17 +5000,25 @@ final class AppViewModel: NSObject, ObservableObject {
         // Per-skill list metadata — computed once here instead of
         // O(skills × warnings/projects/agents) on every SkillsScreen body eval.
         var skillMetadataByID: [SkillRecord.ID: SkillListMetadata] = [:]
-        for skill in allVisibleSkillRecords {
+        let activeProject = selectedDiscoveredProject
+        for record in allVisibleSkillRecords {
             let hasWarnings = skillWarnings.contains { warning in
-                warning.id == "duplicate-skill:\(skill.name)" ||
-                warning.id.contains(skill.filePath) ||
-                warning.message.contains("`\(skill.name)`") ||
-                warning.message.contains(skill.filePath)
+                warning.id == "duplicate-skill:\(record.name)" ||
+                warning.id.contains(record.filePath) ||
+                warning.message.contains("`\(record.name)`") ||
+                warning.message.contains(record.filePath)
             }
-            let isAssigned = skillIsEnabledGlobally(skill) ||
-                !assignedProjects(for: skill).isEmpty ||
-                !assignedAgents(for: skill).isEmpty
-            skillMetadataByID[skill.id] = SkillListMetadata(isAssigned: isAssigned, hasWarnings: hasWarnings)
+            let globallyEnabled = skillIsEnabledGlobally(record)
+            let isAssigned = globallyEnabled ||
+                !assignedProjects(for: record).isEmpty ||
+                !assignedAgents(for: record).isEmpty
+            let isActive = globallyEnabled ||
+                (activeProject.map { skill(record, isEnabledFor: $0) } ?? false)
+            skillMetadataByID[record.id] = SkillListMetadata(
+                isAssigned: isAssigned,
+                hasWarnings: hasWarnings,
+                isActiveForCurrentProject: isActive
+            )
         }
 
         cachedSkillWarnings = skillWarnings
@@ -5186,6 +5197,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
         projectPreferencesStore.setAssignedSkill(skill.name, assigned: enabled, for: projectPath)
         applyProjectPreferenceChanges()
+        refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
