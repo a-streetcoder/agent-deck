@@ -7,34 +7,40 @@ struct GitHubIssueService {
         self.apiClient = apiClient
     }
 
-    func fetchDetail(for item: GitHubWorkItem) async throws -> GitHubIssueDetail {
+    func fetchDetail(for item: GitHubWorkItem, bypassCache: Bool = false) async throws -> GitHubIssueDetail {
         let repo = try parseRepository(item.repository)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         async let issueTask = apiClient.get(
             path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)",
-            queryItems: []
+            queryItems: [],
+            bypassCache: bypassCache
         )
         async let commentsTask = apiClient.get(
             path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)/comments",
-            queryItems: []
+            queryItems: [],
+            bypassCache: bypassCache
         )
         async let parentTask: GitHubIssueReference? = fetchOptionalReference(
             path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)/parent",
-            decoder: decoder
+            decoder: decoder,
+            bypassCache: bypassCache
         )
         async let subIssuesTask = fetchReferences(
             path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)/sub_issues",
-            decoder: decoder
+            decoder: decoder,
+            bypassCache: bypassCache
         )
         async let blockedByTask = fetchReferences(
             path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)/dependencies/blocked_by",
-            decoder: decoder
+            decoder: decoder,
+            bypassCache: bypassCache
         )
         async let blockingTask = fetchReferences(
             path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)/dependencies/blocking",
-            decoder: decoder
+            decoder: decoder,
+            bypassCache: bypassCache
         )
 
         let (issueData, _) = try await issueTask
@@ -93,15 +99,15 @@ struct GitHubIssueService {
         }
     }
 
-    private func fetchReferences(path: String, decoder: JSONDecoder) async throws -> [GitHubIssueReference] {
-        let (data, _) = try await apiClient.get(path: path, queryItems: [])
+    private func fetchReferences(path: String, decoder: JSONDecoder, bypassCache: Bool) async throws -> [GitHubIssueReference] {
+        let (data, _) = try await apiClient.get(path: path, queryItems: [], bypassCache: bypassCache)
         let payload = try decoder.decode([GitHubIssueRelationshipPayload].self, from: data)
         return payload.map(relationshipReference(from:))
     }
 
-    private func fetchOptionalReference(path: String, decoder: JSONDecoder) async throws -> GitHubIssueReference? {
+    private func fetchOptionalReference(path: String, decoder: JSONDecoder, bypassCache: Bool) async throws -> GitHubIssueReference? {
         do {
-            let (data, _) = try await apiClient.get(path: path, queryItems: [])
+            let (data, _) = try await apiClient.get(path: path, queryItems: [], bypassCache: bypassCache)
             let payload = try decoder.decode(GitHubIssueRelationshipPayload.self, from: data)
             return relationshipReference(from: payload)
         } catch let error as GitHubAPIClient.APIError {

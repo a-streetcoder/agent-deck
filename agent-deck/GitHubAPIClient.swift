@@ -18,8 +18,8 @@ struct GitHubAPIClient {
     let session: GitHubSession
     var urlSession: URLSession = .shared
 
-    func get(path: String, queryItems: [URLQueryItem]) async throws -> (Data, HTTPURLResponse) {
-        try await request(path: path, method: "GET", queryItems: queryItems, body: nil)
+    func get(path: String, queryItems: [URLQueryItem], bypassCache: Bool = false) async throws -> (Data, HTTPURLResponse) {
+        try await request(path: path, method: "GET", queryItems: queryItems, body: nil, bypassCache: bypassCache)
     }
 
     func post(path: String, body: Data?) async throws -> (Data, HTTPURLResponse) {
@@ -30,7 +30,7 @@ struct GitHubAPIClient {
         try await request(path: path, method: "PATCH", queryItems: [], body: body)
     }
 
-    private func request(path: String, method: String, queryItems: [URLQueryItem], body: Data?) async throws -> (Data, HTTPURLResponse) {
+    private func request(path: String, method: String, queryItems: [URLQueryItem], body: Data?, bypassCache: Bool = false) async throws -> (Data, HTTPURLResponse) {
         var components = URLComponents()
         components.scheme = "https"
         components.host = apiHost
@@ -44,6 +44,14 @@ struct GitHubAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
+        // GitHub serves authenticated GETs with `Cache-Control: private, max-age=60`,
+        // so URLSession's shared cache can return stale issue/comment data for up to
+        // a minute. Routine reads happily use that cache; explicit user actions
+        // (the Refresh button, posting a comment) pass `bypassCache` to force a
+        // fresh fetch — e.g. so a freshly posted comment appears immediately.
+        if bypassCache {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        }
         request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")

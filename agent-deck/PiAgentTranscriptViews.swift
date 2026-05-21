@@ -30,6 +30,34 @@ enum PiAgentThreadChild: Hashable, Identifiable {
         case .error(let e): return "er-\(e.id.uuidString)"
         }
     }
+
+    /// Timestamp used to position this child against interleaved rows (plan cards).
+    /// Tool groups use their first entry — the moment the burst began.
+    var timelineTimestamp: Date {
+        switch self {
+        case .steering(let e), .thinking(let e), .assistant(let e),
+             .status(let e), .error(let e):
+            return e.timestamp
+        case .toolGroup(let g):
+            return g.entries.first?.timestamp ?? .distantPast
+        }
+    }
+}
+
+/// A single rendered row inside a thread card: either a transcript child or a plan
+/// card. Lets the two streams be merged into one chronological `ForEach`.
+private enum ThreadRow: Identifiable {
+    case child(PiAgentThreadChild)
+    case plan(PiSessionPlanEventRecord)
+
+    var id: String {
+        switch self {
+        case .child(let child): return child.id
+        // Keyed by planID (not the event id) so the card keeps a stable identity and
+        // updates in place as the plan progresses, rather than being recreated.
+        case .plan(let event): return "plan-\(event.planID.uuidString)"
+        }
+    }
 }
 
 struct PiAgentTranscriptThread: Identifiable, Hashable {
@@ -781,31 +809,37 @@ struct PiAgentTranscriptThreadCard: View {
             }
 
             if hasChildren {
-                // Mirrored — assistant / tool / status cards on the left, with
-                // the hover-revealed glass copy button on the RIGHT.
+                // Mirrored — assistant / tool / status cards on the left, with the
+                // hover-revealed glass copy button on the RIGHT. Plan cards are
+                // interleaved chronologically among the children (see `orderedRows`).
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(thread.children) { child in
-                        ThreadMessageRow(
-                            copyText: copyText(for: child),
-                            copyOn: .trailing,
-                            cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
-                        ) {
-                            childView(child)
-                        }
-                    }
-                    if visibility.showPlans {
-                        ForEach(latestPlanEvents) { event in
-                            ThreadMessageRow(
-                                copyText: event.items.map(\.title).joined(separator: "\n"),
-                                copyOn: .trailing,
-                                cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
-                            ) {
-                                PiAgentCurrentPlanCard(event: event)
-                                    .id(event.id)
-                            }
-                        }
+                    ForEach(orderedRows) { row in
+                        rowView(row)
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: ThreadRow) -> some View {
+        switch row {
+        case .child(let child):
+            ThreadMessageRow(
+                copyText: copyText(for: child),
+                copyOn: .trailing,
+                cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
+            ) {
+                childView(child)
+            }
+        case .plan(let event):
+            ThreadMessageRow(
+                copyText: event.items.map(\.title).joined(separator: "\n"),
+                copyOn: .trailing,
+                cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
+            ) {
+                PiAgentCurrentPlanCard(event: event)
+                    .id(event.planID)
             }
         }
     }
@@ -891,7 +925,7 @@ struct PiAgentTranscriptThreadCard: View {
     }
 
     private var hasChildren: Bool {
-        !thread.children.isEmpty || (visibility.showPlans && !latestPlanEvents.isEmpty)
+        !thread.children.isEmpty || (visibility.showPlans && !planCards.isEmpty)
     }
 
     private func shouldHideNativeSubagentStatus(_ entry: PiAgentTranscriptEntry) -> Bool {
@@ -919,13 +953,53 @@ struct PiAgentTranscriptThreadCard: View {
         return output
     }
 
-    private var latestPlanEvents: [PiSessionPlanEventRecord] {
-        var latestByPlanID: [UUID: PiSessionPlanEventRecord] = [:]
+    private struct PlanCard {
+        let event: PiSessionPlanEventRecord   // latest event — supplies the card's content
+        let anchor: Date                      // earliest event for this planID — fixes its position
+    }
+
+    /// One card per distinct plan in this thread. The card renders the plan's *latest*
+    /// event, but is anchored to its *creation* timestamp so it never shifts position
+    /// as the plan progresses — only its content updates.
+    private var planCards: [PlanCard] {
+        var latest: [UUID: PiSessionPlanEventRecord] = [:]
+        var earliest: [UUID: Date] = [:]
         for event in planEvents where event.kind != .cleared {
-            if let existing = latestByPlanID[event.planID], existing.timestamp >= event.timestamp { continue }
-            latestByPlanID[event.planID] = event
+            if let existing = latest[event.planID], existing.timestamp >= event.timestamp {
+                // keep existing — it is at least as recent
+            } else {
+                latest[event.planID] = event
+            }
+            earliest[event.planID] = min(earliest[event.planID] ?? event.timestamp, event.timestamp)
         }
-        return latestByPlanID.values.sorted { $0.timestamp < $1.timestamp }
+        return latest.values
+            .map { PlanCard(event: $0, anchor: earliest[$0.planID] ?? $0.timestamp) }
+            .sorted { $0.anchor < $1.anchor }
+    }
+
+    /// Children merged with plan cards in chronological order. `thread.children` keeps
+    /// its original RPC-arrival order; each plan card is inserted before the first
+    /// child whose timestamp is at or after the plan's creation anchor.
+    private var orderedRows: [ThreadRow] {
+        let children = thread.children
+        guard visibility.showPlans, !planCards.isEmpty else {
+            return children.map(ThreadRow.child)
+        }
+        let plans = planCards
+        var rows: [ThreadRow] = []
+        var index = 0
+        for child in children {
+            while index < plans.count, plans[index].anchor <= child.timelineTimestamp {
+                rows.append(.plan(plans[index].event))
+                index += 1
+            }
+            rows.append(.child(child))
+        }
+        while index < plans.count {
+            rows.append(.plan(plans[index].event))
+            index += 1
+        }
+        return rows
     }
 }
 

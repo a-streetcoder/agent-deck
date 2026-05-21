@@ -334,17 +334,35 @@ struct GitHubIssueDetailView: View {
                 .font(.headline)
                 .fontWidth(.expanded)
             TextEditor(text: $viewModel.githubCommentDraft)
+                .font(.body)
+                .scrollContentBackground(.hidden)
                 .frame(minHeight: 110)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.contentStroke, lineWidth: 1))
+                .padding(8)
+                .appContentSurface(cornerRadius: 10)
 
             HStack {
                 Spacer()
-                Button(viewModel.githubIsSubmittingComment ? "Posting…" : "Post Comment") {
+                Button {
                     viewModel.submitComment()
+                } label: {
+                    if viewModel.githubIsSubmittingComment {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Posting…")
+                        }
+                    } else {
+                        Text("Post Comment")
+                    }
                 }
-                .disabled(viewModel.githubIsSubmittingComment)
+                .appPrimaryButton()
+                .disabled(viewModel.githubIsSubmittingComment || commentDraftIsEmpty)
             }
         }
+    }
+
+    private var commentDraftIsEmpty: Bool {
+        viewModel.githubCommentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func relativeDate(_ date: Date) -> String {

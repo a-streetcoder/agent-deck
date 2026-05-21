@@ -9,7 +9,8 @@ struct GitHubSearchService {
 
     func fetchAggregateIssues(
         repos: [GitHubRemote],
-        state: GitHubIssueStateFilter
+        state: GitHubIssueStateFilter,
+        bypassCache: Bool = false
     ) async throws -> GitHubBoardSnapshot {
         guard !repos.isEmpty else {
             return GitHubBoardSnapshot(
@@ -24,18 +25,19 @@ struct GitHubSearchService {
         }
 
         let query = buildIssuesQuery(repos: repos, state: state)
-        return try await fetchBoard(query: query, description: "Issues · \(state.rawValue)")
+        return try await fetchBoard(query: query, description: "Issues · \(state.rawValue)", bypassCache: bypassCache)
     }
 
     func fetchRepositoryIssues(
         repo: GitHubRemote,
-        state: GitHubIssueStateFilter
+        state: GitHubIssueStateFilter,
+        bypassCache: Bool = false
     ) async throws -> GitHubBoardSnapshot {
         let query = buildIssuesQuery(repos: [repo], state: state)
-        return try await fetchBoard(query: query, description: "Issues · \(state.rawValue) · \(repo.nameWithOwner)")
+        return try await fetchBoard(query: query, description: "Issues · \(state.rawValue) · \(repo.nameWithOwner)", bypassCache: bypassCache)
     }
 
-    private func fetchBoard(query: String, description: String) async throws -> GitHubBoardSnapshot {
+    private func fetchBoard(query: String, description: String, bypassCache: Bool) async throws -> GitHubBoardSnapshot {
         let (data, response) = try await apiClient.get(
             path: "/search/issues",
             queryItems: [
@@ -43,7 +45,8 @@ struct GitHubSearchService {
                 URLQueryItem(name: "sort", value: "updated"),
                 URLQueryItem(name: "order", value: "desc"),
                 URLQueryItem(name: "per_page", value: "100")
-            ]
+            ],
+            bypassCache: bypassCache
         )
 
         let decoder = JSONDecoder()

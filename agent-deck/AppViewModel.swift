@@ -951,7 +951,8 @@ final class AppViewModel: NSObject, ObservableObject {
                 let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
                 let snapshot = try await service.fetchRepositoryIssues(
                     repo: remote,
-                    state: state
+                    state: state,
+                    bypassCache: force
                 )
 
                 await MainActor.run {
@@ -989,7 +990,11 @@ final class AppViewModel: NSObject, ObservableObject {
                     self.githubIsLoadingProjectBoard = false
 
                     if let item = autoSelectItem {
-                        self.loadIssueDetail(for: item)
+                        self.loadIssueDetail(for: item, bypassCache: force)
+                    } else if force, let selected = self.githubSelectedWorkItem {
+                        // An explicit refresh should also pull fresh comments for
+                        // the issue already open in the detail pane.
+                        self.loadIssueDetail(for: selected, bypassCache: true)
                     }
                 }
             } catch {
@@ -1383,7 +1388,7 @@ final class AppViewModel: NSObject, ObservableObject {
         selectWorkItem(item)
     }
 
-    func loadIssueDetail(for item: GitHubWorkItem) {
+    func loadIssueDetail(for item: GitHubWorkItem, bypassCache: Bool = false) {
         guard let session = gitHubSession else {
             githubIsLoadingIssueDetail = false
             githubLastError = "Connect GitHub first."
@@ -1398,7 +1403,7 @@ final class AppViewModel: NSObject, ObservableObject {
         Task {
             do {
                 let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                let detail = try await service.fetchDetail(for: item)
+                let detail = try await service.fetchDetail(for: item, bypassCache: bypassCache)
                 await MainActor.run {
                     guard self.githubIssueDetailRequestID == requestID,
                           self.githubSelectedWorkItem == item else { return }
@@ -3138,7 +3143,7 @@ final class AppViewModel: NSObject, ObservableObject {
                     self.githubCommentDraft = ""
                     self.githubIsSubmittingComment = false
                     self.githubProjectBoardFetchedAt = nil
-                    self.loadIssueDetail(for: item)
+                    self.loadIssueDetail(for: item, bypassCache: true)
                 }
             } catch {
                 await MainActor.run {
