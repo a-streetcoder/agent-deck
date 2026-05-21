@@ -59,7 +59,7 @@ final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
 @main
 struct agent_deckApp: App {
     @NSApplicationDelegateAdaptor(AgentDeckAppDelegate.self) private var appDelegate
-    @StateObject private var viewModel = AppViewModel()
+    @State private var viewModel = AppViewModel()
 
     init() {
         AppFonts.registerBundledFonts()
@@ -68,7 +68,7 @@ struct agent_deckApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(viewModel)
+                .environment(viewModel)
                 .environmentObject(appDelegate.updater)
                 .preferredColorScheme(.dark)
         }
@@ -77,7 +77,7 @@ struct agent_deckApp: App {
         .windowResizability(.contentMinSize)
         Settings {
             SettingsSceneContent()
-                .environmentObject(viewModel)
+                .environment(viewModel)
                 .environmentObject(appDelegate.updater)
                 .preferredColorScheme(.dark)
         }

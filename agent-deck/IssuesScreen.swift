@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct IssuesScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    @Bindable var viewModel: AppViewModel
     @Binding var searchText: String
 
     var body: some View {
@@ -300,7 +300,7 @@ struct IssuesScreen: View {
 // MARK: - Filters popover
 
 struct IssuesFiltersPopover: View {
-    @ObservedObject var viewModel: AppViewModel
+    @Bindable var viewModel: AppViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

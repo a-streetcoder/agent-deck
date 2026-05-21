@@ -18,6 +18,19 @@ final class AgentImageStore: ObservableObject {
         self.imagesDirectory = root.appendingPathComponent("Agent Images", isDirectory: true)
         self.assignmentsURL = root.appendingPathComponent("agent-image-assignments.json")
         self.assignments = Self.loadAssignments(from: assignmentsURL)
+        prewarmImageCache()
+    }
+
+    /// Decodes every already-assigned avatar into `AgentImageLoader`'s cache on
+    /// a background task, so avatars are cache hits by the time any view shows
+    /// them — no blocking disk decode on the main thread. No visible change:
+    /// an uncached lookup still works, it just decodes once inline.
+    private func prewarmImageCache() {
+        let urls = assignments.values.map { imagesDirectory.appendingPathComponent($0) }
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            AgentImageLoader.prewarm(urls: urls)
+        }
     }
 
     func imageURL(for agentName: String) -> URL? {
@@ -104,11 +117,25 @@ struct AgentImageLoader {
     /// Without it `image(at:)` ran `NSImage(contentsOf:)` (a disk read + decode)
     /// on every SwiftUI body eval that displays an agent avatar. `NSCache` is
     /// thread-safe and evicts under memory pressure.
-    private static let cache: NSCache<NSURL, NSImage> = {
+    private nonisolated(unsafe) static let cache: NSCache<NSURL, NSImage> = {
         let cache = NSCache<NSURL, NSImage>()
         cache.countLimit = 256
         return cache
     }()
+
+    /// Decodes `urls` and inserts them into the cache off the main thread, so
+    /// the first `image(at:)` for each avatar is a cache hit instead of a
+    /// blocking disk read + decode. Safe to call from any thread — `NSCache`
+    /// is thread-safe, and a concurrent `image(at:)` miss simply decodes once.
+    nonisolated static func prewarm(urls: [URL]) {
+        for url in urls {
+            let key = url as NSURL
+            guard cache.object(forKey: key) == nil else { continue }
+            if let image = NSImage(contentsOf: url) {
+                cache.setObject(image, forKey: key)
+            }
+        }
+    }
 
     static func image(at url: URL?, bundledImageName: String? = nil) -> NSImage? {
         if let url {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct GitHubConnectionCard: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         HStack(spacing: 12) {
@@ -141,7 +141,7 @@ enum GitHubAvatarResolver {
 
 
 struct GitHubConnectionDetails: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         AppCard(title: "GitHub CLI Session") {

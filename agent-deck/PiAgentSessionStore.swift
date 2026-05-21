@@ -1,23 +1,25 @@
 import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class PiAgentSessionStore: ObservableObject {
-    @Published private(set) var sessions: [PiAgentSessionRecord] = []
-    @Published private(set) var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]] = [:]
-    @Published private(set) var transcriptLoadingSessionIDs: Set<UUID> = []
-    @Published private(set) var transcriptRevisionsBySessionID: [UUID: Int] = [:]
-    @Published private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
-    @Published private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:]
-    @Published private(set) var subagentTranscriptsByRunID: [UUID: [PiAgentTranscriptEntry]] = [:]
-    @Published private(set) var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]] = [:]
-    @Published private(set) var sessionPlansBySessionID: [UUID: PiSessionPlanRecord] = [:]
-    @Published private(set) var sessionPlanEventsBySessionID: [UUID: [PiSessionPlanEventRecord]] = [:]
+@Observable
+final class PiAgentSessionStore {
+    private(set) var sessions: [PiAgentSessionRecord] = []
+    private(set) var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]] = [:]
+    private(set) var transcriptLoadingSessionIDs: Set<UUID> = []
+    private(set) var transcriptRevisionsBySessionID: [UUID: Int] = [:]
+    private(set) var uiRequestsBySessionID: [UUID: PiAgentUIRequest] = [:]
+    private(set) var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]] = [:]
+    private(set) var subagentTranscriptsByRunID: [UUID: [PiAgentTranscriptEntry]] = [:]
+    private(set) var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]] = [:]
+    private(set) var sessionPlansBySessionID: [UUID: PiSessionPlanRecord] = [:]
+    private(set) var sessionPlanEventsBySessionID: [UUID: [PiSessionPlanEventRecord]] = [:]
     /// Live, RPC-derived activity for sessions with a turn in flight. Not persisted —
     /// it only describes the current process and is cleared when a turn ends.
-    @Published private(set) var processingActivityBySessionID: [UUID: PiAgentProcessingActivity] = [:]
-    @Published var selectedSessionID: UUID?
-    @Published var lastError: String?
+    private(set) var processingActivityBySessionID: [UUID: PiAgentProcessingActivity] = [:]
+    var selectedSessionID: UUID?
+    var lastError: String?
     var newSessionSubagentsEnabled = true
 
     private var composerTextDraftsBySessionID: [UUID: String] = [:]

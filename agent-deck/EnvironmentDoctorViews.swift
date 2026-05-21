@@ -236,7 +236,7 @@ struct EffectiveEnvRow {
 }
 
 struct DoctorScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var setupItems: [SetupCheckItem] = []
     @State private var piRuntimeStatus: PiAgentRuntimeStatus?
@@ -742,15 +742,6 @@ struct DoctorScreen: View {
                     }
                     .appPrimaryButton()
                     .disabled(isInstallingWebFetchDependencies)
-
-                    Button {
-                        refreshWebFetchStatus()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .appSecondaryCircleButton()
-                    .disabled(isInstallingWebFetchDependencies)
-                    .help("Refresh fallback dependency status")
                 }
 
                 if let webFetchInstallMessage {

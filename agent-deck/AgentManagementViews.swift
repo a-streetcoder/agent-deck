@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct AgentsFilterPopover: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -51,7 +51,7 @@ struct AgentsFilterPopover: View {
 }
 
 struct AgentsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var agentBeingEdited: EffectiveAgentRecord?
 
@@ -395,26 +395,23 @@ private struct AgentWarningPopover: View {
 }
 
 private struct AgentLibraryPane: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Binding var searchText: String
     let onEditAgent: (EffectiveAgentRecord) -> Void
     @State private var warningPopoverAgentID: String?
     @State private var hoveredAgentID: String?
     @State private var pendingDeleteAgentID: EffectiveAgentRecord.ID?
+    // Local mirror for the `List` selection — the macOS `List` writes its
+    // selection back during the SwiftUI update pass, so it binds to this
+    // `@State` rather than straight onto the view model. `viewModel`'s
+    // selection is synced from `.onChange`, which runs after the pass.
+    // Mirrors the pattern in `SkillsScreen`.
+    @State private var selectedAgentID: EffectiveAgentRecord.ID?
 
     private var imageStore: AgentImageStore { viewModel.agentImageStore }
 
-    private struct AgentRowMetadata {
-        let warnings: [DiagnosticWarning]
-        let skillIssues: [AgentSkillVisibilityIssue]
-
-        var hasWarningDetails: Bool {
-            !warnings.isEmpty || !skillIssues.isEmpty
-        }
-    }
-
     var body: some View {
-        List(selection: $viewModel.selectedAgentID) {
+        List(selection: agentSelection) {
             if viewModel.selectedDiscoveredProject != nil {
                 appListSection("Active") {
                     if activeCustomAgents.isEmpty {
@@ -484,6 +481,14 @@ private struct AgentLibraryPane: View {
             }
         }
         .appListStyle()
+        .onAppear { scheduleSelectionSynchronization() }
+        .onChange(of: viewModel.selectedAgentID) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: viewModel.filteredAgents) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: searchText) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: selectedAgentID) { _, id in
+            guard viewModel.selectedAgentID != id else { return }
+            viewModel.selectedAgentID = id
+        }
         .alert("Delete Agent?", isPresented: Binding(
             get: { pendingDeleteAgentRecord != nil },
             set: { if !$0 { pendingDeleteAgentID = nil } }
@@ -561,25 +566,52 @@ private struct AgentLibraryPane: View {
         }
     }
 
-    private var agentMetadataByID: [EffectiveAgentRecord.ID: AgentRowMetadata] {
-        var result: [EffectiveAgentRecord.ID: AgentRowMetadata] = [:]
-        result.reserveCapacity(filteredAgents.count)
+    private var agentSelection: Binding<EffectiveAgentRecord.ID?> {
+        Binding(get: { selectedAgentID }, set: { selectedAgentID = $0 })
+    }
 
-        for agent in filteredAgents {
-            result[agent.id] = AgentRowMetadata(
-                warnings: viewModel.warnings(for: agent),
-                skillIssues: viewModel.explicitSkillVisibilityIssues(for: agent)
-            )
+    /// Pulls `viewModel.selectedAgentID` into the local mirror off the current
+    /// update pass. Mirrors `SkillsScreen.scheduleSelectionSynchronization()`.
+    private func scheduleSelectionSynchronization() {
+        Task { @MainActor in
+            await Task.yield()
+            synchronizeSelectionFromViewModel()
         }
+    }
 
-        return result
+    private func synchronizeSelectionFromViewModel() {
+        guard let vmID = viewModel.selectedAgentID else {
+            ensureSelection()
+            return
+        }
+        if filteredAgents.contains(where: { $0.id == vmID }) {
+            selectedAgentID = vmID
+            return
+        }
+        // Selected agent hidden by search/filter or rebuilt under a new id —
+        // keep the user's selection by name when possible.
+        if let name = viewModel.selectedAgent?.name,
+           let preferred = filteredAgents.first(where: { $0.name == name }) {
+            selectedAgentID = preferred.id
+            return
+        }
+        ensureSelection()
+    }
+
+    private func ensureSelection() {
+        guard selectedAgentID == nil
+            || !filteredAgents.contains(where: { $0.id == selectedAgentID }) else { return }
+        selectedAgentID = filteredAgents.first?.id
     }
 
     private func agentListRow(_ agent: EffectiveAgentRecord, inactive: Bool) -> some View {
-        let metadata = agentMetadataByID[agent.id] ?? AgentRowMetadata(warnings: [], skillIssues: [])
-        let warnings = metadata.warnings
-        let skillIssues = metadata.skillIssues
-        let hasWarningDetails = metadata.hasWarningDetails
+        // Read the per-agent caches directly (O(1) each, built once per refresh
+        // in AppViewModel.rebuildWarningCaches). The previous `agentMetadataByID`
+        // computed property rebuilt the whole dictionary on every row, making
+        // the list O(N²) to render.
+        let warnings = viewModel.warnings(for: agent)
+        let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
+        let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
         let warningColor: Color = .orange
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
         let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
@@ -724,6 +756,13 @@ private struct AgentLibraryPane: View {
         }
     }
 
+    /// Whether the agent has any warnings or skill-visibility issues. Both
+    /// lookups are O(1) reads of caches built once per refresh.
+    private func agentHasWarningDetails(_ agent: EffectiveAgentRecord) -> Bool {
+        !viewModel.warnings(for: agent).isEmpty
+            || !viewModel.explicitSkillVisibilityIssues(for: agent).isEmpty
+    }
+
     private func capabilityStrip(for agent: EffectiveAgentRecord) -> some View {
         HStack(spacing: 6) {
             if agent.resolutionKind == .globalReplacement || agent.resolutionKind == .projectReplacement {
@@ -738,7 +777,7 @@ private struct AgentLibraryPane: View {
             if agent.resolved.disabled == true {
                 capabilityPill("Disabled", symbol: "nosign", color: .red)
             }
-            if agentMetadataByID[agent.id]?.hasWarningDetails == true {
+            if agentHasWarningDetails(agent) {
                 capabilityPill("Warning", symbol: "exclamationmark.triangle", color: .orange)
             }
         }

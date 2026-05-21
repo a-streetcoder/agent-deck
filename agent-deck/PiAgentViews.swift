@@ -1202,8 +1202,8 @@ private extension PiAgentTranscriptThread {
 }
 
 struct PiAgentScreen: View {
-    @ObservedObject var viewModel: AppViewModel
-    @ObservedObject var store: PiAgentSessionStore
+    var viewModel: AppViewModel
+    var store: PiAgentSessionStore
     @Binding var sessionSearchText: String
     @State private var composerText = ""
     @State private var composerSuggestionIndex = 0
@@ -1281,7 +1281,7 @@ struct PiAgentScreen: View {
                 viewModel.prepareRepoChangesForSelectedPiAgentSession()
             }
         }
-        .onReceive(store.$sessions) { _ in rebuildVisibleSessions() }
+        .onChange(of: store.sessions) { _, _ in rebuildVisibleSessions() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessions() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessions() }
         .onDisappear {
@@ -3096,8 +3096,8 @@ struct PiAgentScreen: View {
 }
 
 private struct PiAgentComposerPanel: View {
-    @ObservedObject var viewModel: AppViewModel
-    @ObservedObject var store: PiAgentSessionStore
+    var viewModel: AppViewModel
+    var store: PiAgentSessionStore
     let onWillSend: () -> Void
     let onDidSend: () -> Void
 

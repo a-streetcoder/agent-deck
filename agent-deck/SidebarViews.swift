@@ -183,7 +183,7 @@ private struct SidebarSurface: ViewModifier {
 
 struct SidebarProjectGitHubCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
     let selectedProjectPath: String?

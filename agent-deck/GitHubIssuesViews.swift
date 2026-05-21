@@ -85,6 +85,8 @@ struct GitHubIssueListRow: View {
         }
     }
 
+    private static let relativeDateFormatter = RelativeDateTimeFormatter()
+
     private var metaRow: some View {
         HStack(spacing: 6) {
             if let author = item.author {
@@ -92,7 +94,7 @@ struct GitHubIssueListRow: View {
                 Text(author)
                 separator
             }
-            Text(RelativeDateTimeFormatter().localizedString(for: item.updatedAt, relativeTo: Date()))
+            Text(Self.relativeDateFormatter.localizedString(for: item.updatedAt, relativeTo: Date()))
             if item.commentCount > 0 {
                 separator
                 Image(systemName: "bubble.left")
@@ -226,7 +228,7 @@ private struct IssueTagFlowLayout: Layout {
 }
 
 struct GitHubIssueDetailView: View {
-    @ObservedObject var viewModel: AppViewModel
+    @Bindable var viewModel: AppViewModel
 
     var body: some View {
         if viewModel.githubIsLoadingIssueDetail && viewModel.githubIssueDetail == nil {
@@ -508,8 +510,10 @@ struct GitHubIssueDetailView: View {
         viewModel.githubCommentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private static let relativeDateFormatter = RelativeDateTimeFormatter()
+
     private func relativeDate(_ date: Date) -> String {
-        RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
+        Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
     }
 }
 

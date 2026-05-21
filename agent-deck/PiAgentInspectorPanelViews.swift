@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 struct PiAgentInspectorPanel: View {
-    @ObservedObject var viewModel: AppViewModel
-    @ObservedObject var store: PiAgentSessionStore
+    var viewModel: AppViewModel
+    var store: PiAgentSessionStore
     @State private var composerText = ""
     @State private var inputMode: PiAgentInputMode = .steer
     @State private var composerPasteAttachments: [PiAgentPasteAttachment] = []

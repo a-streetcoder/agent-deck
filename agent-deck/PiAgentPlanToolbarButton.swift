@@ -13,7 +13,7 @@ import SwiftUI
 /// Icon-only per `agent-guidelines/toolbar-guidelines.md`. Owns a `.popover`, so it is
 /// a standalone `ToolbarItem`, never inside a `ControlGroup`.
 struct PiAgentPlanToolbarButton: View {
-    @ObservedObject var store: PiAgentSessionStore
+    var store: PiAgentSessionStore
 
     @State private var isPopoverPresented = false
 

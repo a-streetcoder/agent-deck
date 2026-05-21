@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct PiAgentCommitToolbarButton: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @State private var isConfirmationPresented = false
 
     var body: some View {
@@ -48,7 +48,7 @@ struct PiAgentCommitToolbarButton: View {
 }
 
 struct PiAgentPushToolbarButton: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         Button { viewModel.pushSelectedPiAgentSession() } label: {
@@ -72,7 +72,7 @@ struct PiAgentPushToolbarButton: View {
 }
 
 struct PiAgentCommitAndPushToolbarButton: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @State private var isConfirmationPresented = false
 
     var body: some View {
@@ -145,8 +145,8 @@ private enum PiAgentGitAction: Identifiable {
 }
 
 struct PiAgentOpenTerminalToolbarButton: View {
-    @ObservedObject var viewModel: AppViewModel
-    @ObservedObject var store: PiAgentSessionStore
+    var viewModel: AppViewModel
+    var store: PiAgentSessionStore
     @State private var isParallelContinuationWarningPresented = false
 
     var body: some View {
@@ -186,7 +186,7 @@ struct PiAgentOpenTerminalToolbarButton: View {
 
 
 struct PiAgentTranscriptDisplayOptionsPopover: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     private var visibility: PiAgentTranscriptVisibilitySettings {
         viewModel.appSettings.piAgentTranscriptVisibility

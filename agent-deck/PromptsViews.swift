@@ -2,12 +2,18 @@ import AppKit
 import SwiftUI
 
 struct PromptsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var promptPendingRename: PromptTemplateRecord?
     @State private var promptPendingDeletion: PromptTemplateRecord?
     @State private var hoveredPromptID: PromptTemplateRecord.ID?
     @State private var promptEditTarget: MarkdownFileEditTarget?
+    // Local mirror for the `List` selection — the macOS `List` writes its
+    // selection back during the SwiftUI update pass, so it binds to this
+    // `@State` rather than straight onto the view model. `viewModel`'s
+    // selection is synced from `.onChange`, which runs after the pass.
+    // Mirrors the pattern in `SkillsScreen`.
+    @State private var selectedCommandItemID: String?
 
     var body: some View {
         HSplitView {
@@ -75,18 +81,18 @@ struct PromptsScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckImportPromptRequested)) { _ in
             importPrompt()
         }
-        .onAppear {
-            Task { @MainActor in
-                await Task.yield()
-                if viewModel.selectedPromptTemplate == nil {
-                    viewModel.selectedCommandItemID = viewModel.allVisiblePromptTemplateRecords.first?.id
-                }
-            }
+        .onAppear { scheduleSelectionSynchronization() }
+        .onChange(of: viewModel.selectedCommandItemID) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: viewModel.allVisiblePromptTemplateRecords) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: searchText) { _, _ in scheduleSelectionSynchronization() }
+        .onChange(of: selectedCommandItemID) { _, id in
+            guard viewModel.selectedCommandItemID != id else { return }
+            viewModel.selectedCommandItemID = id
         }
     }
 
     private var promptLibraryPane: some View {
-        List(selection: $viewModel.selectedCommandItemID) {
+        List(selection: promptSelection) {
             if !viewModel.promptWarnings.isEmpty {
                 appListSection("Warnings", tint: .orange) {
                     ForEach(viewModel.promptWarnings) { warning in
@@ -183,6 +189,44 @@ struct PromptsScreen: View {
             [prompt.name, prompt.invocation, prompt.description, prompt.source.kind.rawValue, prompt.filePath, prompt.body]
                 .contains { $0.lowercased().contains(query) }
         }
+    }
+
+    private var promptSelection: Binding<String?> {
+        Binding(get: { selectedCommandItemID }, set: { selectedCommandItemID = $0 })
+    }
+
+    /// Pulls `viewModel.selectedCommandItemID` into the local mirror off the
+    /// current update pass. Mirrors `SkillsScreen.scheduleSelectionSynchronization()`.
+    private func scheduleSelectionSynchronization() {
+        Task { @MainActor in
+            await Task.yield()
+            synchronizeSelectionFromViewModel()
+        }
+    }
+
+    private func synchronizeSelectionFromViewModel() {
+        guard let vmID = viewModel.selectedCommandItemID else {
+            ensureSelection()
+            return
+        }
+        if visiblePrompts.contains(where: { $0.id == vmID }) {
+            selectedCommandItemID = vmID
+            return
+        }
+        // Selected prompt hidden by search or rebuilt under a new id —
+        // keep the user's selection by name when possible.
+        if let name = viewModel.allVisiblePromptTemplateRecords.first(where: { $0.id == vmID })?.name,
+           let preferred = visiblePrompts.first(where: { $0.name == name }) {
+            selectedCommandItemID = preferred.id
+            return
+        }
+        ensureSelection()
+    }
+
+    private func ensureSelection() {
+        guard selectedCommandItemID == nil
+            || !visiblePrompts.contains(where: { $0.id == selectedCommandItemID }) else { return }
+        selectedCommandItemID = visiblePrompts.first?.id
     }
 
     private var projectPrompts: [PromptTemplateRecord] {

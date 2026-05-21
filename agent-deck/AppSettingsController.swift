@@ -429,6 +429,31 @@ final class AppSettingsController {
         return true
     }
 
+    var importedSkillRepositories: [ImportedSkillRepository] {
+        settings.importedSkillRepositories
+    }
+
+    /// Insert a synced skill repository, or replace an existing record that
+    /// shares the same `id` or clone path (a re-import of the same repo).
+    @discardableResult
+    func upsertImportedSkillRepository(_ repository: ImportedSkillRepository) -> Bool {
+        var repositories = settings.importedSkillRepositories
+        repositories.removeAll { $0.id == repository.id || $0.clonePath == repository.clonePath }
+        repositories.append(repository)
+        settings.importedSkillRepositories = repositories
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func removeImportedSkillRepository(id: UUID) -> Bool {
+        let updated = settings.importedSkillRepositories.filter { $0.id != id }
+        guard updated.count != settings.importedSkillRepositories.count else { return false }
+        settings.importedSkillRepositories = updated
+        persist()
+        return true
+    }
+
     @discardableResult
     func addExternalPromptPaths(_ paths: [String]) -> Bool {
         let normalizedPaths = paths

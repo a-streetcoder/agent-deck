@@ -75,7 +75,7 @@ struct PiAgentShortcutsStrip: View {
 /// as a toolbar popover instead of an in-transcript expandable card. Reachable
 /// from the `info.circle` button grouped with the transcript-display eye.
 struct PiAgentStartupResourcesPopover: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     let session: PiAgentSessionRecord
 
     var body: some View {

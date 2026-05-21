@@ -37,11 +37,6 @@ nonisolated enum ExternalSkillDiscovery {
     /// pathological trees and symlink-induced cycles.
     static let defaultMaxDepth = 16
 
-    /// Bytes read from the head of a `SKILL.md` to parse its frontmatter.
-    /// Frontmatter always sits at the very top of the file, so a bounded read
-    /// avoids pulling large skill bodies into memory just for two fields.
-    private static let frontmatterByteLimit = 64 * 1024
-
     /// Number of directories scanned between progress reports.
     private static let progressReportInterval = 25
 
@@ -136,63 +131,18 @@ nonisolated enum ExternalSkillDiscovery {
     static func candidate(at skillRoot: URL) -> ExternalSkillCandidate? {
         let standardizedRoot = skillRoot.standardizedFileURL
         let skillFile = standardizedRoot.appendingPathComponent("SKILL.md")
-        guard let frontmatter = frontmatterFields(atTopOf: skillFile) else { return nil }
+        guard let frontmatter = SkillFrontmatter.fields(atTopOf: skillFile) else { return nil }
 
-        let parsedName = frontmatter["name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parsedDescription = frontmatter["description"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (parsedName?.isEmpty == false) ? parsedName! : standardizedRoot.lastPathComponent
-        let description = (parsedDescription?.isEmpty == false) ? parsedDescription : nil
+        let resolved = SkillFrontmatter.nameAndDescription(
+            fromFrontmatter: frontmatter,
+            fallbackName: standardizedRoot.lastPathComponent
+        )
 
         return ExternalSkillCandidate(
-            name: name,
-            description: description,
+            name: resolved.name,
+            description: resolved.description,
             sourceRootPath: standardizedRoot.path,
             skillFilePath: skillFile.path
         )
-    }
-
-    // MARK: - Frontmatter
-
-    /// Read only the head of `url` and parse its YAML-ish frontmatter block.
-    /// Returns `nil` when the file cannot be read (e.g. it does not exist).
-    private static func frontmatterFields(atTopOf url: URL) -> [String: String]? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: frontmatterByteLimit)) ?? Data()
-        guard let text = decodeUTF8Prefix(data) else { return nil }
-        return parseFrontmatter(text)
-    }
-
-    /// Decode a possibly-truncated UTF-8 byte prefix. The bounded read can slice
-    /// through a multi-byte character; dropping up to three trailing bytes
-    /// recovers a valid string (a UTF-8 scalar is at most four bytes).
-    private static func decodeUTF8Prefix(_ data: Data) -> String? {
-        for trailingBytesToDrop in 0...min(3, data.count) {
-            if let text = String(data: data.dropLast(trailingBytesToDrop), encoding: .utf8) {
-                return text
-            }
-        }
-        return nil
-    }
-
-    /// Parse a leading `--- … ---` frontmatter block into key/value pairs.
-    private static func parseFrontmatter(_ text: String) -> [String: String] {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        guard normalized.hasPrefix("---\n") else { return [:] }
-        let remainder = String(normalized.dropFirst(4))
-        guard let closingRange = remainder.range(of: "\n---\n") else { return [:] }
-        let frontmatterText = remainder[..<closingRange.lowerBound]
-
-        var values: [String: String] = [:]
-        for rawLine in frontmatterText.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, !line.hasPrefix("#"), let separator = line.firstIndex(of: ":") else { continue }
-            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !key.isEmpty {
-                values[String(key)] = String(value)
-            }
-        }
-        return values
     }
 }

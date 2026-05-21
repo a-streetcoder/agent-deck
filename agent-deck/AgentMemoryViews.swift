@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MemoryScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @ObservedObject var memoryStore: AgentMemoryStore
     @Binding var searchText: String
     @State private var selectedStatus: AgentMemoryStatus?
@@ -337,7 +337,7 @@ private struct MemoryRecordRow: View {
 private struct MemoryDetailView: View {
     let record: AgentMemoryRecord
     @ObservedObject var memoryStore: AgentMemoryStore
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @State private var isEditing = false
 
     var body: some View {

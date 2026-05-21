@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
@@ -55,91 +56,101 @@ private struct RepositoryChangesCacheEntry {
 }
 
 @MainActor
-final class AppViewModel: NSObject, ObservableObject {
+@Observable
+final class AppViewModel: NSObject {
     let windowID = UUID()
-    @Published var snapshot: ScanSnapshot = .empty
-    @Published var selectedSidebarItem: SidebarItem = .agent
-    @Published var selectedAgentID: EffectiveAgentRecord.ID?
-    @Published var selectedSkillID: SkillRecord.ID?
+    var snapshot: ScanSnapshot = .empty
+    var selectedSidebarItem: SidebarItem = .agent
+    var selectedAgentID: EffectiveAgentRecord.ID?
+    var selectedSkillID: SkillRecord.ID?
     /// Skills whose deletion file I/O has finished but for which a fresh
     /// snapshot has not yet landed. Filtered out of `allVisibleSkillRecords`
     /// so the row disappears instantly. Pruned in `applyRefreshSnapshot`.
-    @Published private(set) var pendingDeletedSkillIDs: Set<String> = []
-    @Published var selectedCommandItemID: String?
-    @Published var selectedAgentFilter: AgentFilter = .all
-    @Published var discoveredProjects: [DiscoveredProject] = []
-    @Published var isRefreshingProjects = false
-    @Published var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
-    @Published var selectedProjectPath: String?
-    @Published var allProjectSnapshots: [String: ScanSnapshot] = [:]
-    @Published var availableModels: [AvailableModel] = [] {
+    private(set) var pendingDeletedSkillIDs: Set<String> = []
+    /// Prompt templates whose deletion file I/O has finished but for which a
+    /// fresh snapshot has not yet landed. Filtered out of
+    /// `allVisiblePromptTemplateRecords`. Pruned in `applyRefreshSnapshot`.
+    private(set) var pendingDeletedPromptIDs: Set<String> = []
+    /// After a rename the fresh snapshot is applied asynchronously, so the
+    /// renamed record's new id is not known synchronously. These hold the new
+    /// name so `applyRefreshSnapshot` can restore the selection once it lands.
+    @ObservationIgnored private var pendingSelectAgentName: String?
+    @ObservationIgnored private var pendingSelectSkillName: String?
+    var selectedCommandItemID: String?
+    var selectedAgentFilter: AgentFilter = .all
+    var discoveredProjects: [DiscoveredProject] = []
+    var isRefreshingProjects = false
+    var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
+    var selectedProjectPath: String?
+    var allProjectSnapshots: [String: ScanSnapshot] = [:]
+    var availableModels: [AvailableModel] = [] {
         didSet { rebuildAutomationModelCaches() }
     }
-    @Published var modelsLastUpdatedAt: Date?
-    @Published private var piRuntimeSettingsRevision = 0
+    var modelsLastUpdatedAt: Date?
+    private var piRuntimeSettingsRevision = 0
     private var cachedPiRuntimeSettingsObject: [String: Any]?
     private var cachedPiRuntimeSettingsModificationDate: Date?
     private var lastPiRuntimeSettingsStatCheck: Date?
-    @Published var githubConnectionState: GitHubConnectionState = .checking
-    @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
-    @Published var githubAuthorFilter: String?
-    @Published var githubAssigneeFilter: String?
-    @Published var githubTypeFilter: String?
-    @Published var githubLabelFilters: Set<String> = []
-    @Published var githubAggregateBoard: GitHubBoardSnapshot?
-    @Published var githubProjectBoard: GitHubBoardSnapshot?
-    @Published var githubRepositoryChanges: RepositoryChangesSnapshot?
-    @Published var githubRepositoryChangesProjectPath: String?
+    var githubConnectionState: GitHubConnectionState = .checking
+    var githubIssueStateFilter: GitHubIssueStateFilter = .open
+    var githubAuthorFilter: String?
+    var githubAssigneeFilter: String?
+    var githubTypeFilter: String?
+    var githubLabelFilters: Set<String> = []
+    var githubAggregateBoard: GitHubBoardSnapshot?
+    var githubProjectBoard: GitHubBoardSnapshot?
+    var githubRepositoryChanges: RepositoryChangesSnapshot?
+    var githubRepositoryChangesProjectPath: String?
     private var repositoryChangesCache: [String: RepositoryChangesCacheEntry] = [:]
-    @Published var githubSelectedChangePaths: Set<String> = []
-    @Published var githubSelectedDiffFilePath: String?
-    @Published var githubSelectedDiffKind: GitDiffKind?
-    @Published var githubSelectedDiffText: String?
-    @Published var githubCommitMessage = ""
-    @Published var githubCommitDescription = ""
-    @Published var githubSelectedWorkItem: GitHubWorkItem?
-    @Published var githubIssueDetail: GitHubIssueDetail?
-    @Published var githubCommentDraft = ""
-    @Published var githubIsLoadingAggregateBoard = false
-    @Published var githubIsLoadingProjectBoard = false
-    @Published var githubIsLoadingRepositoryChanges = false
-    @Published var githubIsLoadingIssueDetail = false
-    @Published var githubIsSubmittingComment = false
-    @Published var githubIsClosingIssue = false
-    @Published var githubIsCommitting = false
-    @Published var githubIsPushing = false
-    @Published var piAgentGitAutomationAction: PiAgentGitAutomationAction?
-    @Published var githubIsRefreshingEverything = false
-    @Published var githubLastError: String?
-    @Published var githubLastStatusCheckAt: Date?
-    @Published var appSettings: AppSettings = AppSettings() {
+    var githubSelectedChangePaths: Set<String> = []
+    var githubSelectedDiffFilePath: String?
+    var githubSelectedDiffKind: GitDiffKind?
+    var githubSelectedDiffText: String?
+    var githubCommitMessage = ""
+    var githubCommitDescription = ""
+    var githubSelectedWorkItem: GitHubWorkItem?
+    var githubIssueDetail: GitHubIssueDetail?
+    var githubCommentDraft = ""
+    var githubIsLoadingAggregateBoard = false
+    var githubIsLoadingProjectBoard = false
+    var githubIsLoadingRepositoryChanges = false
+    var githubIsLoadingIssueDetail = false
+    var githubIsSubmittingComment = false
+    var githubIsClosingIssue = false
+    var githubIsCommitting = false
+    var githubIsPushing = false
+    var piAgentGitAutomationAction: PiAgentGitAutomationAction?
+    var githubIsRefreshingEverything = false
+    var githubLastError: String?
+    var githubLastStatusCheckAt: Date?
+    var appSettings: AppSettings = AppSettings() {
         didSet { rebuildAutomationModelCaches() }
     }
-    @Published private(set) var hasCompletedInitialRefresh = false
-    @Published private(set) var cachedHasAgentWarnings = false
-    @Published private(set) var cachedHasSkillWarnings = false
-    @Published private(set) var cachedHasPromptWarnings = false
-    @Published private(set) var cachedSkillWarnings: [DiagnosticWarning] = []
-    @Published private(set) var cachedPromptWarnings: [DiagnosticWarning] = []
-    @Published private(set) var cachedSkillReferenceWarnings: [SkillReferenceWarning] = []
-    @Published private(set) var cachedSkillVisibilityIssuesByAgentID: [String: [AgentSkillVisibilityIssue]] = [:]
+    private(set) var hasCompletedInitialRefresh = false
+    private(set) var cachedHasAgentWarnings = false
+    private(set) var cachedHasSkillWarnings = false
+    private(set) var cachedHasPromptWarnings = false
+    private(set) var cachedSkillWarnings: [DiagnosticWarning] = []
+    private(set) var cachedPromptWarnings: [DiagnosticWarning] = []
+    private(set) var cachedSkillReferenceWarnings: [SkillReferenceWarning] = []
+    private(set) var cachedSkillVisibilityIssuesByAgentID: [String: [AgentSkillVisibilityIssue]] = [:]
     // Automation-model lookup is cached. `FoundationModelAutomationService`
     // queries Apple's Foundation Models availability API, and the Pi Agent
     // toolbar reads `automationAvailableModels` on every `ContentView.body`
     // eval (i.e. once per streaming token). The result only changes at real
     // boundaries — see `rebuildAutomationModelCaches()`.
-    @Published private(set) var cachedFoundationAutomationModel: AvailableModel?
-    @Published private(set) var cachedAutomationAvailableModels: [AvailableModel] = []
+    private(set) var cachedFoundationAutomationModel: AvailableModel?
+    private(set) var cachedAutomationAvailableModels: [AvailableModel] = []
     // Agent-list caches — the `allDisplayAgents` chain (a 4-source merge + sort)
     // and per-agent warnings were recomputed on every `AgentsScreen` /
     // `ContentView` body evaluation. Rebuilt inside `rebuildWarningCaches()`,
     // alongside `cachedSkillVisibilityIssuesByAgentID` — so they refresh on
     // exactly the same events (every data rescan) and can't go stale.
-    @Published private(set) var cachedAllDisplayAgents: [EffectiveAgentRecord] = []
-    @Published private(set) var cachedAgentWarningsByID: [EffectiveAgentRecord.ID: [DiagnosticWarning]] = [:]
+    private(set) var cachedAllDisplayAgents: [EffectiveAgentRecord] = []
+    private(set) var cachedAgentWarningsByID: [EffectiveAgentRecord.ID: [DiagnosticWarning]] = [:]
     // Per-skill list metadata (assigned / has-warnings). Same rebuild +
     // invalidation as the agent caches above — never per `SkillsScreen` body.
-    @Published private(set) var cachedSkillMetadataByID: [SkillRecord.ID: SkillListMetadata] = [:]
+    private(set) var cachedSkillMetadataByID: [SkillRecord.ID: SkillListMetadata] = [:]
     var enabledAvailableModels: [AvailableModel] {
         availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
     }
@@ -147,14 +158,18 @@ final class AppViewModel: NSObject, ObservableObject {
     var foundationAutomationModel: AvailableModel? { cachedFoundationAutomationModel }
 
     var automationAvailableModels: [AvailableModel] { cachedAutomationAvailableModels }
-    @Published var isPiAgentInspectorPresented = false
-    @Published var showPiAgentAttentionOnly = false
-    @Published private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
+    var isPiAgentInspectorPresented = false
+    var showPiAgentAttentionOnly = false
+    private(set) var piAgentTitleGeneratingSessionIDs: Set<UUID> = []
     private(set) var piAgentPendingComposerText: String?
     private(set) var piAgentPendingIssueAttachment: PiAgentIssueAttachment?
     let piAgentSessionStore = PiAgentSessionStore()
     let agentMemoryStore = AgentMemoryStore()
     let agentImageStore = AgentImageStore()
+    let skillRepositorySyncService = SkillRepositorySyncService()
+    private(set) var isCheckingAllSkillUpdates = false
+    private(set) var isUpdatingAllSkillRepositories = false
+    var skillBatchActionMessage: String?
 
     private let agentPersistence = AgentPersistence()
     private let envPersistence = EnvPersistence()
@@ -165,14 +180,13 @@ final class AppViewModel: NSObject, ObservableObject {
     private let shipService = PiAgentShipService()
     private let agentAvatarPromptService = AgentAvatarPromptGenerationService()
     private let subagentWorktreeService = PiSubagentWorktreeService()
-    private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
-    private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
+    @ObservationIgnored private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
+    @ObservationIgnored private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
     private let piSessionTitleGenerator = PiSessionTitleGenerationService()
     private var globalSnapshot: ScanSnapshot = .empty
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
-    private var piAgentSessionStoreCancellable: AnyCancellable?
     private var watchFingerprintTask: Task<Void, Never>?
     private var watchEventDebounceTask: Task<Void, Never>?
     private var fileWatchEventMonitor: FileWatchEventMonitor?
@@ -217,10 +231,6 @@ final class AppViewModel: NSObject, ObservableObject {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
         }
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
-        configureAgentMemory()
-        piAgentSessionStoreCancellable = piAgentSessionStore.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
         refreshAvailableModels()
@@ -445,6 +455,10 @@ final class AppViewModel: NSObject, ObservableObject {
             let liveSkillIDs = Set((snapshot.skills + snapshot.librarySkills).map(\.id))
             pendingDeletedSkillIDs.formIntersection(liveSkillIDs)
         }
+        if !pendingDeletedPromptIDs.isEmpty {
+            let livePromptIDs = Set((snapshot.promptTemplates + snapshot.libraryPromptTemplates).map(\.id))
+            pendingDeletedPromptIDs.formIntersection(livePromptIDs)
+        }
 
         let currentAgentID = selectedAgentID
         let currentSkillID = selectedSkillID
@@ -458,6 +472,22 @@ final class AppViewModel: NSObject, ObservableObject {
         } else {
             selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
         }
+
+        // After a rename, restore the selection onto the renamed record now
+        // that the fresh snapshot exposes its new id.
+        if let name = pendingSelectAgentName {
+            if let id = filteredAgents.first(where: { $0.name == name })?.id {
+                selectedAgentID = id
+            }
+            pendingSelectAgentName = nil
+        }
+        if let name = pendingSelectSkillName {
+            if let id = allVisibleSkillRecords.first(where: { $0.name == name })?.id {
+                selectedSkillID = id
+            }
+            pendingSelectSkillName = nil
+        }
+
         piAgentSessionStore.newSessionSubagentsEnabled = appSettings.nativeSubagentsEnabledForNewSessions
 
         if includeModels {
@@ -558,6 +588,242 @@ final class AppViewModel: NSObject, ObservableObject {
             selectedSkillID = allVisibleSkillRecords.first { $0.name == firstImported }?.id ?? selectedSkillID
         }
         return SkillImportResult(importedNames: importedNames, skippedNames: skippedNames)
+    }
+
+    // MARK: - Remote skill repositories
+
+    /// The synced repository whose clone contains `skill`, if any.
+    func importedRepository(for skill: SkillRecord) -> ImportedSkillRepository? {
+        appSettings.importedSkillRepositories.first { $0.contains(skillFilePath: skill.filePath) }
+    }
+
+    /// Resolve a pasted GitHub / skills.sh URL, clone it for discovery (or
+    /// reuse an existing clone when the repo is already imported), and list
+    /// its skills.
+    func prepareRemoteSkillImport(from rawInput: String) async throws -> RemoteSkillImportContext {
+        let source = try SkillRepositorySyncService.resolveSource(from: rawInput)
+        let existing = appSettings.importedSkillRepositories.first {
+            $0.owner.caseInsensitiveCompare(source.owner) == .orderedSame
+                && $0.repo.caseInsensitiveCompare(source.repo) == .orderedSame
+        }
+
+        if let existing {
+            let clonePath = URL(fileURLWithPath: existing.clonePath, isDirectory: true)
+            let candidates = try await skillRepositorySyncService.listSkills(inCloneAt: clonePath)
+            return RemoteSkillImportContext(
+                source: source,
+                clonePath: clonePath,
+                resolvedRef: existing.ref,
+                headCommit: existing.lastSyncedCommit,
+                candidates: candidates,
+                existingRepository: existing
+            )
+        }
+
+        let clonePath = SkillRepositorySyncService.cloneDirectoryURL(owner: source.owner, repo: source.repo)
+        let info = try await skillRepositorySyncService.cloneForDiscovery(source, into: clonePath)
+        let candidates = try await skillRepositorySyncService.listSkills(inCloneAt: clonePath)
+        return RemoteSkillImportContext(
+            source: source,
+            clonePath: clonePath,
+            resolvedRef: info.resolvedRef,
+            headCommit: info.headCommit,
+            candidates: candidates,
+            existingRepository: nil
+        )
+    }
+
+    /// Sparse-check-out the selected skills, register their roots in the
+    /// catalog, and record (or extend) the synced-repository entry.
+    func importRemoteSkills(
+        context: RemoteSkillImportContext,
+        selectedCandidates: [RemoteSkillCandidate]
+    ) async throws -> SkillImportResult {
+        guard !selectedCandidates.isEmpty else {
+            return SkillImportResult(importedNames: [], skippedNames: [])
+        }
+
+        try await skillRepositorySyncService.checkout(
+            selectedCandidates,
+            inCloneAt: context.clonePath,
+            additive: context.existingRepository != nil
+        )
+
+        let rootPaths = selectedCandidates.map { skillRootPath(for: $0, clonePath: context.clonePath) }
+        appSettingsController.addExternalSkillPaths(rootPaths)
+
+        var syncedDirectories = Set(context.existingRepository?.syncedSkillRelativePaths ?? [])
+        syncedDirectories.formUnion(selectedCandidates.map(\.repoRelativeDirectory))
+
+        let record = ImportedSkillRepository(
+            id: context.existingRepository?.id ?? UUID(),
+            remoteURL: context.source.remoteURL,
+            owner: context.source.owner,
+            repo: context.source.repo,
+            ref: context.resolvedRef,
+            clonePath: context.clonePath.standardizedFileURL.path,
+            syncedSkillRelativePaths: syncedDirectories.sorted(),
+            lastSyncedCommit: context.headCommit,
+            lastSyncedDate: Date(),
+            lastCheckedDate: context.existingRepository?.lastCheckedDate,
+            latestKnownRemoteCommit: context.existingRepository?.latestKnownRemoteCommit
+        )
+        appSettingsController.upsertImportedSkillRepository(record)
+        appSettings = appSettingsController.settings
+
+        refresh(includeModels: false, scanAllProjects: true)
+        if let firstName = selectedCandidates.first?.name {
+            selectedSkillID = allVisibleSkillRecords.first { $0.name == firstName }?.id ?? selectedSkillID
+        }
+        return SkillImportResult(importedNames: selectedCandidates.map(\.name), skippedNames: [])
+    }
+
+    /// Delete a discovery clone the user fetched but never imported from.
+    func discardDiscoveryClone(_ context: RemoteSkillImportContext) {
+        guard context.isFreshClone else { return }
+        let path = context.clonePath.standardizedFileURL.path
+        let isReferenced = appSettings.importedSkillRepositories.contains {
+            URL(fileURLWithPath: $0.clonePath).standardizedFileURL.path == path
+        }
+        guard !isReferenced else { return }
+        try? FileManager.default.removeItem(at: context.clonePath)
+    }
+
+    private func skillRootPath(for candidate: RemoteSkillCandidate, clonePath: URL) -> String {
+        let root = candidate.isWholeRepository
+            ? clonePath
+            : clonePath.appendingPathComponent(candidate.repoRelativeDirectory, isDirectory: true)
+        return root.standardizedFileURL.path
+    }
+
+    /// Manual "Check for Updates": a network-only `git ls-remote`. The result
+    /// is recorded so the skill detail can show an "update available" badge.
+    @discardableResult
+    func checkSkillRepositoryForUpdate(_ repository: ImportedSkillRepository) async throws -> SkillRepositoryUpdateStatus {
+        let status = try await skillRepositorySyncService.checkForUpdate(
+            remoteURL: repository.remoteURL,
+            ref: repository.ref,
+            syncedCommit: repository.lastSyncedCommit
+        )
+        var updated = repository
+        updated.lastCheckedDate = Date()
+        switch status {
+        case .upToDate:
+            updated.latestKnownRemoteCommit = repository.lastSyncedCommit
+        case let .updateAvailable(remoteCommit):
+            updated.latestKnownRemoteCommit = remoteCommit
+        }
+        appSettingsController.upsertImportedSkillRepository(updated)
+        appSettings = appSettingsController.settings
+        return status
+    }
+
+    /// Fetch and fast-forward a synced repository. Returns `.conflicts` when an
+    /// in-place edit collides with an upstream change for the caller to resolve.
+    func updateSkillRepository(_ repository: ImportedSkillRepository) async throws -> SkillRepositoryUpdateOutcome {
+        let outcome = try await skillRepositorySyncService.update(
+            cloneAt: URL(fileURLWithPath: repository.clonePath, isDirectory: true),
+            ref: repository.ref
+        )
+        applyUpdateOutcome(outcome, to: repository)
+        return outcome
+    }
+
+    /// Apply an update after the user chose Keep Mine / Take Remote per file.
+    func resolveSkillRepositoryUpdate(
+        _ repository: ImportedSkillRepository,
+        resolutions: [String: SkillConflictResolution]
+    ) async throws -> SkillRepositoryUpdateOutcome {
+        let outcome = try await skillRepositorySyncService.resolveConflicts(
+            cloneAt: URL(fileURLWithPath: repository.clonePath, isDirectory: true),
+            ref: repository.ref,
+            resolutions: resolutions
+        )
+        applyUpdateOutcome(outcome, to: repository)
+        return outcome
+    }
+
+    private func applyUpdateOutcome(_ outcome: SkillRepositoryUpdateOutcome, to repository: ImportedSkillRepository) {
+        guard case let .updated(newCommit) = outcome else { return }
+        var updated = repository
+        updated.lastSyncedCommit = newCommit
+        updated.latestKnownRemoteCommit = newCommit
+        updated.lastSyncedDate = Date()
+        updated.lastCheckedDate = Date()
+        appSettingsController.upsertImportedSkillRepository(updated)
+        appSettings = appSettingsController.settings
+        refresh(includeModels: false, scanAllProjects: true)
+    }
+
+    /// Synced repositories a manual check has flagged as having an upstream update.
+    var skillRepositoriesWithKnownUpdates: [ImportedSkillRepository] {
+        appSettings.importedSkillRepositories.filter(\.hasKnownUpdate)
+    }
+
+    /// Run a manual update check across every synced skill repository.
+    func checkAllSkillRepositoriesForUpdates() async {
+        guard !isCheckingAllSkillUpdates, !isUpdatingAllSkillRepositories else { return }
+        let repositories = appSettings.importedSkillRepositories
+        guard !repositories.isEmpty else { return }
+
+        isCheckingAllSkillUpdates = true
+        defer { isCheckingAllSkillUpdates = false }
+
+        var failures = 0
+        for repository in repositories {
+            do { _ = try await checkSkillRepositoryForUpdate(repository) }
+            catch { failures += 1 }
+        }
+
+        let updateCount = skillRepositoriesWithKnownUpdates.count
+        if failures > 0 {
+            skillBatchActionMessage = "Checked \(repositories.count) skill repositor\(repositories.count == 1 ? "y" : "ies"). \(updateCount) ha\(updateCount == 1 ? "s" : "ve") an update available. \(failures) could not be checked."
+        } else if updateCount == 0 {
+            skillBatchActionMessage = "All synced skills are up to date."
+        }
+        // When updates were found and nothing failed, the per-row badges show
+        // the result — no alert needed.
+    }
+
+    /// Apply updates to every synced repository a check has flagged. Repositories
+    /// whose local edits conflict with upstream are skipped and reported so the
+    /// user can resolve them one at a time.
+    func updateAllSkillRepositoriesWithKnownUpdates() async {
+        guard !isUpdatingAllSkillRepositories, !isCheckingAllSkillUpdates else { return }
+        let targets = skillRepositoriesWithKnownUpdates
+        guard !targets.isEmpty else { return }
+
+        isUpdatingAllSkillRepositories = true
+        defer { isUpdatingAllSkillRepositories = false }
+
+        var updated = 0
+        var conflicted = 0
+        var failed = 0
+        for target in targets {
+            // Re-read the record — an earlier iteration may have mutated settings.
+            guard let current = appSettings.importedSkillRepositories.first(where: { $0.id == target.id }) else { continue }
+            do {
+                switch try await updateSkillRepository(current) {
+                case .updated: updated += 1
+                case .alreadyUpToDate: break
+                case .conflicts: conflicted += 1
+                }
+            } catch {
+                failed += 1
+            }
+        }
+
+        var parts: [String] = []
+        if updated > 0 {
+            parts.append("Updated \(updated) skill\(updated == 1 ? "" : "s").")
+        }
+        if conflicted > 0 {
+            parts.append("\(conflicted) skill\(conflicted == 1 ? " has" : "s have") local edits that conflict with the update — open each skill to resolve.")
+        }
+        if failed > 0 {
+            parts.append("\(failed) skill\(failed == 1 ? "" : "s") could not be updated.")
+        }
+        skillBatchActionMessage = parts.isEmpty ? "No skills needed updating." : parts.joined(separator: "\n\n")
     }
 
     func addProject(_ url: URL, selectingAfterAdd: Bool = false) {
@@ -3620,7 +3886,6 @@ final class AppViewModel: NSObject, ObservableObject {
         appSettings = appSettingsController.settings
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
-        configureAgentMemory()
     }
 
     private func writeOpenAIFastModeConfig() {
@@ -3631,10 +3896,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func configurePiAgentIdleParking() {
         piAgentRunner.configureIdleParking(timeout: piAgentIdleParkingTimeout)
-    }
-
-    private func configureAgentMemory() {
-        objectWillChange.send()
     }
 
     private func parentMemoryArguments(for session: PiAgentSessionRecord, projectURL: URL, initialPrompt: String?) -> [String] {
@@ -4081,12 +4342,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var allVisiblePromptTemplateRecords: [PromptTemplateRecord] {
-        deduplicateByID(snapshot.promptTemplates + snapshot.libraryPromptTemplates)
+        let records = deduplicateByID(snapshot.promptTemplates + snapshot.libraryPromptTemplates)
             .sorted { lhs, rhs in
                 let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
                 if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
                 return lhs.source.kind.rawValue < rhs.source.kind.rawValue
             }
+        guard !pendingDeletedPromptIDs.isEmpty else { return records }
+        return records.filter { !pendingDeletedPromptIDs.contains($0.id) }
     }
 
     var packageNames: [String] {
@@ -4369,9 +4632,11 @@ final class AppViewModel: NSObject, ObservableObject {
         applyProjectPreferenceChanges()
         appSettings = appSettingsController.settings
 
-        refreshSynchronously(includeModels: false)
+        // Drop the redundant synchronous rescan; the async refresh reconciles.
+        // `pendingSelectAgentName` keeps the selection on the renamed agent
+        // once that fresh snapshot lands.
+        pendingSelectAgentName = newName
         refresh(includeModels: false, scanAllProjects: true)
-        selectedAgentID = filteredAgents.first { $0.name == newName }?.id ?? selectedAgentID
     }
 
     func canRenameSkill(_ skill: SkillRecord) -> Bool {
@@ -4433,9 +4698,11 @@ final class AppViewModel: NSObject, ObservableObject {
         _ = appSettingsController.replaceExternalSkillPath(from: fileURL.path, to: (isSkillFolder ? newTargetURL.appendingPathComponent("SKILL.md") : newTargetURL).path)
         appSettings = appSettingsController.settings
 
-        refreshSynchronously(includeModels: false)
+        // Drop the redundant synchronous rescan; the async refresh reconciles.
+        // `pendingSelectSkillName` keeps the selection on the renamed skill
+        // once that fresh snapshot lands.
+        pendingSelectSkillName = newName
         refresh(includeModels: false, scanAllProjects: true)
-        selectedSkillID = allVisibleSkillRecords.first { $0.name == newName }?.id ?? selectedSkillID
     }
 
     func canRenamePrompt(_ prompt: PromptTemplateRecord) -> Bool {
@@ -4941,7 +5208,9 @@ final class AppViewModel: NSObject, ObservableObject {
     func setPrompt(_ prompt: PromptTemplateRecord, enabled: Bool, for project: DiscoveredProject) throws {
         projectPreferencesStore.setAssignedPromptTemplate(prompt.name, assigned: enabled, for: project.path)
         applyProjectPreferenceChanges()
-        refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
+        // The toggle's checkbox already reflects the preference store (updated
+        // synchronously above); reconcile snapshot-derived state in the
+        // background so the tap doesn't freeze the UI on a rescan.
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
         selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == prompt.name }?.id ?? selectedCommandItemID
     }
@@ -4975,26 +5244,29 @@ final class AppViewModel: NSObject, ObservableObject {
     func deletePrompt(_ prompt: PromptTemplateRecord) throws {
         guard canDeletePrompt(prompt) else { throw CocoaError(.fileWriteNoPermission) }
 
-        // Imported prompts are referenced in place — removing one only un-registers
-        // the path. The user's original file is never trashed.
+        // Throwing filesystem work first — optimistic hiding must not happen
+        // unless it succeeds (the view shows an alert on throw).
         if prompt.discoveryKind == .externalReference {
+            // Imported prompts are referenced in place — removing one only
+            // un-registers the path. The user's original file is never trashed.
             try removePromptReferences(named: prompt.name)
             _ = appSettingsController.removeExternalPromptPaths([prompt.filePath])
             appSettings = appSettingsController.settings
-            refreshSynchronously(includeModels: false)
-            refresh(includeModels: false, scanAllProjects: true)
-            selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
-            return
+        } else {
+            try removePromptReferences(named: prompt.name)
+            let fileURL = URL(fileURLWithPath: prompt.filePath).standardizedFileURL
+            try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
+            try replacePromptSettingsPaths(oldURLs: [fileURL], newURL: nil)
+            appSettings = appSettingsController.settings
         }
 
-        try removePromptReferences(named: prompt.name)
-        let fileURL = URL(fileURLWithPath: prompt.filePath).standardizedFileURL
-        try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
-        try replacePromptSettingsPaths(oldURLs: [fileURL], newURL: nil)
-        appSettings = appSettingsController.settings
-        refreshSynchronously(includeModels: false)
-        refresh(includeModels: false, scanAllProjects: true)
+        // Hide the row immediately — no blocking rescan. The background refresh
+        // prunes the pending id once the fresh snapshot confirms it's gone.
+        withAnimation(.snappy(duration: 0.18)) {
+            _ = pendingDeletedPromptIDs.insert(prompt.id)
+        }
         selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
+        refresh(includeModels: false, scanAllProjects: true)
     }
 
     func agent(_ agent: AgentRecord, isEnabledFor project: DiscoveredProject) -> Bool {
@@ -5211,9 +5483,11 @@ final class AppViewModel: NSObject, ObservableObject {
         try removeAgentReferences(named: agent.name)
         let fileURL = URL(fileURLWithPath: agent.filePath).standardizedFileURL
         try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
-        refreshSynchronously(includeModels: false)
+        // Reconcile in the background — no blocking rescan. The row updates
+        // when the fresh snapshot lands; a builtin of the same name correctly
+        // reappears instead of the row being wrongly hidden, so agent deletion
+        // is not optimistically hidden the way skill/prompt deletion is.
         refresh(includeModels: false, scanAllProjects: true)
-        selectedAgentID = filteredAgents.first?.id
     }
 
     private func removeAgentReferences(named agentName: String) throws {
@@ -5281,7 +5555,9 @@ final class AppViewModel: NSObject, ObservableObject {
     private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
         projectPreferencesStore.setAssignedSkill(skill.name, assigned: enabled, for: projectPath)
         applyProjectPreferenceChanges()
-        refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
+        // The toggle's checkbox already reflects the preference store (updated
+        // synchronously above); reconcile snapshot-derived state in the
+        // background so the tap doesn't freeze the UI on a rescan.
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
@@ -5328,7 +5604,7 @@ final class AppViewModel: NSObject, ObservableObject {
         // Hide the row immediately — no blocking rescan. SwiftUI updates the
         // list the instant the published set changes, like session deletion.
         withAnimation(.snappy(duration: 0.18)) {
-            pendingDeletedSkillIDs.insert(skill.id)
+            _ = pendingDeletedSkillIDs.insert(skill.id)
         }
         // Recompute selection AFTER hiding so the deleted skill isn't re-picked.
         selectedSkillID = allVisibleSkillRecords.first?.id
@@ -5703,7 +5979,6 @@ final class AppViewModel: NSObject, ObservableObject {
         switch draft.target {
         case let .custom(scope):
             guard scope == .project else {
-                refreshSynchronously(includeModels: false)
                 refresh(includeModels: false)
                 return
             }
@@ -5714,12 +5989,24 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func refreshAfterOverrideChange(scope: AgentEditingTarget.OverrideScope) {
+        // Builtin-override changes feed bound, snapshot-derived toggles — the
+        // Settings "Disable builtins" switch and the per-agent builtin-disable
+        // control. Keep this synchronous so those toggles show the new state
+        // immediately instead of snapping back while an async refresh is in
+        // flight. Override edits are infrequent admin actions, so the brief
+        // rescan is an acceptable cost here.
         switch scope {
         case .global:
             refreshSynchronously(includeModels: false)
             refresh(includeModels: false)
         case .project:
-            refreshAfterProjectScopedChange(projectPath: selectedProjectPath)
+            if let projectPath = selectedProjectPath {
+                refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
+                refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
+            } else {
+                refreshSynchronously(includeModels: false)
+                refresh(includeModels: false)
+            }
         }
     }
 
@@ -5733,12 +6020,12 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func refreshAfterProjectScopedChange(projectPath: String?) {
+        // Async-only: agent-draft saves, override edits and env-key changes all
+        // route through here; a synchronous rescan would freeze the UI on each.
         guard let projectPath else {
-            refreshSynchronously(includeModels: false)
             refresh(includeModels: false)
             return
         }
-        refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
     }
 

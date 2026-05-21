@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Shared `JSONDecoder` for view-layer payload decoding. Reused so SwiftUI
+/// computed properties don't allocate a fresh decoder on every `body` eval.
+private let subagentJSONDecoder = JSONDecoder()
+
 struct PiAgentFileAttachment: Identifiable, Hashable {
     let id = UUID()
     let url: URL
@@ -90,7 +94,7 @@ struct PiSubagentSupervisorRequestCard: View {
                 jsonText = trimmed
             }
             guard let data = jsonText.data(using: .utf8),
-                  let payload = try? JSONDecoder().decode(SupervisorInterviewPayload.self, from: data),
+                  let payload = try? subagentJSONDecoder.decode(SupervisorInterviewPayload.self, from: data),
                   !payload.questions.isEmpty else { return nil }
             return payload
         }

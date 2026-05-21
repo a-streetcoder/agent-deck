@@ -3,6 +3,10 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Shared `JSONDecoder` for view-layer payload decoding. Reused so SwiftUI
+/// computed properties don't allocate a fresh decoder on every `body` eval.
+private let transcriptJSONDecoder = JSONDecoder()
+
 /// Memoizes a parse done from a source string, so a SwiftUI computed property
 /// doesn't re-decode JSON on every `body` evaluation. The result is a pure
 /// function of the source string — the cache never goes stale — and keys carry
@@ -1013,7 +1017,7 @@ extension PiAgentTranscriptEntry {
     var agentMemoryEvent: AgentMemoryTranscriptEvent? {
         guard let rawJSON,
               let data = rawJSON.data(using: .utf8),
-              let event = try? JSONDecoder().decode(AgentMemoryTranscriptEvent.self, from: data),
+              let event = try? transcriptJSONDecoder.decode(AgentMemoryTranscriptEvent.self, from: data),
               event.type == AgentMemoryTranscriptEvent.rawType else {
             return nil
         }
@@ -2242,7 +2246,7 @@ private struct PiAgentUserMessageContent: View {
 
     private static func attachmentPayload(for entry: PiAgentTranscriptEntry) -> AttachmentPayload? {
         guard let rawJSON = entry.rawJSON, let data = rawJSON.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(AttachmentPayload.self, from: data)
+        return try? transcriptJSONDecoder.decode(AttachmentPayload.self, from: data)
     }
 
     private static func images(for entry: PiAgentTranscriptEntry) -> [PiAgentImageAttachment] {
@@ -2545,7 +2549,6 @@ struct PiAgentTranscriptCard: View {
     let entry: PiAgentTranscriptEntry
     var style: PiAgentTranscriptCardStyle = .standalone
     var skills: [SkillRecord] = []
-    @State private var isThinkingExpanded = true
 
     /// User questions render as messaging-style bubbles. They still show the
     /// "You" header (icon + label + hover-revealed copy button) like other
@@ -2635,22 +2638,16 @@ struct PiAgentTranscriptCard: View {
 
     @ViewBuilder
     private var thinkingContent: some View {
-        reasoningDisclosure(source: entry.text, defaultExpanded: true)
+        reasoningDisclosure(source: entry.text)
     }
 
-    private func reasoningDisclosure(source: String, defaultExpanded: Bool) -> some View {
+    private func reasoningDisclosure(source: String) -> some View {
         let displayText = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        return DisclosureGroup(isExpanded: $isThinkingExpanded) {
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Reasoning")
+                .font(.caption.weight(.semibold))
             MarkdownTextView(source: displayText.isEmpty ? "Pi has not emitted reasoning text yet." : displayText)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            HStack(spacing: 6) {
-                Text("Reasoning")
-                    .font(.caption.weight(.semibold))
-            }
-        }
-        .onAppear {
-            isThinkingExpanded = defaultExpanded
         }
     }
 

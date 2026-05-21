@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct SettingsSceneContent: View {
-    @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(AppViewModel.self) private var viewModel
     @State private var selectedTab: SettingsTab = .general
 
     var body: some View {
@@ -255,7 +255,7 @@ private struct SettingsToggleRow: View {
 // MARK: - General
 
 private struct GeneralSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -320,7 +320,7 @@ private struct GeneralSettingsTab: View {
 // MARK: - Agent
 
 private struct AgentSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -408,7 +408,7 @@ private struct AgentSettingsTab: View {
 // MARK: - Automations
 
 private struct AutomationsSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -576,7 +576,7 @@ private struct AutomationsSettingsTab: View {
 // MARK: - Performance
 
 private struct PerformanceSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -618,7 +618,7 @@ private struct PerformanceSettingsTab: View {
 // MARK: - Commands
 
 private struct CommandsSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -684,7 +684,7 @@ private struct CommandGroupSection: View {
     let title: String
     let subtitle: String
     let commands: [PiInjectedCommand]
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -707,7 +707,7 @@ private struct CommandGroupSection: View {
 
 private struct CommandSettingsRow: View {
     let command: PiInjectedCommand
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         HStack(alignment: .center, spacing: 20) {
@@ -921,7 +921,7 @@ private extension AgentDeckShortcutItem {
 // MARK: - GitHub
 
 private struct GitHubSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -948,7 +948,7 @@ private struct GitHubSettingsTab: View {
 // MARK: - Subagents
 
 private struct SubagentsSettingsTab: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         SettingsForm {
@@ -978,5 +978,5 @@ private func revealInFinder(_ path: String?) {
 
 #Preview {
     SettingsSceneContent()
-        .environmentObject(AppViewModel())
+        .environment(AppViewModel())
 }

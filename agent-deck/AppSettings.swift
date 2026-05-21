@@ -65,6 +65,7 @@ struct AppSettings: Codable, Hashable {
     var defaultAgentNames: Set<String> = []
     var defaultSkillNames: Set<String> = []
     var externalSkillPaths: Set<String> = []
+    var importedSkillRepositories: [ImportedSkillRepository] = []
     var defaultPromptTemplateNames: Set<String> = []
     var externalPromptPaths: Set<String> = []
     var didMigrateAgentAssignmentsFromDiscoveredFiles: Bool = false
@@ -101,6 +102,7 @@ struct AppSettings: Codable, Hashable {
         case defaultAgentNames
         case defaultSkillNames
         case externalSkillPaths
+        case importedSkillRepositories
         case defaultPromptTemplateNames
         case externalPromptPaths
         case didMigrateAgentAssignmentsFromDiscoveredFiles
@@ -143,6 +145,7 @@ struct AppSettings: Codable, Hashable {
         defaultAgentNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultAgentNames) ?? []
         defaultSkillNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultSkillNames) ?? []
         externalSkillPaths = try container.decodeIfPresent(Set<String>.self, forKey: .externalSkillPaths) ?? []
+        importedSkillRepositories = try container.decodeIfPresent([ImportedSkillRepository].self, forKey: .importedSkillRepositories) ?? []
         defaultPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultPromptTemplateNames) ?? []
         externalPromptPaths = try container.decodeIfPresent(Set<String>.self, forKey: .externalPromptPaths) ?? []
         didMigrateAgentAssignmentsFromDiscoveredFiles = try container.decodeIfPresent(Bool.self, forKey: .didMigrateAgentAssignmentsFromDiscoveredFiles) ?? false

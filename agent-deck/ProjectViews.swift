@@ -175,7 +175,7 @@ private actor ProjectIconCache {
 }
 
 struct SystemInstructionsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         if let project = viewModel.selectedDiscoveredProject {
@@ -589,7 +589,7 @@ struct ProjectsScreen: View {
         var id: String { rawValue }
     }
 
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Binding var searchText: String
     @State private var filter: Filter = .enabled
     @State private var debouncedSearchText = ""

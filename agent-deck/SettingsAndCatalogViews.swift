@@ -213,7 +213,7 @@ struct ModelsInfoPopover: View {
 }
 
 struct ModelsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         AppPage("Models") {
@@ -511,7 +511,7 @@ struct ModelsScreen: View {
 }
 
 struct SubagentsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
 
     var body: some View {
         AppPage("Subagents", subtitle: "Native app-managed delegation and supervision") {
@@ -716,11 +716,15 @@ struct AgentModelQuickEditorSheet: View {
         )
     }
 
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
+
     private var modelSelectionSummary: String {
         let freshness = modelsLastUpdatedAt.map { date in
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .short
-            return " Refreshed \(formatter.localizedString(for: date, relativeTo: Date()))."
+            " Refreshed \(Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date()))."
         } ?? ""
         return "Uses the same model list and thinking rules as the full editor. Thinking choices update automatically for the selected model.\(freshness)"
     }

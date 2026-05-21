@@ -39,7 +39,7 @@ private enum WelcomeTourContent {
 }
 
 struct WelcomeOnboardingSheet: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     let onFinish: (SidebarItem?) -> Void
     @State private var phase: Phase = .tour
     @State private var setupItemsTask: Task<[SetupCheckItem], Never>?
@@ -100,7 +100,7 @@ struct WelcomeOnboardingSheet: View {
 }
 
 struct SetupChecklistView: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     fileprivate let preloadedItems: Task<[SetupCheckItem], Never>?
     let onBack: () -> Void
     let onFinish: (SidebarItem?) -> Void

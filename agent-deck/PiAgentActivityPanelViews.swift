@@ -2,8 +2,12 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Shared `JSONDecoder` for view-layer payload decoding. Reused so SwiftUI
+/// computed properties don't allocate a fresh decoder on every `body` eval.
+private let activityPanelJSONDecoder = JSONDecoder()
+
 struct PiAgentActivityPanel: View {
-    @ObservedObject var store: PiAgentSessionStore
+    var store: PiAgentSessionStore
     @Binding var isPresented: Bool
     @StateObject private var activityCache = PiAgentActivityCache()
     @State private var filter: PiAgentActivityFilter = .files
@@ -76,14 +80,14 @@ struct PiAgentActivityPanel: View {
                 rebuildActivityCache()
             }
         }
-        .onReceive(store.$subagentRunsBySessionID) { _ in
+        .onChange(of: store.subagentRunsBySessionID) { _, _ in
             requestSelectedSubagentTranscriptLoadsAfterViewUpdate()
             Task { @MainActor in
                 await Task.yield()
                 rebuildActivityCache()
             }
         }
-        .onReceive(store.$subagentTranscriptsByRunID) { _ in
+        .onChange(of: store.subagentTranscriptsByRunID) { _, _ in
             Task { @MainActor in
                 await Task.yield()
                 rebuildActivityCache()
@@ -775,7 +779,7 @@ private struct PiAgentActivityItem: Identifiable, Hashable {
 
     private static func event(from rawJSON: String?) -> PiAgentRPCEvent? {
         guard let rawJSON, let data = rawJSON.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(PiAgentRPCEvent.self, from: data)
+        return try? activityPanelJSONDecoder.decode(PiAgentRPCEvent.self, from: data)
     }
 
     private static let pathTextRegexes = [#"in ([^\n]+)$"#, #"to ([^\n]+)$"#, #"from ([^\n]+)$"#]

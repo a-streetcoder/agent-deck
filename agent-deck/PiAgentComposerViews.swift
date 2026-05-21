@@ -733,7 +733,7 @@ struct PiAgentIssueAttachmentChip: View {
 }
 
 private struct PiAgentIssuePickerPopover: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     let onSelect: (PiAgentIssueAttachment) -> Void
 
     @State private var query = ""
@@ -1280,7 +1280,7 @@ struct PiAgentModelSelection {
 
 struct PiAgentComposerFooterBar: View {
     let session: PiAgentSessionRecord
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     let transcript: [PiAgentTranscriptEntry]
     let supportedThinkingLevels: [String]
 

@@ -171,7 +171,7 @@ extension View {
 
 struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
-    @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(AppViewModel.self) private var viewModel
     @State private var agentDraft: AgentEditorDraft?
     @State private var editingAgent: EffectiveAgentRecord?
     @State private var envDraft: EnvEditorDraft?
@@ -596,6 +596,7 @@ struct ContentView: View {
     /// time" after recent additions to the surrounding toolbar/body.
     @ViewBuilder
     private func sidebarSectionsList(warnings: [SidebarItem: Bool]) -> some View {
+        @Bindable var viewModel = viewModel
         List(selection: $viewModel.selectedSidebarItem) {
             ForEach(SidebarSection.allCases) { section in
                 Section(section.rawValue) {
@@ -845,8 +846,49 @@ struct ContentView: View {
         }
     }
 
+    private var skillsUpdateAllTitle: String {
+        if viewModel.isUpdatingAllSkillRepositories { return "Updating" }
+        let count = viewModel.skillRepositoriesWithKnownUpdates.count
+        return count > 0 ? "Update All (\(count))" : "Update All"
+    }
+
     @ToolbarContentBuilder
     private var skillsPrimaryToolbarContent: some ToolbarContent {
+        // Sync island — manage updates for skills imported from Git repos.
+        // Only shown once at least one skill repository has been synced.
+        if !viewModel.appSettings.importedSkillRepositories.isEmpty {
+            ToolbarItem(placement: .primaryAction) {
+                ControlGroup {
+                    Button {
+                        Task { await viewModel.checkAllSkillRepositoriesForUpdates() }
+                    } label: {
+                        Label(
+                            viewModel.isCheckingAllSkillUpdates ? "Checking" : "Check for Updates",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                    }
+                    .symbolEffect(.rotate.byLayer, isActive: viewModel.isCheckingAllSkillUpdates)
+                    .toolbarNeutralChrome()
+                    .help("Check every synced skill repository for updates")
+                    .disabled(viewModel.isCheckingAllSkillUpdates || viewModel.isUpdatingAllSkillRepositories)
+
+                    Button {
+                        Task { await viewModel.updateAllSkillRepositoriesWithKnownUpdates() }
+                    } label: {
+                        Label(skillsUpdateAllTitle, systemImage: "arrow.down.circle")
+                    }
+                    .toolbarNeutralChrome()
+                    .help("Update every synced skill that has a new version available")
+                    .disabled(
+                        viewModel.skillRepositoriesWithKnownUpdates.isEmpty
+                            || viewModel.isCheckingAllSkillUpdates
+                            || viewModel.isUpdatingAllSkillRepositories
+                    )
+                }
+            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
+
         // Info + create island — `New` is the tinted trailing member so the
         // ControlGroup renders it as a filled prominent segment.
         ToolbarItem(placement: .primaryAction) {

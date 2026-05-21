@@ -73,27 +73,23 @@ struct SkillListMetadata {
 }
 
 struct SkillsScreen: View {
-    @ObservedObject var viewModel: AppViewModel
+    var viewModel: AppViewModel
     @Binding var searchText: String
-    @State private var selectedSkillID: SkillRecord.ID?
+    @State private var selectedSkillIDs: Set<SkillRecord.ID> = []
+    @State private var skillsPendingBatchDeletion: [SkillRecord]?
     @State private var selectedWarning: SkillWarningSelection?
     @State private var isImportSheetPresented = false
-    @State private var shouldPromptForImportSource = false
-    @State private var importSourceURL: URL?
-    @State private var importCandidates: [ExternalSkillCandidate] = []
-    @State private var importSearchText = ""
-    @State private var selectedImportCandidateIDs: Set<String> = []
-    @State private var importErrorMessage: String?
     @State private var importSummaryMessage: String?
-    @State private var isScanningImportSource = false
-    @State private var importScanProgress: ExternalSkillDiscovery.Progress?
-    @State private var importScanTask: Task<Void, Never>?
     @State private var skillActionErrorMessage: String?
     @State private var skillPendingDeletion: SkillRecord?
     @State private var skillPendingRename: SkillRecord?
     @State private var hoveredSkillID: SkillRecord.ID?
     @State private var skillEditTarget: MarkdownFileEditTarget?
     @State private var newSkillDraft: NewSkillDraft?
+    @State private var isCheckingSkillUpdate = false
+    @State private var isUpdatingSkillRepository = false
+    @State private var skillUpdateStatusMessage: String?
+    @State private var skillUpdateConflict: SkillUpdateConflictContext?
 
     var body: some View {
         HSplitView {
@@ -107,8 +103,8 @@ struct SkillsScreen: View {
 
             if viewModel.hasCompletedInitialRefresh {
                 AppPage(
-                    selectedWarning?.title ?? selectedSkill?.name ?? "Skill Details",
-                    subtitle: selectedWarning?.subtitle ?? selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }
+                    selectedWarning?.title ?? skillDetailTitle,
+                    subtitle: selectedWarning?.subtitle ?? skillDetailSubtitle
                 ) {
                     skillDetailContent
                 }
@@ -119,12 +115,17 @@ struct SkillsScreen: View {
         .onAppear { scheduleSelectionSynchronization() }
         .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in scheduleSelectionSynchronization() }
         .onChange(of: viewModel.selectedSkillID) { _, _ in scheduleSelectionSynchronization() }
-        .onChange(of: selectedSkillID) { _, id in
-            guard viewModel.selectedSkillID != id else { return }
-            if id != nil {
+        .onChange(of: selectedSkillIDs) { _, ids in
+            skillUpdateStatusMessage = nil
+            if !ids.isEmpty {
                 selectedWarning = nil
             }
-            viewModel.selectedSkillID = id
+            // The view model tracks a single focused skill (toolbar title,
+            // cross-view state); a multi-selection has no single focus.
+            let primary: SkillRecord.ID? = ids.count == 1 ? ids.first : nil
+            if viewModel.selectedSkillID != primary {
+                viewModel.selectedSkillID = primary
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .agentDeckImportSkillsRequested)) { _ in
             beginSkillImport()
@@ -133,7 +134,9 @@ struct SkillsScreen: View {
             createNewSkill()
         }
         .sheet(isPresented: $isImportSheetPresented) {
-            importSkillsSheet
+            SkillImportSheet(viewModel: viewModel, isPresented: $isImportSheetPresented) { result in
+                importSummaryMessage = importSummary(for: result)
+            }
         }
         .sheet(item: $skillEditTarget) { target in
             MarkdownFileEditorSheet(target: target) {
@@ -162,16 +165,27 @@ struct SkillsScreen: View {
                 onRename: { try viewModel.renameSkill(skill, to: $0) }
             )
         }
-        .alert("Skill Import", isPresented: Binding(
-            get: { importErrorMessage != nil || importSummaryMessage != nil },
-            set: { if !$0 { importErrorMessage = nil; importSummaryMessage = nil } }
-        )) {
-            Button("OK") {
-                importErrorMessage = nil
-                importSummaryMessage = nil
+        .sheet(item: $skillUpdateConflict) { conflict in
+            SkillUpdateConflictSheet(
+                viewModel: viewModel,
+                context: conflict,
+                isPresented: Binding(
+                    get: { skillUpdateConflict != nil },
+                    set: { if !$0 { skillUpdateConflict = nil } }
+                )
+            ) { outcome in
+                if case .updated = outcome {
+                    skillUpdateStatusMessage = "Updated to the latest version."
+                }
             }
+        }
+        .alert("Skill Import", isPresented: Binding(
+            get: { importSummaryMessage != nil },
+            set: { if !$0 { importSummaryMessage = nil } }
+        )) {
+            Button("OK") { importSummaryMessage = nil }
         } message: {
-            Text(importErrorMessage ?? importSummaryMessage ?? "")
+            Text(importSummaryMessage ?? "")
         }
         .alert("Skill Assignment", isPresented: Binding(
             get: { skillActionErrorMessage != nil },
@@ -196,6 +210,27 @@ struct SkillsScreen: View {
         } message: { skill in
             Text("Move \"\(skill.name)\" to the Trash and remove its Default, project, and agent assignments?")
         }
+        .alert("Delete Skills?", isPresented: Binding(
+            get: { skillsPendingBatchDeletion != nil },
+            set: { if !$0 { skillsPendingBatchDeletion = nil } }
+        ), presenting: skillsPendingBatchDeletion) { skills in
+            Button("Move \(skills.count) to Trash", role: .destructive) {
+                batchDeleteSkills(skills)
+            }
+            Button("Cancel", role: .cancel) {
+                skillsPendingBatchDeletion = nil
+            }
+        } message: { skills in
+            Text("Move \(skills.count) skills to the Trash and remove their Default, project, and agent assignments?")
+        }
+        .alert("Skill Updates", isPresented: Binding(
+            get: { viewModel.skillBatchActionMessage != nil },
+            set: { if !$0 { viewModel.skillBatchActionMessage = nil } }
+        )) {
+            Button("OK") { viewModel.skillBatchActionMessage = nil }
+        } message: {
+            Text(viewModel.skillBatchActionMessage ?? "")
+        }
     }
 
     @ViewBuilder
@@ -203,7 +238,7 @@ struct SkillsScreen: View {
         // Precomputed in AppViewModel, rebuilt only on data rescans — was
         // O(skills × warnings/projects/agents) on every body eval.
         let metadataByID = viewModel.cachedSkillMetadataByID
-        List(selection: skillSelection) {
+        List(selection: $selectedSkillIDs) {
             if !viewModel.skillReferenceWarnings.isEmpty || !viewModel.skillWarnings.isEmpty {
                 appListSection("Warnings", tint: .orange) {
                     ForEach(viewModel.skillReferenceWarnings) { warning in
@@ -254,6 +289,54 @@ struct SkillsScreen: View {
             }
         }
         .appListStyle()
+        .contextMenu(forSelectionType: SkillRecord.ID.self) { ids in
+            skillContextMenu(for: ids)
+        }
+    }
+
+    /// Selection-aware list context menu. A single right-clicked skill gets the
+    /// full action set; a multi-selection gets a batch delete.
+    @ViewBuilder
+    private func skillContextMenu(for ids: Set<SkillRecord.ID>) -> some View {
+        let skills = managedSkills.filter { ids.contains($0.id) }
+        if skills.count > 1 {
+            let deletable = skills.filter { viewModel.canDeleteSkill($0) }
+            Button(role: .destructive) {
+                skillsPendingBatchDeletion = deletable
+            } label: {
+                Label("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")", systemImage: "trash")
+            }
+            .disabled(deletable.isEmpty)
+        } else if let skill = skills.first {
+            Button {
+                skillEditTarget = makeSkillEditTarget(skill)
+            } label: {
+                Label("Edit SKILL.md", systemImage: "square.and.pencil")
+            }
+            .disabled(!viewModel.canRenameSkill(skill))
+
+            Button {
+                revealSkillInFinder(skill)
+            } label: {
+                Label("Reveal in Finder", systemImage: "finder")
+            }
+
+            Button {
+                skillPendingRename = skill
+            } label: {
+                Label("Rename Skill", systemImage: "pencil")
+            }
+            .disabled(!viewModel.canRenameSkill(skill))
+
+            Divider()
+
+            Button(role: .destructive) {
+                skillPendingDeletion = skill
+            } label: {
+                Label("Delete Skill", systemImage: "trash")
+            }
+            .disabled(!viewModel.canDeleteSkill(skill))
+        }
     }
 
     private func catalogSection(skills: [SkillRecord], metadataByID: [SkillRecord.ID: SkillListMetadata]) -> some View {
@@ -267,7 +350,7 @@ struct SkillsScreen: View {
 
     private func skillWarningCard(_ warning: SkillReferenceWarning) -> some View {
         Button {
-            selectedSkillID = nil
+            selectedSkillIDs = []
             selectedWarning = .missing(warning)
         } label: {
             HStack(alignment: .center, spacing: 10) {
@@ -303,7 +386,7 @@ struct SkillsScreen: View {
 
     private func diagnosticWarningCard(_ warning: DiagnosticWarning) -> some View {
         Button {
-            selectedSkillID = nil
+            selectedSkillIDs = []
             selectedWarning = .diagnostic(warning)
         } label: {
             HStack(alignment: .top, spacing: 10) {
@@ -328,6 +411,8 @@ struct SkillsScreen: View {
     private var skillDetailContent: some View {
         if let selectedWarning {
             skillWarningDetail(selectedWarning)
+        } else if selectedSkillIDs.count > 1 {
+            batchSelectionDetail(selectedSkills)
         } else if let skill = selectedSkill {
             let warnings = warningsForSkill(skill)
             if !warnings.isEmpty {
@@ -341,6 +426,8 @@ struct SkillsScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+
+            syncedRepositoryCard(for: skill)
 
             AppCard(title: "Default Skill") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -401,6 +488,119 @@ struct SkillsScreen: View {
             AppCard {
                 ContentUnavailableView("No Skill Selected", systemImage: "wand.and.stars")
                     .frame(maxWidth: .infinity, minHeight: 240)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func syncedRepositoryCard(for skill: SkillRecord) -> some View {
+        if let repository = viewModel.importedRepository(for: skill) {
+            AppCard(title: "Synced Repository") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("This skill is synced from a GitHub repository. You can edit it here; updates fast-forward and ask before overwriting your edits.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    AppKeyValueList(rows: [
+                        ("Source", "GitHub · \(repository.displayName)"),
+                        ("Branch", repository.ref),
+                        ("Synced", "\(shortCommit(repository.lastSyncedCommit)) · \(repository.lastSyncedDate.formatted(date: .abbreviated, time: .shortened))"),
+                        ("Last checked", repository.lastCheckedDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
+                    ])
+
+                    if repository.hasKnownUpdate {
+                        Label(
+                            "Update available — \(shortCommit(repository.lastSyncedCommit)) → \(shortCommit(repository.latestKnownRemoteCommit ?? ""))",
+                            systemImage: "arrow.down.circle.fill"
+                        )
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    }
+
+                    if let skillUpdateStatusMessage {
+                        Text(skillUpdateStatusMessage)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack {
+                        Button {
+                            checkSkillRepositoryForUpdate(repository)
+                        } label: {
+                            if isCheckingSkillUpdate {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text("Check for Updates")
+                            }
+                        }
+                        .appSecondaryButton()
+                        .disabled(isCheckingSkillUpdate || isUpdatingSkillRepository)
+
+                        if repository.hasKnownUpdate {
+                            Button {
+                                applySkillRepositoryUpdate(repository)
+                            } label: {
+                                if isUpdatingSkillRepository {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Text("Update Skill")
+                                }
+                            }
+                            .appPrimaryButton()
+                            .disabled(isCheckingSkillUpdate || isUpdatingSkillRepository)
+                        }
+
+                        if let webURL = repository.webURL {
+                            Button("Open on GitHub") { NSWorkspace.shared.open(webURL) }
+                                .appSecondaryButton()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func shortCommit(_ commit: String) -> String {
+        String(commit.prefix(7))
+    }
+
+    private func checkSkillRepositoryForUpdate(_ repository: ImportedSkillRepository) {
+        isCheckingSkillUpdate = true
+        skillUpdateStatusMessage = nil
+        Task {
+            do {
+                let status = try await viewModel.checkSkillRepositoryForUpdate(repository)
+                isCheckingSkillUpdate = false
+                if case .upToDate = status {
+                    skillUpdateStatusMessage = "Up to date."
+                }
+            } catch {
+                isCheckingSkillUpdate = false
+                skillUpdateStatusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func applySkillRepositoryUpdate(_ repository: ImportedSkillRepository) {
+        isUpdatingSkillRepository = true
+        skillUpdateStatusMessage = nil
+        Task {
+            do {
+                let outcome = try await viewModel.updateSkillRepository(repository)
+                isUpdatingSkillRepository = false
+                switch outcome {
+                case .updated:
+                    skillUpdateStatusMessage = "Updated to the latest version."
+                case .alreadyUpToDate:
+                    skillUpdateStatusMessage = "Already up to date."
+                case let .conflicts(conflicts):
+                    skillUpdateConflict = SkillUpdateConflictContext(repository: repository, conflicts: conflicts)
+                }
+            } catch {
+                isUpdatingSkillRepository = false
+                skillUpdateStatusMessage = error.localizedDescription
             }
         }
     }
@@ -529,10 +729,24 @@ struct SkillsScreen: View {
         }
     }
 
+    /// The skill shown in the detail pane — only when exactly one is selected.
     private var selectedSkill: SkillRecord? {
-        guard selectedWarning == nil else { return nil }
-        guard let selectedSkillID else { return managedSkills.first }
-        return managedSkills.first { $0.id == selectedSkillID } ?? managedSkills.first
+        guard selectedWarning == nil, selectedSkillIDs.count == 1, let id = selectedSkillIDs.first else { return nil }
+        return managedSkills.first { $0.id == id }
+    }
+
+    private var selectedSkills: [SkillRecord] {
+        managedSkills.filter { selectedSkillIDs.contains($0.id) }
+    }
+
+    private var skillDetailTitle: String {
+        if selectedSkillIDs.count > 1 { return "\(selectedSkillIDs.count) Skills Selected" }
+        return selectedSkill?.name ?? "Skill Details"
+    }
+
+    private var skillDetailSubtitle: String? {
+        if selectedSkillIDs.count > 1 { return "Batch actions" }
+        return selectedSkill.map { skillLocationLabel($0, selectedProjectRoot: viewModel.snapshot.projectRoot) }
     }
 
     private var activeSkills: [SkillRecord] {
@@ -577,13 +791,6 @@ struct SkillsScreen: View {
         return false
     }
 
-    private var skillSelection: Binding<SkillRecord.ID?> {
-        Binding(
-            get: { selectedSkillID },
-            set: { selectedSkillID = $0 }
-        )
-    }
-
     private func scheduleSelectionSynchronization() {
         Task { @MainActor in
             await Task.yield()
@@ -592,29 +799,39 @@ struct SkillsScreen: View {
     }
 
     private func synchronizeSelectionFromViewModel() {
-        guard let viewModelSkillID = viewModel.selectedSkillID else {
-            ensureSelection()
-            return
+        let validIDs = Set(managedSkills.map(\.id))
+
+        // Drop selections that no longer exist after a rescan.
+        let pruned = selectedSkillIDs.intersection(validIDs)
+        if pruned != selectedSkillIDs {
+            selectedSkillIDs = pruned
         }
 
-        if managedSkills.contains(where: { $0.id == viewModelSkillID }) {
-            selectedSkillID = viewModelSkillID
-            return
-        }
-
-        if let selectedSkillName = viewModel.allVisibleSkillRecords.first(where: { $0.id == viewModelSkillID })?.name,
-           let preferredSkill = managedSkills.first(where: { $0.name == selectedSkillName }) {
-            selectedSkillID = preferredSkill.id
-            return
+        // Adopt an external single-skill focus request (import, warning jump)
+        // without clobbering a deliberate multi-selection.
+        if let viewModelSkillID = viewModel.selectedSkillID, selectedSkillIDs.count <= 1 {
+            if validIDs.contains(viewModelSkillID), selectedSkillIDs != [viewModelSkillID] {
+                selectedSkillIDs = [viewModelSkillID]
+                return
+            }
+            // The view model may point at a non-preferred duplicate record;
+            // re-anchor to the catalog record actually shown in the list.
+            if let name = viewModel.allVisibleSkillRecords.first(where: { $0.id == viewModelSkillID })?.name,
+               let preferred = managedSkills.first(where: { $0.name == name }),
+               selectedSkillIDs != [preferred.id] {
+                selectedSkillIDs = [preferred.id]
+                return
+            }
         }
 
         ensureSelection()
     }
 
     private func ensureSelection() {
-        guard selectedWarning == nil else { return }
-        guard selectedSkillID == nil || !managedSkills.contains(where: { $0.id == selectedSkillID }) else { return }
-        selectedSkillID = managedSkills.first?.id
+        guard selectedWarning == nil, selectedSkillIDs.isEmpty else { return }
+        if let first = managedSkills.first {
+            selectedSkillIDs = [first.id]
+        }
     }
 
     private func skillListRow(_ skill: SkillRecord, metadata: SkillListMetadata, inactive: Bool? = nil) -> some View {
@@ -639,6 +856,16 @@ struct SkillsScreen: View {
             }
 
             Spacer(minLength: 0)
+
+            if viewModel.importedRepository(for: skill)?.hasKnownUpdate == true {
+                Text("Update")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.orange.opacity(0.12), in: Capsule())
+                    .help("An update is available from the source repository")
+            }
 
             if viewModel.canRenameSkill(skill) {
                 Button {
@@ -665,36 +892,6 @@ struct SkillsScreen: View {
                 skillPendingDeletion = skill
             } label: {
                 Label("Delete", systemImage: "trash")
-            }
-            .disabled(!viewModel.canDeleteSkill(skill))
-        }
-        .contextMenu {
-            Button {
-                skillEditTarget = makeSkillEditTarget(skill)
-            } label: {
-                Label("Edit SKILL.md", systemImage: "square.and.pencil")
-            }
-            .disabled(!viewModel.canRenameSkill(skill))
-
-            Button {
-                revealSkillInFinder(skill)
-            } label: {
-                Label("Reveal in Finder", systemImage: "finder")
-            }
-
-            Button {
-                skillPendingRename = skill
-            } label: {
-                Label("Rename Skill", systemImage: "pencil")
-            }
-            .disabled(!viewModel.canRenameSkill(skill))
-
-            Divider()
-
-            Button(role: .destructive) {
-                skillPendingDeletion = skill
-            } label: {
-                Label("Delete Skill", systemImage: "trash")
             }
             .disabled(!viewModel.canDeleteSkill(skill))
         }
@@ -865,315 +1062,64 @@ struct SkillsScreen: View {
         }
     }
 
-    private var existingExternalSkillPaths: Set<String> {
-        viewModel.appSettings.externalSkillPaths
-    }
-
-    private func candidateAlreadyImported(_ candidate: ExternalSkillCandidate) -> Bool {
-        // Both sides are already standardized paths — `sourceRootPath` comes
-        // from `URL.standardizedFileURL` and stored paths are normalized on
-        // write — so a direct set lookup is correct and avoids rebuilding a URL
-        // for every candidate on every search keystroke.
-        existingExternalSkillPaths.contains(candidate.sourceRootPath)
-    }
-
-    private var importableCandidates: [ExternalSkillCandidate] {
-        importCandidates.filter { !candidateAlreadyImported($0) }
-    }
-
-    private var hiddenAlreadyImportedCandidateCount: Int {
-        importCandidates.count - importableCandidates.count
-    }
-
-    private var filteredImportCandidates: [ExternalSkillCandidate] {
-        let query = importSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return importableCandidates }
-        return importableCandidates
-            .compactMap { candidate -> (ExternalSkillCandidate, Int)? in
-                guard let score = importSearchScore(candidate, query: query) else { return nil }
-                return (candidate, score)
-            }
-            .sorted { lhs, rhs in
-                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
-                let nameOrder = lhs.0.name.localizedCaseInsensitiveCompare(rhs.0.name)
-                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-                return lhs.0.sourceRootPath < rhs.0.sourceRootPath
-            }
-            .map(\.0)
-    }
-
-    private var visibleImportableCandidateIDs: Set<String> {
-        Set(filteredImportCandidates.map(\.id))
-    }
-
-    private var allVisibleImportableCandidatesSelected: Bool {
-        !visibleImportableCandidateIDs.isEmpty && visibleImportableCandidateIDs.isSubset(of: selectedImportCandidateIDs)
-    }
-
-    private var importSearchIsActive: Bool {
-        !importSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var importSelectionButtonTitle: String {
-        if importSearchIsActive {
-            return allVisibleImportableCandidatesSelected ? "Deselect Visible" : "Select Visible"
+    private func batchDeleteSkills(_ skills: [SkillRecord]) {
+        var failed: [String] = []
+        for skill in skills {
+            do { try viewModel.deleteSkill(skill) }
+            catch { failed.append(skill.name) }
         }
-        return allVisibleImportableCandidatesSelected ? "Deselect All" : "Select All"
-    }
+        skillsPendingBatchDeletion = nil
+        selectedSkillIDs = []
+        if !failed.isEmpty {
+            NSSound.beep()
+            skillActionErrorMessage = """
+            \(AppBrand.displayName) could not delete \(failed.count) skill\(failed.count == 1 ? "" : "s"): \(failed.joined(separator: ", ")).
 
-    private func importSearchScore(_ candidate: ExternalSkillCandidate, query: String) -> Int? {
-        let queryTokens = skillSearchTokens(query)
-        guard !queryTokens.isEmpty else { return 0 }
-
-        let name = normalizedSkillSearchText(candidate.name)
-        let description = normalizedSkillSearchText(candidate.description ?? "")
-        let path = normalizedSkillSearchText(candidate.sourceRootPath)
-        let compactName = compactSkillSearchText(candidate.name)
-        let compactQuery = compactSkillSearchText(query)
-        let searchable = [name, description, path].joined(separator: " ")
-
-        guard queryTokens.allSatisfy({ token in
-            searchable.contains(token) || compactName.contains(token) || compactName.contains(compactSkillSearchText(token))
-        }) else {
-            return nil
+            Bundled and package skills cannot be deleted.
+            """
         }
-
-        var score = 0
-        if name == normalizedSkillSearchText(query) { score += 120 }
-        if compactName == compactQuery { score += 110 }
-        if name.hasPrefix(normalizedSkillSearchText(query)) || compactName.hasPrefix(compactQuery) { score += 80 }
-
-        for token in queryTokens {
-            if name.split(separator: " ").contains(Substring(token)) { score += 30 }
-            else if name.contains(token) || compactName.contains(token) { score += 20 }
-            else if description.contains(token) { score += 10 }
-            else if path.contains(token) { score += 4 }
-        }
-
-        return score
-    }
-
-    private func skillSearchTokens(_ text: String) -> [String] {
-        normalizedSkillSearchText(text)
-            .split(separator: " ")
-            .map(String.init)
-            .filter { !["skill", "skills", "native", "claude", "code"].contains($0) }
-    }
-
-    private func normalizedSkillSearchText(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func compactSkillSearchText(_ text: String) -> String {
-        normalizedSkillSearchText(text).replacingOccurrences(of: " ", with: "")
     }
 
     @ViewBuilder
-    private var importSkillsSheet: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Import Skills")
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                Text("Add external skill folders to the \(AppBrand.displayName) catalog. Files stay in place.")
-                    .font(.caption)
+    private func batchSelectionDetail(_ skills: [SkillRecord]) -> some View {
+        let deletable = skills.filter { viewModel.canDeleteSkill($0) }
+        AppCard(title: "\(skills.count) Skills Selected") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Cmd- or Shift-click rows to adjust the selection. Right-click the list — or use the button below — to act on every selected skill at once.")
                     .foregroundStyle(AppTheme.mutedText)
-            }
-            .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 16) {
-                AppCard(title: "Source") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(importSourceURL?.path ?? "No source selected")
-                            .textSelection(.enabled)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(AppTheme.mutedText)
-                        Button("Choose Different Folder") {
-                            DispatchQueue.main.async {
-                                chooseDifferentImportFolder()
-                            }
-                        }
-                    }
-                }
-
-                AppCard(title: "Skills") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .center, spacing: 12) {
-                            Text("Select one or more discovered skill roots to add to the \(AppBrand.displayName) skill catalog. Files stay in place and selected roots are passed to Pi by path.")
-                                .font(.caption)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(skills, id: \.id) { skill in
+                        HStack(spacing: 10) {
+                            Image(systemName: skillIcon(skill))
                                 .foregroundStyle(AppTheme.mutedText)
-                            Spacer()
-                            Button(importSelectionButtonTitle) {
-                                if allVisibleImportableCandidatesSelected {
-                                    selectedImportCandidateIDs.subtract(visibleImportableCandidateIDs)
-                                } else {
-                                    selectedImportCandidateIDs.formUnion(visibleImportableCandidateIDs)
-                                }
+                                .frame(width: 18)
+                            Text(skill.name)
+                                .font(.callout.weight(.medium))
+                            if !viewModel.canDeleteSkill(skill) {
+                                Text("Protected")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(.secondary.opacity(0.12), in: Capsule())
                             }
-                            .buttonStyle(.glass)
-                            .disabled(isScanningImportSource || visibleImportableCandidateIDs.isEmpty)
-
-                            Button("Clear") {
-                                selectedImportCandidateIDs.removeAll()
-                            }
-                            .buttonStyle(.glass)
-                            .disabled(isScanningImportSource || selectedImportCandidateIDs.isEmpty)
-                        }
-
-                        if isScanningImportSource {
-                            importScanningView
-                        } else {
-                            importCandidateListView
+                            Spacer(minLength: 0)
                         }
                     }
                 }
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    importScanTask?.cancel()
-                    isImportSheetPresented = false
+                Button("Delete \(deletable.count) Skill\(deletable.count == 1 ? "" : "s")…") {
+                    skillsPendingBatchDeletion = deletable
                 }
-                .keyboardShortcut(.cancelAction)
-                Button("Import") {
-                    importSelectedSkills()
-                }
-                .buttonStyle(.glassProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(isScanningImportSource || selectedImportCandidateIDs.isEmpty)
-            }
-            .padding(16)
-        }
-        .frame(width: 760, height: 740)
-        .task(id: shouldPromptForImportSource) {
-            guard shouldPromptForImportSource else { return }
-            shouldPromptForImportSource = false
-            DispatchQueue.main.async {
-                chooseDifferentImportFolder()
-            }
-        }
-        .onDisappear {
-            // Stop any in-flight folder walk when the sheet closes.
-            importScanTask?.cancel()
-            importScanTask = nil
-        }
-    }
+                .appDestructiveButton()
+                .disabled(deletable.isEmpty)
 
-    /// Shown in place of the candidate list while the chosen folder is being
-    /// walked off the main actor. A large skills folder can take a while; the
-    /// live count makes it clear the app is working rather than hung.
-    private var importScanningView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
-            VStack(spacing: 4) {
-                Text("Scanning \(importSourceURL?.lastPathComponent ?? "folder") for skills…")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                if let progress = importScanProgress {
-                    Text("\(progress.directoriesScanned) folder\(progress.directoriesScanned == 1 ? "" : "s") scanned • \(progress.skillsFound) skill\(progress.skillsFound == 1 ? "" : "s") found")
-                        .font(.caption2)
+                if deletable.count != skills.count {
+                    Text("Bundled and package skills are protected and will not be deleted.")
+                        .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
-                        .monospacedDigit()
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 280)
-    }
-
-    @ViewBuilder
-    private var importCandidateListView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(AppTheme.mutedText)
-                TextField("Search skills by name, description, or path", text: $importSearchText)
-                    .textFieldStyle(.plain)
-                if importSearchIsActive {
-                    Button {
-                        importSearchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(AppTheme.mutedText)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear skill search")
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
-            )
-
-            Text("Showing \(filteredImportCandidates.count) of \(importableCandidates.count) importable skill\(importableCandidates.count == 1 ? "" : "s")\(hiddenAlreadyImportedCandidateCount == 0 ? "" : " • \(hiddenAlreadyImportedCandidateCount) already imported hidden")\(selectedImportCandidateIDs.isEmpty ? "" : " • \(selectedImportCandidateIDs.count) selected")")
-                .font(.caption2)
-                .foregroundStyle(AppTheme.mutedText)
-
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if filteredImportCandidates.isEmpty {
-                        Text(importSearchIsActive ? "No importable skills match your search." : "No new importable skills were found. Already-imported skills are hidden.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.mutedText)
-                            .frame(maxWidth: .infinity, minHeight: 120)
-                    }
-                    ForEach(filteredImportCandidates) { candidate in
-                        Toggle(isOn: Binding(
-                            get: { selectedImportCandidateIDs.contains(candidate.id) },
-                            set: { isSelected in
-                                if isSelected { selectedImportCandidateIDs.insert(candidate.id) }
-                                else { selectedImportCandidateIDs.remove(candidate.id) }
-                            }
-                        )) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                    Text(candidate.name)
-                                        .font(.body.weight(.semibold))
-                                }
-
-                                if let description = candidate.description {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Description")
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(AppTheme.mutedText)
-                                        Text(description)
-                                            .font(.caption)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(2)
-                                    }
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Path")
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(AppTheme.mutedText)
-                                    Text(candidate.sourceRootPath)
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(AppTheme.mutedText)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                            }
-                            .padding(.vertical, 10)
-                        }
-                        .toggleStyle(.checkbox)
-                        if candidate.id != filteredImportCandidates.last?.id {
-                            Divider()
-                        }
-                    }
                 }
             }
         }
@@ -1192,101 +1138,18 @@ struct SkillsScreen: View {
     }
 
     private func beginSkillImport() {
-        importScanTask?.cancel()
-        importScanTask = nil
-        importErrorMessage = nil
-        importSummaryMessage = nil
-        importCandidates = []
-        importSearchText = ""
-        selectedImportCandidateIDs.removeAll()
-        importSourceURL = nil
-        isScanningImportSource = false
-        importScanProgress = nil
-
-        // Reuse the configured or last-used skills folder instead of prompting
-        // every time. The import sheet still offers "Choose Different Folder".
-        if let remembered = viewModel.rememberedSkillsImportDirectoryURL {
-            shouldPromptForImportSource = false
-            isImportSheetPresented = true
-            loadImportCandidates(from: remembered)
-        } else {
-            shouldPromptForImportSource = true
-            isImportSheetPresented = true
-        }
+        isImportSheetPresented = true
     }
 
-    private func chooseDifferentImportFolder() {
-        viewModel.chooseExternalSkillsDirectory(startingAt: importSourceURL) { url in
-            guard let url else { return }
-            DispatchQueue.main.async {
-                loadImportCandidates(from: url)
-            }
+    private func importSummary(for result: SkillImportResult) -> String {
+        var parts: [String] = []
+        if !result.importedNames.isEmpty {
+            parts.append("Imported \(result.importedNames.count) skill\(result.importedNames.count == 1 ? "" : "s"): \(result.importedNames.joined(separator: ", ")).")
         }
-    }
-
-    private func loadImportCandidates(from url: URL) {
-        // Cancel any in-flight scan — e.g. the user picked a new folder while
-        // the previous (possibly huge) folder was still being walked.
-        importScanTask?.cancel()
-        importErrorMessage = nil
-        importSummaryMessage = nil
-        importSearchText = ""
-        importSourceURL = url
-        importCandidates = []
-        selectedImportCandidateIDs.removeAll()
-        importScanProgress = nil
-        isScanningImportSource = true
-
-        if !isImportSheetPresented {
-            isImportSheetPresented = true
+        if !result.skippedNames.isEmpty {
+            parts.append("Skipped \(result.skippedNames.count) existing skill\(result.skippedNames.count == 1 ? "" : "s"): \(result.skippedNames.joined(separator: ", ")).")
         }
-
-        // Discovery walks the folder tree off the main actor; the UI stays
-        // responsive and shows a live progress count while it runs.
-        importScanTask = Task { @MainActor in
-            for await event in ExternalSkillDiscovery.scan(root: url) {
-                if Task.isCancelled { break }
-                switch event {
-                case let .progress(progress):
-                    importScanProgress = progress
-                case let .finished(candidates):
-                    applyDiscoveredImportCandidates(candidates)
-                }
-            }
-        }
-    }
-
-    private func applyDiscoveredImportCandidates(_ candidates: [ExternalSkillCandidate]) {
-        isScanningImportSource = false
-        importScanProgress = nil
-        importCandidates = candidates
-
-        guard !candidates.isEmpty else {
-            selectedImportCandidateIDs.removeAll()
-            importErrorMessage = "No importable skill folders were found. Choose either a skill root containing SKILL.md or a folder that contains skill roots somewhere below it."
-            return
-        }
-
-        selectedImportCandidateIDs = Set(candidates.filter { !candidateAlreadyImported($0) }.map(\.id))
-    }
-
-    private func importSelectedSkills() {
-        let selectedCandidates = importCandidates.filter { selectedImportCandidateIDs.contains($0.id) }
-        guard !selectedCandidates.isEmpty else { return }
-        do {
-            let result = try viewModel.importExternalSkills(selectedCandidates)
-            isImportSheetPresented = false
-            var summaryParts: [String] = []
-            if !result.importedNames.isEmpty {
-                summaryParts.append("Imported \(result.importedNames.count) skill\(result.importedNames.count == 1 ? "" : "s"): \(result.importedNames.joined(separator: ", ")).")
-            }
-            if !result.skippedNames.isEmpty {
-                summaryParts.append("Skipped \(result.skippedNames.count) existing skill\(result.skippedNames.count == 1 ? "" : "s"): \(result.skippedNames.joined(separator: ", ")).")
-            }
-            importSummaryMessage = summaryParts.joined(separator: "\n\n")
-        } catch {
-            importErrorMessage = error.localizedDescription
-        }
+        return parts.isEmpty ? "No skills were imported." : parts.joined(separator: "\n\n")
     }
 
     private func presentSkillActionError(_ error: Error, skill: SkillRecord, project: DiscoveredProject? = nil, action: String) {
@@ -1320,9 +1183,25 @@ private struct AgentAssignmentToggleRow: View {
     let isInactive: Bool
     @Binding var isOn: Bool
 
+    /// Optimistic value held from a tap until the async snapshot refresh makes
+    /// the external `isOn` catch up. Without it the checkbox visibly snaps back
+    /// after each tap, because skill→agent assignment now reconciles in the
+    /// background instead of via a blocking rescan.
+    @State private var optimisticValue: Bool?
+
+    private var displayedIsOn: Bool { optimisticValue ?? isOn }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Toggle("", isOn: $isOn)
+        let toggleBinding = Binding(
+            get: { displayedIsOn },
+            set: { newValue in
+                optimisticValue = newValue
+                isOn = newValue
+            }
+        )
+
+        return HStack(alignment: .center, spacing: 12) {
+            Toggle("", isOn: toggleBinding)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
                 .controlSize(.regular)
@@ -1333,7 +1212,7 @@ private struct AgentAssignmentToggleRow: View {
                     .fill(agentIconFill)
                     .overlay {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(isOn ? AppTheme.accentSelectionStroke : AppTheme.contentStroke, lineWidth: 1)
+                            .stroke(displayedIsOn ? AppTheme.accentSelectionStroke : AppTheme.contentStroke, lineWidth: 1)
                     }
 
                 if let nsImage = AgentImageLoader.image(at: imageURL, bundledImageName: bundledImageName) {
@@ -1345,7 +1224,7 @@ private struct AgentAssignmentToggleRow: View {
                 } else {
                     Image(systemName: SidebarItem.agents.systemImage)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isOn ? AppTheme.accentForeground : AppTheme.mutedText)
+                        .foregroundStyle(displayedIsOn ? AppTheme.accentForeground : AppTheme.mutedText)
                 }
             }
             .frame(width: 30, height: 30)
@@ -1368,13 +1247,18 @@ private struct AgentAssignmentToggleRow: View {
         .saturation(isInactive ? 0.25 : 1)
         .contentShape(Rectangle())
         .onTapGesture {
-            isOn.toggle()
+            toggleBinding.wrappedValue.toggle()
+        }
+        .onChange(of: isOn) { _, _ in
+            // External state has caught up — drop the optimistic override so
+            // the snapshot value is authoritative again.
+            optimisticValue = nil
         }
     }
 
     private var agentIconFill: LinearGradient {
         LinearGradient(
-            colors: isOn
+            colors: displayedIsOn
                 ? [AppTheme.brandAccentBright, AppTheme.brandAccent]
                 : [AppTheme.contentFill, AppTheme.contentSubtleFill],
             startPoint: .topLeading,
