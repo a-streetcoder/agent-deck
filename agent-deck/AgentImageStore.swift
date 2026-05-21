@@ -98,8 +98,27 @@ private extension JSONEncoder {
 }
 
 struct AgentImageLoader {
+    /// Disk-loaded agent images, keyed by URL. `AgentImageStore` names every
+    /// saved image with a fresh UUID and deletes the old file on reassignment,
+    /// so a URL maps to immutable content — this cache never goes stale.
+    /// Without it `image(at:)` ran `NSImage(contentsOf:)` (a disk read + decode)
+    /// on every SwiftUI body eval that displays an agent avatar. `NSCache` is
+    /// thread-safe and evicts under memory pressure.
+    private static let cache: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.countLimit = 256
+        return cache
+    }()
+
     static func image(at url: URL?, bundledImageName: String? = nil) -> NSImage? {
-        if let url, let image = NSImage(contentsOf: url) { return image }
+        if let url {
+            if let cached = cache.object(forKey: url as NSURL) { return cached }
+            if let image = NSImage(contentsOf: url) {
+                cache.setObject(image, forKey: url as NSURL)
+                return image
+            }
+        }
+        // Bundled (asset-catalog) images are already cached by AppKit.
         if let bundledImageName { return NSImage(named: bundledImageName) }
         return nil
     }
