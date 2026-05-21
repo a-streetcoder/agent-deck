@@ -90,7 +90,7 @@ nonisolated struct PiAgentFileSuggestion: Identifiable, Hashable {
 }
 
 /// Inline command-palette dropdown rendered as a sibling directly above the
-/// composer (osaurus's `SlashCommandPopup` pattern) — no popover, no arrow, no
+/// composer — no popover, no arrow, no
 /// overlay positioning. One flat scroll with a fixed, deterministic height.
 struct PiAgentCommandSuggestions: View {
     let items: [ComposerSuggestionItem]

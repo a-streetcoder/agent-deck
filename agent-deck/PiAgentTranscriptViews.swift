@@ -636,7 +636,7 @@ extension EnvironmentValues {
     }
 }
 
-/// Chat-bubble width policy — modeled on osaurus' chat implementation.
+/// Chat-bubble width policy
 ///
 /// User (question) bubbles **hug their content**: a short message gets a small
 /// bubble. This is cheap and jump-free — a user message is immutable once sent,
