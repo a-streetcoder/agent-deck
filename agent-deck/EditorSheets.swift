@@ -52,15 +52,23 @@ struct MarkdownFileEditTarget: Identifiable {
     let title: String
     let path: String
     let note: String?
+    /// When non-nil, this target is a file that does not exist on disk yet.
+    /// The editor seeds itself with this text instead of reading the file, and
+    /// `save()` creates the file (and any missing parent folders) only when the
+    /// user saves — so cancelling a brand-new skill or prompt persists nothing,
+    /// matching the agent editor where nothing is stored until Save.
+    var seedContent: String? = nil
 
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
     var displayPath: String { (path as NSString).abbreviatingWithTildeInPath }
+    var isNew: Bool { seedContent != nil }
 }
 
 /// Standardized sheet for editing a markdown file's raw contents. Mirrors the
 /// system-prompt instruction editor: header + path + monospaced `TextEditor` +
-/// Cancel/Save. Loads the file on appear and writes it back on save.
+/// Cancel/Save. Loads an existing file on appear and writes it back on save; a
+/// `seedContent` target instead starts empty-of-disk and is created only on save.
 struct MarkdownFileEditorSheet: View {
     let target: MarkdownFileEditTarget
     /// Called after the file is successfully written, so the caller can refresh.
@@ -91,10 +99,12 @@ struct MarkdownFileEditorSheet: View {
                     }
                 }
                 Spacer()
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([target.url])
-                } label: {
-                    Label("Reveal", systemImage: "folder")
+                if !target.isNew {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([target.url])
+                    } label: {
+                        Label("Reveal", systemImage: "folder")
+                    }
                 }
             }
             .padding(18)
@@ -129,6 +139,13 @@ struct MarkdownFileEditorSheet: View {
         .frame(width: 760, height: 560)
         .task {
             guard !hasLoaded else { return }
+            // A brand-new target has no file yet — seed the editor instead of
+            // reading from disk. The file is created in `save()`.
+            if let seedContent = target.seedContent {
+                text = seedContent
+                hasLoaded = true
+                return
+            }
             do {
                 text = try String(contentsOf: target.url, encoding: .utf8)
                 hasLoaded = true
@@ -140,6 +157,14 @@ struct MarkdownFileEditorSheet: View {
 
     private func save() {
         do {
+            // New targets don't exist on disk yet — create their parent folder
+            // (e.g. the skill's own directory) before writing the file.
+            if target.isNew {
+                try FileManager.default.createDirectory(
+                    at: target.url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+            }
             try text.write(to: target.url, atomically: true, encoding: .utf8)
             onSaved()
             dismiss()
@@ -161,10 +186,22 @@ struct AgentEditorSheet: View {
     let onSave: (AgentEditorDraft) throws -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(editorTitle)
-                .font(.title2.bold())
-                .fontWidth(.expanded)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(editorTitle)
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                if let editorSubtitle {
+                    Text(editorSubtitle)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .padding(18)
+
+            Divider()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
@@ -347,8 +384,12 @@ struct AgentEditorSheet: View {
                         .font(.system(.body, design: .monospaced))
                         .scrollContentBackground(.hidden)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 18)
                 }
             }
+
+            Divider()
 
             HStack {
                 Spacer()
@@ -366,8 +407,8 @@ struct AgentEditorSheet: View {
                 }
                 .buttonStyle(.glassProminent)
             }
+            .padding(16)
         }
-        .padding(20)
         .frame(minWidth: 720, minHeight: 720)
     }
 
@@ -378,6 +419,11 @@ struct AgentEditorSheet: View {
         case let .custom(scope):
             return draft.sourcePath == nil ? "New Custom Agent · \(scope.displayName)" : "Edit Custom Agent · \(scope.displayName)"
         }
+    }
+
+    private var editorSubtitle: String? {
+        guard let path = draft.sourcePath else { return nil }
+        return (path as NSString).abbreviatingWithTildeInPath
     }
 
     private func editorFieldLabel(_ title: String, help: String? = nil) -> some View {

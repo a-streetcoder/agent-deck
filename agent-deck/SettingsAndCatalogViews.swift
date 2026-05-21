@@ -1,32 +1,53 @@
 import AppKit
 import SwiftUI
 
+struct ModelsInfoPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Models catalog")
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 10) {
+                infoRow("Catalog", "Agent Deck queries Pi for available models and groups them by provider.")
+                infoRow("Defaults", "Default model and thinking apply to new Pi Agent sessions unless a session or agent overrides them.")
+                infoRow("Automation", "Apple Foundation Model is local and can be used for automation tasks in Settings.")
+                infoRow("Availability", "Disabling a model removes it from default selection, launch controls, and agent editors.")
+            }
+
+            Text("Refresh reloads the catalog from Pi and updates supported thinking levels for the current selection.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(width: 360, alignment: .leading)
+    }
+
+    private func infoRow(_ title: String, _ description: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .fontWidth(.expanded)
+            Text(description)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 struct ModelsScreen: View {
     @ObservedObject var viewModel: AppViewModel
 
     var body: some View {
-        AppPage("Models", subtitle: "Available Pi models and local automation models") {
+        AppPage("Models") {
             if displayModels.isEmpty {
                 AppCard(title: "Catalog") {
-                    HStack {
-                        Text("No models loaded yet. Use Refresh to query Pi.")
-                            .foregroundStyle(AppTheme.mutedText)
-                        Spacer()
-                        Button("Refresh") {
-                            viewModel.refreshModels()
-                        }
-                    }
+                    Text("No models loaded yet. Use the toolbar Refresh action to query Pi.")
+                        .foregroundStyle(AppTheme.mutedText)
                 }
             } else {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Pi’s model catalog, grouped by provider. Apple Foundation Model is local and can be used for Automations in Settings.")
-                        .foregroundStyle(AppTheme.mutedText)
-                    Spacer()
-                    Button("Refresh") {
-                        viewModel.refreshModels()
-                    }
-                }
-
                 VStack(alignment: .leading, spacing: 20) {
                     if !viewModel.availableModels.isEmpty {
                         defaultSelectionSection
@@ -73,33 +94,111 @@ struct ModelsScreen: View {
     }
 
     private var defaultSelectionSection: some View {
-        AppCard(title: "Pi Agent Defaults") {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 12) {
-                GridRow {
-                    Text("Default model")
-                        .foregroundStyle(AppTheme.mutedText)
-                    Picker("Default model", selection: defaultModelBinding) {
-                        ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
-                            Text(model.identifier).tag(model.identifier)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 360)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center) {
+                Image("pi")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
+                    .accessibilityHidden(true)
+                Text("Agent Defaults")
+                    .font(.title3.weight(.bold))
+                    .fontWidth(.expanded)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 2)
 
-                GridRow {
-                    Text("Default thinking")
-                        .foregroundStyle(AppTheme.mutedText)
-                    Picker("Default thinking", selection: defaultThinkingBinding) {
-                        ForEach(defaultThinkingLevels, id: \.self) { level in
-                            Text(level.capitalized).tag(level)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 220)
-                }
+            HStack(alignment: .top, spacing: 16) {
+                defaultModelCard
+                defaultThinkingCard
             }
         }
+    }
+
+    private var defaultModelCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "cpu")
+                    .foregroundStyle(AppTheme.brandAccent)
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Default Model")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text("Used for new Pi Agent sessions unless a session or agent overrides it.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Picker("Default model", selection: defaultModelBinding) {
+                ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
+                    Text(model.identifier).tag(model.identifier)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                if let model = selectedDefaultModel {
+                    AppLabelTag(text: model.supportsImages ? "Images" : "Text Only", color: model.supportsImages ? .purple : .secondary)
+                    AppLabelTag(text: model.supportsThinking ? "Thinking" : "No Thinking", color: model.supportsThinking ? .green : .secondary)
+                } else {
+                    Text("No enabled models available")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        )
+    }
+
+    private var defaultThinkingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "brain.head.profile")
+                    .foregroundStyle(AppTheme.brandAccent)
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Default Thinking")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text("Applies to new sessions by default using the same catalog-wide thinking options as before.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Picker("Default thinking", selection: defaultThinkingBinding) {
+                ForEach(defaultThinkingLevels, id: \.self) { level in
+                    Text(level.capitalized).tag(level)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                AppLabelTag(text: "Selected: \(currentDefaultThinkingLabel)", color: AppTheme.brandAccent)
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        )
     }
 
     private var defaultModelBinding: Binding<String> {
@@ -110,6 +209,11 @@ struct ModelsScreen: View {
             set: { identifier in
                 let model = viewModel.enabledAvailableModels.first { $0.identifier == identifier }
                 viewModel.setDefaultPiAgentModel(model)
+                guard let model else { return }
+                let normalizedThinking = viewModel.defaultPiAgentThinkingLevel(for: model.supportedThinkingLevels)
+                if viewModel.piRuntimeDefaultThinkingLevel() != normalizedThinking {
+                    viewModel.setDefaultPiAgentThinkingLevel(normalizedThinking)
+                }
             }
         )
     }
@@ -117,17 +221,24 @@ struct ModelsScreen: View {
     private var defaultThinkingBinding: Binding<String> {
         Binding(
             get: {
-                let current = viewModel.piRuntimeDefaultThinkingLevel()
-                return defaultThinkingLevels.contains(current) ? current : "medium"
+                viewModel.defaultPiAgentThinkingLevel(for: defaultThinkingLevels)
             },
             set: { viewModel.setDefaultPiAgentThinkingLevel($0) }
         )
     }
 
     private var defaultThinkingLevels: [String] {
-        viewModel.enabledAvailableModels.flatMap(\.supportedThinkingLevels).reduce(into: []) { levels, level in
-            if !levels.contains(level) { levels.append(level) }
-        }
+        selectedDefaultModel?.supportedThinkingLevels ?? []
+    }
+
+    private var selectedDefaultModel: AvailableModel? {
+        let identifier = defaultModelBinding.wrappedValue
+        return viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+    }
+
+    private var currentDefaultThinkingLabel: String {
+        let current = defaultThinkingBinding.wrappedValue
+        return current.capitalized
     }
 
     private func modelRow(_ model: AvailableModel) -> some View {

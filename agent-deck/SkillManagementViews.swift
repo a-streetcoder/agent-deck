@@ -133,6 +133,9 @@ struct SkillsScreen: View {
         .sheet(item: $skillEditTarget) { target in
             MarkdownFileEditorSheet(target: target) {
                 viewModel.refresh(includeModels: false, scanAllProjects: true)
+                if target.isNew {
+                    viewModel.selectedSkillID = viewModel.allVisibleSkillRecords.first { $0.filePath == target.path }?.id ?? viewModel.selectedSkillID
+                }
             }
         }
         .sheet(item: $skillPendingRename) { skill in
@@ -969,7 +972,19 @@ struct SkillsScreen: View {
 
     @ViewBuilder
     private var importSkillsSheet: some View {
-        NavigationStack {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Import Skills")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Text("Add external skill folders to the \(AppBrand.displayName) catalog. Files stay in place.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(18)
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 16) {
                 AppCard(title: "Source") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -1017,38 +1032,41 @@ struct SkillsScreen: View {
                     }
                 }
 
+                Spacer(minLength: 0)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            Divider()
+
+            HStack {
                 Spacer()
-            }
-            .padding(AppTheme.pagePadding)
-            .frame(minWidth: 760, minHeight: 680, alignment: .topLeading)
-            .navigationTitle("Import External Skills")
-            .task(id: shouldPromptForImportSource) {
-                guard shouldPromptForImportSource else { return }
-                shouldPromptForImportSource = false
-                DispatchQueue.main.async {
-                    chooseDifferentImportFolder()
+                Button("Cancel") {
+                    importScanTask?.cancel()
+                    isImportSheetPresented = false
                 }
-            }
-            .onDisappear {
-                // Stop any in-flight folder walk when the sheet closes.
-                importScanTask?.cancel()
-                importScanTask = nil
-            }
-            // Modal sheet confirmation/cancellation chrome remains SwiftUI; the AppKit migration owns only the main window toolbar.
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        importScanTask?.cancel()
-                        isImportSheetPresented = false
-                    }
+                .keyboardShortcut(.cancelAction)
+                Button("Import") {
+                    importSelectedSkills()
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Import") {
-                        importSelectedSkills()
-                    }
-                    .disabled(isScanningImportSource || selectedImportCandidateIDs.isEmpty)
-                }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(isScanningImportSource || selectedImportCandidateIDs.isEmpty)
             }
+            .padding(16)
+        }
+        .frame(minWidth: 760, minHeight: 680)
+        .task(id: shouldPromptForImportSource) {
+            guard shouldPromptForImportSource else { return }
+            shouldPromptForImportSource = false
+            DispatchQueue.main.async {
+                chooseDifferentImportFolder()
+            }
+        }
+        .onDisappear {
+            // Stop any in-flight folder walk when the sheet closes.
+            importScanTask?.cancel()
+            importScanTask = nil
         }
     }
 
@@ -1172,17 +1190,13 @@ struct SkillsScreen: View {
     }
 
     private func createNewSkill() {
-        do {
-            let url = try viewModel.createLibrarySkill()
-            skillEditTarget = MarkdownFileEditTarget(
-                title: "New Skill",
-                path: url.path,
-                note: "A new skill folder was created. Edit its SKILL.md, then save."
-            )
-        } catch {
-            NSSound.beep()
-            importErrorMessage = "Could not create a new skill: \(error.localizedDescription)"
-        }
+        let draft = viewModel.newLibrarySkillDraft()
+        skillEditTarget = MarkdownFileEditTarget(
+            title: "New Skill",
+            path: draft.path,
+            note: "Edit this skill's SKILL.md, then save to add it to your library. Cancelling discards it.",
+            seedContent: draft.seedContent
+        )
     }
 
     private func beginSkillImport() {

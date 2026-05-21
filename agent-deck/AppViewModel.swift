@@ -4684,15 +4684,15 @@ final class AppViewModel: NSObject, ObservableObject {
         try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
     }
 
-    /// Creates an empty library prompt template and returns the file URL so the
-    /// caller can immediately open it in the markdown editor.
-    @discardableResult
-    func createLibraryPromptTemplate() throws -> URL {
-        let libraryRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
-        try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+    /// Computes the path and seed content for a brand-new library prompt
+    /// template without touching the disk. The `.md` file is written only when
+    /// the user saves the editor sheet, so cancelling creates nothing.
+    func newLibraryPromptTemplateDraft() -> (path: String, seedContent: String) {
+        let fileManager = FileManager.default
+        let libraryRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/prompt-library", isDirectory: true)
         var candidate = "new-prompt"
         var index = 2
-        while FileManager.default.fileExists(atPath: libraryRoot.appendingPathComponent("\(candidate).md").path) {
+        while fileManager.fileExists(atPath: libraryRoot.appendingPathComponent("\(candidate).md").path) {
             candidate = "new-prompt-\(index)"
             index += 1
         }
@@ -4705,10 +4705,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
         Write the reusable prompt template here. Use $ARGUMENTS where all slash-command arguments should be inserted.
         """
-        try text.write(to: url, atomically: true, encoding: .utf8)
-        refresh(includeModels: false)
-        selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == candidate }?.id ?? selectedCommandItemID
-        return url
+        return (url.path, text)
     }
 
     /// Registers an external prompt template file as a referenced library prompt
@@ -4757,10 +4754,12 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Creates a new library skill folder (`~/.pi/agent/skills/<name>/SKILL.md`)
-    /// and returns the `SKILL.md` URL so the caller can open it in the editor.
-    @discardableResult
-    func createLibrarySkill() throws -> URL {
+    /// Computes the path and seed content for a brand-new library skill
+    /// (`~/.pi/agent/skills/<name>/SKILL.md`) without touching the disk. The
+    /// folder and `SKILL.md` are written only when the user saves the editor
+    /// sheet, so cancelling creates nothing — matching the agent editor, where
+    /// nothing is stored until Save.
+    func newLibrarySkillDraft() -> (path: String, seedContent: String) {
         let fileManager = FileManager.default
         let skillsRoot = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/skills", isDirectory: true)
         var candidate = "new-skill"
@@ -4769,9 +4768,9 @@ final class AppViewModel: NSObject, ObservableObject {
             candidate = "new-skill-\(index)"
             index += 1
         }
-        let skillDirectory = skillsRoot.appendingPathComponent(candidate, isDirectory: true)
-        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
-        let url = skillDirectory.appendingPathComponent("SKILL.md")
+        let url = skillsRoot
+            .appendingPathComponent(candidate, isDirectory: true)
+            .appendingPathComponent("SKILL.md")
         let text = """
         ---
         name: \(candidate)
@@ -4782,10 +4781,7 @@ final class AppViewModel: NSObject, ObservableObject {
 
         Document the skill instructions here.
         """
-        try text.write(to: url, atomically: true, encoding: .utf8)
-        refresh(includeModels: false, scanAllProjects: true)
-        selectedSkillID = allVisibleSkillRecords.first { $0.name == candidate }?.id ?? selectedSkillID
-        return url
+        return (url.path, text)
     }
 
     /// The skills import folder to reuse without prompting — the configured

@@ -1,6 +1,42 @@
 import AppKit
 import SwiftUI
 
+struct EnvironmentInfoPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Resolution order")
+                .font(.headline)
+                .fontWidth(.expanded)
+
+            VStack(alignment: .leading, spacing: 10) {
+                infoRow("1. App launch environment", "Variables already present when Agent Deck launches are available first.")
+                infoRow("2. Global", "Agent Deck reads global keys from `~/.pi/agent/.env`.")
+                infoRow("3. Project", "When a project is selected, `.pi/.env` overrides matching global keys.")
+                infoRow("4. Runtime", "Agent Deck appends its own runtime variables last when starting new Pi sessions.")
+            }
+
+            Text("Existing sessions keep the environment they started with. Start a new session to use saved changes.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(width: 360, alignment: .leading)
+    }
+
+    private func infoRow(_ title: String, _ description: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .fontWidth(.expanded)
+            Text(description)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 struct EnvironmentScreen: View {
     let snapshot: ScanSnapshot
     let onEditKey: (EnvKeyRecord) -> Void
@@ -36,20 +72,6 @@ struct EnvironmentScreen: View {
                         }
                     }
                 }
-            }
-
-            AppCard(title: "Resolution Order") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("1. App launch environment")
-                    Text("2. Global `~/.pi/agent/.env`")
-                    Text("3. Selected project `.pi/.env`")
-                    Text("4. Agent Deck runtime variables")
-                    Text("Existing sessions keep the environment they started with. Start a new session to use saved changes.")
-                        .foregroundStyle(AppTheme.mutedText)
-                        .padding(.top, 4)
-                }
-                .font(.caption)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .confirmationDialog(

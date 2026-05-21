@@ -186,6 +186,8 @@ struct ContentView: View {
     @State private var piAgentSessionSearchText = ""
     @State private var isSkillsInfoPresented = false
     @State private var isSubagentsInfoPresented = false
+    @State private var isEnvironmentInfoPresented = false
+    @State private var isModelsInfoPresented = false
     @State private var showingEnableAllProjectsAlert = false
     @State private var showingDisableAllProjectsAlert = false
     @State private var showingPiAgentDeleteAlert = false
@@ -552,8 +554,14 @@ struct ContentView: View {
             NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
         }
         ctx.createPrompt = {
-            do { try viewModel.createLibraryPromptTemplate() }
-            catch { NSSound.beep() }
+            // Route through the Prompts screen so the new prompt opens in the
+            // editor sheet and is only written to disk if the user saves.
+            if viewModel.selectedSidebarItem != .prompts {
+                viewModel.selectedSidebarItem = .prompts
+            }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .agentDeckNewPromptRequested, object: nil)
+            }
         }
         ctx.copyPromptInvocation = {
             guard let selectedPrompt else { return }
@@ -649,6 +657,9 @@ struct ContentView: View {
         }
         if viewModel.selectedSidebarItem == .agent {
             piAgentPrimaryToolbarContent
+        }
+        if viewModel.selectedSidebarItem == .models {
+            modelsPrimaryToolbarContent
         }
     }
 
@@ -761,16 +772,55 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var environmentPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            if viewModel.selectedProjectPath == nil {
+            ControlGroup {
                 Button {
-                    envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                    isEnvironmentInfoPresented.toggle()
                 } label: {
-                    Label("New Key", systemImage: "plus")
+                    Label("Info", systemImage: "info.circle")
                 }
-                .toolbarPrimaryActionChrome()
-                .help("Create a global environment key")
-            } else {
-                newEnvKeyScopedMenu
+                .help("Explain environment resolution order")
+                .popover(isPresented: $isEnvironmentInfoPresented, arrowEdge: .bottom) {
+                    EnvironmentInfoPopover()
+                }
+                .toolbarNeutralChrome()
+
+                if viewModel.selectedProjectPath == nil {
+                    Button {
+                        envDraft = viewModel.makeNewEnvDraft(scope: .global)
+                    } label: {
+                        Label("New Key", systemImage: "plus")
+                    }
+                    .toolbarPrimaryActionChrome()
+                    .help("Create a global environment key")
+                } else {
+                    newEnvKeyScopedMenu
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var modelsPrimaryToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                Button {
+                    isModelsInfoPresented.toggle()
+                } label: {
+                    Label("Info", systemImage: "info.circle")
+                }
+                .help("Explain the models catalog and Pi Agent defaults")
+                .popover(isPresented: $isModelsInfoPresented, arrowEdge: .bottom) {
+                    ModelsInfoPopover()
+                }
+                .toolbarNeutralChrome()
+
+                Button {
+                    viewModel.refreshModels()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .toolbarNeutralChrome()
+                .help("Refresh models")
             }
         }
     }

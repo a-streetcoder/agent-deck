@@ -40,6 +40,9 @@ struct PromptsScreen: View {
         .sheet(item: $promptEditTarget) { target in
             MarkdownFileEditorSheet(target: target) {
                 viewModel.refresh(includeModels: false, scanAllProjects: true)
+                if target.isNew {
+                    viewModel.selectedCommandItemID = viewModel.allVisiblePromptTemplateRecords.first { $0.filePath == target.path }?.id ?? viewModel.selectedCommandItemID
+                }
             }
         }
         .alert("Delete Prompt?", isPresented: Binding(
@@ -415,16 +418,13 @@ struct PromptsScreen: View {
     }
 
     private func createNewPrompt() {
-        do {
-            let url = try viewModel.createLibraryPromptTemplate()
-            promptEditTarget = MarkdownFileEditTarget(
-                title: "New Prompt",
-                path: url.path,
-                note: "A new prompt template was created. Edit it, then save."
-            )
-        } catch {
-            NSSound.beep()
-        }
+        let draft = viewModel.newLibraryPromptTemplateDraft()
+        promptEditTarget = MarkdownFileEditTarget(
+            title: "New Prompt",
+            path: draft.path,
+            note: "Edit this prompt template, then save to add it to your library. Cancelling discards it.",
+            seedContent: draft.seedContent
+        )
     }
 
     private func importPrompt() {
