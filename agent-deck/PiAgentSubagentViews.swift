@@ -77,19 +77,23 @@ struct PiSubagentSupervisorRequestCard: View {
     private var structuredInterview: SupervisorInterviewPayload? {
         guard request.kind == .interviewRequest else { return nil }
         let trimmed = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
-        let jsonText: String
-        if trimmed.hasPrefix("```") {
-            jsonText = trimmed
-                .replacingOccurrences(of: "```json", with: "")
-                .replacingOccurrences(of: "```", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            jsonText = trimmed
+        // Memoized by message content — `body` re-evaluates on every keystroke
+        // while the user fills in the interview, and would otherwise re-decode.
+        return JSONParseMemo.value("structuredInterview\(JSONParseMemo.separator)\(trimmed)") {
+            let jsonText: String
+            if trimmed.hasPrefix("```") {
+                jsonText = trimmed
+                    .replacingOccurrences(of: "```json", with: "")
+                    .replacingOccurrences(of: "```", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                jsonText = trimmed
+            }
+            guard let data = jsonText.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(SupervisorInterviewPayload.self, from: data),
+                  !payload.questions.isEmpty else { return nil }
+            return payload
         }
-        guard let data = jsonText.data(using: .utf8),
-              let payload = try? JSONDecoder().decode(SupervisorInterviewPayload.self, from: data),
-              !payload.questions.isEmpty else { return nil }
-        return payload
     }
 
     private var canRespond: Bool {

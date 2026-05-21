@@ -3,6 +3,35 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Memoizes a parse done from a source string, so a SwiftUI computed property
+/// doesn't re-decode JSON on every `body` evaluation. The result is a pure
+/// function of the source string — the cache never goes stale — and keys carry
+/// a call-site discriminator so different parses of the same string can't
+/// collide. Bounded LRU. A cast miss simply recomputes, so it is always safe.
+@MainActor
+enum JSONParseMemo {
+    private static var cache: [String: Any] = [:]
+    private static var order: [String] = []
+    private static let limit = 256
+
+    /// Discriminator and source must be joined with this so a source string
+    /// can never be confused for a different call site's key.
+    static let separator = "\u{1}"
+
+    static func value<T>(_ key: String, parse: () -> T) -> T {
+        if let cached = cache[key], let typed = cached as? T {
+            return typed
+        }
+        let value = parse()
+        cache[key] = value
+        order.append(key)
+        if order.count > limit {
+            cache.removeValue(forKey: order.removeFirst())
+        }
+        return value
+    }
+}
+
 struct PiAgentThreadToolGroup: Hashable {
     var id: UUID
     var entries: [PiAgentTranscriptEntry]
@@ -1808,31 +1837,36 @@ struct PiAgentStatusTranscriptRow: View {
     }
 
     private var capturedSystemPrompt: String? {
-        guard let raw = entry.rawJSON,
-              let data = raw.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        if let prefill = object["prefill"] as? String,
-           let payload = try? JSONSerialization.jsonObject(with: Data(prefill.utf8)) as? [String: Any],
-           let prompt = payload["systemPrompt"] as? String {
-            return prompt
+        guard let raw = entry.rawJSON else { return nil }
+        // Memoized by raw content — re-decoding on every body eval otherwise.
+        return JSONParseMemo.value("capturedSystemPrompt\(JSONParseMemo.separator)\(raw)") {
+            guard let data = raw.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            if let prefill = object["prefill"] as? String,
+               let payload = try? JSONSerialization.jsonObject(with: Data(prefill.utf8)) as? [String: Any],
+               let prompt = payload["systemPrompt"] as? String {
+                return prompt
+            }
+            if let dataObject = object["data"] as? [String: Any],
+               let prefill = dataObject["prefill"] as? String,
+               let payload = try? JSONSerialization.jsonObject(with: Data(prefill.utf8)) as? [String: Any],
+               let prompt = payload["systemPrompt"] as? String {
+                return prompt
+            }
+            return object["systemPrompt"] as? String
         }
-        if let dataObject = object["data"] as? [String: Any],
-           let prefill = dataObject["prefill"] as? String,
-           let payload = try? JSONSerialization.jsonObject(with: Data(prefill.utf8)) as? [String: Any],
-           let prompt = payload["systemPrompt"] as? String {
-            return prompt
-        }
-        return object["systemPrompt"] as? String
     }
 
     private var subagentPromptMetadata: SubagentPromptMetadata? {
-        guard let raw = entry.rawJSON,
-              let data = raw.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              ["agent_deck_subagent_started", "agent_deck_subagent_card"].contains(object["type"] as? String),
-              let authored = object["authoredSystemPromptPath"] as? String,
-              let final = object["finalSystemPromptPath"] as? String else { return nil }
-        return SubagentPromptMetadata(authoredSystemPromptPath: authored, finalSystemPromptPath: final)
+        guard let raw = entry.rawJSON else { return nil }
+        return JSONParseMemo.value("subagentPromptMetadata\(JSONParseMemo.separator)\(raw)") {
+            guard let data = raw.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  ["agent_deck_subagent_started", "agent_deck_subagent_card"].contains(object["type"] as? String),
+                  let authored = object["authoredSystemPromptPath"] as? String,
+                  let final = object["finalSystemPromptPath"] as? String else { return nil }
+            return SubagentPromptMetadata(authoredSystemPromptPath: authored, finalSystemPromptPath: final)
+        }
     }
 }
 
@@ -2572,7 +2606,7 @@ struct PiAgentTranscriptCard: View {
 
     @ViewBuilder
     private var content: some View {
-        if let subagentSummary = PiAgentSubagentSummary(entry: entry) {
+        if let subagentSummary = PiAgentSubagentSummary.cached(for: entry) {
             PiAgentSubagentTranscriptView(summary: subagentSummary)
         } else if entry.role == .tool {
             PiAgentToolTranscriptView(entry: entry)

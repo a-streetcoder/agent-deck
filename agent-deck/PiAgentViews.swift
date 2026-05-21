@@ -2782,7 +2782,10 @@ struct PiAgentScreen: View {
         let attachments = urls.filter { !$0.hasDirectoryPath }.compactMap { PiAgentFileAttachment(url: $0) }
         guard !attachments.isEmpty else { return }
         composerAttachmentError = nil
-        for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
+        // O(1) membership instead of `contains(where:)` per attachment; the Set
+        // also de-dupes within the incoming batch.
+        var seenURLs = Set(composerFiles.map(\.url))
+        for attachment in attachments where seenURLs.insert(attachment.url).inserted {
             composerFiles.append(attachment)
         }
     }
@@ -2791,7 +2794,8 @@ struct PiAgentScreen: View {
         let attachments = urls.compactMap { PiAgentFolderAttachment(url: $0) }
         guard !attachments.isEmpty else { return }
         composerAttachmentError = nil
-        for attachment in attachments where !composerFolders.contains(where: { $0.url == attachment.url }) {
+        var seenURLs = Set(composerFolders.map(\.url))
+        for attachment in attachments where seenURLs.insert(attachment.url).inserted {
             composerFolders.append(attachment)
         }
     }
@@ -3353,7 +3357,10 @@ private struct PiAgentComposerPanel: View {
         let attachments = urls.filter { !$0.hasDirectoryPath }.compactMap { PiAgentFileAttachment(url: $0) }
         guard !attachments.isEmpty else { return }
         composerAttachmentError = nil
-        for attachment in attachments where !composerFiles.contains(where: { $0.url == attachment.url }) {
+        // O(1) membership instead of `contains(where:)` per attachment; the Set
+        // also de-dupes within the incoming batch.
+        var seenURLs = Set(composerFiles.map(\.url))
+        for attachment in attachments where seenURLs.insert(attachment.url).inserted {
             composerFiles.append(attachment)
         }
     }
@@ -3362,7 +3369,8 @@ private struct PiAgentComposerPanel: View {
         let attachments = urls.compactMap { PiAgentFolderAttachment(url: $0) }
         guard !attachments.isEmpty else { return }
         composerAttachmentError = nil
-        for attachment in attachments where !composerFolders.contains(where: { $0.url == attachment.url }) {
+        var seenURLs = Set(composerFolders.map(\.url))
+        for attachment in attachments where seenURLs.insert(attachment.url).inserted {
             composerFolders.append(attachment)
         }
     }

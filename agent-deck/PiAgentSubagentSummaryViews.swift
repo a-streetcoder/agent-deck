@@ -23,6 +23,15 @@ struct PiAgentSubagentSummary: Hashable {
     var failed: Int
     var agents: [Agent]
 
+    /// Memoized factory — `init?` runs a `JSONSerialization` parse and the
+    /// caller is a `@ViewBuilder`, so build it once per entry content rather
+    /// than on every `body` evaluation. Keyed by content, so it can't go stale.
+    @MainActor
+    static func cached(for entry: PiAgentTranscriptEntry) -> PiAgentSubagentSummary? {
+        let key = "PiAgentSubagentSummary\(JSONParseMemo.separator)\(entry.title)\(JSONParseMemo.separator)\(entry.text)\(JSONParseMemo.separator)\(entry.rawJSON ?? "")"
+        return JSONParseMemo.value(key) { PiAgentSubagentSummary(entry: entry) }
+    }
+
     init?(entry: PiAgentTranscriptEntry) {
         guard entry.role == .tool,
               entry.title.localizedCaseInsensitiveContains("subagent") || entry.text.localizedCaseInsensitiveContains("subagent")
