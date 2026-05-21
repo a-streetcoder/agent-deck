@@ -82,6 +82,77 @@ final class PiAgentSessionStoreTests: XCTestCase {
         })
     }
 
+    func testTranscriptForCacheUpdateReturnsWarmTranscriptSynchronously() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Warm", project: try PiTestSupport.makeProject(), repository: nil)
+        store.append(.init(sessionID: session.id, role: .user, title: "User", text: "warm transcript"))
+
+        XCTAssertNotNil(store.transcriptsBySessionID[session.id])
+        XCTAssertEqual(store.transcriptForCacheUpdate(session.id).map(\.text), ["warm transcript"])
+    }
+
+    func testTranscriptForCacheUpdateDecodesSmallTranscriptSynchronously() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Small", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.append(.init(sessionID: session.id, role: .user, title: "User", text: "small transcript"))
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        XCTAssertNil(reloadedStore.transcriptsBySessionID[session.id])
+
+        // A small transcript decodes synchronously straight into memory — no deferral.
+        let entries = reloadedStore.transcriptForCacheUpdate(session.id)
+        XCTAssertEqual(entries.map(\.text), ["small transcript"])
+        XCTAssertNotNil(reloadedStore.transcriptsBySessionID[session.id])
+    }
+
+    func testTranscriptForCacheUpdateDefersLargeTranscriptToBackgroundLoader() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Large", project: try PiTestSupport.makeProject(), repository: nil)
+        let largeText = String(repeating: "A", count: 8_000)
+        for index in 0..<80 {
+            firstStore.append(.init(sessionID: session.id, role: .user, title: "Entry \(index)", text: largeText))
+        }
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        XCTAssertNil(reloadedStore.transcriptsBySessionID[session.id])
+
+        // A large transcript (>256 KB) must not decode on the main thread: an empty
+        // snapshot is returned now and the background loader is in flight.
+        let entries = reloadedStore.transcriptForCacheUpdate(session.id)
+        XCTAssertEqual(entries, [])
+        XCTAssertNil(reloadedStore.transcriptsBySessionID[session.id])
+        XCTAssertTrue(reloadedStore.transcriptLoadingSessionIDs.contains(session.id))
+
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            reloadedStore.transcriptsBySessionID[session.id]?.count == 80
+        })
+        XCTAssertFalse(reloadedStore.transcriptLoadingSessionIDs.contains(session.id))
+    }
+
+    func testTranscriptForCacheUpdateReturnsFullTranscriptWhenLazyLoadingDisabled() throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "NonLazy", project: try PiTestSupport.makeProject(), repository: nil)
+        let largeText = String(repeating: "A", count: 8_000)
+        for index in 0..<80 {
+            firstStore.append(.init(sessionID: session.id, role: .user, title: "Entry \(index)", text: largeText))
+        }
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        reloadedStore.configureTranscriptMemory(lazyLoadingEnabled: false, cacheLimit: 10)
+
+        // With lazy loading off, even a large transcript resolves synchronously and
+        // in full — never an empty deferral snapshot.
+        let entries = reloadedStore.transcriptForCacheUpdate(session.id)
+        XCTAssertEqual(entries.count, 80)
+        XCTAssertNotNil(reloadedStore.transcriptsBySessionID[session.id])
+    }
+
     func testReloadWithNilPersistedSelectionSelectsFirstSession() throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)

@@ -2249,10 +2249,11 @@ struct PiAgentScreen: View {
             return
         }
 
-        // Hydrate the selected transcript before updating the render cache. With lazy
-        // loading, selectedTranscript can briefly be empty during a session switch;
-        // publishing that empty snapshot is what produces the intermittent blank pane.
-        let entries = store.transcript(for: session.id)
+        // Hydrate the selected transcript before updating the render cache. Small
+        // transcripts decode synchronously here (instant, no spinner); large ones are
+        // handed to the background loader and return an empty snapshot so the
+        // "Loading transcript" card shows instead of hitching the main thread.
+        let entries = store.transcriptForCacheUpdate(session.id)
         transcriptCache.scheduleUpdate(
             sessionID: session.id,
             revision: store.selectedTranscriptRevision,

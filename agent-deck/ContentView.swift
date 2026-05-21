@@ -673,32 +673,35 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var agentsPrimaryToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) { agentsFilterButton }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
+        // Neutral island: list/manage/help actions. Replacement is create-adjacent
+        // but stays here because it's contextual — keeping it as a trailing
+        // conditional inside the group avoids a single-item ControlGroup for the
+        // standalone `+` (which is usually alone) and a layout shift on selection.
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                agentModelQuickEditor = currentAgentModelQuickEditorContext
-            } label: {
-                Label("Quick Edit Models", systemImage: "cpu")
+            ControlGroup {
+                agentsFilterButton
+
+                Button {
+                    agentModelQuickEditor = currentAgentModelQuickEditorContext
+                } label: {
+                    Label("Quick Edit Models", systemImage: "cpu")
+                }
+                .toolbarNeutralChrome()
+                .help("Quick edit agent models and thinking")
+                .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
+
+                subagentsInfoButton
+
+                if let agent = viewModel.selectedAgent {
+                    replacementAgentButton(for: agent)
+                }
             }
-            .toolbarNeutralChrome()
-            .help("Quick edit agent models and thinking")
-            .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
         }
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
+        // Primary create action — standalone glass island, always last.
         ToolbarItem(placement: .primaryAction) { newAgentMenu }
-
-        if let agent = viewModel.selectedAgent {
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) { replacementAgentButton(for: agent) }
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-        ToolbarItem(placement: .primaryAction) { subagentsInfoButton }
     }
 
     private var newAgentMenu: some View {

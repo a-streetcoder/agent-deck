@@ -146,7 +146,6 @@ struct PiNativeSubagentRunCard: View {
     @ObservedObject var imageStore: AgentImageStore
     @State private var isDetailsPresented = false
     @State private var promptPopover: PromptPopover?
-    @State private var childDetails: PiSubagentChildRecord?
     @State private var displayedStatus: PiSubagentRunStatus?
     @State private var statusLingerTask: Task<Void, Never>?
 
@@ -180,9 +179,6 @@ struct PiNativeSubagentRunCard: View {
         }
         .popover(item: $promptPopover, arrowEdge: .bottom) { prompt in
             PiAgentPromptAuditPopover(title: prompt.title, text: prompt.text)
-        }
-        .popover(item: $childDetails, arrowEdge: .trailing) { child in
-            childDetailsPopover(child)
         }
         .onAppear { displayedStatus = run.status }
         .onChange(of: run.status) { oldStatus, newStatus in
@@ -278,8 +274,7 @@ struct PiNativeSubagentRunCard: View {
     }
 
     private var taskPreview: some View {
-        // Wider single-run card → larger budget keeps it at ~3–4 wrapped lines.
-        PiSubagentTaskPreview(task: run.task, collapsedBudget: 260)
+        PiSubagentTaskPreview(task: run.task)
     }
 
     private var detailRows: [(String, String)] {
@@ -470,32 +465,22 @@ struct PiNativeSubagentRunCard: View {
                         Text(child.agentName)
                             .font(.headline)
                             .lineLimit(1)
-                        if let executionRunID = child.executionRunID {
-                            Text(String(executionRunID.uuidString.prefix(8)))
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .layoutPriority(1)
+                        if let outcome = child.expectedOutcome {
+                            Text(outcome.displayName)
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(AppTheme.mutedText)
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
-                                .padding(.horizontal, 5)
+                                .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .appGlassCapsule()
-                                .textSelection(.enabled)
-                                .help(executionRunID.uuidString)
+                                .help("Expected outcome: \(outcome.displayName)")
                         }
                     }
                     PiSubagentStatusText(status: child.status, color: color(for: child.status))
                 }
                 Spacer(minLength: 0)
-                Button {
-                    childDetails = child
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(AppTheme.mutedText)
-                .help("Run details")
             }
             parallelChildActions(child)
         }
@@ -540,8 +525,8 @@ struct PiNativeSubagentRunCard: View {
 
     private func parallelChildTaskPreview(_ child: PiSubagentChildRecord) -> some View {
         let task = nonEmpty(child.task) ?? nonEmpty(child.summary ?? child.error) ?? "No task captured."
-        // Narrower parallel tiles → smaller budget so they match the single-run card's height.
-        return PiSubagentTaskPreview(task: task, collapsedBudget: 170)
+        // fillsHeight: stretch the box to the equal-height grid tile so both siblings match.
+        return PiSubagentTaskPreview(task: task, fillsHeight: true)
     }
 
     private func childArtifactURL(_ child: PiSubagentChildRecord, named fileName: String) -> URL {
@@ -551,46 +536,6 @@ struct PiNativeSubagentRunCard: View {
     private func canOpenChildArtifact(_ child: PiSubagentChildRecord, named fileName: String) -> Bool {
         guard child.artifactDirectory?.isEmpty == false else { return false }
         return FileManager.default.fileExists(atPath: childArtifactURL(child, named: fileName).path)
-    }
-
-    private func childDetailsPopover(_ child: PiSubagentChildRecord) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Run details", systemImage: "info.circle")
-                .font(.headline)
-
-            AppKeyValueList(rows: childDetailRows(child))
-        }
-        .padding(16)
-        .frame(width: 430, alignment: .leading)
-    }
-
-    private func childDetailRows(_ child: PiSubagentChildRecord) -> [(String, String)] {
-        var rows: [(String, String)] = [
-            ("Agent", child.agentName),
-            ("Status", child.status.rawValue.capitalized)
-        ]
-        if let executionRunID = child.executionRunID {
-            rows.append(("Subagent ID", executionRunID.uuidString))
-        }
-        if let duration = child.durationMs {
-            rows.append(("Duration", formattedDuration(duration)))
-        }
-        if let totalTokens = child.totalTokens {
-            rows.append(("Tokens", compactNumber(totalTokens)))
-        }
-        if let toolCount = child.toolCount {
-            rows.append(("Tools", "\(toolCount)"))
-        }
-        if let model = nonEmpty(child.model) {
-            rows.append(("Model", model))
-        }
-        if let expectedOutcome = child.expectedOutcome {
-            rows.append(("Outcome", expectedOutcome.displayName + (child.requestedOutputPath.map { " · \($0)" } ?? "")))
-        }
-        if let reads = child.readFirstPaths, !reads.isEmpty {
-            rows.append(("Read first", reads.joined(separator: ", ")))
-        }
-        return rows
     }
 
     private func childCompactMetadata(_ child: PiSubagentChildRecord) -> [CompactMetadataItem] {
@@ -690,17 +635,13 @@ struct PiNativeSubagentRunCard: View {
 
 /// Task preview shared by the single-run and parallel-child subagent cards.
 ///
-/// `MarkdownTextView` wraps an `NSViewRepresentable`, so SwiftUI's `.lineLimit` never
-/// reaches it — it always reports its full TextKit height. To keep cards compact we
-/// clamp the *source* string to a character budget and offer an inline expand toggle.
-/// `StreamingMarkdownBalancer` (inside `MarkdownTextView`) re-closes any `` ` `` / `**`
-/// left dangling by the cut, so truncating mid-markdown is safe.
+/// Renders the full task — no truncation. In parallel mode `fillsHeight` stretches the
+/// box to its equal-height grid tile so a shorter task's box matches its taller sibling
+/// instead of floating short.
 private struct PiSubagentTaskPreview: View {
     let task: String
-    /// Collapsed character budget — tuned per call site so the wide single-run card and
-    /// the narrower parallel tiles both settle at roughly three to four wrapped lines.
-    var collapsedBudget: Int = 240
-    @State private var isExpanded = false
+    /// When true, the box fills the available height (the equal-height parallel tile).
+    var fillsHeight: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -709,48 +650,18 @@ private struct PiSubagentTaskPreview: View {
                 .fontWidth(.expanded)
                 .foregroundStyle(AppTheme.mutedText)
 
-            MarkdownTextView(source: isExpanded ? task : collapsedText)
+            MarkdownTextView(source: task)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isTruncatable {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.16)) { isExpanded.toggle() }
-                } label: {
-                    HStack(spacing: 3) {
-                        Text(isExpanded ? "Show less" : "Show more")
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
-                    }
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(AppTheme.brandAccent)
-                }
-                .buttonStyle(.plain)
-            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(AppTheme.contentSubtleFill.opacity(0.65))
                 .stroke(AppTheme.contentStroke, lineWidth: 1)
         )
         .help(task)
-    }
-
-    private var isTruncatable: Bool {
-        task.count > collapsedBudget
-    }
-
-    /// The task clamped to `collapsedBudget`, cut on the last word break so a word is
-    /// never sliced in half, with an ellipsis appended.
-    private var collapsedText: String {
-        guard isTruncatable else { return task }
-        let prefix = task.prefix(collapsedBudget)
-        guard let lastBreak = prefix.lastIndex(where: { $0 == " " || $0 == "\n" }) else {
-            return String(prefix) + "…"
-        }
-        return task[..<lastBreak].trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 }
 

@@ -58,7 +58,7 @@ final class PiExecutableResolverTests: XCTestCase {
     }
 
     func testResolveReturnsNilWhenPiNotFound() {
-        let oldPath = getenv("PATH").map(String.init(cString:)) ?? ""
+        let oldPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
         setenv("PATH", "/nonexistent-path-for-test", 1)
         unsetenv("AGENT_DECK_PI_PATH")
         unsetenv("PI_CLI_PATH")

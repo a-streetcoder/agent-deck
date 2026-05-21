@@ -58,7 +58,7 @@ struct IssuesScreen: View {
         }
     }
 
-    /// Glass link-out to the repository on GitHub. Uses the same
+    /// Plain symbol link-out to the repository on GitHub. Uses the same
     /// `arrow.up.forward.square` glyph the app shows for every other link-out
     /// (issue comments, related issues) so external links read consistently.
     @ViewBuilder
@@ -68,8 +68,11 @@ struct IssuesScreen: View {
                 NSWorkspace.shared.open(url)
             } label: {
                 Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .contentShape(Rectangle())
             }
-            .appSmallSecondaryButton()
+            .buttonStyle(.plain)
             .help("Open repository on GitHub")
         }
     }

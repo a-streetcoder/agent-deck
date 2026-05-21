@@ -51,6 +51,9 @@ final class PiAgentSessionStore: ObservableObject {
     // Transcripts always load on demand; only `configureTranscriptMemory` (tests) changes these.
     private var lazyTranscriptLoadingEnabled = true
     private var transcriptCacheLimit = 10
+    // Transcripts larger than this decode on the background loader instead of
+    // synchronously on the main actor, to avoid a switch-time hitch.
+    private static let maxSyncDecodeTranscriptBytes = 256 * 1024
     private var persistedTranscriptSessionIDs: Set<UUID> = []
     private var persistedSubagentTranscriptRunIDs: Set<UUID> = []
     private var loadedTranscriptSessionOrder: [UUID] = []
@@ -294,6 +297,31 @@ final class PiAgentSessionStore: ObservableObject {
         markTranscriptSessionUsed(sessionID)
         evictTranscriptsIfNeeded(protectingSessionID: sessionID)
         return transcriptsBySessionID[sessionID] ?? []
+    }
+
+    /// Hydrates the transcript for the render cache without ever blocking the main
+    /// thread on a large decode. Small transcripts decode synchronously (instant,
+    /// no spinner); large ones go to the background loader and an empty snapshot is
+    /// returned so the "Loading transcript" card shows until the load completes and
+    /// bumps the revision, which re-runs this cache update.
+    func transcriptForCacheUpdate(_ sessionID: UUID) -> [PiAgentTranscriptEntry] {
+        if let loaded = transcriptsBySessionID[sessionID] {
+            markTranscriptSessionUsed(sessionID)
+            evictTranscriptsIfNeeded(protectingSessionID: sessionID)
+            return loaded
+        }
+        guard lazyTranscriptLoadingEnabled,
+              persistedTranscriptSessionIDs.contains(sessionID),
+              !transcriptFileIsSmallEnoughForSyncDecode(parentTranscriptURL(sessionID)) else {
+            return transcript(for: sessionID)
+        }
+        requestTranscriptLoad(for: sessionID)
+        // Only defer to the spinner when the background load is actually in flight;
+        // otherwise fall back so we never publish an empty snapshot with no spinner.
+        guard transcriptLoadingSessionIDs.contains(sessionID) else {
+            return transcript(for: sessionID)
+        }
+        return []
     }
 
     func requestSelectedTranscriptLoad() {
@@ -1095,6 +1123,13 @@ final class PiAgentSessionStore: ObservableObject {
 
     private func parentTranscriptURL(_ sessionID: UUID) -> URL {
         transcriptsDirectoryURL.appendingPathComponent("parent-\(sessionID.uuidString).json")
+    }
+
+    private func transcriptFileIsSmallEnoughForSyncDecode(_ fileURL: URL) -> Bool {
+        guard let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
+            return false
+        }
+        return size <= Self.maxSyncDecodeTranscriptBytes
     }
 
     private func subagentTranscriptURL(_ runID: UUID) -> URL {
