@@ -497,6 +497,80 @@ final class AppViewModel: NSObject {
         hasCompletedInitialRefresh = true
     }
 
+    /// Re-derive snapshot-scoped state from the already-cached raw snapshots
+    /// after an assignment-preference change. No disk I/O: project assignment
+    /// only mutates UserDefaults, and `scopedAgentSnapshot` is idempotent over
+    /// the agent-catalog fields it copies through. This replaces a full
+    /// `refresh()` (which re-walks the filesystem) for assignment toggles.
+    private func reconcileSnapshotsFromPreferences() {
+        let catalogProjectSnapshots = Array(allProjectSnapshots.values)
+        globalSnapshot = scopedAgentSnapshot(
+            globalSnapshot,
+            projectPath: nil,
+            globalCatalogSnapshot: globalSnapshot,
+            catalogProjectSnapshots: catalogProjectSnapshots
+        )
+        allProjectSnapshots = allProjectSnapshots.mapValues { projectSnapshot in
+            scopedAgentSnapshot(
+                projectSnapshot,
+                projectPath: projectSnapshot.projectRoot,
+                globalCatalogSnapshot: globalSnapshot,
+                catalogProjectSnapshots: catalogProjectSnapshots
+            )
+        }
+        if let path = selectedProjectPath, let scoped = allProjectSnapshots[path] {
+            snapshot = scoped
+        } else if selectedProjectPath == nil {
+            snapshot = makeAggregateSnapshot()
+        }
+        rebuildWarningCaches()
+    }
+
+    /// Patch the in-memory effective-agent skill list so snapshot-derived
+    /// toggles (`skill(_:isAssignedTo:)`) update immediately after a draft
+    /// save, without waiting for a disk rescan.
+    private func patchEffectiveAgentSkills(agentName: String, skills: [String]) {
+        func patch(_ snap: ScanSnapshot) -> ScanSnapshot {
+            guard snap.effectiveAgents.contains(where: { $0.name == agentName }) else { return snap }
+            let patchedAgents = snap.effectiveAgents.map { record -> EffectiveAgentRecord in
+                guard record.name == agentName else { return record }
+                var resolved = record.resolved
+                resolved.skills = skills
+                return EffectiveAgentRecord(
+                    id: record.id,
+                    name: record.name,
+                    projectRoot: record.projectRoot,
+                    builtin: record.builtin,
+                    globalCustom: record.globalCustom,
+                    projectCustom: record.projectCustom,
+                    userOverride: record.userOverride,
+                    projectOverride: record.projectOverride,
+                    resolved: resolved,
+                    resolutionKind: record.resolutionKind
+                )
+            }
+            return ScanSnapshot(
+                projectRoot: snap.projectRoot,
+                builtinAgents: snap.builtinAgents,
+                globalAgents: snap.globalAgents,
+                projectAgents: snap.projectAgents,
+                legacyProjectAgents: snap.legacyProjectAgents,
+                effectiveAgents: patchedAgents,
+                libraryAgents: snap.libraryAgents,
+                skills: snap.skills,
+                librarySkills: snap.librarySkills,
+                promptTemplates: snap.promptTemplates,
+                libraryPromptTemplates: snap.libraryPromptTemplates,
+                settings: snap.settings,
+                envKeys: snap.envKeys,
+                warnings: snap.warnings
+            )
+        }
+        globalSnapshot = patch(globalSnapshot)
+        allProjectSnapshots = allProjectSnapshots.mapValues(patch)
+        snapshot = patch(snapshot)
+    }
+
     func chooseProjectRoot() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -5171,10 +5245,10 @@ final class AppViewModel: NSObject {
     func setPrompt(_ prompt: PromptTemplateRecord, enabled: Bool, for project: DiscoveredProject) throws {
         projectPreferencesStore.setAssignedPromptTemplate(prompt.name, assigned: enabled, for: project.path)
         applyProjectPreferenceChanges()
-        // The toggle's checkbox already reflects the preference store (updated
-        // synchronously above); reconcile snapshot-derived state in the
-        // background so the tap doesn't freeze the UI on a rescan.
-        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
+        // Project assignment only mutates UserDefaults — nothing on disk
+        // changed. Reconcile snapshot-derived state in memory instead of
+        // re-walking the filesystem.
+        reconcileSnapshotsFromPreferences()
         selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == prompt.name }?.id ?? selectedCommandItemID
     }
 
@@ -5409,7 +5483,9 @@ final class AppViewModel: NSObject {
     func setAgent(_ agent: AgentRecord, enabled: Bool, for project: DiscoveredProject) throws {
         projectPreferencesStore.setAssignedAgent(agent.name, assigned: enabled, for: project.path)
         applyProjectPreferenceChanges()
-        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [project.path])
+        // Project assignment only mutates UserDefaults — reconcile the
+        // affected `effectiveAgents` in memory instead of rescanning disk.
+        reconcileSnapshotsFromPreferences()
     }
 
     func enableAgentGlobally(_ agent: AgentRecord) throws {
@@ -5509,6 +5585,12 @@ final class AppViewModel: NSObject {
         }
         draft.config.skills = PiSkillLaunchResolver.normalizedNames(skills)
         try saveAgentDraft(draft, for: agent)
+        // `saveAgentDraft` rewrites the agent `.md` and schedules a background
+        // rescan, but the toggle's checkbox is snapshot-derived. Patch the
+        // in-memory effective agent so the checkbox flips immediately instead
+        // of waiting for that rescan to land.
+        patchEffectiveAgentSkills(agentName: agent.name, skills: draft.config.skills)
+        rebuildWarningCaches()
     }
 
     func assignedAgents(for skillRecord: SkillRecord) -> [EffectiveAgentRecord] {
@@ -5518,10 +5600,10 @@ final class AppViewModel: NSObject {
     private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
         projectPreferencesStore.setAssignedSkill(skill.name, assigned: enabled, for: projectPath)
         applyProjectPreferenceChanges()
-        // The toggle's checkbox already reflects the preference store (updated
-        // synchronously above); reconcile snapshot-derived state in the
-        // background so the tap doesn't freeze the UI on a rescan.
-        refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
+        // Project assignment only mutates UserDefaults — nothing on disk
+        // changed. Reconcile snapshot-derived state in memory instead of
+        // re-walking the filesystem.
+        reconcileSnapshotsFromPreferences()
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }
 
