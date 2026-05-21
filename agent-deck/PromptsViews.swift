@@ -39,6 +39,7 @@ struct PromptsScreen: View {
         }
         .sheet(item: $promptEditTarget) { target in
             MarkdownFileEditorSheet(target: target) {
+                viewModel.refreshVisibleStateImmediately(scanAllProjects: true)
                 viewModel.refresh(includeModels: false, scanAllProjects: true)
                 if target.isNew {
                     viewModel.selectedCommandItemID = viewModel.allVisiblePromptTemplateRecords.first { $0.filePath == target.path }?.id ?? viewModel.selectedCommandItemID

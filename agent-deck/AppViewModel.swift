@@ -363,6 +363,32 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    private func refreshSynchronously(
+        includeModels: Bool = false,
+        scanAllProjects: Bool = false,
+        extraProjectPathsToScan: Set<String> = []
+    ) {
+        let result = AppRefreshService().loadSnapshot(
+            rootURL: configuredProjectsRootURL,
+            selectedProjectPath: selectedProjectPath,
+            preferencesByPath: projectPreferencesStore.preferencesByPath,
+            externalSkillPaths: appSettings.externalSkillPaths,
+            externalPromptPaths: appSettings.externalPromptPaths,
+            scanAllProjects: scanAllProjects,
+            extraProjectPathsToScan: extraProjectPathsToScan
+        )
+        applyRefreshSnapshot(result, includeModels: includeModels)
+        isRefreshingProjects = false
+    }
+
+    func refreshVisibleStateImmediately(scanAllProjects: Bool = false, extraProjectPathsToScan: Set<String> = []) {
+        refreshSynchronously(
+            includeModels: false,
+            scanAllProjects: scanAllProjects,
+            extraProjectPathsToScan: extraProjectPathsToScan
+        )
+    }
+
     private func applyRefreshSnapshot(
         _ result: AppRefreshSnapshot,
         includeModels: Bool
@@ -4322,6 +4348,7 @@ final class AppViewModel: NSObject, ObservableObject {
         applyProjectPreferenceChanges()
         appSettings = appSettingsController.settings
 
+        refreshSynchronously(includeModels: false)
         refresh(includeModels: false, scanAllProjects: true)
         selectedAgentID = filteredAgents.first { $0.name == newName }?.id ?? selectedAgentID
     }
@@ -4385,6 +4412,7 @@ final class AppViewModel: NSObject, ObservableObject {
         _ = appSettingsController.replaceExternalSkillPath(from: fileURL.path, to: (isSkillFolder ? newTargetURL.appendingPathComponent("SKILL.md") : newTargetURL).path)
         appSettings = appSettingsController.settings
 
+        refreshSynchronously(includeModels: false)
         refresh(includeModels: false, scanAllProjects: true)
         selectedSkillID = allVisibleSkillRecords.first { $0.name == newName }?.id ?? selectedSkillID
     }
@@ -5088,6 +5116,7 @@ final class AppViewModel: NSObject, ObservableObject {
         try removeAgentReferences(named: agent.name)
         let fileURL = URL(fileURLWithPath: agent.filePath).standardizedFileURL
         try FileManager.default.trashItem(at: fileURL, resultingItemURL: nil)
+        refreshSynchronously(includeModels: false)
         refresh(includeModels: false, scanAllProjects: true)
         selectedAgentID = filteredAgents.first?.id
     }
@@ -5197,6 +5226,7 @@ final class AppViewModel: NSObject, ObservableObject {
         try removeSkillReferences(named: skill.name)
         try FileManager.default.trashItem(at: targetURL, resultingItemURL: nil)
         removeExternalSkillCatalogReferences(for: skill, deletedTarget: targetURL)
+        refreshSynchronously(includeModels: false)
         refresh(includeModels: false, scanAllProjects: true)
         selectedSkillID = allVisibleSkillRecords.first?.id
     }
@@ -5548,6 +5578,7 @@ final class AppViewModel: NSObject, ObservableObject {
         switch draft.target {
         case let .custom(scope):
             guard scope == .project else {
+                refreshSynchronously(includeModels: false)
                 refresh(includeModels: false)
                 return
             }
@@ -5560,6 +5591,7 @@ final class AppViewModel: NSObject, ObservableObject {
     private func refreshAfterOverrideChange(scope: AgentEditingTarget.OverrideScope) {
         switch scope {
         case .global:
+            refreshSynchronously(includeModels: false)
             refresh(includeModels: false)
         case .project:
             refreshAfterProjectScopedChange(projectPath: selectedProjectPath)
@@ -5577,9 +5609,11 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func refreshAfterProjectScopedChange(projectPath: String?) {
         guard let projectPath else {
+            refreshSynchronously(includeModels: false)
             refresh(includeModels: false)
             return
         }
+        refreshSynchronously(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
         refresh(includeModels: false, scanAllProjects: false, extraProjectPathsToScan: [projectPath])
     }
 
