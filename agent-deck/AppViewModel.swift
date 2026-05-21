@@ -61,6 +61,10 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var selectedSidebarItem: SidebarItem = .agent
     @Published var selectedAgentID: EffectiveAgentRecord.ID?
     @Published var selectedSkillID: SkillRecord.ID?
+    /// Skills whose deletion file I/O has finished but for which a fresh
+    /// snapshot has not yet landed. Filtered out of `allVisibleSkillRecords`
+    /// so the row disappears instantly. Pruned in `applyRefreshSnapshot`.
+    @Published private(set) var pendingDeletedSkillIDs: Set<String> = []
     @Published var selectedCommandItemID: String?
     @Published var selectedAgentFilter: AgentFilter = .all
     @Published var discoveredProjects: [DiscoveredProject] = []
@@ -432,6 +436,14 @@ final class AppViewModel: NSObject, ObservableObject {
             self.selectedProjectPath = nil
             persistSelectedProjectPath(nil)
             snapshot = makeAggregateSnapshot()
+        }
+
+        // A fresh snapshot is authoritative. Drop pending deletions no longer
+        // present (deletion confirmed); keep IDs still present so a stale
+        // in-flight refresh can't un-hide a row mid-deletion.
+        if !pendingDeletedSkillIDs.isEmpty {
+            let liveSkillIDs = Set((snapshot.skills + snapshot.librarySkills).map(\.id))
+            pendingDeletedSkillIDs.formIntersection(liveSkillIDs)
         }
 
         let currentAgentID = selectedAgentID
@@ -4045,12 +4057,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var allVisibleSkillRecords: [SkillRecord] {
-        deduplicateByID(snapshot.skills + snapshot.librarySkills)
+        let records = deduplicateByID(snapshot.skills + snapshot.librarySkills)
             .sorted { lhs, rhs in
                 let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
                 if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
                 return lhs.source.kind.rawValue < rhs.source.kind.rawValue
             }
+        guard !pendingDeletedSkillIDs.isEmpty else { return records }
+        return records.filter { !pendingDeletedSkillIDs.contains($0.id) }
     }
 
     func startupSnapshot(forProjectPath path: String) -> ScanSnapshot {
@@ -4202,7 +4216,14 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     var skillReferenceWarnings: [SkillReferenceWarning] {
-        cachedSkillReferenceWarnings
+        guard !pendingDeletedSkillIDs.isEmpty else { return cachedSkillReferenceWarnings }
+        // The cached warnings are rebuilt only on refresh, so for the ~1s until
+        // the background scan lands they can still cite a skill the user just
+        // deleted. Drop those so the warnings card matches the visible list.
+        let names = Set((snapshot.skills + snapshot.librarySkills)
+            .filter { pendingDeletedSkillIDs.contains($0.id) }
+            .map(\.name))
+        return cachedSkillReferenceWarnings.filter { !names.contains($0.missingSkill) }
     }
 
     func piAgentSessionProjectContext() -> DiscoveredProject {
@@ -5297,13 +5318,24 @@ final class AppViewModel: NSObject, ObservableObject {
     func deleteSkill(_ skill: SkillRecord) throws {
         guard canDeleteSkill(skill) else { throw CocoaError(.fileWriteNoPermission) }
 
+        // Throwing filesystem work first — optimistic hiding must not happen
+        // unless these succeed (SkillsScreen shows an alert on throw).
         let targetURL = skillDeletionTargetURL(for: skill)
         try removeSkillReferences(named: skill.name)
         try FileManager.default.trashItem(at: targetURL, resultingItemURL: nil)
         removeExternalSkillCatalogReferences(for: skill, deletedTarget: targetURL)
-        refreshSynchronously(includeModels: false)
-        refresh(includeModels: false, scanAllProjects: true)
+
+        // Hide the row immediately — no blocking rescan. SwiftUI updates the
+        // list the instant the published set changes, like session deletion.
+        withAnimation(.snappy(duration: 0.18)) {
+            pendingDeletedSkillIDs.insert(skill.id)
+        }
+        // Recompute selection AFTER hiding so the deleted skill isn't re-picked.
         selectedSkillID = allVisibleSkillRecords.first?.id
+
+        // Reconcile in the background; applyRefreshSnapshot prunes the pending
+        // ID once the fresh snapshot confirms the skill is gone.
+        refresh(includeModels: false, scanAllProjects: true)
     }
 
     func skillIsEnabledGlobally(_ skill: SkillRecord) -> Bool {
@@ -5485,7 +5517,10 @@ final class AppViewModel: NSObject, ObservableObject {
         for agent in snapshot.effectiveAgents where agent.resolved.skills.contains(skillName) {
             guard var draft = makeAgentDraft(for: agent) else { continue }
             draft.config.skills.removeAll { $0 == skillName }
-            try saveAgentDraft(draft, for: agent)
+            // Persist without a per-agent refresh — `saveAgentDraft` would
+            // trigger a synchronous rescan per agent. The single trailing
+            // refresh(scanAllProjects:) in deleteSkill picks up every edit.
+            try agentPersistence.save(draft, original: agent, projectRoot: selectedProjectPath)
         }
     }
 

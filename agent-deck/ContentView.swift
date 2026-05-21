@@ -866,7 +866,7 @@ struct ContentView: View {
                     Button("New Skill") {
                         NotificationCenter.default.post(name: .agentDeckNewSkillRequested, object: nil)
                     }
-                    Button("Import Skill…") {
+                    Button("Import Skills") {
                         NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
                     }
                 } label: {

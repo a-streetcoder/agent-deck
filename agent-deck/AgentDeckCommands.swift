@@ -315,7 +315,7 @@ struct AgentDeckCommands: Commands {
         }
 
         CommandMenu("Resources") {
-            Button("Import Skills…") {
+            Button("Import Skills") {
                 context?.importSkills()
             }
             .agentDeckShortcut(.importSkills)

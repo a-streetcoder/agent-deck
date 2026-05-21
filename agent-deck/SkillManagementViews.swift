@@ -443,7 +443,7 @@ struct SkillsScreen: View {
                         searchText = warning.missingSkill
                     }
                     .appSecondaryButton()
-                    Button("Import Skills…") {
+                    Button("Import Skills") {
                         beginSkillImport()
                     }
                     .appSecondaryButton()
