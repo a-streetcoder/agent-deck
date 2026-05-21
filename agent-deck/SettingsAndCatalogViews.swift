@@ -1,6 +1,181 @@
 import AppKit
 import SwiftUI
 
+private struct DefaultModelsModelPicker: View {
+    let models: [AvailableModel]
+    let selectedModel: AvailableModel?
+    let onSelect: (AvailableModel) -> Void
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "cpu")
+                Text(selectedModel?.identifier ?? "Model")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .frame(maxWidth: 260, alignment: .leading)
+            .appGlassCapsule()
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Model", systemImage: "cpu")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(groupedModels, id: \.provider) { group in
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 6) {
+                                    ProviderLabel(provider: group.provider, logoSize: 14, spacing: 5)
+                                        .font(.caption.weight(.bold))
+                                        .fontWidth(.expanded)
+                                        .foregroundStyle(.primary)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 2)
+
+                                VStack(spacing: 3) {
+                                    ForEach(group.models, id: \.identifier) { model in
+                                        Button {
+                                            onSelect(model)
+                                            isPresented = false
+                                        } label: {
+                                            row(
+                                                title: model.model,
+                                                subtitle: modelMetadataSubtitle(model),
+                                                isSelected: model.identifier == selectedModel?.identifier
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(maxHeight: 340)
+            }
+            .padding(12)
+            .frame(width: 360)
+        }
+    }
+
+    private var groupedModels: [(provider: String, models: [AvailableModel])] {
+        Dictionary(grouping: models, by: \.provider)
+            .map { provider, models in
+                (provider, models.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending })
+            }
+            .sorted { $0.provider.localizedCaseInsensitiveCompare($1.provider) == .orderedAscending }
+    }
+
+    private func row(title: String, subtitle: String, isSelected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? AppTheme.brandAccent : AppTheme.mutedText)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(isSelected ? AppTheme.selectionFill : Color.clear))
+    }
+
+    private func modelMetadataSubtitle(_ model: AvailableModel) -> String {
+        var badges: [String] = []
+        badges.append(model.supportsThinking ? "thinking" : "no thinking")
+        if model.supportsImages { badges.append("images") }
+        return badges.joined(separator: " · ")
+    }
+}
+
+private struct DefaultModelsThinkingPicker: View {
+    let selectedLevel: String
+    let levels: [String]
+    let onSelect: (String) -> Void
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "brain.head.profile")
+                Text(selectedLevel.capitalized)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .appGlassCapsule()
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Thinking", systemImage: "brain.head.profile")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+
+                ForEach(levels, id: \.self) { level in
+                    Button {
+                        onSelect(level)
+                        isPresented = false
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: selectedLevel == level ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(selectedLevel == level ? AppTheme.brandAccent : AppTheme.mutedText)
+                                .frame(width: 18, height: 18)
+                            Text(level.capitalized)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(selectedLevel == level ? AppTheme.selectionFill : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(12)
+            .frame(width: 220)
+        }
+    }
+}
+
 struct ModelsInfoPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -99,7 +274,7 @@ struct ModelsScreen: View {
                 Image("pi")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 22, height: 22)
+                    .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
                 Text("Agent Defaults")
                     .font(.title3.weight(.bold))
@@ -134,12 +309,13 @@ struct ModelsScreen: View {
                 }
             }
 
-            Picker("Default model", selection: defaultModelBinding) {
-                ForEach(viewModel.enabledAvailableModels, id: \.identifier) { model in
-                    Text(model.identifier).tag(model.identifier)
+            DefaultModelsModelPicker(
+                models: viewModel.enabledAvailableModels,
+                selectedModel: selectedDefaultModel,
+                onSelect: { model in
+                    defaultModelBinding.wrappedValue = model.identifier
                 }
-            }
-            .labelsHidden()
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
@@ -180,12 +356,13 @@ struct ModelsScreen: View {
                 }
             }
 
-            Picker("Default thinking", selection: defaultThinkingBinding) {
-                ForEach(defaultThinkingLevels, id: \.self) { level in
-                    Text(level.capitalized).tag(level)
+            DefaultModelsThinkingPicker(
+                selectedLevel: defaultThinkingBinding.wrappedValue,
+                levels: defaultThinkingLevels,
+                onSelect: { level in
+                    defaultThinkingBinding.wrappedValue = level
                 }
-            }
-            .labelsHidden()
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
