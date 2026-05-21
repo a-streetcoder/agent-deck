@@ -32,36 +32,6 @@
       "layers" : [
         {
           "fill" : {
-            "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000"
-          },
-          "hidden" : true,
-          "image-name" : "a.svg",
-          "name" : "a",
-          "position" : {
-            "scale" : 2.72,
-            "translation-in-points" : [
-              17.86249459999999,
-              27.92023463999999
-            ]
-          }
-        },
-        {
-          "fill" : {
-            "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000"
-          },
-          "hidden" : false,
-          "image-name" : "ad.svg",
-          "name" : "ad",
-          "position" : {
-            "scale" : 1.92,
-            "translation-in-points" : [
-              10.95341650000006,
-              25.14252995000004
-            ]
-          }
-        },
-        {
-          "fill" : {
             "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000",
             "orientation" : {
               "start" : {
@@ -75,7 +45,6 @@
             }
           },
           "glass" : true,
-          "hidden" : true,
           "image-name" : "agent-deck 2.svg",
           "name" : "agent-deck 2",
           "position" : {

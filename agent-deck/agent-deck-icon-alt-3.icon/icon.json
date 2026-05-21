@@ -34,7 +34,6 @@
           "fill" : {
             "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000"
           },
-          "hidden" : true,
           "image-name" : "a.svg",
           "name" : "a",
           "position" : {
@@ -46,19 +45,9 @@
           }
         },
         {
-          "fill" : {
-            "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000"
-          },
-          "hidden" : false,
+          "hidden" : true,
           "image-name" : "ad.svg",
-          "name" : "ad",
-          "position" : {
-            "scale" : 1.92,
-            "translation-in-points" : [
-              10.95341650000006,
-              25.14252995000004
-            ]
-          }
+          "name" : "ad"
         },
         {
           "fill" : {
@@ -99,7 +88,7 @@
     {
       "layers" : [
         {
-          "glass" : false,
+          "glass" : true,
           "image-name" : "icon-bg-2.png",
           "name" : "icon-bg-2",
           "position" : {

@@ -35,6 +35,9 @@ struct SkillImportSheet: View {
     @State private var selectedIDs: Set<String> = []
     @State private var importErrorMessage: String?
     @State private var isImporting = false
+    /// SKILL.md paths already in the catalog, captured once on appear so the
+    /// per-render hide check stays a pure Set lookup. See `displayCandidates`.
+    @State private var catalogedSkillFilePaths: Set<String> = []
 
     // Local folder mode.
     @State private var localSourceURL: URL?
@@ -59,6 +62,7 @@ struct SkillImportSheet: View {
             footer
         }
         .frame(width: 760, height: 740)
+        .task { catalogedSkillFilePaths = viewModel.catalogedSkillFilePaths }
         .onChange(of: mode) { _, _ in
             importErrorMessage = nil
             searchText = ""
@@ -345,7 +349,7 @@ struct SkillImportSheet: View {
                     if filteredCandidates.isEmpty {
                         Text(isSearchActive
                              ? "No importable skills match your search."
-                             : "No new importable skills were found. Already-imported skills are hidden.")
+                             : "No new importable skills were found. Skills already in your catalog are hidden.")
                             .font(.caption)
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, minHeight: 120)
@@ -426,16 +430,16 @@ struct SkillImportSheet: View {
     private var displayCandidates: [DisplayCandidate] {
         switch mode {
         case .localFolder:
-            let existing = viewModel.appSettings.externalSkillPaths
             return localCandidates.map { candidate in
-                DisplayCandidate(
+                let skillPath = URL(fileURLWithPath: candidate.skillFilePath).standardizedFileURL.path
+                return DisplayCandidate(
                     id: candidate.sourceRootPath,
                     name: candidate.name,
                     description: candidate.description,
                     detailLabel: "Path",
                     detailValue: candidate.sourceRootPath,
                     badge: nil,
-                    alreadyImported: existing.contains(candidate.sourceRootPath)
+                    alreadyImported: catalogedSkillFilePaths.contains(skillPath)
                 )
             }
         case .gitRepository:
@@ -501,7 +505,7 @@ struct SkillImportSheet: View {
     private var candidateCountSummary: String {
         var parts = ["Showing \(filteredCandidates.count) of \(importableCandidates.count) importable skill\(importableCandidates.count == 1 ? "" : "s")"]
         if hiddenAlreadyImportedCount > 0 {
-            parts.append("\(hiddenAlreadyImportedCount) already imported hidden")
+            parts.append("\(hiddenAlreadyImportedCount) already in catalog hidden")
         }
         if !selectedIDs.isEmpty {
             parts.append("\(selectedIDs.count) selected")
@@ -560,8 +564,8 @@ struct SkillImportSheet: View {
             importErrorMessage = "No importable skill folders were found. Choose a skill root containing SKILL.md, or a folder that contains skill roots below it."
             return
         }
-        let existing = viewModel.appSettings.externalSkillPaths
-        selectedIDs = Set(candidates.filter { !existing.contains($0.sourceRootPath) }.map(\.sourceRootPath))
+        // Pre-select only skills that are not already in the catalog.
+        selectedIDs = Set(importableCandidates.map(\.id))
     }
 
     // MARK: - Git repository actions

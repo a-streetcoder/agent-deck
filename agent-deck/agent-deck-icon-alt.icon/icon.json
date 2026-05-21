@@ -32,36 +32,6 @@
       "layers" : [
         {
           "fill" : {
-            "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000"
-          },
-          "hidden" : true,
-          "image-name" : "a.svg",
-          "name" : "a",
-          "position" : {
-            "scale" : 2.72,
-            "translation-in-points" : [
-              17.86249459999999,
-              27.92023463999999
-            ]
-          }
-        },
-        {
-          "fill" : {
-            "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000"
-          },
-          "hidden" : false,
-          "image-name" : "ad.svg",
-          "name" : "ad",
-          "position" : {
-            "scale" : 1.92,
-            "translation-in-points" : [
-              10.95341650000006,
-              25.14252995000004
-            ]
-          }
-        },
-        {
-          "fill" : {
             "automatic-gradient" : "display-p3:0.94500,1.00000,0.91549,1.00000",
             "orientation" : {
               "start" : {
@@ -75,14 +45,13 @@
             }
           },
           "glass" : true,
-          "hidden" : true,
           "image-name" : "agent-deck 2.svg",
           "name" : "agent-deck 2",
           "position" : {
-            "scale" : 0.76,
+            "scale" : 0.6,
             "translation-in-points" : [
-              -107.4659081691035,
-              161.7052969678852
+              -197.27552947027164,
+              7.939746300000081
             ]
           }
         }
@@ -99,14 +68,15 @@
     {
       "layers" : [
         {
+          "fill" : "none",
           "glass" : false,
-          "image-name" : "icon-bg-2.png",
-          "name" : "icon-bg-2",
+          "image-name" : "iconbg.png",
+          "name" : "iconbg",
           "position" : {
-            "scale" : 0.82,
+            "scale" : 0.85,
             "translation-in-points" : [
-              0,
-              0
+              20.949999999999932,
+              -8.815578168364027
             ]
           }
         }

@@ -509,10 +509,25 @@ final class AppViewModel: NSObject {
         addProject(url, selectingAfterAdd: true)
     }
 
-    /// The folder the skill-import picker opens to: the app-managed
-    /// SkillRepositories directory, where imported skill repos already live.
+    /// The folder the skill-import picker opens to: the selected project's
+    /// `.pi/skills` folder, or pi's global skills folder when no project is
+    /// selected. Falls back to a parent that exists so the open panel always
+    /// lands on a real directory; nothing is created on disk.
     var suggestedExternalSkillsDirectoryURL: URL {
-        SkillRepositorySyncService.repositoriesDirectoryURL()
+        let fileManager = FileManager.default
+        func isDirectory(_ url: URL) -> Bool {
+            var isDir: ObjCBool = false
+            return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+        }
+
+        if let projectURL = selectedDiscoveredProject?.url {
+            let projectSkills = projectURL.appendingPathComponent(".pi/skills", isDirectory: true)
+            return isDirectory(projectSkills) ? projectSkills : projectURL
+        }
+
+        let globalSkills = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".pi/agent/skills", isDirectory: true)
+        return isDirectory(globalSkills) ? globalSkills : fileManager.homeDirectoryForCurrentUser
     }
 
     func chooseExternalSkillsDirectory(startingAt url: URL? = nil, completion: @escaping (URL?) -> Void) {
@@ -522,9 +537,7 @@ final class AppViewModel: NSObject {
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Skills Folder"
         panel.message = "Choose a skill root or a folder to search recursively for SKILL.md files you want to add to the \(AppBrand.displayName) skill catalog."
-        let startURL = url ?? suggestedExternalSkillsDirectoryURL
-        try? FileManager.default.createDirectory(at: startURL, withIntermediateDirectories: true)
-        panel.directoryURL = startURL
+        panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
 
         let handler: (NSApplication.ModalResponse) -> Void = { response in
             DispatchQueue.main.async {
@@ -4283,6 +4296,15 @@ final class AppViewModel: NSObject {
             }
         guard !pendingDeletedSkillIDs.isEmpty else { return records }
         return records.filter { !pendingDeletedSkillIDs.contains($0.id) }
+    }
+
+    /// Standardized `SKILL.md` paths of every skill currently in the catalog
+    /// (builtin, global, project, package, and imported). The import sheet uses
+    /// this to hide skills the user already has. Pure string work, no I/O — but
+    /// O(catalog) to build, so callers should read it once and cache it rather
+    /// than re-reading it per render.
+    var catalogedSkillFilePaths: Set<String> {
+        Set(allVisibleSkillRecords.map { URL(fileURLWithPath: $0.filePath).standardizedFileURL.path })
     }
 
     func startupSnapshot(forProjectPath path: String) -> ScanSnapshot {
