@@ -9,19 +9,6 @@ import AppKit
 import SwiftUI
 import UserNotifications
 
-private extension AppAppearanceMode {
-    var preferredColorScheme: ColorScheme? {
-        switch self {
-        case .system:
-            return nil
-        case .light:
-            return .light
-        case .dark:
-            return .dark
-        }
-    }
-}
-
 final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     static weak var shared: AgentDeckAppDelegate?
 
@@ -33,6 +20,10 @@ final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Agent Deck is a dark-only app — force the appearance at the AppKit
+        // layer so menus, file panels, and the Sparkle updater are dark too
+        // (SwiftUI's `.preferredColorScheme` does not reach those surfaces).
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         AppFonts.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = self
         updater.checkForUpdatesInBackground()
@@ -79,7 +70,7 @@ struct agent_deckApp: App {
             ContentView()
                 .environmentObject(viewModel)
                 .environmentObject(appDelegate.updater)
-                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
+                .preferredColorScheme(.dark)
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)
@@ -88,7 +79,7 @@ struct agent_deckApp: App {
             SettingsSceneContent()
                 .environmentObject(viewModel)
                 .environmentObject(appDelegate.updater)
-                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
+                .preferredColorScheme(.dark)
         }
         .commands {
             AgentDeckCommands()
@@ -96,7 +87,7 @@ struct agent_deckApp: App {
 
         Window("About \(AppBrand.displayName)", id: AboutWindow.id) {
             AboutView()
-                .preferredColorScheme(viewModel.appSettings.appearanceMode.preferredColorScheme)
+                .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)

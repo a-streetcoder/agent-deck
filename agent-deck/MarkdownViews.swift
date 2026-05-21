@@ -264,7 +264,8 @@ private final class NativeMarkdownTextContainer: NSView {
         case .quote:
             return (NSFont.preferredFont(forTextStyle: .body), .secondaryLabelColor, true)
         case .code:
-            let size = NSFont.preferredFont(forTextStyle: .body).pointSize
+            // Keep in sync with the code font in `view(for:)` — one style below body.
+            let size = NSFont.preferredFont(forTextStyle: .callout).pointSize
             return (.monospacedSystemFont(ofSize: size, weight: .regular), .labelColor, false)
         }
     }
@@ -436,9 +437,12 @@ private final class NativeMarkdownTextContainer: NSView {
         case let .code(text):
             return paddedTextBlock(
                 text,
-                font: .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular),
+                // Code renders one text style below body — the GitHub/Notion
+                // convention. Reads as code and fits more per line (fewer wraps).
+                font: .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular),
                 color: .labelColor,
                 fill: AppTheme.nsCodeBlockFill,
+                border: AppTheme.nsCodeBlockBorder,
                 cornerRadius: 10,
                 padding: NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
             )
@@ -503,8 +507,12 @@ private final class NativeMarkdownTextContainer: NSView {
     /// runtime Light↔Dark switches.
     private final class DynamicFillView: NSView {
         private let fillColor: NSColor
-        init(fill: NSColor) {
+        private let borderColor: NSColor?
+        private let borderWidth: CGFloat
+        init(fill: NSColor, border: NSColor? = nil, borderWidth: CGFloat = 1) {
             self.fillColor = fill
+            self.borderColor = border
+            self.borderWidth = borderWidth
             super.init(frame: .zero)
             wantsLayer = true
             translatesAutoresizingMaskIntoConstraints = false
@@ -522,12 +530,16 @@ private final class NativeMarkdownTextContainer: NSView {
             // duration of the closure.
             effectiveAppearance.performAsCurrentDrawingAppearance {
                 layer?.backgroundColor = fillColor.cgColor
+                if let borderColor {
+                    layer?.borderColor = borderColor.cgColor
+                    layer?.borderWidth = borderWidth
+                }
             }
         }
     }
 
-    private static func paddedTextBlock(_ source: String, font: NSFont, color: NSColor, fill: NSColor, cornerRadius: CGFloat, padding: NSEdgeInsets) -> NSView {
-        let container = DynamicFillView(fill: fill)
+    private static func paddedTextBlock(_ source: String, font: NSFont, color: NSColor, fill: NSColor, border: NSColor? = nil, cornerRadius: CGFloat, padding: NSEdgeInsets) -> NSView {
+        let container = DynamicFillView(fill: fill, border: border)
         container.layer?.cornerRadius = cornerRadius
         container.layer?.masksToBounds = true
 
@@ -825,7 +837,21 @@ private struct MarkdownBlock: Identifiable, Hashable {
         var blocks: [MarkdownBlock] = []
         var paragraph: [String] = []
         var code: [String] = []
+        var codeFenceIndent = 0
         var inCode = false
+
+        // CommonMark: a fenced code block strips up to the opening fence's own
+        // indentation from each content line — so a fence nested inside a list
+        // item doesn't render with the list's indentation baked into the code.
+        func strippingFenceIndent(_ line: String) -> String {
+            var result = Substring(line)
+            var removed = 0
+            while removed < codeFenceIndent, let first = result.first, first == " " || first == "\t" {
+                result = result.dropFirst()
+                removed += 1
+            }
+            return String(result)
+        }
 
         func flushParagraph() {
             let text = paragraph.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: "\n")
@@ -851,11 +877,12 @@ private struct MarkdownBlock: Identifiable, Hashable {
                     flushParagraph()
                     inCode = true
                     code.removeAll()
+                    codeFenceIndent = line.prefix { $0 == " " || $0 == "\t" }.count
                 }
                 continue
             }
             if inCode {
-                code.append(line)
+                code.append(strippingFenceIndent(line))
                 continue
             }
             if trimmed.isEmpty {

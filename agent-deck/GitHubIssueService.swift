@@ -57,7 +57,7 @@ struct GitHubIssueService {
             type: issue.type?.name,
             author: issue.user?.login,
             assignees: issue.assignees.map(\.login),
-            labels: issue.labels.map(\.name),
+            labels: issue.labels.map { GitHubLabel(name: $0.name, color: $0.color) },
             createdAt: issue.createdAt,
             updatedAt: issue.updatedAt,
             closedAt: issue.closedAt,
@@ -97,6 +97,12 @@ struct GitHubIssueService {
             }
             throw error
         }
+    }
+
+    func reopenIssue(_ item: GitHubWorkItem) async throws {
+        let repo = try parseRepository(item.repository)
+        let payload = try JSONEncoder().encode(["state": "open"])
+        _ = try await apiClient.patch(path: "/repos/\(repo.owner)/\(repo.name)/issues/\(item.number)", body: payload)
     }
 
     private func fetchReferences(path: String, decoder: JSONDecoder, bypassCache: Bool) async throws -> [GitHubIssueReference] {
@@ -141,7 +147,10 @@ struct GitHubIssueService {
 
 private struct GitHubIssuePayload: Decodable {
     struct User: Decodable { let login: String }
-    struct Label: Decodable { let name: String }
+    struct Label: Decodable {
+        let name: String
+        let color: String?
+    }
     struct TypeInfo: Decodable { let name: String }
 
     let state: String

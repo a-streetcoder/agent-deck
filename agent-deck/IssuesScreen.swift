@@ -144,9 +144,9 @@ struct IssuesScreen: View {
         } else {
             HSplitView {
                 issueList(items: visibleItems, totalShown: board.shownCount, totalCount: board.totalCount, incomplete: board.incompleteResults)
-                    .frame(minWidth: 380, idealWidth: 500, maxWidth: 600)
+                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                 detailColumn
-                    .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(minWidth: 440, idealWidth: 640, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }
@@ -165,7 +165,15 @@ struct IssuesScreen: View {
                     GitHubIssueListRow(
                         item: item,
                         isSelected: viewModel.githubSelectedWorkItem == item,
-                        onSelect: { viewModel.selectWorkItem(item) }
+                        onSelect: { viewModel.selectWorkItem(item) },
+                        onOpenInPi: { viewModel.startPiAgentForWorkItem(item) },
+                        onToggleState: {
+                            if item.state.lowercased() == "open" {
+                                viewModel.closeIssue(item)
+                            } else {
+                                viewModel.reopenIssue(item)
+                            }
+                        }
                     )
                 }
             }
@@ -182,17 +190,20 @@ struct IssuesScreen: View {
     }
 
     private var detailColumn: some View {
-        Group {
-            if viewModel.githubSelectedWorkItem != nil {
-                GitHubIssueDetailView(viewModel: viewModel)
-            } else {
-                ContentUnavailableView(
-                    "Select an Issue",
-                    systemImage: "doc.text",
-                    description: Text("Pick an issue from the list to read it, browse comments, and reply.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { proxy in
+            Group {
+                if viewModel.githubSelectedWorkItem != nil {
+                    GitHubIssueDetailView(viewModel: viewModel)
+                } else {
+                    ContentUnavailableView(
+                        "Select an Issue",
+                        systemImage: "doc.text",
+                        description: Text("Pick an issue from the list to read it, browse comments, and reply.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
     }
 

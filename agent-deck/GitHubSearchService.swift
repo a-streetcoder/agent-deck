@@ -63,7 +63,7 @@ struct GitHubSearchService {
                 state: item.state,
                 stateReason: item.stateReason,
                 type: item.type?.name,
-                labels: item.labels.map(\.name),
+                labels: item.labels.map { GitHubLabel(name: $0.name, color: $0.color) },
                 assignees: item.assignees.map(\.login),
                 author: item.user?.login,
                 body: item.body ?? item.bodyText ?? "",
@@ -155,6 +155,7 @@ private struct GitHubSearchResponse: Decodable {
 private struct GitHubSearchItem: Decodable {
     struct Label: Decodable {
         let name: String
+        let color: String?
     }
 
     struct User: Decodable {

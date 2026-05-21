@@ -1,13 +1,5 @@
 import Foundation
 
-enum AppAppearanceMode: String, Codable, CaseIterable, Identifiable {
-    case system = "System"
-    case light = "Light"
-    case dark = "Dark"
-
-    var id: String { rawValue }
-}
-
 struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
     var showShortcutsStrip: Bool = true
     var showThinking: Bool = false
@@ -42,13 +34,10 @@ struct PiAgentTranscriptVisibilitySettings: Codable, Hashable {
 }
 
 struct AppSettings: Codable, Hashable {
-    var appearanceMode: AppAppearanceMode = .system
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentNotificationDelayMinutes: Int = 3
     var piAgentIdleParkingEnabled: Bool = true
     var piAgentIdleParkingTimeoutMinutes: Int = 10
-    var piAgentLazyTranscriptLoadingEnabled: Bool = true
-    var piAgentLoadedTranscriptCacheLimit: Int = 10
     var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
@@ -81,13 +70,10 @@ struct AppSettings: Codable, Hashable {
     var didMigrateAgentAssignmentsFromDiscoveredFiles: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case appearanceMode
         case gitHubBoardCacheLifetimeMinutes
         case piAgentNotificationDelayMinutes
         case piAgentIdleParkingEnabled
         case piAgentIdleParkingTimeoutMinutes
-        case piAgentLazyTranscriptLoadingEnabled
-        case piAgentLoadedTranscriptCacheLimit
         case piAgentTranscriptVisibility
         case piAgentTerminalApplicationPath
         case projectsRootPath
@@ -124,14 +110,11 @@ struct AppSettings: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        appearanceMode = try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system
         gitHubBoardCacheLifetimeMinutes = try container.decodeIfPresent(Int.self, forKey: .gitHubBoardCacheLifetimeMinutes) ?? 15
         piAgentNotificationDelayMinutes = try container.decodeIfPresent(Int.self, forKey: .piAgentNotificationDelayMinutes) ?? 3
         let decodedIdleParkingTimeout = try container.decodeIfPresent(Int.self, forKey: .piAgentIdleParkingTimeoutMinutes) ?? 10
         piAgentIdleParkingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentIdleParkingEnabled) ?? (decodedIdleParkingTimeout > 0)
         piAgentIdleParkingTimeoutMinutes = max(decodedIdleParkingTimeout, 1)
-        piAgentLazyTranscriptLoadingEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentLazyTranscriptLoadingEnabled) ?? true
-        piAgentLoadedTranscriptCacheLimit = max(try container.decodeIfPresent(Int.self, forKey: .piAgentLoadedTranscriptCacheLimit) ?? 10, 1)
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
         let hasStoredProjectsRootPath = container.contains(.projectsRootPath)

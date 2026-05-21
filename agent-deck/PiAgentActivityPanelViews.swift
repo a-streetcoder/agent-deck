@@ -223,22 +223,38 @@ struct PiAgentCurrentPlanCard: View {
     let subtitle: String
     let isSubtitleIdentifier: Bool
     let items: [PiSessionPlanItemRecord]
+    /// When false, the card drops its own rounded surface so it can sit directly
+    /// inside another container (e.g. a popover) without a card-in-card look.
+    let showsSurface: Bool
 
-    init(plan: PiSessionPlanRecord) {
+    init(plan: PiSessionPlanRecord, showsSurface: Bool = true) {
         self.title = "Current plan"
-        self.subtitle = "Latest session checklist"
-        self.isSubtitleIdentifier = false
+        self.subtitle = String(plan.id.uuidString.prefix(8))
+        self.isSubtitleIdentifier = true
         self.items = plan.items
+        self.showsSurface = showsSurface
     }
 
-    init(event: PiSessionPlanEventRecord) {
+    init(event: PiSessionPlanEventRecord, showsSurface: Bool = true) {
         self.title = "Plan"
         self.subtitle = String(event.planID.uuidString.prefix(8))
         self.isSubtitleIdentifier = true
         self.items = event.items
+        self.showsSurface = showsSurface
     }
 
     var body: some View {
+        if showsSurface {
+            content
+                .padding(12)
+                .appContentSurface(cornerRadius: 14)
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 Image(systemName: "checklist")
@@ -263,12 +279,7 @@ struct PiAgentCurrentPlanCard: View {
                         }
                 }
                 Spacer(minLength: 0)
-                Text(progressText)
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .appGlassCapsule()
+                progressBadge
             }
 
             if items.isEmpty {
@@ -301,14 +312,47 @@ struct PiAgentCurrentPlanCard: View {
                 }
             }
         }
-        .padding(12)
-        .appContentSurface(cornerRadius: 14)
+    }
+
+    /// A small progress ring + count, tinted by completion state — brand accent while
+    /// in progress, green once every item is done. The ring fills and the count morphs
+    /// with a numeric transition as items complete.
+    private var progressBadge: some View {
+        HStack(spacing: 5) {
+            ZStack {
+                Circle()
+                    .stroke(AppTheme.contentStroke, lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: progressFraction)
+                    .stroke(progressColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 13, height: 13)
+            Text(progressText)
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(progressColor)
+                .contentTransition(.numericText())
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .appGlassCapsule()
+        .animation(.snappy(duration: 0.3), value: progressFraction)
+    }
+
+    private var doneCount: Int {
+        items.filter { $0.status == .done || $0.status == .skipped }.count
     }
 
     private var progressText: String {
-        guard !items.isEmpty else { return "0/0" }
-        let done = items.filter { $0.status == .done || $0.status == .skipped }.count
-        return "\(done)/\(items.count)"
+        "\(doneCount)/\(items.count)"
+    }
+
+    private var progressFraction: Double {
+        items.isEmpty ? 0 : Double(doneCount) / Double(items.count)
+    }
+
+    private var progressColor: Color {
+        (!items.isEmpty && doneCount == items.count) ? .green : AppTheme.brandAccent
     }
 
     private func icon(for status: PiSessionPlanItemStatus) -> String {

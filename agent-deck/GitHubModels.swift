@@ -121,6 +121,20 @@ nonisolated struct GitHubSubIssuesSummary: Hashable {
     var hasSubIssues: Bool { total > 0 }
 }
 
+nonisolated struct GitHubLabel: Identifiable, Hashable, Sendable {
+    let name: String
+    /// GitHub's 6-digit label color (hex, no leading `#`). `nil` when the API
+    /// omits it or returns an unparseable value.
+    let color: String?
+
+    var id: String { name }
+
+    init(name: String, color: String? = nil) {
+        self.name = name
+        self.color = color
+    }
+}
+
 nonisolated struct GitHubIssueReference: Identifiable, Hashable {
     let id: Int
     let number: Int
@@ -141,7 +155,7 @@ nonisolated struct GitHubWorkItem: Identifiable, Hashable {
     let state: String
     let stateReason: String?
     let type: String?
-    let labels: [String]
+    let labels: [GitHubLabel]
     let assignees: [String]
     let author: String?
     let body: String
@@ -290,7 +304,7 @@ nonisolated struct GitHubIssueDetail: Hashable {
     let type: String?
     let author: String?
     let assignees: [String]
-    let labels: [String]
+    let labels: [GitHubLabel]
     let createdAt: Date
     let updatedAt: Date
     let closedAt: Date?
@@ -389,7 +403,7 @@ nonisolated struct PiAgentIssueAttachment: Identifiable, Codable, Hashable {
         self.state = detail.state
         self.type = detail.type
         self.author = detail.author
-        self.labels = detail.labels
+        self.labels = detail.labels.map(\.name)
         self.assignees = detail.assignees
         self.createdAt = detail.createdAt
         self.updatedAt = detail.updatedAt

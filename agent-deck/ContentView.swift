@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 
-private extension View {
-    func sidebarBottomFade(height: CGFloat = 36) -> some View {
+extension View {
+    func bottomEdgeFade(height: CGFloat = 36) -> some View {
         mask {
             VStack(spacing: 0) {
                 Rectangle()
@@ -46,6 +46,58 @@ extension View {
                 .frame(height: height)
             }
         }
+    }
+
+    /// Hides the native macOS scroller for the nearest enclosing `NSScrollView`.
+    /// `.scrollIndicators(.hidden)` is unreliable for `List` — especially when the
+    /// system "Show scroll bars" preference is set to "Always" — so we reach down
+    /// to AppKit to guarantee no scrollers anywhere in the app.
+    func hideNativeScrollers() -> some View {
+        background(ScrollerHidingConfigurator())
+    }
+}
+
+private struct ScrollerHidingConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { configure(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { configure(from: nsView) }
+    }
+
+    private func configure(from view: NSView) {
+        guard let scrollView = enclosingScrollView(of: view) else { return }
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+    }
+
+    /// The configurator is installed via `.background(...)`, so the target
+    /// scroll view is usually a sibling rather than an ancestor — walk up and
+    /// search each ancestor's subtree until one turns up.
+    private func enclosingScrollView(of view: NSView) -> NSScrollView? {
+        if let direct = view.enclosingScrollView { return direct }
+        var node: NSView? = view
+        while let current = node {
+            if let scrollView = current as? NSScrollView { return scrollView }
+            for sibling in current.superview?.subviews ?? [] {
+                if let scrollView = scrollView(inSubtreeOf: sibling) { return scrollView }
+            }
+            node = current.superview
+        }
+        return nil
+    }
+
+    private func scrollView(inSubtreeOf view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView { return scrollView }
+        for subview in view.subviews {
+            if let found = scrollView(inSubtreeOf: subview) { return found }
+        }
+        return nil
     }
 }
 
@@ -502,7 +554,7 @@ struct ContentView: View {
         .scrollContentBackground(.hidden)
         .scrollIndicators(.hidden)
         .tint(AppTheme.brandAccent)
-        .sidebarBottomFade(height: 34)
+        .bottomEdgeFade(height: 34)
     }
 
     @ToolbarContentBuilder
@@ -738,31 +790,39 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var piAgentPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            ControlGroup {
-                Button {
-                    isPiAgentStartupResourcesPresented.toggle()
-                } label: {
-                    Label("Session Resources", systemImage: "info.circle")
-                }
-                .toolbarNeutralChrome()
-                .help("Agents, skills, prompts, and environment available to this session")
-                .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
-                .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
-                    if let session = viewModel.piAgentSessionStore.selectedSession {
-                        PiAgentStartupResourcesPopover(viewModel: viewModel, session: session)
-                    }
-                }
+            PiAgentPlanToolbarButton(store: viewModel.piAgentSessionStore)
+        }
 
-                Button {
-                    isPiAgentTranscriptOptionsPresented.toggle()
-                } label: {
-                    Label("Transcript Display", systemImage: "eye")
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                isPiAgentStartupResourcesPresented.toggle()
+            } label: {
+                Label("Session Resources", systemImage: "info.circle")
+            }
+            .toolbarNeutralChrome()
+            .help("Agents, skills, prompts, and environment available to this session")
+            .disabled(viewModel.piAgentSessionStore.selectedSession == nil)
+            .popover(isPresented: $isPiAgentStartupResourcesPresented, arrowEdge: .bottom) {
+                if let session = viewModel.piAgentSessionStore.selectedSession {
+                    PiAgentStartupResourcesPopover(viewModel: viewModel, session: session)
                 }
-                .toolbarNeutralChrome()
-                .help("Choose what appears in the agent transcript")
-                .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
-                    PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
-                }
+            }
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                isPiAgentTranscriptOptionsPresented.toggle()
+            } label: {
+                Label("Transcript Display", systemImage: "eye")
+            }
+            .toolbarNeutralChrome()
+            .help("Choose what appears in the agent transcript")
+            .popover(isPresented: $isPiAgentTranscriptOptionsPresented, arrowEdge: .bottom) {
+                PiAgentTranscriptDisplayOptionsPopover(viewModel: viewModel)
             }
         }
 

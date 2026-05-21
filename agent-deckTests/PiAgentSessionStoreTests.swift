@@ -62,11 +62,7 @@ final class PiAgentSessionStoreTests: XCTestCase {
     }
 
     func testLazyTranscriptLoadingStartsEmptyAndLoadsSelectedTranscriptAsynchronously() throws {
-        let originalSettings = AppSettingsStore.shared.settings
-        defer { AppSettingsStore.shared.settings = originalSettings }
-        AppSettingsStore.shared.settings.piAgentLazyTranscriptLoadingEnabled = true
-        AppSettingsStore.shared.settings.piAgentLoadedTranscriptCacheLimit = 1
-
+        // Lazy transcript loading is always on; `reloadedStore` below relies on that default.
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)
         firstStore.configureTranscriptMemory(lazyLoadingEnabled: true, cacheLimit: 1)

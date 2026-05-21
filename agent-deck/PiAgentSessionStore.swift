@@ -48,6 +48,7 @@ final class PiAgentSessionStore: ObservableObject {
     private var pendingPersistTranscriptSnapshots: [UUID: [PiAgentTranscriptEntry]] = [:]
     private var pendingPersistSubagentTranscriptSnapshots: [UUID: [PiAgentTranscriptEntry]] = [:]
     private var pendingPersistTranscriptTask: Task<Void, Never>?
+    // Transcripts always load on demand; only `configureTranscriptMemory` (tests) changes these.
     private var lazyTranscriptLoadingEnabled = true
     private var transcriptCacheLimit = 10
     private var persistedTranscriptSessionIDs: Set<UUID> = []
@@ -58,7 +59,6 @@ final class PiAgentSessionStore: ObservableObject {
     private var subagentTranscriptLoadTasksByRunID: [UUID: Task<Void, Never>] = [:]
 
     init(fileManager: FileManager = .default) {
-        let settings = AppSettingsStore.shared.settings
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let directory = appSupport.appendingPathComponent("\(AppBrand.displayName)", isDirectory: true)
@@ -66,20 +66,15 @@ final class PiAgentSessionStore: ObservableObject {
         fileURL = directory.appendingPathComponent("agent-sessions.json")
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
         transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
-        lazyTranscriptLoadingEnabled = settings.piAgentLazyTranscriptLoadingEnabled
-        transcriptCacheLimit = max(settings.piAgentLoadedTranscriptCacheLimit, 1)
         try? fileManager.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
         load()
     }
 
     init(fileURL: URL) {
-        let settings = AppSettingsStore.shared.settings
         self.fileURL = fileURL
         let directory = fileURL.deletingLastPathComponent()
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
         transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
-        lazyTranscriptLoadingEnabled = settings.piAgentLazyTranscriptLoadingEnabled
-        transcriptCacheLimit = max(settings.piAgentLoadedTranscriptCacheLimit, 1)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
         load()

@@ -13,8 +13,17 @@ struct PiAgentCommitToolbarButton: View {
                 if viewModel.piAgentGitAutomationAction == .commit {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .symbolEffect(.rotate, options: .repeating)
+                        .transition(.identity)
                 } else {
+                    // Framed to the toolbar icon size so the custom asset matches the
+                    // SF-symbol spinner's width — no size jump when the icon swaps.
                     Image("git-commit")
+                        .resizable()
+                        .renderingMode(.template)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: AppTheme.toolbarAssetIconSize.width,
+                               height: AppTheme.toolbarAssetIconSize.height)
+                        .transition(.identity)
                 }
             }
         }
@@ -43,16 +52,22 @@ struct PiAgentPushToolbarButton: View {
 
     var body: some View {
         Button { viewModel.pushSelectedPiAgentSession() } label: {
-            Label("Push", systemImage: iconName)
-                .symbolEffect(.rotate, options: .repeating, isActive: viewModel.piAgentGitAutomationAction == .push)
+            Label {
+                Text("Push")
+            } icon: {
+                if viewModel.piAgentGitAutomationAction == .push {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .symbolEffect(.rotate, options: .repeating)
+                        .transition(.identity)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .transition(.identity)
+                }
+            }
         }
         .accessibilityLabel("Push")
         .disabled(!viewModel.canPushSelectedPiAgentSession)
         .help("Push committed changes on the selected session's current branch")
-    }
-
-    private var iconName: String {
-        viewModel.piAgentGitAutomationAction == .push ? "arrow.triangle.2.circlepath" : "arrow.up"
     }
 }
 
@@ -217,13 +232,6 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
                 systemImage: "exclamationmark.triangle",
                 isOn: visibility.showErrors,
                 keyPath: \.showErrors
-            )
-            optionRow(
-                title: "Plans",
-                subtitle: "Show the current session plan above the chat",
-                systemImage: "checklist",
-                isOn: visibility.showPlans,
-                keyPath: \.showPlans
             )
             optionRow(
                 title: "Diffs",

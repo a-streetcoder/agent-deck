@@ -260,18 +260,6 @@ private struct GeneralSettingsTab: View {
     var body: some View {
         SettingsForm {
             SettingsSection {
-                SettingsPickerRow(
-                    title: "Appearance:",
-                    selection: appearanceModeBinding,
-                    note: "System follows your macOS appearance. Light and Dark force Agent Deck to that scheme."
-                ) {
-                    ForEach(AppAppearanceMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-            }
-
-            SettingsSection {
                 SettingsTextFieldRow(
                     title: "Projects folder:",
                     placeholder: "Parent folder containing your projects",
@@ -312,13 +300,6 @@ private struct GeneralSettingsTab: View {
                 }
             }
         }
-    }
-
-    private var appearanceModeBinding: Binding<AppAppearanceMode> {
-        Binding(
-            get: { viewModel.appSettings.appearanceMode },
-            set: { viewModel.setAppearanceMode($0) }
-        )
     }
 
     private var projectsRootPathBinding: Binding<String> {
@@ -616,24 +597,6 @@ private struct PerformanceSettingsTab: View {
                 )
                 .disabled(!viewModel.isPiAgentIdleParkingEnabled)
             }
-
-            SettingsSection {
-                SettingsToggleRow(
-                    title: "Transcript memory:",
-                    label: "Load transcripts on demand",
-                    note: "Keeps older chat transcripts on disk and loads them when opened. Turn off to keep all transcripts in memory.",
-                    isOn: piAgentLazyTranscriptLoadingEnabledBinding
-                )
-
-                SettingsStepperRow(
-                    title: "Loaded chats:",
-                    value: piAgentLoadedTranscriptCacheLimitBinding,
-                    range: 1...50,
-                    valueText: "\(viewModel.piAgentLoadedTranscriptCacheLimit)",
-                    note: "How many inactive parent-chat transcripts stay warm in memory."
-                )
-                .disabled(!viewModel.isPiAgentLazyTranscriptLoadingEnabled)
-            }
         }
     }
 
@@ -648,20 +611,6 @@ private struct PerformanceSettingsTab: View {
         Binding(
             get: { viewModel.piAgentIdleParkingTimeoutMinutes },
             set: { viewModel.setPiAgentIdleParkingTimeoutMinutes($0) }
-        )
-    }
-
-    private var piAgentLazyTranscriptLoadingEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.isPiAgentLazyTranscriptLoadingEnabled },
-            set: { viewModel.setPiAgentLazyTranscriptLoadingEnabled($0) }
-        )
-    }
-
-    private var piAgentLoadedTranscriptCacheLimitBinding: Binding<Int> {
-        Binding(
-            get: { viewModel.piAgentLoadedTranscriptCacheLimit },
-            set: { viewModel.setPiAgentLoadedTranscriptCacheLimit($0) }
         )
     }
 }

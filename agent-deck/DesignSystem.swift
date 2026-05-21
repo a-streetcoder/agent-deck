@@ -60,6 +60,9 @@ enum AppTheme {
     // appearance, not the global one.
     static let nsCodeBlockFill = adaptiveNSColor(light: RGB(240, 240, 240), dark: RGB(30, 30, 32))
     static let nsQuoteBarFill = adaptiveNSColor(light: RGB(180, 180, 184), dark: RGB(96, 96, 102))
+    // Hairline border for the native code block — one step off the fill so the
+    // surface reads as a defined code panel rather than a flat highlight box.
+    static let nsCodeBlockBorder = adaptiveNSColor(light: RGB(214, 214, 218), dark: RGB(56, 56, 60))
 
     static let windowBackground = Color(nsColor: .windowBackgroundColor)
     static let panelFill = Color(nsColor: .windowBackgroundColor)
@@ -150,6 +153,14 @@ extension View {
     func appSecondaryButton() -> some View {
         buttonStyle(.glass)
             .buttonBorderShape(.capsule)
+    }
+
+    /// Compact secondary action — translucent glass capsule with small native metrics.
+    /// Use for inline edit/reveal/preview controls that should remain button-like but
+    /// lighter and smaller than a standard row action.
+    func appSmallSecondaryButton() -> some View {
+        appSecondaryButton()
+            .controlSize(.small)
     }
 
     /// Destructive action — opaque red-tinted glass capsule. Use for Delete,

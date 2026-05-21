@@ -277,28 +277,9 @@ struct PiNativeSubagentRunCard: View {
         }
     }
 
-    @ViewBuilder
     private var taskPreview: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Task", systemImage: "list.clipboard")
-                .font(.caption.weight(.semibold))
-                .fontWidth(.expanded)
-                .foregroundStyle(AppTheme.mutedText)
-
-            MarkdownTextView(source: run.task)
-                .lineLimit(3)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(AppTheme.contentSubtleFill.opacity(0.65))
-                .stroke(AppTheme.contentStroke, lineWidth: 1)
-        )
-        .help(run.task)
+        // Wider single-run card → larger budget keeps it at ~3–4 wrapped lines.
+        PiSubagentTaskPreview(task: run.task, collapsedBudget: 260)
     }
 
     private var detailRows: [(String, String)] {
@@ -559,24 +540,8 @@ struct PiNativeSubagentRunCard: View {
 
     private func parallelChildTaskPreview(_ child: PiSubagentChildRecord) -> some View {
         let task = nonEmpty(child.task) ?? nonEmpty(child.summary ?? child.error) ?? "No task captured."
-        return VStack(alignment: .leading, spacing: 6) {
-            Label("Task", systemImage: "list.clipboard")
-                .font(.caption.weight(.semibold))
-                .fontWidth(.expanded)
-                .foregroundStyle(AppTheme.mutedText)
-
-            MarkdownTextView(source: task)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(AppTheme.contentSubtleFill.opacity(0.65))
-                .stroke(AppTheme.contentStroke, lineWidth: 1)
-        )
-        .help(task)
+        // Narrower parallel tiles → smaller budget so they match the single-run card's height.
+        return PiSubagentTaskPreview(task: task, collapsedBudget: 170)
     }
 
     private func childArtifactURL(_ child: PiSubagentChildRecord, named fileName: String) -> URL {
@@ -720,6 +685,72 @@ struct PiNativeSubagentRunCard: View {
         case .stopped, .disconnected:
             return .secondary
         }
+    }
+}
+
+/// Task preview shared by the single-run and parallel-child subagent cards.
+///
+/// `MarkdownTextView` wraps an `NSViewRepresentable`, so SwiftUI's `.lineLimit` never
+/// reaches it — it always reports its full TextKit height. To keep cards compact we
+/// clamp the *source* string to a character budget and offer an inline expand toggle.
+/// `StreamingMarkdownBalancer` (inside `MarkdownTextView`) re-closes any `` ` `` / `**`
+/// left dangling by the cut, so truncating mid-markdown is safe.
+private struct PiSubagentTaskPreview: View {
+    let task: String
+    /// Collapsed character budget — tuned per call site so the wide single-run card and
+    /// the narrower parallel tiles both settle at roughly three to four wrapped lines.
+    var collapsedBudget: Int = 240
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Task", systemImage: "list.clipboard")
+                .font(.caption.weight(.semibold))
+                .fontWidth(.expanded)
+                .foregroundStyle(AppTheme.mutedText)
+
+            MarkdownTextView(source: isExpanded ? task : collapsedText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isTruncatable {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(isExpanded ? "Show less" : "Show more")
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.brandAccent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(AppTheme.contentSubtleFill.opacity(0.65))
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        )
+        .help(task)
+    }
+
+    private var isTruncatable: Bool {
+        task.count > collapsedBudget
+    }
+
+    /// The task clamped to `collapsedBudget`, cut on the last word break so a word is
+    /// never sliced in half, with an ellipsis appended.
+    private var collapsedText: String {
+        guard isTruncatable else { return task }
+        let prefix = task.prefix(collapsedBudget)
+        guard let lastBreak = prefix.lastIndex(where: { $0 == " " || $0 == "\n" }) else {
+            return String(prefix) + "…"
+        }
+        return task[..<lastBreak].trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 }
 

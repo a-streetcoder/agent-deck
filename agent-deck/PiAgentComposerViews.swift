@@ -142,6 +142,7 @@ struct PiAgentComposerBox: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .frame(minHeight: 92, maxHeight: 132)
+                .bottomEdgeFade(height: 18)
             }
 
             if let attachmentError {
@@ -408,7 +409,10 @@ struct PiAgentDropSafeTextEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
         scrollView.borderType = .noBorder
 
         let textView = DropSafeNSTextView()
@@ -1153,15 +1157,8 @@ struct PiAgentCreateSessionFromComposerButton: View {
         Button(action: buttonAction) {
             Image(systemName: "plus")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(AppTheme.accentForeground.gradient)
-                .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(AppTheme.brandAccent.gradient)
-                )
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .appPrimaryCircleButton()
         .help(projects.isEmpty ? "Start new Pi Agent session" : "Choose a project for the new Pi Agent session")
         .accessibilityLabel(projects.isEmpty ? "Start new Pi Agent session" : "Choose project for new Pi Agent session")
         .popover(isPresented: $isProjectPickerPresented, arrowEdge: .bottom) {

@@ -610,12 +610,8 @@ private struct AgentLibraryPane: View {
             } label: {
                 Text("Edit")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .appGlassCapsule()
             }
-            .buttonStyle(.plain)
+            .appSmallSecondaryButton()
             .opacity(hoveredAgentID == agent.id ? 1 : 0)
             .help("Edit agent")
             .animation(.easeInOut(duration: 0.15), value: hoveredAgentID == agent.id)

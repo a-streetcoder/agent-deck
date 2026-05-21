@@ -4,24 +4,23 @@ import SwiftUI
 /// A Pi "Retry" status entry parsed into a displayable shape.
 ///
 /// Pi's auto-retry layer is provider-agnostic — it emits a `Retry` status per attempt
-/// plus a final `auto_retry_end` for every model provider — so the generic fields here
-/// (`gaveUp`, `message`) always apply. `codex` carries the richer detail we can only
-/// resolve when the underlying payload is recognisably Codex.
-struct ProviderRetryInfo: Equatable {
+/// plus a final `auto_retry_end` for every model provider — so `gaveUp`, `isQuotaLimit`
+/// and `message` always apply. `resetsAt` / `planType` are filled in only when the
+/// underlying provider payload is one we can parse (Codex, Gemini).
+///
+/// Parsing runs once at thread-build time (`chronologicalChildren`), never per render —
+/// the parsed value rides on the `.retry` thread child, so the card itself does no work.
+struct ProviderRetryInfo: Hashable {
     /// True when Pi stopped retrying without success.
     var gaveUp: Bool
+    /// True when the error heuristically looks like a quota / rate-limit exhaustion.
+    var isQuotaLimit: Bool
     /// Best-effort human-readable error message.
     var message: String
-    /// Codex-only enrichment, present when the payload is recognisably Codex.
-    var codex: CodexDetail?
-
-    /// Provider-specific detail. Only Codex is parsed today; other providers fall back
-    /// to the generic fields above (send a real error sample to add one).
-    struct CodexDetail: Equatable {
-        var isUsageLimit: Bool
-        var planType: String?
-        var resetsAt: Date?
-    }
+    /// When the limit clears, if the provider's payload tells us (Codex / Gemini).
+    var resetsAt: Date?
+    /// Codex-only plan tier, e.g. "plus".
+    var planType: String?
 
     /// Parses a Pi "Retry" transcript entry. Returns `nil` for any other entry.
     init?(entry: PiAgentTranscriptEntry) {
@@ -29,8 +28,8 @@ struct ProviderRetryInfo: Equatable {
 
         let primary = entry.text.isEmpty ? (entry.rawJSON ?? "") : entry.text
 
-        // The entry is either an `auto_retry_end` envelope (carries attempt/success and
-        // a nested `finalError`) or a single attempt whose text is the error itself.
+        // The entry is either an `auto_retry_end` envelope (carries success and a nested
+        // `finalError`) or a single attempt whose text is the error itself.
         var errorPayload = primary
         if let envelope = Self.firstJSONObject(in: primary),
            (envelope["type"] as? String) == "auto_retry_end" {
@@ -40,13 +39,18 @@ struct ProviderRetryInfo: Equatable {
             self.gaveUp = false
         }
 
-        self.codex = CodexDetail(payload: errorPayload, entryTimestamp: entry.timestamp)
         self.message = Self.humanMessage(from: errorPayload)
+        self.isQuotaLimit = Self.detectsQuotaLimit(payload: errorPayload)
+
+        let codex = Self.parseCodex(payload: errorPayload, entryTimestamp: entry.timestamp)
+        self.planType = codex?.planType
+        self.resetsAt = codex?.resetsAt
+            ?? Self.parseGeminiReset(payload: errorPayload, entryTimestamp: entry.timestamp)
     }
 
-    // MARK: Parsing helpers
+    // MARK: Generic parsing
 
-    /// Best-effort human message: a provider's `error.message`/`message`, else the
+    /// Best-effort human message: a provider's `error.message` / `message`, else the
     /// payload stripped of any `"… error:"` prefix and trailing JSON.
     private static func humanMessage(from payload: String) -> String {
         if let object = firstJSONObject(in: payload) {
@@ -70,24 +74,115 @@ struct ProviderRetryInfo: Equatable {
         return text.isEmpty ? "The model provider returned an error." : text
     }
 
+    /// Heuristic: does this retry payload look like a quota / rate-limit exhaustion?
+    /// Conservative — curated keywords plus an HTTP 429 status code, no bare-substring
+    /// matches. Works for any provider without a provider-specific parser.
+    private static func detectsQuotaLimit(payload: String) -> Bool {
+        let lower = payload.lowercased()
+        let keywords = [
+            "usage limit", "usage_limit", "rate limit", "rate_limit", "quota",
+            "too many requests", "insufficient_quota", "resource_exhausted",
+            "resource has been exhausted",
+        ]
+        if keywords.contains(where: { lower.contains($0) }) { return true }
+
+        guard let object = firstJSONObject(in: payload) else { return false }
+        func isTooManyRequests(_ dict: [String: Any]) -> Bool {
+            ["status_code", "code", "status"].contains { key in
+                (dict[key] as? NSNumber)?.intValue == 429
+            }
+        }
+        if isTooManyRequests(object) { return true }
+        if let error = object["error"] as? [String: Any], isTooManyRequests(error) {
+            return true
+        }
+        return false
+    }
+
+    // MARK: Provider-specific reset times
+
+    /// Codex: `error.resets_at` (unix), `error.resets_in_seconds`, or the
+    /// `X-Codex-Primary-Reset-At` header — whichever is present.
+    private static func parseCodex(payload: String, entryTimestamp: Date)
+        -> (resetsAt: Date?, planType: String?)? {
+        guard payload.contains("X-Codex-") || payload.contains("Codex error"),
+              let object = errorJSON(in: payload) else { return nil }
+        let error = object["error"] as? [String: Any]
+        let headers = object["headers"] as? [String: Any]
+        let planType = (error?["plan_type"] as? String)
+            ?? (headers?["X-Codex-Plan-Type"] as? String)
+
+        var resetsAt: Date?
+        if let value = (error?["resets_at"] as? NSNumber)?.doubleValue, value > 0 {
+            resetsAt = Date(timeIntervalSince1970: value)
+        } else if let value = (error?["resets_in_seconds"] as? NSNumber)?.doubleValue, value > 0 {
+            resetsAt = entryTimestamp.addingTimeInterval(value)
+        } else if let header = headers?["X-Codex-Primary-Reset-At"] as? String,
+                  let value = Double(header), value > 0 {
+            resetsAt = Date(timeIntervalSince1970: value)
+        }
+
+        guard resetsAt != nil || planType != nil else { return nil }
+        return (resetsAt, planType)
+    }
+
+    /// Gemini: a `RESOURCE_EXHAUSTED` error carries the wait in `error.details[]` →
+    /// `google.rpc.RetryInfo.retryDelay` (a Go duration string, e.g. `"34s"`).
+    private static func parseGeminiReset(payload: String, entryTimestamp: Date) -> Date? {
+        guard payload.contains("RESOURCE_EXHAUSTED"),
+              let object = errorJSON(in: payload),
+              let error = object["error"] as? [String: Any],
+              let details = error["details"] as? [Any] else { return nil }
+        for case let detail as [String: Any] in details {
+            guard let type = detail["@type"] as? String, type.contains("RetryInfo"),
+                  let delay = detail["retryDelay"] as? String,
+                  let seconds = parseGoDuration(delay) else { continue }
+            return entryTimestamp.addingTimeInterval(seconds)
+        }
+        return nil
+    }
+
+    /// Parses a Go-style duration string (`"34s"`, `"1m30s"`, `"1.5s"`).
+    private static func parseGoDuration(_ string: String) -> TimeInterval? {
+        var total: TimeInterval = 0
+        var number = ""
+        var sawUnit = false
+        for ch in string {
+            if ch.isNumber || ch == "." {
+                number.append(ch)
+            } else {
+                guard let value = Double(number) else { return nil }
+                switch ch {
+                case "h": total += value * 3600
+                case "m": total += value * 60
+                case "s": total += value
+                default: return nil
+                }
+                number = ""
+                sawUnit = true
+            }
+        }
+        return (sawUnit && number.isEmpty) ? total : nil
+    }
+
+    // MARK: JSON helpers
+
     /// First balanced `{…}` object in `string`, parsed. No recursion.
-    fileprivate static func firstJSONObject(in string: String) -> [String: Any]? {
+    private static func firstJSONObject(in string: String) -> [String: Any]? {
         guard let range = balancedJSONRange(in: string),
               let data = String(string[range]).data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
-    /// Finds the Codex error object inside an arbitrary string, descending through a
-    /// retry envelope that nests the payload as a string (`errorMessage`/`finalError`).
-    fileprivate static func codexBlob(in string: String) -> [String: Any]? {
+    /// Resolves the object carrying the provider `error`, descending through a retry
+    /// envelope that nests the payload as a string (`errorMessage` / `finalError`).
+    private static func errorJSON(in string: String) -> [String: Any]? {
         guard let object = firstJSONObject(in: string) else { return nil }
-        if let error = object["error"] as? [String: Any], error["type"] is String {
-            return object
+        if object["error"] == nil,
+           let nested = (object["errorMessage"] ?? object["finalError"]) as? String {
+            return errorJSON(in: nested)
         }
-        if let nested = (object["errorMessage"] ?? object["finalError"]) as? String {
-            return codexBlob(in: nested)
-        }
-        return nil
+        return object
     }
 
     /// Range of the first balanced `{…}` object in `string`, respecting string literals.
@@ -114,35 +209,6 @@ struct ProviderRetryInfo: Equatable {
             index = string.index(after: index)
         }
         return nil
-    }
-}
-
-extension ProviderRetryInfo.CodexDetail {
-    /// Returns `nil` unless `payload` carries a recognisably Codex error.
-    init?(payload: String, entryTimestamp: Date) {
-        guard payload.contains("X-Codex-") || payload.contains("Codex error")
-        else { return nil }
-        guard let blob = ProviderRetryInfo.codexBlob(in: payload),
-              let errorObj = blob["error"] as? [String: Any],
-              let kind = errorObj["type"] as? String
-        else { return nil }
-
-        let headers = blob["headers"] as? [String: Any]
-        self.isUsageLimit = (kind == "usage_limit_reached")
-        self.planType = (errorObj["plan_type"] as? String)
-            ?? (headers?["X-Codex-Plan-Type"] as? String)
-
-        if let resetsAt = (errorObj["resets_at"] as? NSNumber)?.doubleValue, resetsAt > 0 {
-            self.resetsAt = Date(timeIntervalSince1970: resetsAt)
-        } else if let resetIn = (errorObj["resets_in_seconds"] as? NSNumber)?.doubleValue, resetIn > 0 {
-            // resets_in_seconds is relative to when the error occurred.
-            self.resetsAt = entryTimestamp.addingTimeInterval(resetIn)
-        } else if let header = headers?["X-Codex-Primary-Reset-At"] as? String,
-                  let resetsAt = Double(header), resetsAt > 0 {
-            self.resetsAt = Date(timeIntervalSince1970: resetsAt)
-        } else {
-            self.resetsAt = nil
-        }
     }
 }
 
@@ -187,36 +253,34 @@ struct PiAgentRetryCard: View {
         )
     }
 
-    private var isUsageLimit: Bool { info.codex?.isUsageLimit == true }
-
-    // Usage limits and in-progress retries are transient → amber. A burst that gave
+    // Quota limits and in-progress retries are transient → amber. A burst that gave
     // up for any other reason is a real failure → red.
     private var accent: Color {
-        if isUsageLimit { return AppTheme.roleTool }
+        if info.isQuotaLimit { return AppTheme.roleTool }
         return info.gaveUp ? AppTheme.roleError : AppTheme.roleTool
     }
 
     private var icon: String {
-        if isUsageLimit { return "hourglass" }
+        if info.isQuotaLimit { return "hourglass" }
         return info.gaveUp ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath"
     }
 
     private var headline: String {
-        if isUsageLimit { return "Codex usage limit reached" }
+        if info.isQuotaLimit { return "Usage limit reached" }
         if info.gaveUp { return "Model provider stopped retrying" }
         return "Retrying request…"
     }
 
     private var detail: String {
         var text = info.message.isEmpty ? "The model provider returned an error." : info.message
-        if let plan = info.codex?.planType, !plan.isEmpty {
+        if let plan = info.planType, !plan.isEmpty {
             text += " (\(plan.capitalized) plan)"
         }
         return text
     }
 
     private var resetLine: String? {
-        guard isUsageLimit, let resetsAt = info.codex?.resetsAt else { return nil }
+        guard let resetsAt = info.resetsAt else { return nil }
         let absolute = resetsAt.formatted(date: .omitted, time: .shortened)
         if let relative = Self.relativeReset(to: resetsAt) {
             return "Resets at \(absolute) · in \(relative)"

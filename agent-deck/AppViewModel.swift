@@ -205,7 +205,6 @@ final class AppViewModel: NSObject, ObservableObject {
         }
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
-        configurePiAgentTranscriptMemory()
         refreshAvailableModels()
         refresh(includeModels: false, scanAllProjects: true)
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
@@ -1526,6 +1525,34 @@ final class AppViewModel: NSObject, ObservableObject {
         ensurePiAgentModelCatalogLoaded()
         piAgentPendingComposerText = PiIssuePromptBuilder.issueDraft(detail: detail, project: project)
         piAgentPendingIssueAttachment = PiAgentIssueAttachment(detail: detail)
+    }
+
+    /// Context-menu entry point from the issue list: the row only carries a
+    /// `GitHubWorkItem`, so fetch the full detail before handing off to the
+    /// shared `startPiAgentForIssue` flow.
+    func startPiAgentForWorkItem(_ item: GitHubWorkItem) {
+        guard let session = gitHubSession else {
+            githubLastError = "Connect GitHub first."
+            return
+        }
+        guard selectedDiscoveredProject != nil else {
+            githubLastError = "Select the local project for this issue before starting Pi Agent."
+            return
+        }
+
+        Task {
+            do {
+                let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
+                let detail = try await service.fetchDetail(for: item, bypassCache: false)
+                await MainActor.run {
+                    self.startPiAgentForIssue(detail)
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubLastError = error.localizedDescription
+                }
+            }
+        }
     }
 
     func consumePendingPiAgentComposerText() -> String? {
@@ -3160,8 +3187,27 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func closeSelectedIssue() {
-        guard let item = githubSelectedWorkItem, let session = gitHubSession else {
+        guard let item = githubSelectedWorkItem else {
             githubLastError = "Select an issue first."
+            return
+        }
+        closeIssue(item)
+    }
+
+    func closeIssue(_ item: GitHubWorkItem) {
+        setIssueState(item, open: false)
+    }
+
+    func reopenIssue(_ item: GitHubWorkItem) {
+        setIssueState(item, open: true)
+    }
+
+    /// Closes or reopens an issue on GitHub and reconciles the cached board,
+    /// selection, and open detail with the new state. `githubIsClosingIssue`
+    /// doubles as the in-flight flag for both directions.
+    private func setIssueState(_ item: GitHubWorkItem, open: Bool) {
+        guard let session = gitHubSession else {
+            githubLastError = "Connect GitHub first."
             return
         }
         githubIsClosingIssue = true
@@ -3170,16 +3216,22 @@ final class AppViewModel: NSObject, ObservableObject {
         Task {
             do {
                 let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                try await service.closeIssue(item)
+                if open {
+                    try await service.reopenIssue(item)
+                } else {
+                    try await service.closeIssue(item)
+                }
                 await MainActor.run {
                     self.githubIsClosingIssue = false
-                    let closed = item.with(state: "closed", closedAt: Date())
+                    let updated = item.with(state: open ? "open" : "closed", closedAt: open ? nil : Date())
                     if let board = self.githubProjectBoard {
-                        self.githubProjectBoard = board.replacing(closed)
+                        self.githubProjectBoard = board.replacing(updated)
                     }
-                    self.githubSelectedWorkItem = closed
-                    if let detail = self.githubIssueDetail, detail.item.id == closed.id {
-                        self.githubIssueDetail = detail.with(state: "closed", closedAt: closed.closedAt)
+                    if self.githubSelectedWorkItem?.id == updated.id {
+                        self.githubSelectedWorkItem = updated
+                    }
+                    if let detail = self.githubIssueDetail, detail.item.id == updated.id {
+                        self.githubIssueDetail = detail.with(state: updated.state, closedAt: updated.closedAt)
                     }
                     // Mark the board cache stale so the next user-initiated refresh
                     // re-syncs with the server.
@@ -3235,6 +3287,8 @@ final class AppViewModel: NSObject, ObservableObject {
         githubIsLoadingIssueDetail = false
         githubIsSubmittingComment = false
         githubIsClosingIssue = false
+        githubAuthorFilter = nil
+        githubLabelFilters = []
     }
 
     private func boardCacheKey(for remote: GitHubRemote, state: GitHubIssueStateFilter) -> String {
@@ -3266,19 +3320,6 @@ final class AppViewModel: NSObject, ObservableObject {
         appSettingsController.isPiAgentIdleParkingEnabled
     }
 
-    var isPiAgentLazyTranscriptLoadingEnabled: Bool {
-        appSettingsController.isPiAgentLazyTranscriptLoadingEnabled
-    }
-
-    var piAgentLoadedTranscriptCacheLimit: Int {
-        appSettingsController.piAgentLoadedTranscriptCacheLimit
-    }
-
-    func setAppearanceMode(_ mode: AppAppearanceMode) {
-        guard appSettingsController.setAppearanceMode(mode) else { return }
-        syncAppSettings()
-    }
-
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) {
         guard appSettingsController.setPiAgentNotificationDelayMinutes(minutes) else { return }
         syncAppSettings()
@@ -3291,16 +3332,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     func setPiAgentIdleParkingTimeoutMinutes(_ minutes: Int) {
         guard appSettingsController.setPiAgentIdleParkingTimeoutMinutes(minutes) else { return }
-        syncAppSettings()
-    }
-
-    func setPiAgentLazyTranscriptLoadingEnabled(_ isEnabled: Bool) {
-        guard appSettingsController.setPiAgentLazyTranscriptLoadingEnabled(isEnabled) else { return }
-        syncAppSettings()
-    }
-
-    func setPiAgentLoadedTranscriptCacheLimit(_ count: Int) {
-        guard appSettingsController.setPiAgentLoadedTranscriptCacheLimit(count) else { return }
         syncAppSettings()
     }
 
@@ -3567,7 +3598,6 @@ final class AppViewModel: NSObject, ObservableObject {
         appSettings = appSettingsController.settings
         writeOpenAIFastModeConfig()
         configurePiAgentIdleParking()
-        configurePiAgentTranscriptMemory()
         configureAgentMemory()
     }
 
@@ -3579,13 +3609,6 @@ final class AppViewModel: NSObject, ObservableObject {
 
     private func configurePiAgentIdleParking() {
         piAgentRunner.configureIdleParking(timeout: piAgentIdleParkingTimeout)
-    }
-
-    private func configurePiAgentTranscriptMemory() {
-        piAgentSessionStore.configureTranscriptMemory(
-            lazyLoadingEnabled: isPiAgentLazyTranscriptLoadingEnabled,
-            cacheLimit: piAgentLoadedTranscriptCacheLimit
-        )
     }
 
     private func configureAgentMemory() {

@@ -5,69 +5,208 @@ struct GitHubIssueListRow: View {
     let item: GitHubWorkItem
     let isSelected: Bool
     let onSelect: () -> Void
+    /// Issue-screen actions. Omitted when the row is reused as a plain picker
+    /// (e.g. the Pi composer's attach-issue popover), which collapses the
+    /// context menu to the always-safe Open in Browser / Copy entries.
+    var onOpenInPi: (() -> Void)? = nil
+    var onToggleState: (() -> Void)? = nil
+
+    @State private var isHovering = false
+
+    private var isOpen: Bool { item.state.lowercased() == "open" }
+
+    /// The issue's native type (if any) followed by its labels, rendered as one
+    /// wrapping tag strip so the type reads as the leading, color-coded chip.
+    private var tags: [IssueTag] {
+        var result: [IssueTag] = []
+        if let type = item.type, !type.isEmpty {
+            result.append(IssueTag(text: type, color: issueTypeColor(type)))
+        }
+        result += item.labels.map { IssueTag(text: $0, color: .secondary) }
+        return result
+    }
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 8) {
-                    AppLabelTag(
-                        text: item.state.capitalized,
-                        color: item.state.lowercased() == "open" ? .green : .secondary
-                    )
-                    if let issueType = item.type, !issueType.isEmpty {
-                        AppLabelTag(text: issueType, color: issueTypeColor(issueType))
-                    }
-                    Spacer(minLength: 12)
-                    Text("#\(item.number)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(AppTheme.mutedText)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule(style: .continuous).fill(AppTheme.contentSubtleFill))
+            HStack(alignment: .top, spacing: 11) {
+                stateIndicator
+                VStack(alignment: .leading, spacing: 8) {
+                    titleRow
+                    if !tags.isEmpty { tagRow }
+                    metaRow
                 }
-
-                Text(item.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-
-                if !item.labels.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(item.labels.prefix(4), id: \.self) { label in
-                            AppLabelTag(text: label, color: .secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .clipped()
-                }
-
-                HStack(spacing: 8) {
-                    if let author = item.author {
-                        GitHubAvatarView(url: GitHubAvatarResolver.url(login: author, host: item.url.host()), size: 18)
-                        Text(author)
-                    }
-                    Spacer()
-                    Text(RelativeDateTimeFormatter().localizedString(for: item.updatedAt, relativeTo: Date()))
-                }
-                .font(.footnote)
-                .foregroundStyle(AppTheme.mutedText)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? AppTheme.selectionFill : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1)
-            )
+            .background(surface)
+            // Make the entire padded card — gaps included — a single hit target.
+            // Applied inside the button label so it defines the button's tap area.
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Link("Open in Browser", destination: item.url)
+        .onHover { isHovering = $0 }
+        .contextMenu { contextMenu }
+    }
+
+    // MARK: - Pieces
+
+    private var stateIndicator: some View {
+        Image(systemName: isOpen ? "smallcircle.filled.circle" : "checkmark.circle.fill")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(isOpen ? Color.green : AppTheme.assistantAccent)
+            .padding(.top, 1)
+            .help(isOpen ? "Open" : "Closed")
+    }
+
+    private var titleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(item.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Text("#\(item.number)")
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(AppTheme.mutedText)
         }
+    }
+
+    private var tagRow: some View {
+        IssueTagFlowLayout(spacing: 6) {
+            ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
+                AppLabelTag(text: tag.text, color: tag.color)
+            }
+        }
+    }
+
+    private var metaRow: some View {
+        HStack(spacing: 6) {
+            if let author = item.author {
+                GitHubAvatarView(url: GitHubAvatarResolver.url(login: author, host: item.url.host()), size: 16)
+                Text(author)
+                separator
+            }
+            Text(RelativeDateTimeFormatter().localizedString(for: item.updatedAt, relativeTo: Date()))
+            if item.commentCount > 0 {
+                separator
+                Image(systemName: "bubble.left")
+                Text("\(item.commentCount)")
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.footnote)
+        .foregroundStyle(AppTheme.mutedText)
+    }
+
+    private var separator: some View {
+        Text("·")
+    }
+
+    private var surface: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let fill: Color = isSelected
+            ? AppTheme.selectionFill
+            : (isHovering ? Color.primary.opacity(0.04) : Color.clear)
+        return shape
+            .fill(fill)
+            .overlay(shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var contextMenu: some View {
+        if let onOpenInPi {
+            Button(action: onOpenInPi) {
+                Label("Open in Pi Session", image: "pi")
+            }
+        }
+        Link(destination: item.url) {
+            Label("Open in Browser", systemImage: "safari")
+        }
+        if let onToggleState {
+            Divider()
+            Button(action: onToggleState) {
+                Label(
+                    isOpen ? "Close Issue" : "Reopen Issue",
+                    systemImage: isOpen ? "checkmark.circle" : "arrow.counterclockwise.circle"
+                )
+            }
+        }
+        Divider()
+        Button {
+            copyToPasteboard(item.url.absoluteString)
+        } label: {
+            Label("Copy Link", systemImage: "link")
+        }
+        Button {
+            copyToPasteboard("#\(item.number)")
+        } label: {
+            Label("Copy Issue Number", systemImage: "number")
+        }
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+}
+
+private struct IssueTag {
+    let text: String
+    let color: Color
+}
+
+/// Wrapping flow layout for the issue-card tag strip — lays chips left to right
+/// and wraps to a new line when a row runs out of width. Replaces a fixed
+/// single-line `HStack` + `.clipped()`, which sheared the chip stroke borders.
+private struct IssueTagFlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = arrange(subviews: subviews, maxWidth: maxWidth)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: min(width, maxWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let rows = arrange(subviews: subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(subviews: Subviews, maxWidth: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let projectedWidth = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if !current.indices.isEmpty && projectedWidth > maxWidth {
+                rows.append(current)
+                current = Row()
+            }
+            if !current.indices.isEmpty { current.width += spacing }
+            current.indices.append(index)
+            current.width += size.width
+            current.height = max(current.height, size.height)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
     }
 }
 
@@ -173,15 +312,8 @@ struct GitHubIssueDetailView: View {
                     Text("Open")
                         .fontWeight(.semibold)
                 }
-                .foregroundStyle(AppTheme.accentForeground.gradient)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(AppTheme.brandAccent.gradient)
-                )
             }
-            .buttonStyle(.plain)
+            .appPrimaryButton()
             .disabled(viewModel.selectedDiscoveredProject == nil)
             .opacity(viewModel.selectedDiscoveredProject == nil ? 0.45 : 1)
             .help(viewModel.selectedDiscoveredProject == nil ? "Select a project first." : "Open a Pi Agent session for this issue.")
@@ -196,12 +328,8 @@ struct GitHubIssueDetailView: View {
                         Text(viewModel.githubIsClosingIssue ? "Closing…" : "Close")
                             .fontWeight(.semibold)
                     }
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .appGlassCapsule()
                 }
-                .buttonStyle(.plain)
+                .appSecondaryButton()
                 .disabled(viewModel.githubIsClosingIssue)
                 .opacity(viewModel.githubIsClosingIssue ? 0.6 : 1)
                 .help("Close this issue on GitHub.")

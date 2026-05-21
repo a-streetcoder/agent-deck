@@ -405,7 +405,7 @@ struct ProjectPickerPopover: View {
                 .padding(.horizontal, 3)
             }
             .scrollIndicators(.hidden)
-            .background(ProjectPickerScrollerConfigurator())
+            .hideNativeScrollers()
             .frame(width: 360, height: 220)
         }
         .padding(14)
@@ -471,41 +471,6 @@ struct ProjectSidebarRow: View {
             return Color.primary.opacity(0.06)
         }
         return .clear
-    }
-}
-
-private struct ProjectPickerScrollerConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            configure(from: view)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            configure(from: nsView)
-        }
-    }
-
-    private func configure(from view: NSView) {
-        guard let scrollView = view.enclosingScrollView ?? findEnclosingScrollView(from: view) else { return }
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
-    }
-
-    private func findEnclosingScrollView(from view: NSView) -> NSScrollView? {
-        var candidate = view.superview
-        while let current = candidate {
-            if let scrollView = current as? NSScrollView {
-                return scrollView
-            }
-            candidate = current.superview
-        }
-        return nil
     }
 }
 

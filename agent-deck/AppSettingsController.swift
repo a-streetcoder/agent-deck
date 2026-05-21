@@ -36,10 +36,6 @@ final class AppSettingsController {
         TimeInterval(gitHubBoardCacheLifetimeMinutes * 60)
     }
 
-    var appearanceMode: AppAppearanceMode {
-        settings.appearanceMode
-    }
-
     var gitHubBoardCacheLifetimeMinutes: Int {
         max(settings.gitHubBoardCacheLifetimeMinutes, 1)
     }
@@ -54,14 +50,6 @@ final class AppSettingsController {
 
     var piAgentIdleParkingTimeoutMinutes: Int {
         max(settings.piAgentIdleParkingTimeoutMinutes, 1)
-    }
-
-    var isPiAgentLazyTranscriptLoadingEnabled: Bool {
-        settings.piAgentLazyTranscriptLoadingEnabled
-    }
-
-    var piAgentLoadedTranscriptCacheLimit: Int {
-        max(settings.piAgentLoadedTranscriptCacheLimit, 1)
     }
 
     var configuredProjectsRootURL: URL {
@@ -190,14 +178,6 @@ final class AppSettingsController {
     }
 
     @discardableResult
-    func setAppearanceMode(_ mode: AppAppearanceMode) -> Bool {
-        guard settings.appearanceMode != mode else { return false }
-        settings.appearanceMode = mode
-        persist()
-        return true
-    }
-
-    @discardableResult
     func setPiAgentNotificationDelayMinutes(_ minutes: Int) -> Bool {
         let normalizedMinutes = max(minutes, 1)
         guard settings.piAgentNotificationDelayMinutes != normalizedMinutes else { return false }
@@ -219,23 +199,6 @@ final class AppSettingsController {
         let normalizedMinutes = max(minutes, 1)
         guard settings.piAgentIdleParkingTimeoutMinutes != normalizedMinutes else { return false }
         settings.piAgentIdleParkingTimeoutMinutes = normalizedMinutes
-        persist()
-        return true
-    }
-
-    @discardableResult
-    func setPiAgentLazyTranscriptLoadingEnabled(_ isEnabled: Bool) -> Bool {
-        guard settings.piAgentLazyTranscriptLoadingEnabled != isEnabled else { return false }
-        settings.piAgentLazyTranscriptLoadingEnabled = isEnabled
-        persist()
-        return true
-    }
-
-    @discardableResult
-    func setPiAgentLoadedTranscriptCacheLimit(_ count: Int) -> Bool {
-        let normalizedCount = max(count, 1)
-        guard settings.piAgentLoadedTranscriptCacheLimit != normalizedCount else { return false }
-        settings.piAgentLoadedTranscriptCacheLimit = normalizedCount
         persist()
         return true
     }

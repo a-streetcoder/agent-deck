@@ -323,7 +323,6 @@ private struct PiAgentTranscriptTimelineSnapshot {
     let earlierVisibleItems: [PiAgentTranscriptTimelineItem]
     let preCompactionArchive: (hiddenCount: Int, compactedAt: Date)?
     let recentWindowArchive: (hiddenCount: Int, limit: Int)?
-    let planEventsByThreadID: [UUID: [PiSessionPlanEventRecord]]
 }
 
 private struct PiAgentAppKitTranscriptItem {
@@ -1472,7 +1471,9 @@ struct PiAgentScreen: View {
                         .scrollIndicators(.hidden)
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
+                        .hideNativeScrollers()
                         .animation(.snappy(duration: 0.24), value: visibleSessionIDs)
+                        .bottomEdgeFade(height: 34)
                     }
                 }
             }
@@ -1739,7 +1740,7 @@ struct PiAgentScreen: View {
                     total += CGFloat(min(lines, 40)) * 18 + 48
                 case .toolGroup:
                     total += 48
-                case .status, .error:
+                case .status, .error, .retry:
                     total += 56
                 }
             }
@@ -1777,15 +1778,11 @@ struct PiAgentScreen: View {
     ) -> Int {
         switch item.kind {
         case let .thread(thread):
-            let planEvents = snapshot.planEventsByThreadID[thread.id] ?? []
-            let signature = cheapThreadSignature(thread, contextRevision: contextRevision, planEvents: planEvents)
+            let signature = cheapThreadSignature(thread, contextRevision: contextRevision)
             return transcriptCache.cachedThreadRevision(for: thread.id, signature: signature) {
                 var hasher = Hasher()
                 hasher.combine(contextRevision)
                 hashThreadRevision(thread, into: &hasher)
-                for event in planEvents {
-                    hashPlanEventRevision(event, into: &hasher)
-                }
                 return hasher.finalize()
             }
         case let .plan(event):
@@ -1802,8 +1799,7 @@ struct PiAgentScreen: View {
     // cached full hash is safe whenever this signature is unchanged.
     private func cheapThreadSignature(
         _ thread: PiAgentTranscriptThread,
-        contextRevision: Int,
-        planEvents: [PiSessionPlanEventRecord]
+        contextRevision: Int
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(contextRevision)
@@ -1825,8 +1821,6 @@ struct PiAgentScreen: View {
         for entry in thread.statuses { inlineEntrySignature(entry, into: &hasher) }
         hasher.combine(thread.errors.count)
         for entry in thread.errors { inlineEntrySignature(entry, into: &hasher) }
-        hasher.combine(planEvents.count)
-        for event in planEvents { hasher.combine(event.id) }
         return hasher.finalize()
     }
 
@@ -1940,8 +1934,7 @@ struct PiAgentScreen: View {
             mainVisibleItems: mainVisibleItems,
             earlierVisibleItems: earlierVisibleItems,
             preCompactionArchive: archiveNotice,
-            recentWindowArchive: recentWindowArchive,
-            planEventsByThreadID: planEventsByThreadID(in: items)
+            recentWindowArchive: recentWindowArchive
         )
     }
 
@@ -2077,7 +2070,6 @@ struct PiAgentScreen: View {
                 visibility: viewModel.appSettings.piAgentTranscriptVisibility,
                 skills: visibleSkillsForSelectedSession,
                 projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                planEvents: snapshot.planEventsByThreadID[thread.id] ?? [],
                 nativeSubagentRunsByID: nativeSubagentRunsByID,
                 nativeSubagentCard: nativeSubagentCard
             )
@@ -2086,34 +2078,6 @@ struct PiAgentScreen: View {
             PiAgentCurrentPlanCard(event: event)
                 .id(item.id)
         }
-    }
-
-    private func planEventsByThreadID(in timelineItems: [PiAgentTranscriptTimelineItem]) -> [UUID: [PiSessionPlanEventRecord]] {
-        guard viewModel.appSettings.piAgentTranscriptVisibility.showPlans,
-              let sessionID = store.selectedSession?.id else { return [:] }
-
-        let threadBoundaries: [(id: UUID, timestamp: Date)] = timelineItems.compactMap { item in
-            guard case let .thread(thread) = item.kind else { return nil }
-            return (thread.id, thread.timelineTimestamp)
-        }
-        guard !threadBoundaries.isEmpty else { return [:] }
-
-        let events = store.sessionPlanEvents(for: sessionID)
-            .filter { $0.kind != .cleared }
-            .sorted { $0.timestamp < $1.timestamp }
-        guard !events.isEmpty else { return [:] }
-
-        var output: [UUID: [PiSessionPlanEventRecord]] = [:]
-        var threadIndex = 0
-        for event in events {
-            while threadIndex + 1 < threadBoundaries.count,
-                  threadBoundaries[threadIndex + 1].timestamp <= event.timestamp {
-                threadIndex += 1
-            }
-            guard event.timestamp >= threadBoundaries[threadIndex].timestamp else { continue }
-            output[threadBoundaries[threadIndex].id, default: []].append(event)
-        }
-        return output
     }
 
     private func updateStabilizedProcessingMessage(_ message: String?) {
