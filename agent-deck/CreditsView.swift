@@ -160,6 +160,7 @@ struct AboutView: View {
             .padding(.horizontal, 26)
             .padding(.vertical, 24)
         }
+        .bottomEdgeFade(height: 34)
     }
 
     private var authorsSection: some View {

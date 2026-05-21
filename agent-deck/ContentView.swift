@@ -156,10 +156,16 @@ extension View {
             .tint(.primary)
     }
 
+    /// Primary create/`+` actions. `.tint` drives the brand-coloured glyph and
+    /// the tinted hover/press highlight. `.menuStyle(.button)` makes a `Menu`
+    /// render as a push button so its hover highlight matches a plain `Button`
+    /// — a toolbar `Menu` is a pulldown and otherwise draws a different
+    /// highlight. It is a harmless no-op on `Button`s.
     func toolbarPrimaryActionChrome() -> some View {
         symbolRenderingMode(.monochrome)
             .foregroundStyle(AppTheme.brandAccent)
             .tint(AppTheme.brandAccent)
+            .menuStyle(.button)
     }
 }
 
@@ -673,10 +679,8 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var agentsPrimaryToolbarContent: some ToolbarContent {
-        // Neutral island: list/manage/help actions. Replacement is create-adjacent
-        // but stays here because it's contextual — keeping it as a trailing
-        // conditional inside the group avoids a single-item ControlGroup for the
-        // standalone `+` (which is usually alone) and a layout shift on selection.
+        // Utility island: filter the list, bulk-edit models, and (contextually)
+        // create a replacement for a selected builtin agent.
         ToolbarItem(placement: .primaryAction) {
             ControlGroup {
                 agentsFilterButton
@@ -690,8 +694,6 @@ struct ContentView: View {
                 .help("Quick edit agent models and thinking")
                 .disabled(currentAgentModelQuickEditorContext.sections.allSatisfy { $0.agents.isEmpty })
 
-                subagentsInfoButton
-
                 if let agent = viewModel.selectedAgent {
                     replacementAgentButton(for: agent)
                 }
@@ -700,8 +702,15 @@ struct ContentView: View {
 
         ToolbarSpacer(.fixed, placement: .primaryAction)
 
-        // Primary create action — standalone glass island, always last.
-        ToolbarItem(placement: .primaryAction) { newAgentMenu }
+        // Info + create island. `newAgentMenu` is the tinted trailing member, so
+        // the ControlGroup renders it as a filled prominent segment — matching
+        // the primary action in the instruction-editor toolbars.
+        ToolbarItem(placement: .primaryAction) {
+            ControlGroup {
+                subagentsInfoButton
+                newAgentMenu
+            }
+        }
     }
 
     private var newAgentMenu: some View {
@@ -789,7 +798,7 @@ struct ContentView: View {
                 Button("New Prompt") {
                     NotificationCenter.default.post(name: .agentDeckNewPromptRequested, object: nil)
                 }
-                Button("Import Prompt…") {
+                Button("Import Prompt") {
                     NotificationCenter.default.post(name: .agentDeckImportPromptRequested, object: nil)
                 }
             } label: {
@@ -803,35 +812,35 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var skillsPrimaryToolbarContent: some ToolbarContent {
+        // Info + create island — `New` is the tinted trailing member so the
+        // ControlGroup renders it as a filled prominent segment.
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                isSkillsInfoPresented.toggle()
-            } label: {
-                Label("Info", systemImage: "info.circle")
-            }
-            .help("Explain Pi skill visibility")
-            .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
-                SkillsInfoPopover()
-            }
-            .toolbarNeutralChrome()
-        }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button("New Skill") {
-                    NotificationCenter.default.post(name: .agentDeckNewSkillRequested, object: nil)
+            ControlGroup {
+                Button {
+                    isSkillsInfoPresented.toggle()
+                } label: {
+                    Label("Info", systemImage: "info.circle")
                 }
-                Button("Import Skill…") {
-                    NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+                .help("Explain Pi skill visibility")
+                .popover(isPresented: $isSkillsInfoPresented, arrowEdge: .bottom) {
+                    SkillsInfoPopover()
                 }
-            } label: {
-                Label("New", systemImage: "plus")
+                .toolbarNeutralChrome()
+
+                Menu {
+                    Button("New Skill") {
+                        NotificationCenter.default.post(name: .agentDeckNewSkillRequested, object: nil)
+                    }
+                    Button("Import Skill…") {
+                        NotificationCenter.default.post(name: .agentDeckImportSkillsRequested, object: nil)
+                    }
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .menuIndicator(.hidden)
+                .help("Create a new skill or import skill folders from an external source")
+                .toolbarPrimaryActionChrome()
             }
-            .menuIndicator(.hidden)
-            .help("Create a new skill or import skill folders from an external source")
-            .toolbarPrimaryActionChrome()
         }
     }
 
