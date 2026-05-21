@@ -769,45 +769,74 @@ private struct ThreadMessageRow<Content: View>: View {
 }
 
 struct PiAgentTranscriptThreadCard: View {
+    /// Which slice of the thread to render. `.fullThread` is the original
+    /// behaviour (used by the "Earlier Transcript" sheet). `.question` and
+    /// `.child` each render exactly ONE `ThreadMessageRow` — this is what lets
+    /// the AppKit transcript host each block as its own NSTableView row, so
+    /// streaming/scrolling only touch one small block instead of a whole thread.
+    enum RenderMode: Hashable {
+        case fullThread
+        case question
+        case child(PiAgentThreadChild)
+    }
+
     let thread: PiAgentTranscriptThread
     let visibility: PiAgentTranscriptVisibilitySettings
     let skills: [SkillRecord]
     let projectPath: String?
     let nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
     let nativeSubagentCard: (PiSubagentRunRecord) -> PiNativeSubagentRunCard
+    var renderMode: RenderMode = .fullThread
 
     @Environment(\.transcriptContentWidth) private var transcriptContentWidth
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let question = thread.question {
-                // iMessage-style: right-aligned user bubble. The hover-revealed
-                // glass copy button sits just to the LEFT of the bubble.
-                ThreadMessageRow(
-                    copyText: question.text,
-                    copyOn: .leading,
-                    cardMaxWidth: PiAgentBubbleWidth.huggedUser(text: question.text, paneWidth: transcriptContentWidth)
-                ) {
-                    PiAgentTranscriptCard(entry: question, style: .question, skills: skills)
-                        .id(question.id)
-                }
-            }
+        switch renderMode {
+        case .fullThread: fullThreadBody
+        case .question: questionBlock
+        case .child(let child): childBlock(child)
+        }
+    }
 
+    @ViewBuilder
+    private var fullThreadBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            questionBlock
             if hasChildren {
-                // Mirrored — assistant / tool / status cards on the left, with the
-                // hover-revealed glass copy button on the RIGHT.
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(thread.children) { child in
-                        ThreadMessageRow(
-                            copyText: copyText(for: child),
-                            copyOn: .trailing,
-                            cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
-                        ) {
-                            childView(child)
-                        }
+                        childBlock(child)
                     }
                 }
             }
+        }
+    }
+
+    /// The user-question row — iMessage-style right-aligned bubble with the
+    /// hover-revealed glass copy button just to its LEFT.
+    @ViewBuilder
+    private var questionBlock: some View {
+        if let question = thread.question {
+            ThreadMessageRow(
+                copyText: question.text,
+                copyOn: .leading,
+                cardMaxWidth: PiAgentBubbleWidth.huggedUser(text: question.text, paneWidth: transcriptContentWidth)
+            ) {
+                PiAgentTranscriptCard(entry: question, style: .question, skills: skills)
+                    .id(question.id)
+            }
+        }
+    }
+
+    /// One reply row — assistant / tool / status card on the left, copy button
+    /// hover-revealed on the RIGHT.
+    private func childBlock(_ child: PiAgentThreadChild) -> some View {
+        ThreadMessageRow(
+            copyText: copyText(for: child),
+            copyOn: .trailing,
+            cardMaxWidth: PiAgentBubbleWidth.replyCap(for: transcriptContentWidth)
+        ) {
+            childView(child)
         }
     }
 
@@ -843,7 +872,7 @@ struct PiAgentTranscriptThreadCard: View {
         case .toolGroup(let group):
             toolGroupView(group)
         case .status(let entry):
-            if !shouldHideNativeSubagentStatus(entry) {
+            if !Self.shouldHideNativeSubagentStatus(entry, nativeSubagentRunsByID: nativeSubagentRunsByID) {
                 statusRowView(entry)
             }
         case .error(let entry):
@@ -900,18 +929,23 @@ struct PiAgentTranscriptThreadCard: View {
         !thread.children.isEmpty
     }
 
-    private func shouldHideNativeSubagentStatus(_ entry: PiAgentTranscriptEntry) -> Bool {
+    static func shouldHideNativeSubagentStatus(
+        _ entry: PiAgentTranscriptEntry,
+        nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
+    ) -> Bool {
         guard let runID = entry.nativeSubagentRunID,
               let run = nativeSubagentRunsByID[runID],
               run.mode == .single,
-              let representedAt = parallelChildUpdatedAtByRunID[runID] else { return false }
+              let representedAt = parallelChildUpdatedAtByRunID(nativeSubagentRunsByID)[runID] else { return false }
         // Continuations reuse the same run ID and update the same transcript card.
         // Hide only the child entry while it is still represented by the parent
         // parallel card; later direct continuations must remain visible.
         return entry.timestamp <= representedAt.addingTimeInterval(5)
     }
 
-    private var parallelChildUpdatedAtByRunID: [UUID: Date] {
+    private static func parallelChildUpdatedAtByRunID(
+        _ nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
+    ) -> [UUID: Date] {
         var output: [UUID: Date] = [:]
         for run in nativeSubagentRunsByID.values where run.mode == .parallel {
             for child in run.children ?? [] {
@@ -923,6 +957,25 @@ struct PiAgentTranscriptThreadCard: View {
             }
         }
         return output
+    }
+
+    /// The children that actually render as rows, given the visibility
+    /// settings — mirrors the gating inside `childView`. The AppKit
+    /// block-row transcript uses this so a hidden child produces no row.
+    static func visibleChildren(
+        of thread: PiAgentTranscriptThread,
+        visibility: PiAgentTranscriptVisibilitySettings,
+        nativeSubagentRunsByID: [UUID: PiSubagentRunRecord]
+    ) -> [PiAgentThreadChild] {
+        thread.children.filter { child in
+            switch child {
+            case .thinking: return visibility.showThinking
+            case .error: return visibility.showErrors
+            case .status(let entry):
+                return !shouldHideNativeSubagentStatus(entry, nativeSubagentRunsByID: nativeSubagentRunsByID)
+            case .steering, .assistant, .toolGroup, .retry: return true
+            }
+        }
     }
 
 }
