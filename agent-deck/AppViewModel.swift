@@ -78,6 +78,7 @@ final class AppViewModel: NSObject, ObservableObject {
     @Published var githubIssueStateFilter: GitHubIssueStateFilter = .open
     @Published var githubAuthorFilter: String?
     @Published var githubAssigneeFilter: String?
+    @Published var githubTypeFilter: String?
     @Published var githubLabelFilters: Set<String> = []
     @Published var githubAggregateBoard: GitHubBoardSnapshot?
     @Published var githubProjectBoard: GitHubBoardSnapshot?
@@ -1013,16 +1014,18 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Applies the author, assignee, and label filters on top of the board
+    /// Applies the author, assignee, type, and label filters on top of the board
     /// snapshot. State is already applied server-side via `githubIssueStateFilter`.
     func filteredBoardItems(from board: GitHubBoardSnapshot?) -> [GitHubWorkItem] {
         guard let board else { return [] }
         let author = githubAuthorFilter
         let assignee = githubAssigneeFilter
+        let type = githubTypeFilter
         let labels = githubLabelFilters
         return board.allItems.filter { item in
             if let author, item.author != author { return false }
             if let assignee, !item.assignees.contains(assignee) { return false }
+            if let type, item.type != type { return false }
             if !labels.isEmpty, labels.isDisjoint(with: Set(item.labels.map(\.name))) { return false }
             return true
         }
@@ -1065,6 +1068,15 @@ final class AppViewModel: NSObject, ObservableObject {
         return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    var githubAvailableTypes: [String] {
+        guard let board = githubProjectBoard else { return [] }
+        var seen: Set<String> = []
+        for item in board.allItems {
+            if let type = item.type, !type.isEmpty { seen.insert(type) }
+        }
+        return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     var githubAvailableLabels: [GitHubLabel] {
         guard let board = githubProjectBoard else { return [] }
         var seen: Set<String> = []
@@ -1080,6 +1092,7 @@ final class AppViewModel: NSObject, ObservableObject {
     func resetIssueFilters() {
         githubAuthorFilter = nil
         githubAssigneeFilter = nil
+        githubTypeFilter = nil
         githubLabelFilters = []
     }
 

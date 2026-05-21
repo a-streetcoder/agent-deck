@@ -77,7 +77,7 @@ struct GitHubIssueListRow: View {
             ForEach(tags) { tag in
                 switch tag {
                 case let .type(value):
-                    AppLabelTag(text: value, color: issueTypeColor(value))
+                    GitHubGlassChip(text: value, palette: GitHubChipPalette(accent: issueTypeColor(value)))
                 case let .label(label):
                     GitHubLabelTag(label: label)
                 }
@@ -598,18 +598,17 @@ private func issueTypeColor(_ issueType: String) -> Color {
     }
 }
 
-// MARK: - GitHub label chip
+// MARK: - GitHub chips
 
-/// A GitHub issue label rendered as a Liquid Glass capsule tinted with the
-/// label's own color (as reported by the GitHub API). Mirrors how GitHub's web
-/// UI color-codes labels, adapted to the app's dark glass chrome. Falls back to
-/// a neutral tint when the API omits a usable color.
-struct GitHubLabelTag: View {
-    let label: GitHubLabel
+/// A Liquid Glass capsule chip — the shared chrome for an issue's type chip and
+/// its GitHub label chips. Keeping both chip kinds on the same material lets a
+/// card's tag strip read as one family rather than mismatched styles.
+struct GitHubGlassChip: View {
+    let text: String
+    let palette: GitHubChipPalette
 
     var body: some View {
-        let palette = GitHubLabelPalette(hex: label.color)
-        Text(label.name)
+        Text(text)
             .font(.caption.weight(.semibold))
             .fontWidth(.expanded)
             .lineLimit(1)
@@ -624,17 +623,37 @@ struct GitHubLabelTag: View {
     }
 }
 
-/// Derives the three tones a label chip needs — a translucent glass tint, a
-/// legible foreground, and a hairline stroke — from a GitHub label hex color.
-/// Dark labels get their text lifted toward white so they stay readable on the
-/// app's dark surfaces.
-private struct GitHubLabelPalette {
+/// A GitHub issue label rendered as a glass chip tinted with the label's own
+/// color (as reported by the GitHub API). Mirrors how GitHub's web UI
+/// color-codes labels, adapted to the app's dark glass chrome.
+struct GitHubLabelTag: View {
+    let label: GitHubLabel
+
+    var body: some View {
+        GitHubGlassChip(text: label.name, palette: GitHubChipPalette(labelHex: label.color))
+    }
+}
+
+/// The three tones a glass chip needs — a translucent fill tint, a legible
+/// foreground, and a hairline stroke — derived either from a fixed semantic
+/// accent (issue type / state) or from a GitHub label's hex color.
+struct GitHubChipPalette {
     let tint: Color
     let text: Color
     let stroke: Color
 
-    init(hex: String?) {
-        guard let rgb = GitHubLabelPalette.rgb(from: hex) else {
+    /// Palette for a fixed semantic accent — issue type and state chips.
+    init(accent color: Color) {
+        self.tint = color.opacity(0.28)
+        self.text = color
+        self.stroke = color.opacity(0.5)
+    }
+
+    /// Palette derived from a GitHub label's hex color. Dark labels get their
+    /// text lifted toward white so they stay readable on the app's dark
+    /// surfaces; an absent or malformed color falls back to a neutral tint.
+    init(labelHex hex: String?) {
+        guard let rgb = GitHubChipPalette.rgb(from: hex) else {
             self.tint = Color.secondary.opacity(0.16)
             self.text = Color.secondary
             self.stroke = Color.secondary.opacity(0.4)

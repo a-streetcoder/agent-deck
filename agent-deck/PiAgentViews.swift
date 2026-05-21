@@ -1468,7 +1468,7 @@ struct PiAgentScreen: View {
                             }
                         }
                         .listStyle(.plain)
-                        .scrollIndicators(.hidden)
+                        .scrollIndicators(.never)
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
                         .hideNativeScrollers()

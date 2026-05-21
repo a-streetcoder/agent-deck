@@ -29,6 +29,7 @@ struct IssuesScreen: View {
         }
         .onChange(of: viewModel.githubAuthorFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubAssigneeFilter) { _, _ in reconcileSelectionWithFilters() }
+        .onChange(of: viewModel.githubTypeFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubLabelFilters) { _, _ in reconcileSelectionWithFilters() }
     }
 
@@ -49,10 +50,27 @@ struct IssuesScreen: View {
                     .fontWidth(.expanded)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                openRepositoryButton(remote)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, AppTheme.pagePadding)
             .padding(.vertical, 12)
+        }
+    }
+
+    /// Glass link-out to the repository on GitHub. Uses the same
+    /// `arrow.up.forward.square` glyph the app shows for every other link-out
+    /// (issue comments, related issues) so external links read consistently.
+    @ViewBuilder
+    private func openRepositoryButton(_ remote: GitHubRemote) -> some View {
+        if let url = URL(string: "https://\(remote.host)/\(remote.nameWithOwner)") {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Image(systemName: "arrow.up.forward.square")
+            }
+            .appSmallSecondaryButton()
+            .help("Open repository on GitHub")
         }
     }
 
@@ -134,6 +152,7 @@ struct IssuesScreen: View {
         let query = trimmedSearchQuery
         let filtersActive = viewModel.githubAuthorFilter != nil
             || viewModel.githubAssigneeFilter != nil
+            || viewModel.githubTypeFilter != nil
             || !viewModel.githubLabelFilters.isEmpty
         let narrowed = filtersActive || !query.isEmpty
 
@@ -283,6 +302,10 @@ struct IssuesFiltersPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             stateSection
+            if !viewModel.githubAvailableTypes.isEmpty {
+                Divider()
+                typeSection
+            }
             Divider()
             creatorSection
             Divider()
@@ -309,6 +332,7 @@ struct IssuesFiltersPopover: View {
     private var filtersActive: Bool {
         viewModel.githubAuthorFilter != nil
             || viewModel.githubAssigneeFilter != nil
+            || viewModel.githubTypeFilter != nil
             || !viewModel.githubLabelFilters.isEmpty
     }
 
@@ -323,6 +347,27 @@ struct IssuesFiltersPopover: View {
             .pickerStyle(.segmented)
             .labelsHidden()
         }
+    }
+
+    private var typeSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("Type")
+            Picker("Type", selection: typeBinding) {
+                Text("Any type").tag(String?.none)
+                Divider()
+                ForEach(viewModel.githubAvailableTypes, id: \.self) { type in
+                    Text(type).tag(String?.some(type))
+                }
+            }
+            .labelsHidden()
+        }
+    }
+
+    private var typeBinding: Binding<String?> {
+        Binding(
+            get: { viewModel.githubTypeFilter },
+            set: { viewModel.githubTypeFilter = $0 }
+        )
     }
 
     private var creatorSection: some View {

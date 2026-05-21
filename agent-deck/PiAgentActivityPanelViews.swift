@@ -290,7 +290,7 @@ struct PiAgentCurrentPlanCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Divider().opacity(0.45).padding(.leading, 30) }
-                    HStack(alignment: .top, spacing: 9) {
+                    HStack(alignment: .center, spacing: 9) {
                         ZStack {
                             Circle()
                                 .fill(color(for: item.status).opacity(item.status == .todo ? 0.08 : 0.14))

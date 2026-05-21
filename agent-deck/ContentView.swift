@@ -67,11 +67,28 @@ private struct ScrollerHidingConfigurator: NSViewRepresentable {
     }
 }
 
+/// A scroller that occupies zero width and never draws. Installed onto a
+/// `List`'s `NSScrollView`, it makes the scroll indicator permanently invisible
+/// without fighting SwiftUI: `List` re-toggles `hasVerticalScroller` on every
+/// layout pass, but the scroller it toggles is this one — nothing to show.
+private final class HiddenScroller: NSScroller {
+    override class func scrollerWidth(
+        for controlSize: NSControl.ControlSize,
+        scrollerStyle: NSScroller.Style
+    ) -> CGFloat {
+        0
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // Intentionally empty — the scroller renders nothing.
+    }
+}
+
 /// A zero-cost probe inserted via `.background(...)`. It locates the sibling
 /// `NSScrollView` it is layered behind — by matching frames window-wide, since
-/// SwiftUI does not make the scroll view a reachable ancestor — and strips its
-/// scrollers. It re-applies whenever it (re)enters the hierarchy or SwiftUI
-/// re-renders, because `List` can otherwise quietly restore the scroller.
+/// SwiftUI does not make the scroll view a reachable ancestor — and swaps in
+/// `HiddenScroller`s. Once swapped, the scrollers stay hidden permanently
+/// regardless of how `List` re-renders, so there is no visible "fighting".
 final class ScrollerHidingProbe: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -96,11 +113,13 @@ final class ScrollerHidingProbe: NSView {
     private func applySuppression() {
         guard let scrollView = targetScrollView() else { return }
         scrollView.scrollerStyle = .overlay
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
-        scrollView.verticalScroller?.isHidden = true
-        scrollView.horizontalScroller?.isHidden = true
+        if !(scrollView.verticalScroller is HiddenScroller) {
+            scrollView.verticalScroller = HiddenScroller()
+        }
+        if !(scrollView.horizontalScroller is HiddenScroller) {
+            scrollView.horizontalScroller = HiddenScroller()
+        }
     }
 
     /// Among every scroll view in the window, pick the smallest one that covers
@@ -550,13 +569,10 @@ struct ContentView: View {
     }
 
     private var issuesFiltersAreActive: Bool {
-        viewModel.githubAuthorFilter != nil || !viewModel.githubLabelFilters.isEmpty
-    }
-
-    private func openSelectedRepositoryOnGitHub() {
-        guard let remote = viewModel.selectedGitHubProject?.gitHubRemote,
-              let url = URL(string: "https://\(remote.host)/\(remote.nameWithOwner)") else { return }
-        NSWorkspace.shared.open(url)
+        viewModel.githubAuthorFilter != nil
+            || viewModel.githubAssigneeFilter != nil
+            || viewModel.githubTypeFilter != nil
+            || !viewModel.githubLabelFilters.isEmpty
     }
 
     /// Extracted from `mainContent` so the type-checker doesn't choke on the
@@ -876,8 +892,6 @@ struct ContentView: View {
     private var issuesPrimaryToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) { issuesFilterButton }
         ToolbarSpacer(.fixed, placement: .primaryAction)
-        ToolbarItem(placement: .primaryAction) { issuesOpenRepoButton }
-        ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItem(placement: .primaryAction) { issuesRefreshButton }
     }
 
@@ -893,17 +907,6 @@ struct ContentView: View {
         .popover(isPresented: $isIssuesFilterPopoverPresented, arrowEdge: .bottom) {
             IssuesFiltersPopover(viewModel: viewModel)
         }
-    }
-
-    private var issuesOpenRepoButton: some View {
-        Button {
-            openSelectedRepositoryOnGitHub()
-        } label: {
-            Label("Open Repository", systemImage: "arrow.up.forward.square")
-        }
-        .toolbarNeutralChrome()
-        .help("Open repository on GitHub")
-        .disabled(viewModel.selectedGitHubProject?.gitHubRemote == nil)
     }
 
     private var issuesRefreshButton: some View {
