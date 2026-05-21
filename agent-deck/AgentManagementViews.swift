@@ -404,6 +404,15 @@ private struct AgentLibraryPane: View {
 
     private var imageStore: AgentImageStore { viewModel.agentImageStore }
 
+    private struct AgentRowMetadata {
+        let warnings: [DiagnosticWarning]
+        let skillIssues: [AgentSkillVisibilityIssue]
+
+        var hasWarningDetails: Bool {
+            !warnings.isEmpty || !skillIssues.isEmpty
+        }
+    }
+
     var body: some View {
         List(selection: $viewModel.selectedAgentID) {
             if viewModel.selectedDiscoveredProject != nil {
@@ -552,10 +561,25 @@ private struct AgentLibraryPane: View {
         }
     }
 
+    private var agentMetadataByID: [EffectiveAgentRecord.ID: AgentRowMetadata] {
+        var result: [EffectiveAgentRecord.ID: AgentRowMetadata] = [:]
+        result.reserveCapacity(filteredAgents.count)
+
+        for agent in filteredAgents {
+            result[agent.id] = AgentRowMetadata(
+                warnings: viewModel.warnings(for: agent),
+                skillIssues: viewModel.explicitSkillVisibilityIssues(for: agent)
+            )
+        }
+
+        return result
+    }
+
     private func agentListRow(_ agent: EffectiveAgentRecord, inactive: Bool) -> some View {
-        let warnings = viewModel.warnings(for: agent)
-        let skillIssues = viewModel.explicitSkillVisibilityIssues(for: agent)
-        let hasWarningDetails = !warnings.isEmpty || !skillIssues.isEmpty
+        let metadata = agentMetadataByID[agent.id] ?? AgentRowMetadata(warnings: [], skillIssues: [])
+        let warnings = metadata.warnings
+        let skillIssues = metadata.skillIssues
+        let hasWarningDetails = metadata.hasWarningDetails
         let warningColor: Color = .orange
         let isMuted = inactive || agent.resolved.disabled == true || agentIsUnusedLibraryAgent(agent)
         let filePath = agent.sourcePath ?? agent.projectOverride?.settingsPath ?? agent.userOverride?.settingsPath
@@ -714,7 +738,7 @@ private struct AgentLibraryPane: View {
             if agent.resolved.disabled == true {
                 capabilityPill("Disabled", symbol: "nosign", color: .red)
             }
-            if !viewModel.warnings(for: agent).isEmpty || !viewModel.explicitSkillVisibilityIssues(for: agent).isEmpty {
+            if agentMetadataByID[agent.id]?.hasWarningDetails == true {
                 capabilityPill("Warning", symbol: "exclamationmark.triangle", color: .orange)
             }
         }

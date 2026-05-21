@@ -466,6 +466,7 @@ extension View {
         listStyle(.inset)
             .alternatingRowBackgrounds()
             .scrollIndicators(.hidden)
+            .hideNativeScrollers()
     }
 }
 

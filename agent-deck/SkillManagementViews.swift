@@ -63,6 +63,11 @@ private enum SkillWarningSelection: Identifiable, Hashable {
     }
 }
 
+private struct SkillListMetadata {
+    let isAssigned: Bool
+    let hasWarnings: Bool
+}
+
 struct SkillsScreen: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var searchText: String
@@ -174,6 +179,7 @@ struct SkillsScreen: View {
 
     @ViewBuilder
     private var skillLibraryContent: some View {
+        let metadataByID = buildSkillMetadataByID(for: managedSkills)
         List(selection: skillSelection) {
             if !viewModel.skillReferenceWarnings.isEmpty || !viewModel.skillWarnings.isEmpty {
                 appListSection("Warnings", tint: .orange) {
@@ -200,13 +206,13 @@ struct SkillsScreen: View {
                         nativeEmptyRow("No skills are assigned for this project.")
                     }
                     ForEach(activeSkills, id: \.name) { skill in
-                        skillListRow(skill, inactive: false)
+                        skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false), inactive: false)
                             .tag(skill.id)
                     }
                 }
 
                 if !catalogSkills.isEmpty {
-                    catalogSection(skills: catalogSkills)
+                    catalogSection(skills: catalogSkills, metadataByID: metadataByID)
                 }
             } else {
                 appListSection("Default Skills", info: "Injected into every parent Pi Agent session. This is global runtime injection, not per-project assignment.") {
@@ -214,23 +220,23 @@ struct SkillsScreen: View {
                         nativeEmptyRow("No default skills.")
                     }
                     ForEach(globalSkills, id: \.name) { skill in
-                        skillListRow(skill, inactive: false)
+                        skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false), inactive: false)
                             .tag(skill.id)
                     }
                 }
 
                 if !catalogSkills.isEmpty {
-                    catalogSection(skills: catalogSkills)
+                    catalogSection(skills: catalogSkills, metadataByID: metadataByID)
                 }
             }
         }
         .appListStyle()
     }
 
-    private func catalogSection(skills: [SkillRecord]) -> some View {
+    private func catalogSection(skills: [SkillRecord], metadataByID: [SkillRecord.ID: SkillListMetadata]) -> some View {
         appListSection("Catalog", info: "Available skills. They are not injected until made Default, assigned to a project runtime, or assigned to a subagent.") {
             ForEach(skills, id: \.name) { skill in
-                skillListRow(skill, inactive: true)
+                skillListRow(skill, metadata: metadataByID[skill.id] ?? SkillListMetadata(isAssigned: false, hasWarnings: false), inactive: true)
                     .tag(skill.id)
             }
         }
@@ -583,13 +589,13 @@ struct SkillsScreen: View {
         selectedSkillID = managedSkills.first?.id
     }
 
-    private func skillListRow(_ skill: SkillRecord, inactive: Bool? = nil) -> some View {
-        let isActive = skillHasAnyAssignment(skill)
+    private func skillListRow(_ skill: SkillRecord, metadata: SkillListMetadata, inactive: Bool? = nil) -> some View {
+        let isActive = metadata.isAssigned
         let isInactive = inactive ?? !isActive
-        let hasWarnings = !warningsForSkill(skill).isEmpty
+        let hasWarnings = metadata.hasWarnings
         return HStack(alignment: .center, spacing: 10) {
             Image(systemName: hasWarnings ? "exclamationmark.triangle.fill" : skillIcon(skill))
-                .foregroundStyle(hasWarnings ? .orange : skillColor(skill))
+                .foregroundStyle(hasWarnings ? .orange : skillColor(isAssigned: isActive))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 Text(skill.name)
@@ -764,15 +770,9 @@ struct SkillsScreen: View {
         return "wand.and.stars"
     }
 
-    private func skillColor(_ skill: SkillRecord) -> Color {
-        if skillHasAnyAssignment(skill) { return .green }
+    private func skillColor(isAssigned: Bool) -> Color {
+        if isAssigned { return .green }
         return AppTheme.mutedText
-    }
-
-    private func skillHasAnyAssignment(_ skill: SkillRecord) -> Bool {
-        viewModel.skillIsEnabledGlobally(skill) ||
-        !viewModel.assignedProjects(for: skill).isEmpty ||
-        !viewModel.assignedAgents(for: skill).isEmpty
     }
 
     private func warningsForSkill(_ skill: SkillRecord) -> [DiagnosticWarning] {
@@ -782,6 +782,27 @@ struct SkillsScreen: View {
             warning.message.contains("`\(skill.name)`") ||
             warning.message.contains(skill.filePath)
         }
+    }
+
+    private func buildSkillMetadataByID(for skills: [SkillRecord]) -> [SkillRecord.ID: SkillListMetadata] {
+        let warnings = viewModel.skillWarnings
+        var result: [SkillRecord.ID: SkillListMetadata] = [:]
+        result.reserveCapacity(skills.count)
+
+        for skill in skills {
+            let hasWarnings = warnings.contains { warning in
+                warning.id == "duplicate-skill:\(skill.name)" ||
+                warning.id.contains(skill.filePath) ||
+                warning.message.contains("`\(skill.name)`") ||
+                warning.message.contains(skill.filePath)
+            }
+            let isAssigned = viewModel.skillIsEnabledGlobally(skill) ||
+                !viewModel.assignedProjects(for: skill).isEmpty ||
+                !viewModel.assignedAgents(for: skill).isEmpty
+            result[skill.id] = SkillListMetadata(isAssigned: isAssigned, hasWarnings: hasWarnings)
+        }
+
+        return result
     }
 
     private func duplicateSkillWarningDetails(_ warning: DiagnosticWarning) -> (name: String, paths: [String])? {

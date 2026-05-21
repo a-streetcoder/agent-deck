@@ -205,6 +205,7 @@ struct MemoryScreen: View {
         }
         .listStyle(.plain)
         .scrollIndicators(.hidden)
+        .hideNativeScrollers()
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .frame(minWidth: 310, idealWidth: 360, maxWidth: 440, minHeight: 430)
