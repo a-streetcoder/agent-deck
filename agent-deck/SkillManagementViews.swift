@@ -81,6 +81,9 @@ struct SkillsScreen: View {
     @State private var selectedImportCandidateIDs: Set<String> = []
     @State private var importErrorMessage: String?
     @State private var importSummaryMessage: String?
+    @State private var isScanningImportSource = false
+    @State private var importScanProgress: ExternalSkillDiscovery.Progress?
+    @State private var importScanTask: Task<Void, Never>?
     @State private var skillActionErrorMessage: String?
     @State private var skillPendingDeletion: SkillRecord?
     @State private var skillPendingRename: SkillRecord?
@@ -863,7 +866,11 @@ struct SkillsScreen: View {
     }
 
     private func candidateAlreadyImported(_ candidate: ExternalSkillCandidate) -> Bool {
-        existingExternalSkillPaths.contains(URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path)
+        // Both sides are already standardized paths — `sourceRootPath` comes
+        // from `URL.standardizedFileURL` and stored paths are normalized on
+        // write — so a direct set lookup is correct and avoids rebuilding a URL
+        // for every candidate on every search keystroke.
+        existingExternalSkillPaths.contains(candidate.sourceRootPath)
     }
 
     private var importableCandidates: [ExternalSkillCandidate] {
@@ -993,98 +1000,20 @@ struct SkillsScreen: View {
                                 }
                             }
                             .buttonStyle(.glass)
-                            .disabled(visibleImportableCandidateIDs.isEmpty)
+                            .disabled(isScanningImportSource || visibleImportableCandidateIDs.isEmpty)
 
                             Button("Clear") {
                                 selectedImportCandidateIDs.removeAll()
                             }
                             .buttonStyle(.glass)
-                            .disabled(selectedImportCandidateIDs.isEmpty)
+                            .disabled(isScanningImportSource || selectedImportCandidateIDs.isEmpty)
                         }
 
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(AppTheme.mutedText)
-                            TextField("Search skills by name, description, or path", text: $importSearchText)
-                                .textFieldStyle(.plain)
-                            if importSearchIsActive {
-                                Button {
-                                    importSearchText = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(AppTheme.mutedText)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Clear skill search")
-                            }
+                        if isScanningImportSource {
+                            importScanningView
+                        } else {
+                            importCandidateListView
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
-                        )
-
-                        Text("Showing \(filteredImportCandidates.count) of \(importableCandidates.count) importable skill\(importableCandidates.count == 1 ? "" : "s")\(hiddenAlreadyImportedCandidateCount == 0 ? "" : " • \(hiddenAlreadyImportedCandidateCount) already imported hidden")\(selectedImportCandidateIDs.isEmpty ? "" : " • \(selectedImportCandidateIDs.count) selected")")
-                            .font(.caption2)
-                            .foregroundStyle(AppTheme.mutedText)
-
-                        ScrollView(showsIndicators: false) {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                if filteredImportCandidates.isEmpty {
-                                    Text(importSearchIsActive ? "No importable skills match your search." : "No new importable skills were found. Already-imported skills are hidden.")
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.mutedText)
-                                        .frame(maxWidth: .infinity, minHeight: 120)
-                                }
-                                ForEach(filteredImportCandidates) { candidate in
-                                    Toggle(isOn: Binding(
-                                        get: { selectedImportCandidateIDs.contains(candidate.id) },
-                                        set: { isSelected in
-                                            if isSelected { selectedImportCandidateIDs.insert(candidate.id) }
-                                            else { selectedImportCandidateIDs.remove(candidate.id) }
-                                        }
-                                    )) {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                                Text(candidate.name)
-                                                    .font(.body.weight(.semibold))
-                                            }
-
-                                            if let description = candidate.description {
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text("Description")
-                                                        .font(.caption2.weight(.semibold))
-                                                        .foregroundStyle(AppTheme.mutedText)
-                                                    Text(description)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.primary)
-                                                        .lineLimit(2)
-                                                }
-                                            }
-
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text("Path")
-                                                    .font(.caption2.weight(.semibold))
-                                                    .foregroundStyle(AppTheme.mutedText)
-                                                Text(candidate.sourceRootPath)
-                                                    .font(.caption.monospaced())
-                                                    .foregroundStyle(AppTheme.mutedText)
-                                                    .lineLimit(1)
-                                                    .truncationMode(.middle)
-                                            }
-                                        }
-                                        .padding(.vertical, 10)
-                                    }
-                                    .toggleStyle(.checkbox)
-                                    if candidate.id != filteredImportCandidates.last?.id {
-                                        Divider()
-                                    }
-                                }
-                            }
-                        }
-                        .frame(minHeight: 280)
                     }
                 }
 
@@ -1100,10 +1029,16 @@ struct SkillsScreen: View {
                     chooseDifferentImportFolder()
                 }
             }
+            .onDisappear {
+                // Stop any in-flight folder walk when the sheet closes.
+                importScanTask?.cancel()
+                importScanTask = nil
+            }
             // Modal sheet confirmation/cancellation chrome remains SwiftUI; the AppKit migration owns only the main window toolbar.
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        importScanTask?.cancel()
                         isImportSheetPresented = false
                     }
                 }
@@ -1111,9 +1046,120 @@ struct SkillsScreen: View {
                     Button("Import") {
                         importSelectedSkills()
                     }
-                    .disabled(selectedImportCandidateIDs.isEmpty)
+                    .disabled(isScanningImportSource || selectedImportCandidateIDs.isEmpty)
                 }
             }
+        }
+    }
+
+    /// Shown in place of the candidate list while the chosen folder is being
+    /// walked off the main actor. A large skills folder can take a while; the
+    /// live count makes it clear the app is working rather than hung.
+    private var importScanningView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.regular)
+            VStack(spacing: 4) {
+                Text("Scanning \(importSourceURL?.lastPathComponent ?? "folder") for skills…")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                if let progress = importScanProgress {
+                    Text("\(progress.directoriesScanned) folder\(progress.directoriesScanned == 1 ? "" : "s") scanned • \(progress.skillsFound) skill\(progress.skillsFound == 1 ? "" : "s") found")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 280)
+    }
+
+    @ViewBuilder
+    private var importCandidateListView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(AppTheme.mutedText)
+                TextField("Search skills by name, description, or path", text: $importSearchText)
+                    .textFieldStyle(.plain)
+                if importSearchIsActive {
+                    Button {
+                        importSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear skill search")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
+            )
+
+            Text("Showing \(filteredImportCandidates.count) of \(importableCandidates.count) importable skill\(importableCandidates.count == 1 ? "" : "s")\(hiddenAlreadyImportedCandidateCount == 0 ? "" : " • \(hiddenAlreadyImportedCandidateCount) already imported hidden")\(selectedImportCandidateIDs.isEmpty ? "" : " • \(selectedImportCandidateIDs.count) selected")")
+                .font(.caption2)
+                .foregroundStyle(AppTheme.mutedText)
+
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if filteredImportCandidates.isEmpty {
+                        Text(importSearchIsActive ? "No importable skills match your search." : "No new importable skills were found. Already-imported skills are hidden.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    }
+                    ForEach(filteredImportCandidates) { candidate in
+                        Toggle(isOn: Binding(
+                            get: { selectedImportCandidateIDs.contains(candidate.id) },
+                            set: { isSelected in
+                                if isSelected { selectedImportCandidateIDs.insert(candidate.id) }
+                                else { selectedImportCandidateIDs.remove(candidate.id) }
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(candidate.name)
+                                        .font(.body.weight(.semibold))
+                                }
+
+                                if let description = candidate.description {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Description")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(AppTheme.mutedText)
+                                        Text(description)
+                                            .font(.caption)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(2)
+                                    }
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Path")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(AppTheme.mutedText)
+                                    Text(candidate.sourceRootPath)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                            .padding(.vertical, 10)
+                        }
+                        .toggleStyle(.checkbox)
+                        if candidate.id != filteredImportCandidates.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 280)
         }
     }
 
@@ -1140,12 +1186,16 @@ struct SkillsScreen: View {
     }
 
     private func beginSkillImport() {
+        importScanTask?.cancel()
+        importScanTask = nil
         importErrorMessage = nil
         importSummaryMessage = nil
         importCandidates = []
         importSearchText = ""
         selectedImportCandidateIDs.removeAll()
         importSourceURL = nil
+        isScanningImportSource = false
+        importScanProgress = nil
 
         // Reuse the configured or last-used skills folder instead of prompting
         // every time. The import sheet still offers "Choose Different Folder".
@@ -1169,31 +1219,49 @@ struct SkillsScreen: View {
     }
 
     private func loadImportCandidates(from url: URL) {
+        // Cancel any in-flight scan — e.g. the user picked a new folder while
+        // the previous (possibly huge) folder was still being walked.
+        importScanTask?.cancel()
         importErrorMessage = nil
         importSummaryMessage = nil
         importSearchText = ""
         importSourceURL = url
+        importCandidates = []
+        selectedImportCandidateIDs.removeAll()
+        importScanProgress = nil
+        isScanningImportSource = true
 
-        var candidates = viewModel.discoverImportableSkills(in: url)
-        if candidates.isEmpty, let directCandidate = viewModel.externalSkillCandidate(at: url) {
-            candidates = [directCandidate]
+        if !isImportSheetPresented {
+            isImportSheetPresented = true
         }
 
+        // Discovery walks the folder tree off the main actor; the UI stays
+        // responsive and shows a live progress count while it runs.
+        importScanTask = Task { @MainActor in
+            for await event in ExternalSkillDiscovery.scan(root: url) {
+                if Task.isCancelled { break }
+                switch event {
+                case let .progress(progress):
+                    importScanProgress = progress
+                case let .finished(candidates):
+                    applyDiscoveredImportCandidates(candidates)
+                }
+            }
+        }
+    }
+
+    private func applyDiscoveredImportCandidates(_ candidates: [ExternalSkillCandidate]) {
+        isScanningImportSource = false
+        importScanProgress = nil
+        importCandidates = candidates
+
         guard !candidates.isEmpty else {
-            importCandidates = []
             selectedImportCandidateIDs.removeAll()
             importErrorMessage = "No importable skill folders were found. Choose either a skill root containing SKILL.md or a folder that contains skill roots somewhere below it."
             return
         }
 
-        importCandidates = candidates
         selectedImportCandidateIDs = Set(candidates.filter { !candidateAlreadyImported($0) }.map(\.id))
-
-        if !isImportSheetPresented {
-            DispatchQueue.main.async {
-                isImportSheetPresented = true
-            }
-        }
     }
 
     private func importSelectedSkills() {

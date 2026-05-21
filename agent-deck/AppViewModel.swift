@@ -486,63 +486,6 @@ final class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    func externalSkillCandidate(at skillRoot: URL) -> ExternalSkillCandidate? {
-        let skillFile = skillRoot.appendingPathComponent("SKILL.md")
-        guard let body = try? String(contentsOf: skillFile, encoding: .utf8) else { return nil }
-        let frontmatter = parseSimpleFrontmatter(body)
-        let parsedName = frontmatter["name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parsedDescription = frontmatter["description"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (parsedName?.isEmpty == false ? parsedName! : skillRoot.lastPathComponent)
-        let description = parsedDescription?.isEmpty == false ? parsedDescription : nil
-        return ExternalSkillCandidate(
-            name: name,
-            description: description,
-            sourceRootPath: skillRoot.standardizedFileURL.path,
-            skillFilePath: skillFile.standardizedFileURL.path
-        )
-    }
-
-    func discoverImportableSkills(in root: URL) -> [ExternalSkillCandidate] {
-        let fileManager = FileManager.default
-        var results: [ExternalSkillCandidate] = []
-        var seenRootPaths = Set<String>()
-
-        func walk(_ directory: URL) {
-            let standardizedDirectory = directory.standardizedFileURL
-
-            if let candidate = externalSkillCandidate(at: standardizedDirectory) {
-                if seenRootPaths.insert(candidate.sourceRootPath).inserted {
-                    results.append(candidate)
-                }
-                // A folder containing SKILL.md is a skill root; do not recurse into
-                // examples or nested reference folders that may also contain skills.
-                return
-            }
-
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: standardizedDirectory,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                return
-            }
-
-            for entry in entries {
-                var isDirectory: ObjCBool = false
-                guard fileManager.fileExists(atPath: entry.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
-                walk(entry)
-            }
-        }
-
-        walk(root)
-
-        return results.sorted { lhs, rhs in
-            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-            return lhs.sourceRootPath < rhs.sourceRootPath
-        }
-    }
-
     func importExternalSkills(_ candidates: [ExternalSkillCandidate]) throws -> SkillImportResult {
         var importedNames: [String] = []
         var skippedNames: [String] = []
@@ -5447,25 +5390,6 @@ final class AppViewModel: NSObject, ObservableObject {
             try fileManager.copyItem(at: sourceURL, to: libraryURL)
         }
         return libraryURL
-    }
-
-    private func parseSimpleFrontmatter(_ text: String) -> [String: String] {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        guard normalized.hasPrefix("---\n") else { return [:] }
-        let remainder = String(normalized.dropFirst(4))
-        guard let closingRange = remainder.range(of: "\n---\n") else { return [:] }
-        let frontmatterText = remainder[..<closingRange.lowerBound]
-        var values: [String: String] = [:]
-        for rawLine in frontmatterText.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, !line.hasPrefix("#"), let separator = line.firstIndex(of: ":") else { continue }
-            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !key.isEmpty {
-                values[String(key)] = String(value)
-            }
-        }
-        return values
     }
 
     func makeEnvDraft(for record: EnvKeyRecord) -> EnvEditorDraft {
