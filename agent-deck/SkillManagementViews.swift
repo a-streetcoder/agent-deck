@@ -63,7 +63,7 @@ private enum SkillWarningSelection: Identifiable, Hashable {
     }
 }
 
-private struct SkillListMetadata {
+struct SkillListMetadata {
     let isAssigned: Bool
     let hasWarnings: Bool
 }
@@ -185,7 +185,9 @@ struct SkillsScreen: View {
 
     @ViewBuilder
     private var skillLibraryContent: some View {
-        let metadataByID = buildSkillMetadataByID(for: managedSkills)
+        // Precomputed in AppViewModel, rebuilt only on data rescans — was
+        // O(skills × warnings/projects/agents) on every body eval.
+        let metadataByID = viewModel.cachedSkillMetadataByID
         List(selection: skillSelection) {
             if !viewModel.skillReferenceWarnings.isEmpty || !viewModel.skillWarnings.isEmpty {
                 appListSection("Warnings", tint: .orange) {
@@ -788,27 +790,6 @@ struct SkillsScreen: View {
             warning.message.contains("`\(skill.name)`") ||
             warning.message.contains(skill.filePath)
         }
-    }
-
-    private func buildSkillMetadataByID(for skills: [SkillRecord]) -> [SkillRecord.ID: SkillListMetadata] {
-        let warnings = viewModel.skillWarnings
-        var result: [SkillRecord.ID: SkillListMetadata] = [:]
-        result.reserveCapacity(skills.count)
-
-        for skill in skills {
-            let hasWarnings = warnings.contains { warning in
-                warning.id == "duplicate-skill:\(skill.name)" ||
-                warning.id.contains(skill.filePath) ||
-                warning.message.contains("`\(skill.name)`") ||
-                warning.message.contains(skill.filePath)
-            }
-            let isAssigned = viewModel.skillIsEnabledGlobally(skill) ||
-                !viewModel.assignedProjects(for: skill).isEmpty ||
-                !viewModel.assignedAgents(for: skill).isEmpty
-            result[skill.id] = SkillListMetadata(isAssigned: isAssigned, hasWarnings: hasWarnings)
-        }
-
-        return result
     }
 
     private func duplicateSkillWarningDetails(_ warning: DiagnosticWarning) -> (name: String, paths: [String])? {

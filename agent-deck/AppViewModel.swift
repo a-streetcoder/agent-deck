@@ -126,6 +126,16 @@ final class AppViewModel: NSObject, ObservableObject {
     // boundaries — see `rebuildAutomationModelCaches()`.
     @Published private(set) var cachedFoundationAutomationModel: AvailableModel?
     @Published private(set) var cachedAutomationAvailableModels: [AvailableModel] = []
+    // Agent-list caches — the `allDisplayAgents` chain (a 4-source merge + sort)
+    // and per-agent warnings were recomputed on every `AgentsScreen` /
+    // `ContentView` body evaluation. Rebuilt inside `rebuildWarningCaches()`,
+    // alongside `cachedSkillVisibilityIssuesByAgentID` — so they refresh on
+    // exactly the same events (every data rescan) and can't go stale.
+    @Published private(set) var cachedAllDisplayAgents: [EffectiveAgentRecord] = []
+    @Published private(set) var cachedAgentWarningsByID: [EffectiveAgentRecord.ID: [DiagnosticWarning]] = [:]
+    // Per-skill list metadata (assigned / has-warnings). Same rebuild +
+    // invalidation as the agent caches above — never per `SkillsScreen` body.
+    @Published private(set) var cachedSkillMetadataByID: [SkillRecord.ID: SkillListMetadata] = [:]
     var enabledAvailableModels: [AvailableModel] {
         availableModels.filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
     }
@@ -3834,7 +3844,11 @@ final class AppViewModel: NSObject, ObservableObject {
         currentGitHubAccount != nil || githubLastStatusCheckAt != nil || githubIsRefreshingEverything
     }
 
-    var allDisplayAgents: [EffectiveAgentRecord] {
+    /// Cached — see `cachedAllDisplayAgents`. Rebuilt by `rebuildWarningCaches()`.
+    var allDisplayAgents: [EffectiveAgentRecord] { cachedAllDisplayAgents }
+
+    /// The actual merge+sort. Called only from `rebuildWarningCaches()`.
+    private func computeAllDisplayAgents() -> [EffectiveAgentRecord] {
         var byID: [EffectiveAgentRecord.ID: EffectiveAgentRecord] = [:]
         for agent in snapshot.effectiveAgents { byID[agent.id] = agent }
         for agent in catalogOnlyEffectiveAgents { byID[agent.id] = agent }
@@ -4921,6 +4935,10 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     private func rebuildWarningCaches() {
+        // Rebuild the agent-display cache first — the warning computations below
+        // read `filteredAgents`, which derives from `allDisplayAgents`.
+        cachedAllDisplayAgents = computeAllDisplayAgents()
+
         let skillWarnings = buildSkillWarnings()
         let promptWarnings = buildPromptWarnings()
         let visibilityIssuesByAgentID = buildSkillVisibilityIssuesByAgentID()
@@ -4940,15 +4958,40 @@ final class AppViewModel: NSObject, ObservableObject {
                 return $0.project.name < $1.project.name
             })
 
+        // Per-agent warnings — computed once here instead of O(agents × warnings)
+        // on every AgentsScreen body eval. Every filtered agent gets an entry
+        // (possibly empty), so a cache hit in `warnings(for:)` is authoritative.
+        var agentWarningsByID: [EffectiveAgentRecord.ID: [DiagnosticWarning]] = [:]
+        for agent in filteredAgents {
+            agentWarningsByID[agent.id] = computeWarnings(for: agent)
+        }
+
+        // Per-skill list metadata — computed once here instead of
+        // O(skills × warnings/projects/agents) on every SkillsScreen body eval.
+        var skillMetadataByID: [SkillRecord.ID: SkillListMetadata] = [:]
+        for skill in allVisibleSkillRecords {
+            let hasWarnings = skillWarnings.contains { warning in
+                warning.id == "duplicate-skill:\(skill.name)" ||
+                warning.id.contains(skill.filePath) ||
+                warning.message.contains("`\(skill.name)`") ||
+                warning.message.contains(skill.filePath)
+            }
+            let isAssigned = skillIsEnabledGlobally(skill) ||
+                !assignedProjects(for: skill).isEmpty ||
+                !assignedAgents(for: skill).isEmpty
+            skillMetadataByID[skill.id] = SkillListMetadata(isAssigned: isAssigned, hasWarnings: hasWarnings)
+        }
+
         cachedSkillWarnings = skillWarnings
         cachedPromptWarnings = promptWarnings
         cachedSkillVisibilityIssuesByAgentID = visibilityIssuesByAgentID
         cachedSkillReferenceWarnings = skillReferenceWarnings
+        cachedAgentWarningsByID = agentWarningsByID
+        cachedSkillMetadataByID = skillMetadataByID
         cachedHasSkillWarnings = !skillReferenceWarnings.isEmpty || !skillWarnings.isEmpty
         cachedHasPromptWarnings = !promptWarnings.isEmpty
-        cachedHasAgentWarnings = filteredAgents.contains { agent in
-            !warnings(for: agent).isEmpty || !(visibilityIssuesByAgentID[agent.id] ?? []).isEmpty
-        }
+        cachedHasAgentWarnings = agentWarningsByID.values.contains { !$0.isEmpty }
+            || visibilityIssuesByAgentID.values.contains { !$0.isEmpty }
     }
 
     private func buildSkillWarnings() -> [DiagnosticWarning] {
@@ -5457,6 +5500,13 @@ final class AppViewModel: NSObject, ObservableObject {
     }
 
     func warnings(for agent: EffectiveAgentRecord) -> [DiagnosticWarning] {
+        // Cache hit (incl. an empty array) is authoritative — see
+        // `rebuildWarningCaches()`. Miss → live compute (e.g. before first scan).
+        if let cached = cachedAgentWarningsByID[agent.id] { return cached }
+        return computeWarnings(for: agent)
+    }
+
+    private func computeWarnings(for agent: EffectiveAgentRecord) -> [DiagnosticWarning] {
         snapshot.warnings.filter { warning in
             warning.message.contains("Agent \(agent.name) ") || warning.message.contains("Agent \(agent.name)")
         }
