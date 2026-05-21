@@ -723,13 +723,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     estimateByID.removeValue(forKey: id)
                     pendingHeightIDs.remove(id)
                 }
-                // Existing rows whose contentRevision changed need their cached heights
-                // invalidated — heightOfRow falls back to the estimator until the cell
-                // re-measures and reports back. The persisted revision map makes this
-                // fire correctly for a session whose content changed while off-screen.
+                // A changed row KEEPS its last measured height — the cell
+                // re-renders and reports the new one via onMeasuredHeight.
+                // heightOfRow must never drop a measured row back to the rough
+                // char-count estimate, or every streaming token would jump the
+                // row estimate↔measured (and a short estimate compounds the gap
+                // to the bottom until auto-follow disengages). Only the
+                // transient estimate is cleared, for never-measured rows.
                 for id in nextIDs {
                     if contentRevisionByID[id] != nil, contentRevisionByID[id] != nextRevisions[id] {
-                        measuredHeightByID.removeValue(forKey: id)
                         estimateByID.removeValue(forKey: id)
                     }
                 }
@@ -749,8 +751,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
                 for (id, revision) in nextRevisions { contentRevisionByID[id] = revision }
                 if !changedIDs.isEmpty {
+                    // Keep the last measured height (see the idsChanged branch):
+                    // the cell re-renders and reports the new height, so the
+                    // streaming row grows real→real with no estimate jump.
                     for id in changedIDs {
-                        measuredHeightByID.removeValue(forKey: id)
                         estimateByID.removeValue(forKey: id)
                     }
                     reconfigureVisibleCellsForIDs(Set(changedIDs))
@@ -1919,8 +1923,10 @@ struct PiAgentScreen: View {
         case let .assistant(entry), let .steering(entry), let .thinking(entry):
             let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
             return CGFloat(min(lines, 40)) * 18 + 48
-        case .toolGroup:
-            return 48
+        case let .toolGroup(group):
+            // One row per activity — a flat estimate made a multi-tool group
+            // pop hard the first time it appeared (before the cell re-measures).
+            return CGFloat(max(group.activities.count, 1)) * 40 + 16
         case .status, .error, .retry:
             return 56
         }
