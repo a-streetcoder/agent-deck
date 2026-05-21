@@ -278,25 +278,16 @@ private struct GeneralSettingsTab: View {
             }
 
             SettingsSection {
-                SettingsTextFieldRow(
-                    title: "Skill import folder:",
-                    placeholder: "Default import folder",
-                    text: defaultSkillsImportRootPathBinding,
-                    note: "\(AppBrand.displayName) falls back to the last used folder, then Documents."
-                )
-
-                SettingsButtonRow {
-                    Button("Choose Folder...") { viewModel.chooseDefaultSkillsImportDirectory() }
-                        .appSecondaryButton()
-                    Button("Clear") { viewModel.resetDefaultSkillsImportRootPath() }
-                        .appSecondaryButton()
+                SettingsValueButtonRow(
+                    title: "Skill repositories:",
+                    value: SkillRepositorySyncService.repositoriesDirectoryURL().path
+                ) {
                     Button("Reveal in Finder") {
-                        if let path = viewModel.appSettings.defaultSkillsImportRootPath, !path.isEmpty {
-                            revealInFinder(path)
-                        }
+                        let url = SkillRepositorySyncService.repositoriesDirectoryURL()
+                        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                        revealInFinder(url.path)
                     }
                     .appSecondaryButton()
-                    .disabled((viewModel.appSettings.defaultSkillsImportRootPath ?? "").isEmpty)
                 }
             }
         }
@@ -306,13 +297,6 @@ private struct GeneralSettingsTab: View {
         Binding(
             get: { viewModel.appSettings.projectsRootPath },
             set: { viewModel.setProjectsRootPath($0) }
-        )
-    }
-
-    private var defaultSkillsImportRootPathBinding: Binding<String> {
-        Binding(
-            get: { viewModel.appSettings.defaultSkillsImportRootPath ?? "" },
-            set: { viewModel.setDefaultSkillsImportRootPath($0) }
         )
     }
 }

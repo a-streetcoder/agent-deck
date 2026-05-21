@@ -250,38 +250,6 @@ final class AppSettingsController {
         setProjectsRootPath(ProjectDiscovery.defaultRootDirectoryURL().path)
     }
 
-    @discardableResult
-    func chooseDefaultSkillsImportDirectory(startingAt url: URL) -> Bool {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Folder"
-        panel.message = "Choose the default folder \(AppBrand.displayName) should open when importing skills."
-        panel.directoryURL = url
-
-        guard panel.runModal() == .OK, let url = panel.url else { return false }
-        return setDefaultSkillsImportRootPath(url.path)
-    }
-
-    @discardableResult
-    func setDefaultSkillsImportRootPath(_ path: String) -> Bool {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPath = trimmed.isEmpty ? nil : URL(fileURLWithPath: trimmed).standardizedFileURL.path
-        guard settings.defaultSkillsImportRootPath != normalizedPath else { return false }
-        settings.defaultSkillsImportRootPath = normalizedPath
-        persist()
-        return true
-    }
-
-    @discardableResult
-    func resetDefaultSkillsImportRootPath() -> Bool {
-        guard settings.defaultSkillsImportRootPath != nil else { return false }
-        settings.defaultSkillsImportRootPath = nil
-        persist()
-        return true
-    }
-
     func setPiAgentTerminalApplicationSelection(_ selectionID: String) {
         setPiAgentTerminalApplicationPath(selectionID == TerminalApplicationOption.defaultID ? nil : selectionID)
     }

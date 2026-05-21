@@ -42,7 +42,6 @@ struct SkillImportSheet: View {
     @State private var isScanningLocal = false
     @State private var localScanProgress: ExternalSkillDiscovery.Progress?
     @State private var localScanTask: Task<Void, Never>?
-    @State private var didAttemptInitialLocalLoad = false
 
     // Git repository mode.
     @State private var gitURLInput = ""
@@ -60,7 +59,6 @@ struct SkillImportSheet: View {
             footer
         }
         .frame(width: 760, height: 740)
-        .task { await loadInitialLocalSourceIfNeeded() }
         .onChange(of: mode) { _, _ in
             importErrorMessage = nil
             searchText = ""
@@ -149,7 +147,7 @@ struct SkillImportSheet: View {
                 .textSelection(.enabled)
                 .font(.caption.monospaced())
                 .foregroundStyle(AppTheme.mutedText)
-            Button("Choose Different Folder") {
+            Button(localSourceURL == nil ? "Choose Folder" : "Choose Different Folder") {
                 DispatchQueue.main.async { chooseLocalFolder() }
             }
         }
@@ -243,6 +241,8 @@ struct SkillImportSheet: View {
         case .localFolder:
             if isScanningLocal {
                 localScanningView
+            } else if localSourceURL == nil {
+                localPlaceholderView
             } else {
                 candidateListView
             }
@@ -291,6 +291,18 @@ struct SkillImportSheet: View {
                 .font(.system(size: 30))
                 .foregroundStyle(AppTheme.mutedText)
             Text("Paste a repository URL above and choose Fetch Skills.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .frame(maxWidth: .infinity, minHeight: 280)
+    }
+
+    private var localPlaceholderView: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "folder")
+                .font(.system(size: 30))
+                .foregroundStyle(AppTheme.mutedText)
+            Text("Choose a folder above to scan it for skills.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -507,16 +519,6 @@ struct SkillImportSheet: View {
     }
 
     // MARK: - Local folder actions
-
-    private func loadInitialLocalSourceIfNeeded() async {
-        guard !didAttemptInitialLocalLoad else { return }
-        didAttemptInitialLocalLoad = true
-        if let remembered = viewModel.rememberedSkillsImportDirectoryURL {
-            startLocalScan(at: remembered)
-        } else {
-            chooseLocalFolder()
-        }
-    }
 
     private func chooseLocalFolder() {
         viewModel.chooseExternalSkillsDirectory(startingAt: localSourceURL) { url in

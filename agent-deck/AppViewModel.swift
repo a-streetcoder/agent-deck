@@ -207,7 +207,6 @@ final class AppViewModel: NSObject {
     private let fallbackAutoRefreshInterval: TimeInterval = 300
     private var nativeParallelSchedulersByID: [UUID: NativeParallelGraphScheduler] = [:]
     private let lastSelectedProjectDefaultsKey = "lastSelectedProjectPath"
-    private let lastExternalSkillsDirectoryDefaultsKey = "lastExternalSkillsDirectoryPath"
     private var githubProjectBoardCacheKey: String?
     private var githubProjectBoardFetchedAt: Date?
     private var pendingPiAgentNotificationTasks: [UUID: Task<Void, Never>] = [:]
@@ -510,30 +509,10 @@ final class AppViewModel: NSObject {
         addProject(url, selectingAfterAdd: true)
     }
 
+    /// The folder the skill-import picker opens to: the app-managed
+    /// SkillRepositories directory, where imported skill repos already live.
     var suggestedExternalSkillsDirectoryURL: URL {
-        let fileManager = FileManager.default
-
-        func validDirectoryURL(for path: String?) -> URL? {
-            guard let rawPath = path?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else { return nil }
-            let url = URL(fileURLWithPath: rawPath, isDirectory: true).standardizedFileURL
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
-            return url
-        }
-
-        if let configuredURL = validDirectoryURL(for: appSettings.defaultSkillsImportRootPath) {
-            return configuredURL
-        }
-
-        if let lastURL = validDirectoryURL(for: UserDefaults.standard.string(forKey: lastExternalSkillsDirectoryDefaultsKey)) {
-            return lastURL
-        }
-
-        if let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
-            return documentsURL
-        }
-
-        return fileManager.homeDirectoryForCurrentUser
+        SkillRepositorySyncService.repositoriesDirectoryURL()
     }
 
     func chooseExternalSkillsDirectory(startingAt url: URL? = nil, completion: @escaping (URL?) -> Void) {
@@ -543,16 +522,17 @@ final class AppViewModel: NSObject {
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Skills Folder"
         panel.message = "Choose a skill root or a folder to search recursively for SKILL.md files you want to add to the \(AppBrand.displayName) skill catalog."
-        panel.directoryURL = url ?? suggestedExternalSkillsDirectoryURL
+        let startURL = url ?? suggestedExternalSkillsDirectoryURL
+        try? FileManager.default.createDirectory(at: startURL, withIntermediateDirectories: true)
+        panel.directoryURL = startURL
 
-        let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+        let handler: (NSApplication.ModalResponse) -> Void = { response in
             DispatchQueue.main.async {
                 guard response == .OK,
                       let selectedURL = panel.url?.standardizedFileURL else {
                     completion(nil)
                     return
                 }
-                self?.persistLastExternalSkillsDirectoryPath(selectedURL.path)
                 completion(selectedURL)
             }
         }
@@ -993,14 +973,6 @@ final class AppViewModel: NSObject {
             UserDefaults.standard.set(path, forKey: lastSelectedProjectDefaultsKey)
         } else {
             UserDefaults.standard.removeObject(forKey: lastSelectedProjectDefaultsKey)
-        }
-    }
-
-    private func persistLastExternalSkillsDirectoryPath(_ path: String?) {
-        if let path {
-            UserDefaults.standard.set(path, forKey: lastExternalSkillsDirectoryDefaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: lastExternalSkillsDirectoryDefaultsKey)
         }
     }
 
@@ -3648,21 +3620,6 @@ final class AppViewModel: NSObject {
         handleProjectsRootSettingsChange()
     }
 
-    func chooseDefaultSkillsImportDirectory() {
-        guard appSettingsController.chooseDefaultSkillsImportDirectory(startingAt: suggestedExternalSkillsDirectoryURL) else { return }
-        syncAppSettings()
-    }
-
-    func setDefaultSkillsImportRootPath(_ path: String) {
-        guard appSettingsController.setDefaultSkillsImportRootPath(path) else { return }
-        syncAppSettings()
-    }
-
-    func resetDefaultSkillsImportRootPath() {
-        guard appSettingsController.resetDefaultSkillsImportRootPath() else { return }
-        syncAppSettings()
-    }
-
     var piAgentTerminalApplicationDisplayName: String {
         appSettingsController.piAgentTerminalApplicationDisplayName
     }
@@ -5175,22 +5132,6 @@ final class AppViewModel: NSObject {
             throw ResourceRenameError.destinationExists(fileURL.deletingLastPathComponent().path)
         }
         return name
-    }
-
-    /// The skills import folder to reuse without prompting — the configured
-    /// default, or the last folder picked. Returns `nil` when neither is set,
-    /// so the import flow can fall back to a folder picker the first time.
-    var rememberedSkillsImportDirectoryURL: URL? {
-        let fileManager = FileManager.default
-        func validDirectoryURL(for path: String?) -> URL? {
-            guard let rawPath = path?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty else { return nil }
-            let url = URL(fileURLWithPath: rawPath, isDirectory: true).standardizedFileURL
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
-            return url
-        }
-        return validDirectoryURL(for: appSettings.defaultSkillsImportRootPath)
-            ?? validDirectoryURL(for: UserDefaults.standard.string(forKey: lastExternalSkillsDirectoryDefaultsKey))
     }
 
     func prompt(_ prompt: PromptTemplateRecord, isEnabledFor project: DiscoveredProject) -> Bool {

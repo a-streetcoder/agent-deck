@@ -42,7 +42,6 @@ struct AppSettings: Codable, Hashable {
     var piAgentTerminalApplicationPath: String?
     var projectsRootPath: String = ProjectDiscovery.defaultRootDirectoryURL().path
     var didConfirmProjectsRootPath: Bool = false
-    var defaultSkillsImportRootPath: String?
     var nativeSubagentsEnabledForNewSessions: Bool = true
     var agentMemoryEnabled: Bool = false
     var agentMemorySubagentsEnabled: Bool = true
@@ -79,7 +78,6 @@ struct AppSettings: Codable, Hashable {
         case piAgentTerminalApplicationPath
         case projectsRootPath
         case didConfirmProjectsRootPath
-        case defaultSkillsImportRootPath
         case nativeSubagentsEnabledForNewSessions
         case agentMemoryEnabled
         case agentMemorySubagentsEnabled
@@ -122,7 +120,6 @@ struct AppSettings: Codable, Hashable {
         let hasStoredProjectsRootPath = container.contains(.projectsRootPath)
         projectsRootPath = try container.decodeIfPresent(String.self, forKey: .projectsRootPath) ?? ProjectDiscovery.defaultRootDirectoryURL().path
         didConfirmProjectsRootPath = try container.decodeIfPresent(Bool.self, forKey: .didConfirmProjectsRootPath) ?? hasStoredProjectsRootPath
-        defaultSkillsImportRootPath = try container.decodeIfPresent(String.self, forKey: .defaultSkillsImportRootPath)
         nativeSubagentsEnabledForNewSessions = try container.decodeIfPresent(Bool.self, forKey: .nativeSubagentsEnabledForNewSessions) ?? true
         agentMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemoryEnabled) ?? false
         agentMemorySubagentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentMemorySubagentsEnabled) ?? true
