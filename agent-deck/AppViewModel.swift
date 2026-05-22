@@ -2392,8 +2392,7 @@ final class AppViewModel: NSObject {
             return
         }
         let useWorktreeIsolation = false
-        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
-        let agent = snapshot.effectiveAgents.first { $0.name == request.agent.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let agent = catalogAgents(for: session).first { $0.name == request.agent.trimmingCharacters(in: .whitespacesAndNewlines) }
         let expectedOutcome: PiSubagentExpectedOutcome = agent?.resolved.defaultExpectedOutcome ?? .reportOnly
         let allowDirectProjectWrites = expectedOutcome == .directProjectWrites
         let gate = NativeSubagentCompletionGate()
@@ -2449,7 +2448,7 @@ final class AppViewModel: NSObject {
             return placeholder
         }
         let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
-        guard let agent = snapshot.effectiveAgents.first(where: { $0.name == agentName && $0.resolved.disabled != true }) else {
+        guard let agent = catalogAgents(for: parentSession).first(where: { $0.name == agentName }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Subagent Not Found", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
@@ -2564,8 +2563,7 @@ final class AppViewModel: NSObject {
     private func nativeSubagentDefaultOutcomes(parentSession: PiAgentSessionRecord, agentNames: [String]) -> [String: PiSubagentExpectedOutcome] {
         let requestedNames = Set(agentNames.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
         guard !requestedNames.isEmpty else { return [:] }
-        let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
-        return Dictionary(uniqueKeysWithValues: snapshot.effectiveAgents.compactMap { agent in
+        return Dictionary(uniqueKeysWithValues: catalogAgents(for: parentSession).compactMap { agent in
             guard requestedNames.contains(agent.name), let outcome = agent.resolved.defaultExpectedOutcome else { return nil }
             return (agent.name, outcome)
         })
@@ -2730,8 +2728,7 @@ final class AppViewModel: NSObject {
     }
 
     private func nativeSubagentCatalogPrompt(for session: PiAgentSessionRecord) -> String? {
-        let agents = startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
-            .filter { $0.resolved.disabled != true }
+        let agents = catalogAgents(for: session)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         guard !agents.isEmpty else { return nil }
         let lines = agents.map { agent in
@@ -4165,6 +4162,14 @@ final class AppViewModel: NSObject {
         }
     }
 
+    /// Persists a session's per-session subagent selection. `nil` restores the
+    /// default (all effective agents); a non-nil set pins an explicit choice.
+    func setAgentSelection(_ selection: Set<String>?, for sessionID: UUID) {
+        piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
+            session.agentSelection = selection
+        }
+    }
+
     private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {
         switch scope {
         case .global:
@@ -4249,6 +4254,43 @@ final class AppViewModel: NSObject {
         return snapshot.libraryAgents
             .filter { !effectiveNames.contains($0.name) }
             .map { libraryDisplayAgent(from: $0, projectRoot: snapshot.projectRoot) }
+    }
+
+    /// Every agent a session could pick for its subagent catalog: the
+    /// project-effective agents plus catalog-only and library agents not
+    /// otherwise assigned. Parameterized by project path so it resolves for
+    /// any session, not only the currently selected project.
+    func selectableAgentUniverse(forProjectPath path: String) -> [EffectiveAgentRecord] {
+        let snap = startupSnapshot(forProjectPath: path)
+        let effective = snap.effectiveAgents
+        let effectivePaths = Set(effective.compactMap(\.sourcePath).map(standardizedPath))
+        let catalogOnly = agentCatalog(forProjectPath: path)
+            .filter { $0.source.kind != .builtin && $0.source.kind != .library }
+            .filter { !effectivePaths.contains(standardizedPath($0.filePath)) }
+            .map { catalogDisplayAgent(from: $0, projectRoot: snap.projectRoot) }
+        let effectiveNames = Set(effective.map(\.name))
+        let libraryOnly = snap.libraryAgents
+            .filter { !effectiveNames.contains($0.name) }
+            .map { libraryDisplayAgent(from: $0, projectRoot: snap.projectRoot) }
+        return effective + catalogOnly + libraryOnly
+    }
+
+    /// The exact, deduplicated set of subagents advertised to — and delegable
+    /// by — a session. Single source of truth shared by the catalog prompt,
+    /// the delegation lookups, and the session resources popover. A `nil`
+    /// `agentSelection` keeps the historical default of all effective agents;
+    /// an explicit selection is resolved against the full universe so an agent
+    /// not assigned to the project can still be included.
+    func catalogAgents(for session: PiAgentSessionRecord) -> [EffectiveAgentRecord] {
+        let agents: [EffectiveAgentRecord]
+        if let selection = session.agentSelection {
+            agents = selectableAgentUniverse(forProjectPath: session.projectPath)
+                .filter { selection.contains($0.name) }
+        } else {
+            agents = startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
+        }
+        var seen = Set<String>()
+        return agents.filter { $0.resolved.disabled != true && seen.insert($0.name).inserted }
     }
 
     private var projectAssignedLibraryAgentsForAggregateView: [EffectiveAgentRecord] {

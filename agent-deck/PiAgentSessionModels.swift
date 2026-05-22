@@ -820,6 +820,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var pendingSteeringMessages: [String]
     var pendingFollowUpMessages: [String]
     var subagentsEnabled: Bool
+    var agentSelection: Set<String>?
     var isCompacting: Bool
     var isTitleUserEdited: Bool
     var createdAt: Date
@@ -838,7 +839,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
         case finalSystemPrompt, finalSystemPromptCapturedAt
-        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, isCompacting, isTitleUserEdited, createdAt, updatedAt
+        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, agentSelection, isCompacting, isTitleUserEdited, createdAt, updatedAt
     }
 
     init(
@@ -884,6 +885,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         pendingSteeringMessages: [String],
         pendingFollowUpMessages: [String],
         subagentsEnabled: Bool,
+        agentSelection: Set<String>? = nil,
         isCompacting: Bool = false,
         isTitleUserEdited: Bool = false,
         createdAt: Date,
@@ -931,6 +933,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.pendingSteeringMessages = pendingSteeringMessages
         self.pendingFollowUpMessages = pendingFollowUpMessages
         self.subagentsEnabled = subagentsEnabled
+        self.agentSelection = agentSelection
         self.isCompacting = isCompacting
         self.isTitleUserEdited = isTitleUserEdited
         self.createdAt = createdAt
@@ -982,6 +985,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
             pendingFollowUpMessages: try container.decodeIfPresent([String].self, forKey: .pendingFollowUpMessages) ?? [],
             subagentsEnabled: try container.decodeIfPresent(Bool.self, forKey: .subagentsEnabled) ?? true,
+            agentSelection: try container.decodeIfPresent(Set<String>.self, forKey: .agentSelection),
             isCompacting: try container.decodeIfPresent(Bool.self, forKey: .isCompacting) ?? false,
             isTitleUserEdited: try container.decodeIfPresent(Bool.self, forKey: .isTitleUserEdited) ?? false,
             createdAt: try container.decode(Date.self, forKey: .createdAt),
