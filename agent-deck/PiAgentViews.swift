@@ -3182,6 +3182,10 @@ private struct PiAgentComposerPanel: View {
             composerSuggestionScrollTick += 1
             composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
             refreshFileSuggestions()
+            // Mirror the draft into the session store on every keystroke so an
+            // unsent message survives a window re-key (a theme change rebuilds
+            // the view tree). `onAppear` below restores it into the new tree.
+            saveComposerDraft(for: store.selectedSession?.id)
         }
         .onAppear {
             syncRuntimeFooterSnapshot()

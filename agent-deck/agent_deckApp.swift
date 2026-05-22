@@ -60,6 +60,7 @@ final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
 struct agent_deckApp: App {
     @NSApplicationDelegateAdaptor(AgentDeckAppDelegate.self) private var appDelegate
     @State private var viewModel = AppViewModel()
+    @State private var themeManager = ThemeManager.shared
 
     init() {
         AppFonts.registerBundledFonts()
@@ -71,6 +72,10 @@ struct agent_deckApp: App {
                 .environment(viewModel)
                 .environmentObject(appDelegate.updater)
                 .preferredColorScheme(.dark)
+                // `AppTheme`'s themed tokens are computed `static var`s, so a
+                // theme switch is invisible to SwiftUI's dependency graph.
+                // Re-keying on the theme revision forces a uniform repaint.
+                .id(themeManager.revision)
         }
         .defaultSize(width: 1180, height: 760)
         .windowToolbarStyle(.unified)

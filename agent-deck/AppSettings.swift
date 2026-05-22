@@ -68,6 +68,8 @@ struct AppSettings: Codable, Hashable {
     var defaultPromptTemplateNames: Set<String> = []
     var externalPromptPaths: Set<String> = []
     var didMigrateAgentAssignmentsFromDiscoveredFiles: Bool = false
+    var selectedThemeID: UUID = Theme.defaultTheme.id
+    var customThemes: [Theme] = []
 
     enum CodingKeys: String, CodingKey {
         case gitHubBoardCacheLifetimeMinutes
@@ -104,6 +106,8 @@ struct AppSettings: Codable, Hashable {
         case defaultPromptTemplateNames
         case externalPromptPaths
         case didMigrateAgentAssignmentsFromDiscoveredFiles
+        case selectedThemeID
+        case customThemes
     }
 
     init() {}
@@ -146,6 +150,8 @@ struct AppSettings: Codable, Hashable {
         defaultPromptTemplateNames = try container.decodeIfPresent(Set<String>.self, forKey: .defaultPromptTemplateNames) ?? []
         externalPromptPaths = try container.decodeIfPresent(Set<String>.self, forKey: .externalPromptPaths) ?? []
         didMigrateAgentAssignmentsFromDiscoveredFiles = try container.decodeIfPresent(Bool.self, forKey: .didMigrateAgentAssignmentsFromDiscoveredFiles) ?? false
+        selectedThemeID = try container.decodeIfPresent(UUID.self, forKey: .selectedThemeID) ?? Theme.defaultTheme.id
+        customThemes = try container.decodeIfPresent([Theme].self, forKey: .customThemes) ?? []
     }
 }
 

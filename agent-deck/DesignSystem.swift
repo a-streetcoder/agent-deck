@@ -10,19 +10,18 @@ enum AppTheme {
     static let toolbarIconFrame = CGSize(width: 26, height: 20)
     static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
 
-    // Brand accent comes from the `AccentColor` asset catalog colorset (currently
-    // Apple's cyan) — one source of truth that also drives the macOS global
-    // accent. The three derived shades below are hand-tuned cyan-family variants;
-    // if the colorset hue ever changes they must be regenerated to match,
-    // otherwise the primary-button gradient and strokes will clash with it.
-    static let brandAccent = Color("AccentColor")
-    static let brandAccentBright = adaptiveColor(light: RGB(105, 200, 245), dark: RGB(150, 228, 255))
-    static let brandAccentDeep = adaptiveColor(light: RGB(20, 112, 168), dark: RGB(56, 140, 192))
-    static let brandAccentShadow = adaptiveColor(light: RGB(213, 238, 250), dark: RGB(28, 58, 80))
-    // Halfway between the original Color.purple and a fully softened variant — keeps
-    // the original's punch in light mode while easing the dark-mode saturation just
-    // enough to sit on the dark transcript surface without screaming.
-    static let assistantAccent = adaptiveColor(light: RGB(155, 82, 207), dark: RGB(186, 110, 238))
+    // Brand accent and the assistant tint are theme-driven — see Theme.swift and
+    // ThemeManager. The macOS *global* accent still comes from the `AccentColor`
+    // asset catalog (Apple's cyan); it is intentionally left fixed because in-app
+    // surfaces are almost entirely custom-styled, so a few unstyled system
+    // controls keeping the system accent is not noticeable. The bright/deep/shadow
+    // shades are derived from the accent by ThemeManager so the primary-button
+    // gradient and strokes always stay in the accent's color family.
+    static var brandAccent: Color { ThemeManager.shared.activeTheme.accent.color }
+    static var brandAccentBright: Color { ThemeManager.shared.accentBright.color }
+    static var brandAccentDeep: Color { ThemeManager.shared.accentDeep.color }
+    static var brandAccentShadow: Color { ThemeManager.shared.accentShadow.color }
+    static var assistantAccent: Color { ThemeManager.shared.activeTheme.assistant.color }
 
     // Official Pi coding-agent brand mark. Near-black (#09090B) on light, white
     // on dark — the pi logo should read as a logo, not a tinted glyph. Apply
@@ -35,15 +34,15 @@ enum AppTheme {
     // fixed opacity scale below. Dark variants are desaturated and lightened so
     // the tints sit calmly on the dark transcript surface instead of
     // over-saturating the way raw system colors (.orange/.red/.indigo) do.
-    static let roleUser = assistantAccent
-    static let roleThinking = adaptiveColor(light: RGB(86, 100, 214), dark: RGB(140, 151, 232))
-    static let roleTool = adaptiveColor(light: RGB(184, 121, 28), dark: RGB(221, 168, 78))
-    static let roleError = adaptiveColor(light: RGB(206, 59, 59), dark: RGB(229, 116, 108))
-    static let roleStderr = adaptiveColor(light: RGB(192, 70, 126), dark: RGB(224, 138, 178))
+    static var roleUser: Color { assistantAccent }
+    static var roleThinking: Color { ThemeManager.shared.activeTheme.thinking.color }
+    static var roleTool: Color { ThemeManager.shared.activeTheme.tool.color }
+    static var roleError: Color { ThemeManager.shared.activeTheme.error.color }
+    static var roleStderr: Color { ThemeManager.shared.activeTheme.stderr.color }
     static let roleStatus = mutedText
     // Diff line accents.
-    static let diffAdded = adaptiveColor(light: RGB(47, 158, 92), dark: RGB(86, 201, 138))
-    static let diffRemoved = roleError
+    static var diffAdded: Color { ThemeManager.shared.activeTheme.diffAdded.color }
+    static var diffRemoved: Color { roleError }
     // Fixed tint scale for role-derived surfaces — replaces ad-hoc per-role opacities.
     static let roleFillOpacity = 0.08
     static let roleFillStrongOpacity = 0.10
@@ -72,10 +71,10 @@ enum AppTheme {
     static let hairlineStroke = Color(nsColor: .separatorColor).opacity(0.38)
     static let contentSubtleFill = Color(nsColor: .controlColor).opacity(0.62)
     static let selectionFill = Color.primary.opacity(0.055)
-    static let selectionStroke = brandAccent.opacity(0.24)
+    static var selectionStroke: Color { brandAccent.opacity(0.24) }
     static let selectionGlow = Color.clear
-    static let accentSelectionFill = brandAccent.opacity(0.10)
-    static let accentSelectionStroke = brandAccent.opacity(0.32)
+    static var accentSelectionFill: Color { brandAccent.opacity(0.10) }
+    static var accentSelectionStroke: Color { brandAccent.opacity(0.32) }
     static let mutedText = Color.secondary
     static let accentForeground = adaptiveColor(light: RGB(255, 255, 255), dark: RGB(0, 0, 0))
 
