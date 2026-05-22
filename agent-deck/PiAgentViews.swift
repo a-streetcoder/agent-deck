@@ -927,6 +927,20 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 }
             }
             guard !rows.isEmpty else { return }
+            // When the user is parked mid-transcript (not pinned to the bottom),
+            // a row re-tiling from its rough char-count estimate to its true
+            // measured height shifts everything below that row. NSTableView keeps
+            // row 0 pinned to the document top, so a height correction to any row
+            // at or above the viewport yanks the visible content out from under
+            // the reader. Capture the top-visible row first and restore its
+            // on-screen position right after the re-tile, so corrections above
+            // the fold are absorbed silently. Without this, scrolling up through
+            // never-measured rows makes every row jump as it measures — the
+            // "scroll fight" / shaking the transcript exhibits.
+            // Skip anchoring only when auto-follow is about to run — that path
+            // jumps to the bottom anyway, so preserving the old offset is moot.
+            let willAutoFollow = wasPinned && !isUserScrollingRecently
+            let anchor = willAutoFollow ? nil : captureScrollAnchor()
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             // Suppress implicit Core Animation actions so a streaming row's
@@ -934,9 +948,14 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             tableView.noteHeightOfRows(withIndexesChanged: rows)
+            if let anchor {
+                // rect(ofRow:) must see the new heights before we re-anchor.
+                tableView.layoutSubtreeIfNeeded()
+                restoreScrollAnchor(anchor)
+            }
             CATransaction.commit()
             NSAnimationContext.endGrouping()
-            if wasPinned && !isUserScrollingRecently {
+            if willAutoFollow {
                 scrollToBottom(settle: false)
             }
         }
@@ -961,15 +980,25 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func restoreScrollAnchorIfNeeded(_ anchor: ScrollAnchor?) {
             // Don't restore over a live user gesture — let their scroll stand.
-            guard !isUserScrollingRecently else { return }
-            guard let anchor, let tableView, let scrollView,
+            // (The height-change compensation path uses `restoreScrollAnchor`
+            // directly, since there it must run *during* the gesture.)
+            guard !isUserScrollingRecently, let anchor else { return }
+            restoreScrollAnchor(anchor)
+        }
+
+        /// Re-scroll so `anchor`'s row sits at the same on-screen offset it had
+        /// when the anchor was captured. Unlike `restoreScrollAnchorIfNeeded`,
+        /// this runs even mid-gesture — it is the height-change compensation
+        /// that keeps a row re-tile from shifting content under the user.
+        private func restoreScrollAnchor(_ anchor: ScrollAnchor) {
+            guard let tableView, let scrollView,
                   let row = orderedIDs.firstIndex(of: anchor.id),
                   row >= 0, row < tableView.numberOfRows,
                   let documentView = scrollView.documentView else { return }
             let rowRect = tableView.rect(ofRow: row)
             let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
             let targetY = min(max(0, rowRect.minY + anchor.offsetFromRowTop), maxY)
-            guard abs(scrollView.contentView.bounds.origin.y - targetY) > 1 else { return }
+            guard abs(scrollView.contentView.bounds.origin.y - targetY) > 0.5 else { return }
             isProgrammaticScroll = true
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
