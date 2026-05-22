@@ -5247,7 +5247,7 @@ final class AppViewModel: NSObject {
         applyProjectPreferenceChanges()
         // Project assignment only mutates UserDefaults — nothing on disk
         // changed. Reconcile snapshot-derived state in memory instead of
-        // re-walking the filesystem.
+        // re-walking the filesystem, so the toggle is instant.
         reconcileSnapshotsFromPreferences()
         selectedCommandItemID = allVisiblePromptTemplateRecords.first { $0.name == prompt.name }?.id ?? selectedCommandItemID
     }
@@ -5602,7 +5602,7 @@ final class AppViewModel: NSObject {
         applyProjectPreferenceChanges()
         // Project assignment only mutates UserDefaults — nothing on disk
         // changed. Reconcile snapshot-derived state in memory instead of
-        // re-walking the filesystem.
+        // re-walking the filesystem, so the toggle is instant.
         reconcileSnapshotsFromPreferences()
         selectedSkillID = allVisibleSkillRecords.first { $0.name == skill.name }?.id ?? selectedSkillID
     }

@@ -1287,6 +1287,10 @@ private struct AgentAssignmentToggleRow: View {
                 .labelsHidden()
                 .controlSize(.regular)
                 .frame(width: 18)
+                // Visual indicator only; the row's `.onTapGesture` is the sole
+                // tap handler. Letting the checkbox also handle clicks fires
+                // the toggle twice when the box itself is clicked.
+                .allowsHitTesting(false)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)

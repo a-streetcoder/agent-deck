@@ -12,6 +12,11 @@ struct ProjectAssignmentToggleRow: View {
                 .labelsHidden()
                 .controlSize(.regular)
                 .frame(width: 18)
+                // The whole row is the tap target (`.onTapGesture` below). The
+                // checkbox is a visual indicator only — if it also handled
+                // clicks, clicking the box itself would fire both handlers and
+                // toggle twice (the "selected then unselected" flicker).
+                .allowsHitTesting(false)
 
             ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
 

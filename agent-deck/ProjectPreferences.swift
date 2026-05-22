@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Observation
 
 struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
     let path: String
@@ -45,6 +46,11 @@ struct ProjectPreference: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+/// `@Observable` so SwiftUI re-renders assignment checkboxes the moment a
+/// preference changes. Without it, toggle rows read `preferencesByPath` with no
+/// tracked dependency and only refresh on a full view rebuild (navigate away
+/// and back).
+@Observable
 @MainActor
 final class ProjectPreferencesStore {
     static let shared = ProjectPreferencesStore()
