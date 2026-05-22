@@ -413,6 +413,30 @@ private struct PiAgentTranscriptBlockDescriptor {
     var bottomInset: CGFloat = 0
 }
 
+// MARK: - Transcript scroll diagnostics (TEMPORARY)
+// Flip `txScrollDebug` to false to silence. Every line is tagged `[TX <time>]`
+// (filter the Xcode console with that prefix). Lines are ALSO mirrored to
+// /tmp/agentdeck-tx.log — written on a background queue so the logging itself
+// adds no main-thread work that could pollute the jank being measured.
+private let txScrollDebug = true
+private let txScrollT0 = CACurrentMediaTime()
+private let txLogQueue = DispatchQueue(label: "agentdeck.txlog")
+private let txLogHandle: FileHandle? = {
+    let path = "/tmp/agentdeck-tx.log"
+    FileManager.default.createFile(atPath: path, contents: nil)   // truncate per launch
+    return try? FileHandle(forWritingTo: URL(fileURLWithPath: path))
+}()
+@inline(__always)
+private func txlog(_ message: @autoclosure () -> String) {
+    guard txScrollDebug else { return }
+    let line = "[TX \(String(format: "%9.3f", CACurrentMediaTime() - txScrollT0))] \(message())"
+    print(line)
+    if let data = (line + "\n").data(using: .utf8) {
+        txLogQueue.async { txLogHandle?.write(data) }
+    }
+}
+private func txShort(_ id: String) -> String { id.count > 18 ? "…\(id.suffix(17))" : id }
+
 private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     let items: [PiAgentAppKitTranscriptItem]
     let sessionID: UUID?
@@ -484,6 +508,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        txlog("updateNSView  items=\(items.count)  render=\(renderRevision)  stream=\(streamingRevision)  bottomReq=\(bottomScrollRequest)")
         let coordinator = context.coordinator
         coordinator.onPinnedToBottomChange = onPinnedToBottomChange
         coordinator.updateColumnWidthIfNeeded()
@@ -540,6 +565,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         // Tracked separately from `measuredHeightByID` so a cache change that
         // doesn't actually change the laid-out height can't trigger a spurious
         private var lastNotedHeight: [String: CGFloat] = [:]
+        // Diagnostics: detect scroll-direction reversals (the shake signature).
+        private var txLastScrollY: CGFloat = 0
+        private var txLastScrollDelta: CGFloat = 0
+        private var txReversalStacksLogged = 0
         // LRU of live hosting views keyed by block id. Reattaching a warm host
         // when a block scrolls back into view skips the SwiftUI graph rebuild.
         // Bounded so a long transcript can't grow memory without limit. The
@@ -638,6 +667,26 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let scrollView = self.scrollView else { return }
+                    let y = scrollView.contentView.bounds.origin.y
+                    let docH = scrollView.documentView?.bounds.height ?? 0
+                    txlog("scroll  y=\(Int(y))  docH=\(Int(docH))  prog=\(self.isProgrammaticScroll)  live=\(self.isLiveScrolling)  userRecently=\(self.isUserScrollingRecently)")
+                    // Shake detector: when the scroll direction reverses by a
+                    // visible amount, dump the call stack. Because the bounds
+                    // observer is `queue: nil` (synchronous), this stack shows
+                    // *exactly who set the scroll position* — AppKit gesture
+                    // code, a table re-tile, or app code.
+                    let delta = y - self.txLastScrollY
+                    if abs(delta) > 1.5, self.txLastScrollDelta != 0,
+                       (delta > 0) != (self.txLastScrollDelta > 0),
+                       self.txReversalStacksLogged < 40 {
+                        self.txReversalStacksLogged += 1
+                        txlog("↩︎ REVERSAL #\(self.txReversalStacksLogged)  y=\(Int(y))  delta=\(Int(delta))  prog=\(self.isProgrammaticScroll)  — who moved the scroll:")
+                        for frame in Thread.callStackSymbols.dropFirst(2).prefix(26) {
+                            txlog("      \(frame)")
+                        }
+                    }
+                    if abs(delta) > 0.5 { self.txLastScrollDelta = delta }
+                    self.txLastScrollY = y
                     if !self.isProgrammaticScroll {
                         // Authoritative user-scroll timestamp — covers mouse
                         // wheels and scroller drags that post no live-scroll
@@ -663,7 +712,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.updateColumnWidthIfNeeded()
+                    guard let self else { return }
+                    if let sv = self.scrollView {
+                        txlog("FRAME  scrollView=\(Int(sv.frame.width))x\(Int(sv.frame.height))  clip=\(Int(sv.contentView.bounds.width))x\(Int(sv.contentView.bounds.height))")
+                    }
+                    self.updateColumnWidthIfNeeded()
                 }
             }
 
@@ -727,6 +780,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let nextIDs = items.map(\.id)
             let nextRevisions = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.contentRevision) })
             let idsChanged = nextIDs != orderedIDs
+            txlog("apply  ids=\(nextIDs.count)  idsChanged=\(idsChanged)  sessionSwitch=\(isSessionSwitch)  wasPinned=\(wasPinned)  userScroll=\(isUserScrollingRecently)  explicit=\(explicitScroll)  render=\(renderRevision)  stream=\(streamingRevision)")
 
             if isSessionSwitch || idsChanged {
                 let anchor = (!isSessionSwitch && !explicitScroll && !wasPinned) ? captureScrollAnchor() : nil
@@ -773,6 +827,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
                 for (id, revision) in nextRevisions { contentRevisionByID[id] = revision }
                 if !changedIDs.isEmpty {
+                    txlog("apply.changedIDs count=\(changedIDs.count)  \(changedIDs.prefix(8).map(txShort))")
                     // Keep the last measured height (see the idsChanged branch):
                     // the cell re-renders and reports the new height, so the
                     // streaming row grows real→real with no estimate jump.
@@ -805,6 +860,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard let scrollView, let tableView else { return }
             let width = max(200, scrollView.contentView.bounds.width)
             guard abs(width - contentWidth) > 0.5 else { return }
+            txlog("WIDTH CHANGE \(Int(contentWidth)) -> \(Int(width))  (bucket \(Int(contentWidth.rounded())) -> \(Int(width.rounded())))  estimates wiped")
             contentWidth = width
             tableView.tableColumns.first?.width = width
             // Re-fit the table to the clip view so the document view shrinks
@@ -940,6 +996,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             // laid-out height actually changing.
             let baseline = lastNotedHeight[itemID] ?? priorMeasured ?? estimatedRowHeight
             let delta = abs(baseline - height)
+            txlog("measured  id=\(txShort(itemID))  w=\(bucket)  baseline=\(Int(baseline))  new=\(Int(height))  delta=\(Int(delta))  \(delta > heightChangeEpsilon ? "→ RETILE" : "(stable)")")
             guard delta > heightChangeEpsilon else { return }
             pendingHeightIDs.insert(itemID)
             guard pendingHeightWork == nil else { return }
@@ -971,17 +1028,26 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard !rows.isEmpty else { return }
             // A row re-tiling to its true height shifts everything below it.
             // NSTableView pins row 0 to the document top, so a correction to any
-            // row at or above the viewport yanks visible content out from under a
-            // reader parked mid-transcript. Capture the top-visible row and
-            // restore its on-screen offset right after the re-tile so the shift
-            // is absorbed silently.
+            // row at or above the viewport yanks visible content out from under
+            // the reader. Capture the top-visible row and restore its on-screen
+            // offset right after the re-tile so the shift is absorbed silently.
             //
-            // Compensate only when parked
-            // (not pinned) and not mid-gesture. A live scroll is authoritative —
-            // a programmatic scroll then would fight the gesture — and auto-follow
-            // jumps to the bottom anyway, so in both cases the old offset is moot.
+            // Compensate whenever we're NOT about to auto-follow — INCLUDING
+            // mid-gesture. The console trace proved rows above the viewport
+            // re-tile during a live scroll here (⚠️ UNCOMPENSATED RE-TILE);
+            // osaurus can skip mid-gesture compensation only because its heights
+            // are accurate, agent-deck's estimator is not.
             let willAutoFollow = wasPinned && !isUserScrollingRecently
-            let preserveAnchor = !wasPinned && !isUserScrollingRecently
+            let preserveAnchor = !willAutoFollow
+            let originYBefore = scrollView.contentView.bounds.origin.y
+            txlog("noteHeights  rows=\(rows.sorted())  pinned=\(wasPinned)  userScroll=\(isUserScrollingRecently)  preserveAnchor=\(preserveAnchor)  willAutoFollow=\(willAutoFollow)  originY=\(Int(originYBefore))")
+            for r in rows.sorted() {
+                let rr = tableView.rect(ofRow: r)
+                let aboveTop = rr.minY < originYBefore - 0.5
+                txlog("   row \(r)  minY=\(Int(rr.minY))  h=\(Int(rr.height))" +
+                      (aboveTop ? "  ← AT/ABOVE viewport top" : "") +
+                      (aboveTop && !preserveAnchor && !willAutoFollow ? "   ⚠️ UNCOMPENSATED RE-TILE — likely shake" : ""))
+            }
             let anchor = preserveAnchor ? captureScrollAnchor() : nil
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
@@ -997,6 +1063,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             }
             CATransaction.commit()
             NSAnimationContext.endGrouping()
+            let originYAfter = scrollView.contentView.bounds.origin.y
+            txlog("noteHeights done  originY \(Int(originYBefore)) -> \(Int(originYAfter))" +
+                  (abs(originYAfter - originYBefore) > 0.5 ? "  (moved \(Int(originYAfter - originYBefore)))" : ""))
             if willAutoFollow {
                 scrollToBottom(settle: false)
             }
@@ -1041,6 +1110,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let maxY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
             let targetY = min(max(0, rowRect.minY + anchor.offsetFromRowTop), maxY)
             guard abs(scrollView.contentView.bounds.origin.y - targetY) > 0.5 else { return }
+            txlog("restoreAnchor  id=\(txShort(anchor.id))  y \(Int(scrollView.contentView.bounds.origin.y)) -> \(Int(targetY))")
             isProgrammaticScroll = true
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -1049,6 +1119,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 
         private func handleScrollAfterUpdate(isSessionSwitch: Bool, explicitScroll: Bool, wasPinned: Bool) {
             guard let scrollView else { return }
+            txlog("afterUpdate  sessionSwitch=\(isSessionSwitch)  explicit=\(explicitScroll)  wasPinned=\(wasPinned)  userScroll=\(isUserScrollingRecently)  → \(isSessionSwitch || explicitScroll ? "scrollToBottom(settle)" : (wasPinned && !isUserScrollingRecently ? "scrollToBottom(follow)" : "nothing"))")
             if isSessionSwitch || explicitScroll {
                 // An explicit request (send, jump-to-latest) or a session
                 // switch always wins — the user isn't fighting it.
@@ -1102,6 +1173,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 publishPinnedState(true)
                 return
             }
+            txlog("performScrollToBottom  y \(Int(clipView.bounds.origin.y)) -> maxY \(Int(maxY))")
             isProgrammaticScroll = true
             clipView.scroll(to: NSPoint(x: 0, y: maxY))
             scrollView.reflectScrolledClipView(clipView)
@@ -1144,6 +1216,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             if let item = itemByID[id] {
                 let est = item.estimatedHeight(contentWidth)
                 estimateByID[id] = est
+                txlog("heightOfRow  row=\(row)  id=\(txShort(id))  CACHE-MISS w=\(widthBucket)  → estimate=\(Int(est))")
                 return est
             }
             return estimatedRowHeight
@@ -1254,6 +1327,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             guard intrinsic > 0, intrinsic.isFinite,
                   abs(intrinsic - lastIntrinsicHeight) > 0.5 else { return }
             lastIntrinsicHeight = intrinsic
+            txlog("cell.layout  id=\(txShort(itemID))  intrinsic=\(Int(intrinsic))  cellWidth=\(Int(configuredWidth))")
             onMeasuredHeight?(itemID, intrinsic)
         }
     }

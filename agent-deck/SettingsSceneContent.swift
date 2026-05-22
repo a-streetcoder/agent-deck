@@ -121,11 +121,12 @@ private struct SettingsSection<Content: View>: View {
 
 private struct SettingsRow<Content: View>: View {
     let title: String
+    var alignment: VerticalAlignment = .firstTextBaseline
     var note: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        HStack(alignment: alignment, spacing: 16) {
             Text(title)
                 .fontWeight(.semibold)
                 .frame(width: SettingsLayout.labelWidth, alignment: .trailing)
@@ -461,6 +462,7 @@ private struct AppearanceSettingsTab: View {
 
             SettingsRow(
                 title: "Accent shades:",
+                alignment: .top,
                 note: "Auto-derived from the accent for gradients and depth."
             ) {
                 HStack(spacing: 8) {
@@ -478,9 +480,10 @@ private struct AppearanceSettingsTab: View {
         _ keyPath: WritableKeyPath<Theme, ThemeColor>,
         note: String? = nil
     ) -> some View {
-        SettingsRow(title: "\(title):", note: note) {
+        SettingsRow(title: "\(title):", alignment: .top, note: note) {
             ColorPicker("", selection: colorBinding(keyPath), supportsOpacity: false)
                 .labelsHidden()
+                .frame(width: SettingsLayout.controlWidth, alignment: .leading)
         }
     }
 

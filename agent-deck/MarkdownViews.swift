@@ -651,6 +651,21 @@ private final class AutoSizingMarkdownTextView: NSTextView {
         super.layout()
         invalidateIntrinsicContentSize()
     }
+
+    /// Suppress NSTextView's "keep caret/selection visible" auto-scroll.
+    ///
+    /// On every frame-size change (each streaming token, each cell reconfigure)
+    /// NSTextView calls `_centeredScrollRectToVisible:` → `scrollRectToVisible(_:)`,
+    /// which walks to the enclosing scroll view and yanks the **transcript's**
+    /// scroll position to this text view's origin. With one of these views per
+    /// markdown block, that is the transcript "shake" / scroll fight — a console
+    /// trace caught it as `-[NSTextView _setFrameSize:forceScroll:]` driving the
+    /// clip view's bounds. This view is read-only and always sized to its full
+    /// content (see `intrinsicContentSize`), so self-scrolling has no purpose.
+    /// osaurus's read-only text view carries the same override.
+    override func scrollToVisible(_ rect: NSRect) -> Bool {
+        false
+    }
 }
 
 @MainActor

@@ -5,6 +5,12 @@ import Foundation
 nonisolated enum ProjectType: String, CaseIterable, Sendable {
     case xcode
     case nextjs
+    case react
+    case vue
+    case nuxt
+    case astro
+    case sveltekit
+    case angular
     case tauri
     case electron
     case swiftPackage
@@ -21,6 +27,12 @@ nonisolated enum ProjectType: String, CaseIterable, Sendable {
         switch self {
         case .xcode: return "apple.logo"
         case .nextjs: return "globe"
+        case .react: return "atom"
+        case .vue: return "triangle.fill"
+        case .nuxt: return "mountain.2.fill"
+        case .astro: return "moon.stars"
+        case .sveltekit: return "bolt.fill"
+        case .angular: return "shield.fill"
         case .tauri, .electron: return "macwindow"
         case .swiftPackage: return "shippingbox"
         case .go: return "chevron.left.forwardslash.chevron.right"
@@ -48,6 +60,12 @@ nonisolated enum ProjectType: String, CaseIterable, Sendable {
         switch self {
         case .xcode: return "Xcode"
         case .nextjs: return "Next.js"
+        case .react: return "React"
+        case .vue: return "Vue"
+        case .nuxt: return "Nuxt"
+        case .astro: return "Astro"
+        case .sveltekit: return "SvelteKit"
+        case .angular: return "Angular"
         case .tauri: return "Tauri"
         case .electron: return "Electron"
         case .swiftPackage: return "Swift Package"
@@ -104,17 +122,67 @@ nonisolated enum ProjectType: String, CaseIterable, Sendable {
         if existsAny(["Gemfile", "Rakefile", ".ruby-version"]) {
             return .ruby
         }
-        // Static-site generator configs are specific enough to win over a bare
-        // package.json; a plain `index.html` is only a last resort below.
-        if existsAny(["_config.yml", "astro.config.mjs", "astro.config.js", "astro.config.ts", "mkdocs.yml"]) {
+        // JS frameworks with a unique config file. Nuxt is checked before Vue
+        // (a Nuxt project also depends on `vue`); Astro is its own type rather
+        // than a generic static site.
+        if existsAny(["nuxt.config.js", "nuxt.config.ts", "nuxt.config.mjs"]) {
+            return .nuxt
+        }
+        if existsAny(["astro.config.mjs", "astro.config.js", "astro.config.ts", "astro.config.mts"]) {
+            return .astro
+        }
+        if existsAny(["svelte.config.js", "svelte.config.mjs"]) {
+            return .sveltekit
+        }
+        if exists("angular.json") {
+            return .angular
+        }
+        // Static-site generators (Jekyll, MkDocs) are specific enough to win
+        // over a bare package.json; a plain `index.html` is only a last resort.
+        if existsAny(["_config.yml", "mkdocs.yml"]) {
             return .staticSite
         }
+        // Vue and React have no guaranteed marker file — they are identified by
+        // a dependency in package.json. Meta-frameworks are matched first so a
+        // project isn't mislabeled as the framework it is built on.
         if exists("package.json") {
+            let dependencies = packageJSONDependencies(at: url, fileManager: fileManager)
+            if dependencies.contains("astro") { return .astro }
+            if dependencies.contains("nuxt") { return .nuxt }
+            if dependencies.contains("next") { return .nextjs }
+            if dependencies.contains("@angular/core") { return .angular }
+            if dependencies.contains("@sveltejs/kit") { return .sveltekit }
+            if dependencies.contains("vue") { return .vue }
+            if dependencies.contains("react") { return .react }
             return .node
         }
         if exists("index.html") {
             return .staticSite
         }
         return .unknown
+    }
+
+    /// The merged `dependencies` + `devDependencies` package names from a
+    /// `package.json` in the project root. Empty when the file is absent or
+    /// malformed — callers treat that as "no framework dependency found".
+    private static func packageJSONDependencies(
+        at url: URL,
+        fileManager: FileManager
+    ) -> Set<String> {
+        let packageURL = url.appendingPathComponent("package.json")
+        guard fileManager.fileExists(atPath: packageURL.path),
+              let data = try? Data(contentsOf: packageURL),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let json = object as? [String: Any]
+        else {
+            return []
+        }
+        var names: Set<String> = []
+        for key in ["dependencies", "devDependencies"] {
+            if let group = json[key] as? [String: Any] {
+                names.formUnion(group.keys)
+            }
+        }
+        return names
     }
 }
