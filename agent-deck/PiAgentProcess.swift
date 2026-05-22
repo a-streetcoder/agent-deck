@@ -146,7 +146,9 @@ nonisolated final class PiAgentProcess: @unchecked Sendable {
     }
 }
 
-private nonisolated final class LineStreamReader: @unchecked Sendable {
+/// Buffers a `FileHandle`'s bytes and emits complete, non-empty lines.
+/// Shared by `PiAgentProcess` and `ManagedProcess`.
+nonisolated final class LineStreamReader: @unchecked Sendable {
     private let handle: FileHandle
     private let callback: @Sendable ([String]) -> Void
     private let lock = NSLock()

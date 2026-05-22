@@ -200,7 +200,8 @@ struct SidebarProjectGitHubCard: View {
                 ProjectIconView(
                     imageURL: selectedProject?.iconFileURL,
                     symbolName: selectedProject?.fallbackSymbolName ?? "square.grid.2x2",
-                    size: 34
+                    size: 34,
+                    assetName: selectedProject?.projectType.assetName
                 )
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -397,6 +398,7 @@ struct ProjectPickerPopover: View {
                             subtitle: project.path,
                             symbolName: project.fallbackSymbolName,
                             imageURL: project.iconFileURL,
+                            assetName: project.projectType.assetName,
                             isSelected: selectedProjectPath == project.path,
                             action: { select(project) }
                         )
@@ -427,6 +429,7 @@ struct ProjectSidebarRow: View {
     let subtitle: String
     let symbolName: String
     let imageURL: URL?
+    var assetName: String? = nil
     let isSelected: Bool
     let action: () -> Void
 
@@ -435,7 +438,7 @@ struct ProjectSidebarRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28)
+                ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: 28, assetName: assetName)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)

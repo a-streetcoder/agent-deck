@@ -18,7 +18,7 @@ struct ProjectAssignmentToggleRow: View {
                 // toggle twice (the "selected then unselected" flicker).
                 .allowsHitTesting(false)
 
-            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30)
+            ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 30, assetName: project.projectType.assetName)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(project.name)
@@ -66,6 +66,7 @@ private struct ProjectIconEditorButton: View {
     let imageURL: URL?
     let symbolName: String
     let size: CGFloat
+    var assetName: String? = nil
     let action: () -> Void
 
     @State private var isHovering = false
@@ -73,7 +74,7 @@ private struct ProjectIconEditorButton: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
-                ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: size)
+                ProjectIconView(imageURL: imageURL, symbolName: symbolName, size: size, assetName: assetName)
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(isHovering ? Color.black.opacity(0.18) : .clear)
@@ -108,6 +109,9 @@ struct ProjectIconView: View {
     let imageURL: URL?
     let symbolName: String
     let size: CGFloat
+    /// Optional `Assets.xcassets` entry for the project type. Rendered when the
+    /// asset exists in the catalog; otherwise falls back to the SF Symbol.
+    var assetName: String? = nil
 
     @State private var image: NSImage?
 
@@ -117,6 +121,11 @@ struct ProjectIconView: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
+            } else if let assetName, !assetName.isEmpty, NSImage(named: assetName) != nil {
+                Image(assetName)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(6)
             } else {
                 Image(systemName: symbolName)
                     .resizable()
@@ -747,6 +756,7 @@ struct ProjectsScreen: View {
                 imageURL: project.iconFileURL,
                 symbolName: project.fallbackSymbolName,
                 size: 28,
+                assetName: project.projectType.assetName,
                 action: { viewModel.chooseCustomIcon(for: project) }
             )
 
@@ -928,7 +938,7 @@ private struct PiSystemInstructionsProjectDetail: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             if let project {
-                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32, assetName: project.projectType.assetName)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Project System Prompt")
                         .font(.headline)
@@ -1428,7 +1438,7 @@ private struct ProjectAgentsRecapSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34)
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34, assetName: project.projectType.assetName)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Project Agents")
@@ -1564,7 +1574,7 @@ private struct ProjectSkillsRecapSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34)
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 34, assetName: project.projectType.assetName)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Project Skills")
