@@ -24,7 +24,6 @@ final class AgentDeckAppDelegate: NSObject, NSApplicationDelegate, UNUserNotific
         // layer so menus, file panels, and the Sparkle updater are dark too
         // (SwiftUI's `.preferredColorScheme` does not reach those surfaces).
         NSApp.appearance = NSAppearance(named: .darkAqua)
-        AppFonts.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = self
         updater.checkForUpdatesInBackground()
     }

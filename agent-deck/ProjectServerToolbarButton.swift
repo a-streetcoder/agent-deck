@@ -15,7 +15,7 @@ struct ProjectServerToolbarButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            Label("Dev Server", systemImage: hasActiveServer ? "bolt.horizontal.circle.fill" : "play.circle")
+            Label("Dev Server", systemImage: "server.rack")
                 .symbolEffect(.breathe, options: .repeating, isActive: hasActiveServer)
         }
         .symbolRenderingMode(.monochrome)

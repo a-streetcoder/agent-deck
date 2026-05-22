@@ -93,6 +93,16 @@ nonisolated struct AppRefreshService: Sendable {
             legacyGlobalAgentRoot.appendingPathComponent("skills", isDirectory: true)
         ]
 
+        // Watch the skill-repositories root as a single recursive watch. Every
+        // cloned repo lives under it, so this one entry covers all their skills
+        // once `watchPaths(for:)` prunes the now-redundant per-skill directories.
+        // Without it, each imported skill becomes its own watch path and the
+        // FSEventStream exhausts the process file-descriptor limit (EMFILE).
+        let skillRepositoriesRoot = SkillRepositorySyncService.repositoriesDirectoryURL()
+        if FileManager.default.fileExists(atPath: skillRepositoriesRoot.path) {
+            urls.append(skillRepositoriesRoot)
+        }
+
         for project in projects {
             let piRoot = project.url.appendingPathComponent(".pi", isDirectory: true)
             urls.append(piRoot.appendingPathComponent("agents", isDirectory: true))
@@ -246,7 +256,7 @@ nonisolated final class FileWatchEventMonitor {
     private static func watchPaths(for urls: [URL]) -> [String] {
         let fileManager = FileManager.default
         var seen: Set<String> = []
-        return urls.compactMap { url -> String? in
+        let directories = urls.compactMap { url -> String? in
             let standardized = url.standardizedFileURL
             var isDirectory: ObjCBool = false
             if fileManager.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
@@ -262,5 +272,23 @@ nonisolated final class FileWatchEventMonitor {
         }
         .filter { !$0.isEmpty && seen.insert($0).inserted }
         .sorted()
+
+        // FSEvents notifications are recursive — watching a directory already
+        // reports events for every descendant. Drop any path nested under
+        // another watched path so a single stream doesn't hold a file
+        // descriptor per skill subdirectory. Hundreds of imported-repo skills
+        // would otherwise exhaust the process fd limit (EMFILE), which then
+        // breaks font loading, asset catalogs, and dlopen across the whole app.
+        // `directories` is sorted, so each path's ancestor — if watched — is
+        // the most recently kept entry.
+        var collapsed: [String] = []
+        for path in directories {
+            if let ancestor = collapsed.last,
+               path == ancestor || path.hasPrefix(ancestor + "/") {
+                continue
+            }
+            collapsed.append(path)
+        }
+        return collapsed
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -554,13 +555,25 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var liveScrollEndObserver: NSObjectProtocol?
         private var lastPinnedState = true
         private var isProgrammaticScroll = false
-        // True while the user is actively scrolling — or just finished, within
-        // the `liveScrollSettleDelay` window. Passive auto-follow and anchor
-        // restoration are suppressed during this window so a streaming update
-        // can never yank the viewport out from under a user gesture.
-        private var isUserScrollingRecently = false
-        private var liveScrollEndWork: DispatchWorkItem?
-        private let liveScrollSettleDelay: TimeInterval = 0.35
+        // True between willStartLiveScroll / didEndLiveScroll — an authoritative
+        // "user is driving the scroll" signal, but it only fires for trackpad
+        // gestures and scroller-knob drags, not discrete mouse wheels.
+        private var isLiveScrolling = false
+        // CACurrentMediaTime of the most recent *user-driven* clip-bounds change,
+        // stamped on every non-programmatic boundsDidChange. Bridges the gap left
+        // by devices that post no live-scroll notification (mouse wheels) and
+        // covers debounced cell measurements that land just after a gesture ends.
+        private var lastUserScrollTime: CFTimeInterval = 0
+        private let userScrollGraceWindow: CFTimeInterval = 0.35
+        // True while the user is actively scrolling — or did within the grace
+        // window. Passive auto-follow and anchor restoration stay out of the way
+        // while this holds, so a streaming update can't yank the viewport out
+        // from under a user gesture. (osaurus's ScrollAnchorManager pattern:
+        // live-scroll notifications alone miss mouse wheels entirely.)
+        private var isUserScrollingRecently: Bool {
+            if isLiveScrolling { return true }
+            return CACurrentMediaTime() - lastUserScrollTime < userScrollGraceWindow
+        }
         private var contentWidth: CGFloat = 0
         private let estimatedRowHeight: CGFloat = 120
         private let heightChangeEpsilon: CGFloat = 0.5
@@ -604,14 +617,25 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         func setupScrollObservation(_ scrollView: NSScrollView) {
+            // queue: nil — synchronous delivery on the posting (main) thread.
+            // Required so `isProgrammaticScroll` still reads true when the
+            // notification for our own scroll mutation arrives: with queue:.main
+            // the block runs a runloop tick later, after the flag is cleared,
+            // and our self-induced bounds change would be mis-stamped as a user
+            // scroll — pinning `isUserScrollingRecently` true and killing
+            // streaming auto-follow.
             boundsObserver = NotificationCenter.default.addObserver(
                 forName: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView,
-                queue: .main
+                queue: nil
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let scrollView = self.scrollView else { return }
                     if !self.isProgrammaticScroll {
+                        // Authoritative user-scroll timestamp — covers mouse
+                        // wheels and scroller drags that post no live-scroll
+                        // notification at all.
+                        self.lastUserScrollTime = CACurrentMediaTime()
                         self.pendingScrollWork?.cancel()
                         self.pendingScrollWork = nil
                         self.pendingSettleScrollWork?.cancel()
@@ -636,36 +660,28 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 }
             }
 
-            // Live-scroll notifications are the authoritative "user is driving
-            // the scroll" signal — cleaner than inferring it from bounds
-            // changes. While the user scrolls (and for a short settle window
-            // after), auto-follow stays out of the way.
+            // Live-scroll notifications bracket trackpad gestures / scroller
+            // drags. They miss discrete mouse wheels entirely — the timestamp
+            // stamped in the bounds observer covers those, and the grace window
+            // in `isUserScrollingRecently` covers the tail after a gesture ends.
             liveScrollStartObserver = NotificationCenter.default.addObserver(
                 forName: NSScrollView.willStartLiveScrollNotification,
                 object: scrollView,
-                queue: .main
+                queue: nil
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.liveScrollEndWork?.cancel()
-                    self.liveScrollEndWork = nil
-                    self.isUserScrollingRecently = true
-                }
+                MainActor.assumeIsolated { self?.isLiveScrolling = true }
             }
             liveScrollEndObserver = NotificationCenter.default.addObserver(
                 forName: NSScrollView.didEndLiveScrollNotification,
                 object: scrollView,
-                queue: .main
+                queue: nil
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.liveScrollEndWork?.cancel()
-                    let work = DispatchWorkItem { [weak self] in
-                        self?.liveScrollEndWork = nil
-                        self?.isUserScrollingRecently = false
-                    }
-                    self.liveScrollEndWork = work
-                    DispatchQueue.main.asyncAfter(deadline: .now() + self.liveScrollSettleDelay, execute: work)
+                    self.isLiveScrolling = false
+                    // Start the grace window from gesture end so a streaming
+                    // update arriving right after release can't snap the view.
+                    self.lastUserScrollTime = CACurrentMediaTime()
                 }
             }
         }
@@ -680,7 +696,6 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingSettleScrollWork?.cancel()
             pendingRemeasureWork?.cancel()
             pendingWidthWork?.cancel()
-            liveScrollEndWork?.cancel()
             hostCache.removeAll()
             hostLRU.removeAll()
         }
@@ -937,8 +952,16 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             // the fold are absorbed silently. Without this, scrolling up through
             // never-measured rows makes every row jump as it measures — the
             // "scroll fight" / shaking the transcript exhibits.
-            // Skip anchoring only when auto-follow is about to run — that path
-            // jumps to the bottom anyway, so preserving the old offset is moot.
+            //
+            // NOTE — deliberate divergence from osaurus's ScrollAnchorManager:
+            // osaurus skips this compensation *during* a live scroll (gesture is
+            // authoritative; with its accurate estimator the residual shift is
+            // sub-pixel). agent-deck's char-count estimator produces large
+            // estimate→measured deltas, so the uncompensated shift is a visible
+            // shake — here we compensate during the gesture too. If the
+            // estimator is later made measurement-backed, this can match osaurus
+            // and skip during-scroll. Skipped only when auto-follow will run —
+            // that path jumps to the bottom anyway, so the old offset is moot.
             let willAutoFollow = wasPinned && !isUserScrollingRecently
             let anchor = willAutoFollow ? nil : captureScrollAnchor()
             NSAnimationContext.beginGrouping()
