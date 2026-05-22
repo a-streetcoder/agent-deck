@@ -95,7 +95,7 @@ struct CommandRunner: CommandRunning {
         }
     }
 
-    private func resolveExecutableURL(for command: String) async throws -> URL {
+    func resolveExecutableURL(for command: String) async throws -> URL {
         if command.contains("/") {
             return URL(fileURLWithPath: command)
         }
@@ -234,7 +234,7 @@ struct CommandRunner: CommandRunning {
         }
     }
 
-    private static func processEnvironment(merging environment: [String: String]?, executableURL: URL? = nil) -> [String: String] {
+    static func processEnvironment(merging environment: [String: String]?, executableURL: URL? = nil) -> [String: String] {
         var merged = ProcessInfo.processInfo.environment
         let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         if let existingPath = merged["PATH"], !existingPath.isEmpty {

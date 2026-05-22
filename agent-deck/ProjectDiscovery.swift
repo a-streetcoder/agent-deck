@@ -5,6 +5,7 @@ nonisolated struct DiscoveredProject: Identifiable, Hashable, Sendable {
     let gitHubRemote: GitHubRemote?
     let isGitRepository: Bool
     let iconFileURL: URL?
+    let projectType: ProjectType
     let fallbackSymbolName: String
     let searchIndex: String
 
@@ -69,12 +70,14 @@ nonisolated struct ProjectDiscovery {
             .joined(separator: "\n")
             .lowercased()
 
+            let projectType = projectType(for: standardizedURL)
             projects.append(DiscoveredProject(
                 url: standardizedURL,
                 gitHubRemote: remote,
                 isGitRepository: hasGitRepository(standardizedURL),
                 iconFileURL: preference?.customIconPath.flatMap { URL(fileURLWithPath: $0) },
-                fallbackSymbolName: fallbackSymbolName(for: standardizedURL),
+                projectType: projectType,
+                fallbackSymbolName: projectType.sfSymbolFallback,
                 searchIndex: searchIndex
             ))
         }
@@ -269,36 +272,10 @@ nonisolated struct ProjectDiscovery {
         return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    private func fallbackSymbolName(for url: URL) -> String {
-        if containsDescendant(withExtensions: ["xcodeproj", "xcworkspace"], in: url, maxDepth: 2) {
-            return "apple.logo"
+    private func projectType(for url: URL) -> ProjectType {
+        ProjectType.detect(at: url, fileManager: fileManager) {
+            containsDescendant(withExtensions: ["xcodeproj", "xcworkspace"], in: url, maxDepth: 2)
         }
-
-        if fileManager.fileExists(atPath: url.appendingPathComponent("next.config.js").path) ||
-            fileManager.fileExists(atPath: url.appendingPathComponent("next.config.mjs").path) ||
-            fileManager.fileExists(atPath: url.appendingPathComponent("next.config.ts").path) {
-            return "globe"
-        }
-
-        if fileManager.fileExists(atPath: url.appendingPathComponent("tauri.conf.json").path) ||
-            fileManager.fileExists(atPath: url.appendingPathComponent("electron-builder.json").path) ||
-            fileManager.fileExists(atPath: url.appendingPathComponent("electron.vite.config.ts").path) {
-            return "macwindow"
-        }
-
-        if fileManager.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
-            return "shippingbox"
-        }
-
-        if fileManager.fileExists(atPath: url.appendingPathComponent("package.json").path) {
-            return "curlybraces"
-        }
-
-        if fileManager.fileExists(atPath: url.appendingPathComponent("Cargo.toml").path) {
-            return "gearshape.2"
-        }
-
-        return "folder"
     }
 
     private func containsDescendant(withExtensions pathExtensions: Set<String>, in url: URL, maxDepth: Int) -> Bool {

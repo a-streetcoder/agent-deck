@@ -183,6 +183,7 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     @ObservationIgnored private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
     private let piSessionTitleGenerator = PiSessionTitleGenerationService()
+    let projectServerService = ProjectServerService()
     private var globalSnapshot: ScanSnapshot = .empty
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
@@ -316,6 +317,7 @@ final class AppViewModel: NSObject {
         piSessionTitleGenerator.cancelAll()
         piAgentRunner.stopAll(recordTranscript: recordTranscript)
         nativeSubagentRunner.stopAll(recordTranscript: recordTranscript)
+        projectServerService.terminateAll()
         nativeParallelSchedulersByID.removeAll()
     }
 
@@ -1050,6 +1052,7 @@ final class AppViewModel: NSObject {
                 gitHubRemote: project.gitHubRemote,
                 isGitRepository: project.isGitRepository,
                 iconFileURL: preference.customIconPath.flatMap { URL(fileURLWithPath: $0) },
+                projectType: project.projectType,
                 fallbackSymbolName: project.fallbackSymbolName,
                 searchIndex: project.searchIndex
             )
@@ -4595,7 +4598,8 @@ final class AppViewModel: NSObject {
             gitHubRemote: nil,
             isGitRepository: false,
             iconFileURL: nil,
-            fallbackSymbolName: "folder",
+            projectType: .unknown,
+            fallbackSymbolName: ProjectType.unknown.sfSymbolFallback,
             searchIndex: [rootName, rootURL.path].joined(separator: "\n").lowercased()
         )
     }

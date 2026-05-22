@@ -33,7 +33,8 @@ enum PiTestSupport {
             gitHubRemote: nil,
             isGitRepository: true,
             iconFileURL: nil,
-            fallbackSymbolName: "folder",
+            projectType: .unknown,
+            fallbackSymbolName: ProjectType.unknown.sfSymbolFallback,
             searchIndex: "agent-deck-test-project"
         )
     }

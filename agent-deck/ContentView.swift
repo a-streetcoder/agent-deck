@@ -980,6 +980,15 @@ struct ContentView: View {
         }
 
         ToolbarItem(placement: .primaryAction) {
+            ProjectServerToolbarButton(
+                viewModel: viewModel,
+                store: viewModel.piAgentSessionStore
+            )
+        }
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
             PiAgentOpenTerminalToolbarButton(
                 viewModel: viewModel,
                 store: viewModel.piAgentSessionStore
