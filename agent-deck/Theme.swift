@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 /// A single sRGB color stored as plain components so it can be persisted in the
