@@ -466,6 +466,7 @@ extension View {
             .alternatingRowBackgrounds()
             .scrollIndicators(.hidden)
             .hideNativeScrollers()
+            .tint(AppTheme.brandAccent)
     }
 }
 

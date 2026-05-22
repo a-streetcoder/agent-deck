@@ -6,13 +6,7 @@ struct IssuesScreen: View {
     @Binding var searchText: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if viewModel.selectedGitHubProject?.gitHubRemote != nil {
-                header
-                Divider()
-            }
-            body(for: viewModel.selectedGitHubProject)
-        }
+        body(for: viewModel.selectedGitHubProject)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await Task.yield()
@@ -31,50 +25,6 @@ struct IssuesScreen: View {
         .onChange(of: viewModel.githubAssigneeFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubTypeFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubLabelFilters) { _, _ in reconcileSelectionWithFilters() }
-    }
-
-    // MARK: - Header
-
-    @ViewBuilder
-    private var header: some View {
-        if let remote = viewModel.selectedGitHubProject?.gitHubRemote {
-            HStack(spacing: 10) {
-                Image("github")
-                    .resizable()
-                    .renderingMode(.template)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 18, height: 18)
-                    .foregroundStyle(.primary)
-                Text(remote.nameWithOwner)
-                    .font(.headline)
-                    .fontWidth(.expanded)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                openRepositoryButton(remote)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, AppTheme.pagePadding)
-            .padding(.vertical, 12)
-        }
-    }
-
-    /// Plain symbol link-out to the repository on GitHub. Uses the same
-    /// `arrow.up.forward.square` glyph the app shows for every other link-out
-    /// (issue comments, related issues) so external links read consistently.
-    @ViewBuilder
-    private func openRepositoryButton(_ remote: GitHubRemote) -> some View {
-        if let url = URL(string: "https://\(remote.host)/\(remote.nameWithOwner)") {
-            Button {
-                NSWorkspace.shared.open(url)
-            } label: {
-                Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppTheme.mutedText)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Open repository on GitHub")
-        }
     }
 
     // MARK: - Body

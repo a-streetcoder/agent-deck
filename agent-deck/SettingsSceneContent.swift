@@ -5,12 +5,21 @@ struct SettingsSceneContent: View {
     @Environment(AppViewModel.self) private var viewModel
     @State private var selectedTab: SettingsTab = .general
 
+    private var visibleTabs: [SettingsTab] {
+        SettingsTab.allCases.filter { SettingsFeatureFlags.isEnabled($0) }
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
-            ForEach(SettingsTab.allCases) { tab in
+            ForEach(visibleTabs) { tab in
                 Tab(tab.rawValue, systemImage: tab.systemImage, value: tab) {
                     selectedTabContent(for: tab)
                 }
+            }
+        }
+        .onAppear {
+            if selectedTab == .appearance {
+                selectedTab = .general
             }
         }
         .tabViewStyle(.automatic)
@@ -42,6 +51,19 @@ struct SettingsSceneContent: View {
             CommandsSettingsTab(viewModel: viewModel)
         case .shortcuts:
             ShortcutsSettingsTab()
+        }
+    }
+}
+
+private enum SettingsFeatureFlags {
+    static let appearanceTabEnabled = false
+
+    static func isEnabled(_ tab: SettingsTab) -> Bool {
+        switch tab {
+        case .appearance:
+            return appearanceTabEnabled
+        default:
+            return true
         }
     }
 }
@@ -514,11 +536,11 @@ private struct AppearanceSettingsTab: View {
         SettingsSection {
             groupHeader("Preview")
             VStack(alignment: .leading, spacing: 8) {
-                previewBubble(previewTheme.assistant, icon: "person.fill", role: "You", text: "Add a theme picker to the settings screen.")
-                previewBubble(previewTheme.accent, icon: "pi", role: "Assistant", text: "I fixed the custom theme alignment and corrected the color mapping.")
-                previewBubble(previewTheme.thinking, icon: "brain", role: "Thinking", text: "Weighing a few layout options…")
-                previewBubble(previewTheme.tool, icon: "wrench.and.screwdriver.fill", role: "Tool", text: "Edit DesignSystem.swift")
-                previewBubble(previewTheme.error, icon: "exclamationmark.triangle.fill", role: "Error", text: "Could not read the file.")
+                previewBubble(previewTheme.assistant, systemIcon: "person.fill", role: "You", text: "Add a theme picker to the settings screen.")
+                previewBubble(previewTheme.accent, assetIcon: "pi", role: "Assistant", text: "I fixed the custom theme alignment and corrected the color mapping.")
+                previewBubble(previewTheme.thinking, systemIcon: "brain", role: "Thinking", text: "Weighing a few layout options…")
+                previewBubble(previewTheme.tool, systemIcon: "wrench.and.screwdriver.fill", role: "Tool", text: "Edit DesignSystem.swift")
+                previewBubble(previewTheme.error, systemIcon: "exclamationmark.triangle.fill", role: "Error", text: "Could not read the file.")
 
                 HStack(spacing: 12) {
                     Text("Primary Action")
@@ -551,12 +573,29 @@ private struct AppearanceSettingsTab: View {
         }
     }
 
-    private func previewBubble(_ color: ThemeColor, icon: String, role: String, text: String) -> some View {
+    private func previewBubble(
+        _ color: ThemeColor,
+        systemIcon: String? = nil,
+        assetIcon: String? = nil,
+        role: String,
+        text: String
+    ) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(color.color)
-                .frame(width: 16)
+            Group {
+                if let systemIcon {
+                    Image(systemName: systemIcon)
+                        .font(.caption)
+                        .foregroundStyle(color.color)
+                } else if let assetIcon {
+                    Image(assetIcon)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(color.color)
+                        .frame(width: 12, height: 12)
+                }
+            }
+            .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
                 Text(role)
                     .font(.caption.weight(.semibold))

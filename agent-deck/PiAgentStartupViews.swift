@@ -285,9 +285,9 @@ struct PiAgentSessionSubagentPickerCard: View {
     let session: PiAgentSessionRecord
 
     @State private var isExpanded = false
-    @State private var isAddPresented = false
+    @State private var isAddSheetPresented = false
 
-    private static let accent = Color.teal
+    static let accent = Color.teal
 
     /// All render-time data, resolved once per `body` evaluation so the
     /// catalog scan in `selectableAgentUniverse` runs exactly once — not once
@@ -356,8 +356,16 @@ struct PiAgentSessionSubagentPickerCard: View {
                     }
                 }
             }
-            .popover(isPresented: $isAddPresented) {
-                addAgentsPopover(data)
+            .sheet(isPresented: $isAddSheetPresented) {
+                PiAgentAddAgentsSheet(
+                    addable: data.addable,
+                    description: description(for:),
+                    onAdd: { names in
+                        var updated = data.selection
+                        for name in names { updated.insert(name) }
+                        viewModel.setAgentSelection(updated, for: session.id)
+                    }
+                )
             }
         }
     }
@@ -396,7 +404,7 @@ struct PiAgentSessionSubagentPickerCard: View {
             }
             HStack(spacing: 14) {
                 Button {
-                    isAddPresented = true
+                    isAddSheetPresented = true
                 } label: {
                     Label("Add agents…", systemImage: "plus.circle")
                         .font(.caption.weight(.medium))
@@ -447,59 +455,6 @@ struct PiAgentSessionSubagentPickerCard: View {
         .buttonStyle(.plain)
     }
 
-    private func addAgentsPopover(_ data: Resolved) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Add agents")
-                .font(.headline)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
-            Divider()
-            if data.addable.isEmpty {
-                Text("Every available agent is already in the list.")
-                    .font(.callout)
-                    .foregroundStyle(AppTheme.mutedText)
-                    .padding(14)
-                    .frame(width: 360, alignment: .leading)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(data.addable, id: \.name) { agent in
-                            Button {
-                                apply(data.selection, name: agent.name, include: true)
-                                if data.addable.count <= 1 { isAddPresented = false }
-                            } label: {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundStyle(Self.accent)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(agent.name)
-                                            .font(.callout.weight(.medium))
-                                            .foregroundStyle(.primary)
-                                        if let detail = description(for: agent) {
-                                            Text(detail)
-                                                .font(.caption)
-                                                .foregroundStyle(AppTheme.mutedText)
-                                                .lineLimit(2)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(10)
-                }
-                .frame(width: 360, height: min(CGFloat(data.addable.count) * 58 + 20, 320))
-            }
-        }
-    }
-
     private func description(for agent: EffectiveAgentRecord) -> String? {
         let raw = (agent.resolved.whenToUse ?? agent.resolved.description)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -510,5 +465,180 @@ struct PiAgentSessionSubagentPickerCard: View {
         var updated = selection
         if include { updated.insert(name) } else { updated.remove(name) }
         viewModel.setAgentSelection(updated, for: session.id)
+    }
+}
+
+/// Multi-select picker presented as a sheet when the user taps "Add agents…"
+/// in `PiAgentSessionSubagentPickerCard`. Matches the `MarkdownFileEditorSheet`
+/// chrome (compact `.headline` title, 18pt header, divider rails, 16pt footer
+/// with prominent confirm button).
+struct PiAgentAddAgentsSheet: View {
+    let addable: [EffectiveAgentRecord]
+    let description: (EffectiveAgentRecord) -> String?
+    let onAdd: (Set<String>) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Set<String> = []
+    @State private var query: String = ""
+    @FocusState private var isSearchFocused: Bool
+
+    private static let accent = PiAgentSessionSubagentPickerCard.accent
+
+    private var filtered: [EffectiveAgentRecord] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return addable }
+        return addable.filter { agent in
+            if agent.name.lowercased().contains(q) { return true }
+            if let detail = description(agent)?.lowercased(), detail.contains(q) {
+                return true
+            }
+            return false
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            searchField
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+            list
+            Divider()
+            footer
+        }
+        .frame(width: 540, height: 560)
+        .onAppear { isSearchFocused = true }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Add agents")
+                    .font(.headline)
+                    .fontWidth(.expanded)
+                Text("Pick agents to include in this session. Selected agents are added when you click Add.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(18)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(AppTheme.mutedText)
+            TextField("Search agents", text: $query)
+                .textFieldStyle(.plain)
+                .focused($isSearchFocused)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(AppTheme.contentFill.opacity(0.75))
+                .stroke(AppTheme.contentStroke.opacity(0.6), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var list: some View {
+        if addable.isEmpty {
+            emptyState("Every available agent is already in the session.")
+        } else if filtered.isEmpty {
+            emptyState("No agents match “\(query.trimmingCharacters(in: .whitespacesAndNewlines))”.")
+        } else {
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 4) {
+                    ForEach(filtered, id: \.name) { agent in
+                        row(agent)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
+    }
+
+    private func emptyState(_ message: String) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(AppTheme.mutedText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func row(_ agent: EffectiveAgentRecord) -> some View {
+        let isChecked = selected.contains(agent.name)
+        return Button {
+            if isChecked { selected.remove(agent.name) } else { selected.insert(agent.name) }
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                    .font(.body)
+                    .foregroundStyle(isChecked ? Self.accent : AppTheme.mutedText)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(agent.name)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.primary)
+                    if let detail = description(agent) {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isChecked ? Self.accent.opacity(0.10) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var footer: some View {
+        HStack {
+            if !selected.isEmpty {
+                Text("\(selected.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            Spacer()
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button(selected.isEmpty ? "Add" : "Add \(selected.count)") {
+                onAdd(selected)
+                dismiss()
+            }
+            .buttonStyle(.glassProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(selected.isEmpty)
+        }
+        .padding(16)
     }
 }

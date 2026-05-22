@@ -1153,6 +1153,8 @@ struct ContentView: View {
             return viewModel.piAgentSessionStore.selectedSession?.displayTitle ?? "Pi Agent"
         case .skills:
             return viewModel.selectedSkill?.name ?? "Skills"
+        case .issues:
+            return viewModel.selectedGitHubProject?.gitHubRemote?.nameWithOwner ?? "Issues"
         default:
             return viewModel.selectedSidebarItem.rawValue
         }
