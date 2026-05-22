@@ -453,7 +453,7 @@ private struct AppearanceSettingsTab: View {
                     .frame(width: 220)
             }
             colorRow("Accent", \.accent, note: "Buttons, links, and selection highlights.")
-            colorRow("You / Assistant", \.assistant)
+            colorRow("You", \.assistant, note: "User-side transcript bubbles and secondary accents.")
             colorRow("Thinking", \.thinking)
             colorRow("Tool calls", \.tool)
             colorRow("Errors", \.error)
@@ -515,6 +515,7 @@ private struct AppearanceSettingsTab: View {
             groupHeader("Preview")
             VStack(alignment: .leading, spacing: 8) {
                 previewBubble(previewTheme.assistant, icon: "person.fill", role: "You", text: "Add a theme picker to the settings screen.")
+                previewBubble(previewTheme.accent, icon: "pi", role: "Assistant", text: "I fixed the custom theme alignment and corrected the color mapping.")
                 previewBubble(previewTheme.thinking, icon: "brain", role: "Thinking", text: "Weighing a few layout options…")
                 previewBubble(previewTheme.tool, icon: "wrench.and.screwdriver.fill", role: "Tool", text: "Edit DesignSystem.swift")
                 previewBubble(previewTheme.error, icon: "exclamationmark.triangle.fill", role: "Error", text: "Could not read the file.")

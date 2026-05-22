@@ -81,7 +81,7 @@ struct Theme: Codable, Hashable, Identifiable {
     /// Built-in presets are read-only; custom themes can be edited and deleted.
     var isBuiltIn: Bool
     var accent: ThemeColor      // brand accent — buttons, selection, links
-    var assistant: ThemeColor   // assistant / user message bubbles
+    var assistant: ThemeColor   // user-facing secondary accent (for example, user transcript bubbles)
     var thinking: ThemeColor    // thinking bubbles
     var tool: ThemeColor        // tool-call bubbles
     var error: ThemeColor       // error bubbles + removed diff lines
@@ -213,6 +213,6 @@ extension Theme {
     var accentDeep: ThemeColor { accent.darkened(by: 0.33) }
     var accentShadow: ThemeColor { accent.darkened(by: 0.72) }
 
-    /// Accent + role colors in display order — used for compact swatch strips.
+    /// Accent + editable role colors in display order — used for compact swatch strips.
     var previewSwatches: [ThemeColor] { [accent, assistant, thinking, tool, error, diffAdded] }
 }
