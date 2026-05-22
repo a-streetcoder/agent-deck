@@ -196,6 +196,7 @@ struct PiAgentComposerBox: View {
                     if let metricsSession {
                         PiAgentRuntimeFooter(
                             session: metricsSession,
+                            showsSubagentsToggle: viewModel.sessionHasSelectableAgents(metricsSession),
                             memoryEnabled: viewModel.appSettings.agentMemoryEnabled,
                             openAIFastStatus: openAIFastStatus(for: metricsSession),
                             onToggleMemory: {
@@ -2076,6 +2077,7 @@ struct PiAgentShortcutChip: View {
 
 struct PiAgentRuntimeFooter: View {
     let session: PiAgentSessionRecord
+    let showsSubagentsToggle: Bool
     let memoryEnabled: Bool
     let openAIFastStatus: Bool?
     let onToggleMemory: () -> Void
@@ -2096,11 +2098,13 @@ struct PiAgentRuntimeFooter: View {
                 icon: SidebarItem.memory.systemImage,
                 action: onToggleMemory
             )
-            metricButton(
-                "subagents: \(session.subagentsEnabled ? "on" : "off")",
-                icon: "rectangle.connected.to.line.below",
-                action: onToggleSubagents
-            )
+            if showsSubagentsToggle {
+                metricButton(
+                    "subagents: \(session.subagentsEnabled ? "on" : "off")",
+                    icon: "rectangle.connected.to.line.below",
+                    action: onToggleSubagents
+                )
+            }
             if let openAIFastStatus {
                 metricButton(
                     "fast: \(openAIFastStatus ? "on" : "off")",

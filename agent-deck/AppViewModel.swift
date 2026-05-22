@@ -4293,6 +4293,19 @@ final class AppViewModel: NSObject {
         return agents.filter { $0.resolved.disabled != true && seen.insert($0.name).inserted }
     }
 
+    /// Whether a session has any non-disabled agent it could run as a subagent.
+    /// Fast path: a usable effective agent (builtins normally qualify) returns
+    /// immediately, so the cross-project catalog scan only runs in the rare
+    /// case where the project has no usable effective agents at all.
+    func sessionHasSelectableAgents(_ session: PiAgentSessionRecord) -> Bool {
+        if startupSnapshot(forProjectPath: session.projectPath)
+            .effectiveAgents.contains(where: { $0.resolved.disabled != true }) {
+            return true
+        }
+        return selectableAgentUniverse(forProjectPath: session.projectPath)
+            .contains { $0.resolved.disabled != true }
+    }
+
     private var projectAssignedLibraryAgentsForAggregateView: [EffectiveAgentRecord] {
         guard snapshot.projectRoot == nil else { return [] }
         let effectiveNames = Set(snapshot.effectiveAgents.map(\.name))

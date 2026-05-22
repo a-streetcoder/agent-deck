@@ -145,6 +145,9 @@ struct PiAgentStartupResourcesPopover: View {
 
         let enabled = viewModel.catalogAgents(for: session)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        guard !enabled.isEmpty else {
+            return [.init(title: "No subagents selected for this session", detail: "This session runs without subagent delegation.", kind: .none)]
+        }
         return enabled.map { agent in
             let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
             let modelSuffix = agent.resolved.model.map { " · \($0)" } ?? ""
@@ -298,6 +301,12 @@ struct PiAgentSessionSubagentPickerCard: View {
         var selectedCount: Int {
             rows.filter { selection.contains($0.name) }.count
         }
+
+        var subtitle: String {
+            selectedCount == 0
+                ? "None selected · this session runs without subagents"
+                : "\(selectedCount) of \(rows.count) selected · set before the first message"
+        }
     }
 
     private func resolve() -> Resolved {
@@ -365,7 +374,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                     Text("Subagents for this session")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("\(data.selectedCount) of \(data.rows.count) selected · set before sending the first message")
+                    Text(data.subtitle)
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
