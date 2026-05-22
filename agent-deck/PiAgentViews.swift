@@ -1619,6 +1619,13 @@ struct PiAgentScreen: View {
             Divider()
 
             VStack(spacing: 12) {
+                if let session = store.selectedSession,
+                   session.status == .draft,
+                   session.subagentsEnabled {
+                    PiAgentSessionSubagentPickerCard(viewModel: viewModel, session: session)
+                        .id(session.id)
+                }
+
                 if let request = store.selectedUIRequest {
                     PiAgentUIRequestInlineNotice(
                         request: request,

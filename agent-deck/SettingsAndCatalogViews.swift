@@ -590,7 +590,10 @@ struct SubagentsScreen: View {
 
     private var selectedSessionStatus: String {
         guard let session = viewModel.piAgentSessionStore.selectedSession else { return "No session selected" }
-        return session.subagentsEnabled ? "Native subagents enabled" : "Native subagents disabled"
+        guard session.subagentsEnabled else { return "Native subagents disabled" }
+        return viewModel.catalogAgents(for: session).isEmpty
+            ? "Native subagents disabled (no agents selected)"
+            : "Native subagents enabled"
     }
 }
 

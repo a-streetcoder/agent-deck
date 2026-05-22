@@ -355,14 +355,18 @@ final class PiAgentRunnerService {
             for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: AppSettingsStore.shared.settings) {
                 extraArguments.append(contentsOf: ["--extension", commandURL.path])
             }
-            if session.subagentsEnabled, let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
+            // The subagent bridge and its catalog are injected together. If the
+            // session has no selected agents (or none are available), the
+            // catalog is empty and the session launches exactly as if subagents
+            // were turned off — no bridge extension, no system-prompt block.
+            if session.subagentsEnabled,
+               let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty,
+               let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
-                if let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty {
-                    extraArguments.append(contentsOf: PiParentAppendPromptResolver.appendSystemPromptArguments(
-                        projectURL: projectURL,
-                        agentDeckAppendPrompts: [catalog]
-                    ))
-                }
+                extraArguments.append(contentsOf: PiParentAppendPromptResolver.appendSystemPromptArguments(
+                    projectURL: projectURL,
+                    agentDeckAppendPrompts: [catalog]
+                ))
             }
             extraArguments.append("--no-skills")
             if let parentSkillArgumentsProvider {

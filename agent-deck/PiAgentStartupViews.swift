@@ -143,9 +143,11 @@ struct PiAgentStartupResourcesPopover: View {
             return [.init(title: "This session started with subagents disabled", detail: "Re-enable subagents before creating a new session if you want agent discovery again.", kind: .none)]
         }
 
-        let enabled = startupSnapshot.effectiveAgents
-            .filter { $0.resolved.disabled != true }
+        let enabled = viewModel.catalogAgents(for: session)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        guard !enabled.isEmpty else {
+            return [.init(title: "No subagents selected for this session", detail: "This session runs without subagent delegation.", kind: .none)]
+        }
         return enabled.map { agent in
             let description = agent.resolved.description.trimmingCharacters(in: .whitespacesAndNewlines)
             let modelSuffix = agent.resolved.model.map { " · \($0)" } ?? ""
@@ -271,5 +273,242 @@ struct PiAgentStartupResourcesPopover: View {
     private func masked(_ value: String) -> String {
         guard value.count > 8 else { return "••••" }
         return String(value.prefix(4)) + "••••"
+    }
+}
+
+/// Pre-launch picker that lets a draft session choose which subagents it
+/// launches with. Shown in the chat area above the composer only while the
+/// session is a draft with subagents enabled; once the first message is sent
+/// the catalog is baked into the system prompt and the card disappears.
+struct PiAgentSessionSubagentPickerCard: View {
+    var viewModel: AppViewModel
+    let session: PiAgentSessionRecord
+
+    @State private var isExpanded = false
+    @State private var isAddPresented = false
+
+    private static let accent = Color.teal
+
+    /// All render-time data, resolved once per `body` evaluation so the
+    /// catalog scan in `selectableAgentUniverse` runs exactly once — not once
+    /// per derived list.
+    private struct Resolved {
+        let rows: [EffectiveAgentRecord]
+        let addable: [EffectiveAgentRecord]
+        let selection: Set<String>
+        let hasExplicitSelection: Bool
+
+        var selectedCount: Int {
+            rows.filter { selection.contains($0.name) }.count
+        }
+
+        var subtitle: String {
+            selectedCount == 0
+                ? "None selected · this session runs without subagents"
+                : "\(selectedCount) of \(rows.count) selected · set before the first message"
+        }
+    }
+
+    private func resolve() -> Resolved {
+        let universe = viewModel.selectableAgentUniverse(forProjectPath: session.projectPath)
+            .filter { $0.resolved.disabled != true }
+        let defaultNames = Set(
+            viewModel.startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
+                .filter { $0.resolved.disabled != true }
+                .map(\.name)
+        )
+        let selection = session.agentSelection ?? defaultNames
+        let rowNames = defaultNames.union(selection)
+
+        let byName: (EffectiveAgentRecord, EffectiveAgentRecord) -> Bool = {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        // `seenRows` ends up holding exactly the row names, so the "addable"
+        // pass reuses it instead of rebuilding a separate set.
+        var seenRows = Set<String>()
+        let rows = universe
+            .filter { rowNames.contains($0.name) && seenRows.insert($0.name).inserted }
+            .sorted(by: byName)
+        var seenAddable = Set<String>()
+        let addable = universe
+            .filter { !seenRows.contains($0.name) && seenAddable.insert($0.name).inserted }
+            .sorted(by: byName)
+
+        return Resolved(
+            rows: rows,
+            addable: addable,
+            selection: selection,
+            hasExplicitSelection: session.agentSelection != nil
+        )
+    }
+
+    var body: some View {
+        let data = resolve()
+        if data.rows.isEmpty && data.addable.isEmpty {
+            EmptyView()
+        } else {
+            AppRowCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    header(data)
+                    if isExpanded {
+                        Divider().padding(.vertical, 10)
+                        agentList(data)
+                    }
+                }
+            }
+            .popover(isPresented: $isAddPresented) {
+                addAgentsPopover(data)
+            }
+        }
+    }
+
+    private func header(_ data: Resolved) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.connected.to.line.below")
+                    .foregroundStyle(Self.accent)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Subagents for this session")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(data.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .rotationEffect(.degrees(isExpanded ? 0 : -90))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func agentList(_ data: Resolved) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(data.rows, id: \.name) { agent in
+                agentRow(agent, checked: data.selection.contains(agent.name), selection: data.selection)
+            }
+            HStack(spacing: 14) {
+                Button {
+                    isAddPresented = true
+                } label: {
+                    Label("Add agents…", systemImage: "plus.circle")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Self.accent)
+                .disabled(data.addable.isEmpty)
+                .opacity(data.addable.isEmpty ? 0.4 : 1)
+
+                if data.hasExplicitSelection {
+                    Button("Reset to default") {
+                        viewModel.setAgentSelection(nil, for: session.id)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func agentRow(_ agent: EffectiveAgentRecord, checked: Bool, selection: Set<String>) -> some View {
+        Button {
+            apply(selection, name: agent.name, include: !checked)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                    .font(.body)
+                    .foregroundStyle(checked ? Self.accent : AppTheme.mutedText)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(agent.name)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.primary)
+                    if let detail = description(for: agent) {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func addAgentsPopover(_ data: Resolved) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Add agents")
+                .font(.headline)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
+            Divider()
+            if data.addable.isEmpty {
+                Text("Every available agent is already in the list.")
+                    .font(.callout)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(14)
+                    .frame(width: 360, alignment: .leading)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(data.addable, id: \.name) { agent in
+                            Button {
+                                apply(data.selection, name: agent.name, include: true)
+                                if data.addable.count <= 1 { isAddPresented = false }
+                            } label: {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(Self.accent)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(agent.name)
+                                            .font(.callout.weight(.medium))
+                                            .foregroundStyle(.primary)
+                                        if let detail = description(for: agent) {
+                                            Text(detail)
+                                                .font(.caption)
+                                                .foregroundStyle(AppTheme.mutedText)
+                                                .lineLimit(2)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(10)
+                }
+                .frame(width: 360, height: min(CGFloat(data.addable.count) * 58 + 20, 320))
+            }
+        }
+    }
+
+    private func description(for agent: EffectiveAgentRecord) -> String? {
+        let raw = (agent.resolved.whenToUse ?? agent.resolved.description)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw.isEmpty ? nil : raw
+    }
+
+    private func apply(_ selection: Set<String>, name: String, include: Bool) {
+        var updated = selection
+        if include { updated.insert(name) } else { updated.remove(name) }
+        viewModel.setAgentSelection(updated, for: session.id)
     }
 }
