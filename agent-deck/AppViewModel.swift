@@ -225,6 +225,7 @@ final class AppViewModel: NSObject {
         super.init()
 
         appSettings = appSettingsController.settings
+        ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
         selectedProjectPath = UserDefaults.standard.string(forKey: lastSelectedProjectDefaultsKey)
         if let selectedProjectPath {
             projectRootURL = URL(fileURLWithPath: selectedProjectPath, isDirectory: true).standardizedFileURL
@@ -3685,6 +3686,46 @@ final class AppViewModel: NSObject {
     func setGitHubBoardCacheLifetimeMinutes(_ minutes: Int) {
         guard appSettingsController.setGitHubBoardCacheLifetimeMinutes(minutes) else { return }
         syncAppSettings()
+    }
+
+    // MARK: - Color themes
+    //
+    // Theme state is read by the UI straight off `appSettings` (the observable
+    // store) — `appSettings.selectedThemeID` / `appSettings.customThemes` — so a
+    // change reliably re-renders the Settings tab. These mutators apply the
+    // change to `ThemeManager` whenever the *active* theme is affected.
+
+    func selectTheme(id: UUID) {
+        guard appSettingsController.selectTheme(id: id) else { return }
+        syncAppSettings()
+        ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
+    }
+
+    func addCustomTheme(_ theme: Theme) {
+        guard appSettingsController.addCustomTheme(theme) else { return }
+        syncAppSettings()
+    }
+
+    func updateCustomTheme(_ theme: Theme) {
+        guard appSettingsController.updateCustomTheme(theme) else { return }
+        syncAppSettings()
+        if appSettingsController.resolvedActiveTheme.id == theme.id {
+            ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
+        }
+    }
+
+    func deleteCustomTheme(id: UUID) {
+        guard appSettingsController.deleteCustomTheme(id: id) else { return }
+        syncAppSettings()
+        ThemeManager.shared.apply(appSettingsController.resolvedActiveTheme)
+    }
+
+    /// Duplicates any theme into a new editable custom theme and returns it.
+    @discardableResult
+    func duplicateTheme(id: UUID) -> Theme? {
+        guard let copy = appSettingsController.duplicateTheme(id: id) else { return nil }
+        syncAppSettings()
+        return copy
     }
 
     func chooseProjectsRootDirectory() {

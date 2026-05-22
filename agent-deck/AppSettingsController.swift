@@ -13,6 +13,7 @@ final class AppSettingsController {
         self.store = sharedStore
         self.settings = sharedStore.settings
         discardUnsupportedTerminalSelection()
+        discardUnknownThemeSelection()
     }
 
     @MainActor
@@ -20,6 +21,7 @@ final class AppSettingsController {
         self.store = store
         self.settings = store.settings
         discardUnsupportedTerminalSelection()
+        discardUnknownThemeSelection()
     }
 
     /// Earlier builds allowed selecting any terminal app, including ones Agent Deck
@@ -29,6 +31,15 @@ final class AppSettingsController {
         guard let path = settings.piAgentTerminalApplicationPath, !path.isEmpty,
               SupportedTerminal(appPath: path) == nil else { return }
         settings.piAgentTerminalApplicationPath = nil
+        persist()
+    }
+
+    /// Reset to the Default theme if the stored selection points at a theme that
+    /// no longer exists — corrupted data, or a custom theme deleted elsewhere.
+    private func discardUnknownThemeSelection() {
+        let knownIDs = Set(allThemes.map(\.id))
+        guard !knownIDs.contains(settings.selectedThemeID) else { return }
+        settings.selectedThemeID = Theme.defaultTheme.id
         persist()
     }
 
@@ -681,6 +692,72 @@ final class AppSettingsController {
         }
         persist()
         return true
+    }
+
+    // MARK: - Color themes
+
+    /// Built-in presets followed by the user's custom themes.
+    var allThemes: [Theme] {
+        Theme.builtInThemes + settings.customThemes
+    }
+
+    /// The currently selected theme, falling back to Default if the stored id
+    /// resolves to nothing.
+    var resolvedActiveTheme: Theme {
+        allThemes.first { $0.id == settings.selectedThemeID } ?? .defaultTheme
+    }
+
+    @discardableResult
+    func selectTheme(id: UUID) -> Bool {
+        let target = allThemes.contains(where: { $0.id == id }) ? id : Theme.defaultTheme.id
+        guard settings.selectedThemeID != target else { return false }
+        settings.selectedThemeID = target
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func addCustomTheme(_ theme: Theme) -> Bool {
+        var stored = theme
+        stored.isBuiltIn = false
+        settings.customThemes.append(stored)
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func updateCustomTheme(_ theme: Theme) -> Bool {
+        guard let index = settings.customThemes.firstIndex(where: { $0.id == theme.id }) else { return false }
+        var stored = theme
+        stored.isBuiltIn = false
+        guard settings.customThemes[index] != stored else { return false }
+        settings.customThemes[index] = stored
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func deleteCustomTheme(id: UUID) -> Bool {
+        guard let index = settings.customThemes.firstIndex(where: { $0.id == id }) else { return false }
+        settings.customThemes.remove(at: index)
+        if settings.selectedThemeID == id {
+            settings.selectedThemeID = Theme.defaultTheme.id
+        }
+        persist()
+        return true
+    }
+
+    /// Copies any theme — preset or custom — into a new editable custom theme.
+    /// This is how a preset gets customized.
+    func duplicateTheme(id: UUID) -> Theme? {
+        guard let source = allThemes.first(where: { $0.id == id }) else { return nil }
+        var copy = source
+        copy.id = UUID()
+        copy.isBuiltIn = false
+        copy.name = "\(source.name) Copy"
+        settings.customThemes.append(copy)
+        persist()
+        return copy
     }
 
     private func persist() {

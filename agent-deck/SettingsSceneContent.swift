@@ -26,6 +26,8 @@ struct SettingsSceneContent: View {
         switch tab {
         case .general:
             GeneralSettingsTab(viewModel: viewModel)
+        case .appearance:
+            AppearanceSettingsTab(viewModel: viewModel)
         case .agent:
             AgentSettingsTab(viewModel: viewModel)
         case .automations:
@@ -46,6 +48,7 @@ struct SettingsSceneContent: View {
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general = "General"
+    case appearance = "Appearance"
     case agent = "Agent"
     case automations = "Automations"
     case github = "GitHub"
@@ -59,6 +62,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .general: return "gearshape"
+        case .appearance: return "paintpalette"
         case .agent: return "sparkles.rectangle.stack"
         case .automations: return "wand.and.stars"
         case .github: return "chevron.left.forwardslash.chevron.right"
@@ -298,6 +302,327 @@ private struct GeneralSettingsTab: View {
             get: { viewModel.appSettings.projectsRootPath },
             set: { viewModel.setProjectsRootPath($0) }
         )
+    }
+}
+
+// MARK: - Appearance
+
+private struct AppearanceSettingsTab: View {
+    var viewModel: AppViewModel
+
+    @State private var draft: Theme = .defaultTheme
+    @State private var commitTask: Task<Void, Never>?
+    @State private var isConfirmingDelete = false
+
+    var body: some View {
+        SettingsForm {
+            themePickerSection
+            if isEditingCustomTheme {
+                editorSection
+            } else {
+                presetNoteSection
+            }
+            previewSection
+        }
+        .onAppear { draft = selectedTheme }
+        .onChange(of: viewModel.appSettings.selectedThemeID) { _, _ in
+            commitTask?.cancel()
+            // Flush any un-committed edits to the theme we are leaving.
+            if !draft.isBuiltIn {
+                viewModel.updateCustomTheme(draft)
+            }
+            draft = selectedTheme
+        }
+        .onChange(of: draft) { _, newValue in
+            scheduleThemeCommit(newValue)
+        }
+    }
+
+    // MARK: Derived state
+
+    private var allThemes: [Theme] {
+        Theme.builtInThemes + viewModel.appSettings.customThemes
+    }
+
+    private var selectedTheme: Theme {
+        allThemes.first { $0.id == viewModel.appSettings.selectedThemeID } ?? .defaultTheme
+    }
+
+    private var isEditingCustomTheme: Bool {
+        !selectedTheme.isBuiltIn
+    }
+
+    /// The live draft while editing a custom theme, otherwise the selected preset.
+    private var previewTheme: Theme {
+        isEditingCustomTheme ? draft : selectedTheme
+    }
+
+    // MARK: Theme picker
+
+    private var themePickerSection: some View {
+        SettingsSection {
+            groupHeader("Presets")
+            ForEach(allThemes.filter(\.isBuiltIn)) { themeRow($0) }
+
+            let customThemes = viewModel.appSettings.customThemes
+            if !customThemes.isEmpty {
+                groupHeader("My Themes")
+                ForEach(customThemes) { themeRow($0) }
+            }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            HStack(spacing: 8) {
+                Button("New Theme", action: createTheme)
+                    .appSecondaryButton()
+                Button("Duplicate", action: duplicateSelectedTheme)
+                    .appSecondaryButton()
+                if isEditingCustomTheme {
+                    Button("Delete", role: .destructive) { isConfirmingDelete = true }
+                        .appSecondaryButton()
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .alert("Delete “\(selectedTheme.name)”?", isPresented: $isConfirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                viewModel.deleteCustomTheme(id: selectedTheme.id)
+            }
+        } message: {
+            Text("This custom theme will be removed. Built-in presets are not affected.")
+        }
+    }
+
+    private func groupHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 2)
+    }
+
+    private func themeRow(_ theme: Theme) -> some View {
+        let isSelected = theme.id == viewModel.appSettings.selectedThemeID
+        return Button {
+            viewModel.selectTheme(id: theme.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? AppTheme.brandAccent : Color.secondary)
+                Text(theme.name)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                Spacer(minLength: 12)
+                swatchStrip(theme)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? AppTheme.accentSelectionFill : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? AppTheme.accentSelectionStroke : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func swatchStrip(_ theme: Theme) -> some View {
+        HStack(spacing: 3) {
+            ForEach(Array(theme.previewSwatches.enumerated()), id: \.offset) { item in
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(item.element.color)
+                    .frame(width: 14, height: 14)
+            }
+        }
+    }
+
+    // MARK: Custom theme editor
+
+    private var editorSection: some View {
+        SettingsSection {
+            SettingsRow(title: "Theme name:") {
+                TextField("Theme name", text: nameBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 220)
+            }
+            colorRow("Accent", \.accent, note: "Buttons, links, and selection highlights.")
+            colorRow("You / Assistant", \.assistant)
+            colorRow("Thinking", \.thinking)
+            colorRow("Tool calls", \.tool)
+            colorRow("Errors", \.error)
+            colorRow("Stderr", \.stderr)
+            colorRow("Diff added", \.diffAdded)
+
+            SettingsRow(
+                title: "Accent shades:",
+                note: "Auto-derived from the accent for gradients and depth."
+            ) {
+                HStack(spacing: 8) {
+                    derivedSwatch(draft.accentBright, label: "Bright")
+                    derivedSwatch(draft.accent, label: "Accent")
+                    derivedSwatch(draft.accentDeep, label: "Deep")
+                    derivedSwatch(draft.accentShadow, label: "Shadow")
+                }
+            }
+        }
+    }
+
+    private func colorRow(
+        _ title: String,
+        _ keyPath: WritableKeyPath<Theme, ThemeColor>,
+        note: String? = nil
+    ) -> some View {
+        SettingsRow(title: "\(title):", note: note) {
+            ColorPicker("", selection: colorBinding(keyPath), supportsOpacity: false)
+                .labelsHidden()
+        }
+    }
+
+    private func derivedSwatch(_ color: ThemeColor, label: String) -> some View {
+        VStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(color.color)
+                .frame(width: 44, height: 24)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(AppTheme.hairlineStroke, lineWidth: 1)
+                )
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var presetNoteSection: some View {
+        SettingsSection {
+            SettingsNote(text: "“\(selectedTheme.name)” is a built-in preset and can't be edited. Use Duplicate to make an editable copy.")
+        }
+    }
+
+    // MARK: Live preview
+
+    private var previewSection: some View {
+        SettingsSection {
+            groupHeader("Preview")
+            VStack(alignment: .leading, spacing: 8) {
+                previewBubble(previewTheme.assistant, icon: "person.fill", role: "You", text: "Add a theme picker to the settings screen.")
+                previewBubble(previewTheme.thinking, icon: "brain", role: "Thinking", text: "Weighing a few layout options…")
+                previewBubble(previewTheme.tool, icon: "wrench.and.screwdriver.fill", role: "Tool", text: "Edit DesignSystem.swift")
+                previewBubble(previewTheme.error, icon: "exclamationmark.triangle.fill", role: "Error", text: "Could not read the file.")
+
+                HStack(spacing: 12) {
+                    Text("Primary Action")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule(style: .continuous).fill(
+                                LinearGradient(
+                                    colors: [previewTheme.accentBright.color, previewTheme.accent.color],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        )
+
+                    HStack(spacing: 10) {
+                        Text("+ added line")
+                            .foregroundStyle(previewTheme.diffAdded.color)
+                        Text("- removed line")
+                            .foregroundStyle(previewTheme.error.color)
+                    }
+                    .font(.caption.monospaced())
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func previewBubble(_ color: ThemeColor, icon: String, role: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(color.color)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(role)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color.color)
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(color.color.opacity(AppTheme.roleFillOpacity))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(color.color.opacity(AppTheme.roleStrokeOpacity), lineWidth: 1)
+        )
+    }
+
+    // MARK: Bindings & actions
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { draft.name },
+            set: { draft.name = $0 }
+        )
+    }
+
+    private func colorBinding(_ keyPath: WritableKeyPath<Theme, ThemeColor>) -> Binding<Color> {
+        Binding(
+            get: { draft[keyPath: keyPath].color },
+            set: { draft[keyPath: keyPath] = ThemeColor(color: $0) }
+        )
+    }
+
+    private func createTheme() {
+        let base = Theme.defaultTheme
+        let newTheme = Theme(
+            name: "Custom Theme",
+            isBuiltIn: false,
+            accent: base.accent,
+            assistant: base.assistant,
+            thinking: base.thinking,
+            tool: base.tool,
+            error: base.error,
+            stderr: base.stderr,
+            diffAdded: base.diffAdded
+        )
+        viewModel.addCustomTheme(newTheme)
+        viewModel.selectTheme(id: newTheme.id)
+    }
+
+    private func duplicateSelectedTheme() {
+        guard let copy = viewModel.duplicateTheme(id: selectedTheme.id) else { return }
+        viewModel.selectTheme(id: copy.id)
+    }
+
+    /// Debounced so a `ColorPicker` drag does not re-key the main window on
+    /// every frame — the in-tab preview already updates live from `draft`.
+    private func scheduleThemeCommit(_ theme: Theme) {
+        guard !theme.isBuiltIn else { return }
+        commitTask?.cancel()
+        commitTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            viewModel.updateCustomTheme(theme)
+        }
     }
 }
 

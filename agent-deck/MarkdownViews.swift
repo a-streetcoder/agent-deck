@@ -1091,6 +1091,7 @@ private struct MarkdownWebView: NSViewRepresentable {
         var hasher = Hasher()
         hasher.combine(content)
         hasher.combine(colorScheme)
+        hasher.combine(ThemeManager.shared.revision)
         return "\(content.count):\(hasher.finalize())"
     }
 
@@ -1164,7 +1165,16 @@ private struct MarkdownWebView: NSViewRepresentable {
         }
     }
 
-    private static let css = """
+    /// Markdown links pick up the active theme accent. The rest of the palette
+    /// mirrors the non-themed native code/quote surfaces and stays fixed.
+    private static var css: String {
+        cssTemplate.replacingOccurrences(
+            of: "__ACCENT_HEX__",
+            with: ThemeManager.shared.activeTheme.accent.hexString
+        )
+    }
+
+    private static let cssTemplate = """
     * {
         margin: 0;
         padding: 0;
@@ -1192,7 +1202,7 @@ private struct MarkdownWebView: NSViewRepresentable {
             color: #E0E0E0;
             background-color: #1A1A1A;
         }
-        a { color: #6699CC; }
+        a { color: __ACCENT_HEX__; }
         code {
             background-color: #2A2A2A !important;
             color: #E07070 !important;
