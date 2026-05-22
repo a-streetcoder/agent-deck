@@ -83,6 +83,12 @@ struct PiAgentComposerBox: View {
     var suggestionKeyBridge: ComposerSuggestionKeyBridge = ComposerSuggestionKeyBridge()
     @State private var isDropTargeted = false
     @State private var isIssuePickerPresented = false
+    // Memoized: whether the runtime footer shows the subagents toggle. Resolving
+    // it (`sessionHasSelectableAgents`) reads the project-scan snapshots; calling
+    // it inline in `body` registered those as observation dependencies, so the
+    // whole composer re-rendered on every background project re-scan during a
+    // streaming session. Computed off the hot path in `.onChange` instead.
+    @State private var showsSubagentsToggle = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -196,7 +202,7 @@ struct PiAgentComposerBox: View {
                     if let metricsSession {
                         PiAgentRuntimeFooter(
                             session: metricsSession,
-                            showsSubagentsToggle: viewModel.sessionHasSelectableAgents(metricsSession),
+                            showsSubagentsToggle: showsSubagentsToggle,
                             memoryEnabled: viewModel.appSettings.agentMemoryEnabled,
                             openAIFastStatus: openAIFastStatus(for: metricsSession),
                             onToggleMemory: {
@@ -208,6 +214,12 @@ struct PiAgentComposerBox: View {
                             onToggleOpenAIFast: openAIFastToggleAction(for: metricsSession),
                             onSetAsDefault: setAsDefaultAction(for: metricsSession)
                         )
+                        // Resolve the toggle's visibility off the body hot path.
+                        // The session's agent universe is effectively static for
+                        // its lifetime, so refreshing on session-id change is enough.
+                        .onChange(of: metricsSession.id, initial: true) {
+                            showsSubagentsToggle = viewModel.sessionHasSelectableAgents(metricsSession)
+                        }
                     }
 
                     Spacer(minLength: 8)

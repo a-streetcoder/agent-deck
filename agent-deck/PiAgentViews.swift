@@ -523,18 +523,23 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         // that changed while it was off-screen and re-measures only those rows.
         private var contentRevisionByID: [String: Int] = [:]
         // Heights live in two caches:
-        //  1. `measuredHeightByID` — precise heights reported by the OFFSCREEN
-        //     measurement cell. Persisted across session switches (keyed by the
-        //     stable item ID) so revisiting a session lays its rows out at exact
-        //     heights with no reflow. Wiped wholesale on a width change; a single
-        //     entry is dropped when that item's content revision changes.
+        //  1. `measuredHeightByID` — precise heights reported by a live cell once
+        //     it has laid out, keyed [block id → width bucket → height]. The
+        //     width key means a width change just
+        //     selects a different bucket instead of wiping every height — so a
+        //     row measured once at a given width keeps its exact height forever,
+        //     across width changes and session switches. A single block's entry
+        //     is dropped when its content revision changes.
         //  2. `estimateByID` — fast char-count estimates, used only until a row
         //     has a real measurement. Transient: dropped freely.
-        // The offscreen measurement cell never touches live in-table cells, so it
-        // can't be observed at the wrong size. `noteHeightOfRows` runs debounced
-        // ~16ms when a measured height differs.
-        private var measuredHeightByID: [String: CGFloat] = [:]
+        // `noteHeightOfRows` runs debounced ~16ms when a measured height differs.
+        private var measuredHeightByID: [String: [Int: CGFloat]] = [:]
         private var estimateByID: [String: CGFloat] = [:]
+        // What AppKit currently has each row laid out at — the baseline a fresh
+        // measurement is compared against to decide whether a re-tile is needed.
+        // Tracked separately from `measuredHeightByID` so a cache change that
+        // doesn't actually change the laid-out height can't trigger a spurious
+        private var lastNotedHeight: [String: CGFloat] = [:]
         // LRU of live hosting views keyed by block id. Reattaching a warm host
         // when a block scrolls back into view skips the SwiftUI graph rebuild.
         // Bounded so a long transcript can't grow memory without limit. The
@@ -568,13 +573,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         // True while the user is actively scrolling — or did within the grace
         // window. Passive auto-follow and anchor restoration stay out of the way
         // while this holds, so a streaming update can't yank the viewport out
-        // from under a user gesture. (osaurus's ScrollAnchorManager pattern:
-        // live-scroll notifications alone miss mouse wheels entirely.)
+        // from under a user gesture.
         private var isUserScrollingRecently: Bool {
             if isLiveScrolling { return true }
             return CACurrentMediaTime() - lastUserScrollTime < userScrollGraceWindow
         }
         private var contentWidth: CGFloat = 0
+        // Bucket key for `measuredHeightByID`. Rounding to a whole point keeps
+        // sub-pixel width jitter during a scroll from spilling into a new bucket.
+        private var widthBucket: Int { Int(contentWidth.rounded()) }
         private let estimatedRowHeight: CGFloat = 120
         private let heightChangeEpsilon: CGFloat = 0.5
         // One-frame debounce so a burst of cell measurements during a single
@@ -806,9 +813,14 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             // transcript be panned/cropped horizontally after a resize.
             tableView.sizeLastColumnToFit()
 
-            // Heights are width-specific. Wipe both caches so heightOfRow falls back
-            // to the estimator until cells re-measure for the new width.
-            measuredHeightByID.removeAll()
+            // Heights are width-specific, but `measuredHeightByID` is keyed by
+            // width bucket — the new width simply selects (or starts) its own
+            // bucket, so nothing is wiped. This is the fix for the scroll shake:
+            // this method runs from the bounds observer on every scroll, and the
+            // old `measuredHeightByID.removeAll()` meant any width recompute
+            // (panel toggle, sub-pixel jitter) nuked every measured height and
+            // forced a full estimate→measure→re-tile cascade. Only the transient
+            // char-count estimates (not bucketed) are dropped.
             estimateByID.removeAll()
 
             pendingWidthWork?.cancel()
@@ -859,7 +871,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 let id = orderedIDs[row]
                 guard let item = itemByID[id],
                       let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? TranscriptTableCellView else { continue }
-                measuredHeightByID.removeValue(forKey: id)
+                // Don't drop the measured height — it's width-bucketed, so the
+                // new width's bucket fills in on its own as the cell re-measures
+                // and reports. Only the transient estimate is cleared.
                 estimateByID.removeValue(forKey: id)
                 configure(cell, with: item, row: row)
             }
@@ -914,10 +928,18 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// the table to re-tile the row when the height actually changed.
         func reportMeasuredHeight(_ rawHeight: CGFloat, forItemID itemID: String) {
             let height = ceil(rawHeight)
-            let existing = measuredHeightByID[itemID]
-            measuredHeightByID[itemID] = height
+            let bucket = widthBucket
+            let priorMeasured = measuredHeightByID[itemID]?[bucket]
+            measuredHeightByID[itemID, default: [:]][bucket] = height
             estimateByID.removeValue(forKey: itemID)
-            let delta = abs((existing ?? estimatedRowHeight) - height)
+            // Re-tile only when AppKit's *laid-out* height is genuinely stale.
+            // The baseline is what the table currently has tiled (lastNotedHeight),
+            // not the cache — falling back to the prior measurement, then the
+            // rough row estimate. Comparing against the cache would fire a
+            // spurious noteHeightOfRows whenever the cache shifted without the
+            // laid-out height actually changing.
+            let baseline = lastNotedHeight[itemID] ?? priorMeasured ?? estimatedRowHeight
+            let delta = abs(baseline - height)
             guard delta > heightChangeEpsilon else { return }
             pendingHeightIDs.insert(itemID)
             guard pendingHeightWork == nil else { return }
@@ -939,31 +961,28 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             for id in ids {
                 if let row = orderedIDs.firstIndex(of: id), row < tableView.numberOfRows {
                     rows.insert(row)
+                    // Record what AppKit is about to lay this row out at — the
+                    // baseline future measurements are compared against.
+                    // reportMeasuredHeight already wrote the fresh height into
+                    // measuredHeightByID before scheduling this call.
+                    if let h = measuredHeightByID[id]?[widthBucket] { lastNotedHeight[id] = h }
                 }
             }
             guard !rows.isEmpty else { return }
-            // When the user is parked mid-transcript (not pinned to the bottom),
-            // a row re-tiling from its rough char-count estimate to its true
-            // measured height shifts everything below that row. NSTableView keeps
-            // row 0 pinned to the document top, so a height correction to any row
-            // at or above the viewport yanks the visible content out from under
-            // the reader. Capture the top-visible row first and restore its
-            // on-screen position right after the re-tile, so corrections above
-            // the fold are absorbed silently. Without this, scrolling up through
-            // never-measured rows makes every row jump as it measures — the
-            // "scroll fight" / shaking the transcript exhibits.
+            // A row re-tiling to its true height shifts everything below it.
+            // NSTableView pins row 0 to the document top, so a correction to any
+            // row at or above the viewport yanks visible content out from under a
+            // reader parked mid-transcript. Capture the top-visible row and
+            // restore its on-screen offset right after the re-tile so the shift
+            // is absorbed silently.
             //
-            // NOTE — deliberate divergence from osaurus's ScrollAnchorManager:
-            // osaurus skips this compensation *during* a live scroll (gesture is
-            // authoritative; with its accurate estimator the residual shift is
-            // sub-pixel). agent-deck's char-count estimator produces large
-            // estimate→measured deltas, so the uncompensated shift is a visible
-            // shake — here we compensate during the gesture too. If the
-            // estimator is later made measurement-backed, this can match osaurus
-            // and skip during-scroll. Skipped only when auto-follow will run —
-            // that path jumps to the bottom anyway, so the old offset is moot.
+            // Compensate only when parked
+            // (not pinned) and not mid-gesture. A live scroll is authoritative —
+            // a programmatic scroll then would fight the gesture — and auto-follow
+            // jumps to the bottom anyway, so in both cases the old offset is moot.
             let willAutoFollow = wasPinned && !isUserScrollingRecently
-            let anchor = willAutoFollow ? nil : captureScrollAnchor()
+            let preserveAnchor = !wasPinned && !isUserScrollingRecently
+            let anchor = preserveAnchor ? captureScrollAnchor() : nil
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             // Suppress implicit Core Animation actions so a streaming row's
@@ -1113,9 +1132,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < orderedIDs.count else { return estimatedRowHeight }
             let id = orderedIDs[row]
-            // Prefer a real measurement — it survives session switches, so a
-            // revisited row lays out at its exact height with no reflow.
-            if let measured = measuredHeightByID[id] { return measured }
+            // Prefer a real measurement for the current width — it survives
+            // width changes and session switches, so a revisited row lays out at
+            // its exact height with no reflow.
+            if let measured = measuredHeightByID[id]?[widthBucket] { return measured }
             if let estimate = estimateByID[id] { return estimate }
             // No measurement yet — use the item's fast estimator so the table can lay
             // the row out close to its natural size without triggering a SwiftUI pass.
