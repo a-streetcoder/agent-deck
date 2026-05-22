@@ -126,7 +126,7 @@ private struct PiAgentProjectPickerPopover: View {
                             onSelectProject(project)
                         } label: {
                             HStack(spacing: 10) {
-                                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 24)
+                                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 24, assetName: project.projectType.assetName)
                                 VStack(alignment: .leading, spacing: 1) {
                                     HStack(spacing: 6) {
                                         Text(project.repositoryDisplayName)

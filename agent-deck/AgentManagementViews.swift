@@ -2293,7 +2293,7 @@ private struct SubagentsProjectRecapPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32)
+                ProjectIconView(imageURL: project.iconFileURL, symbolName: project.fallbackSymbolName, size: 32, assetName: project.projectType.assetName)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Pi Subagents Recap").font(.headline).fontWidth(.expanded)
                     Text(project.name).font(.caption).foregroundStyle(AppTheme.mutedText)
