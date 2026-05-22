@@ -320,6 +320,13 @@ struct ContentView: View {
             Text("This removes the selected Pi Agent session and its local transcript from \(AppBrand.displayName).")
         }
         .toolbar { mainToolbarContent }
+        // Detect the selected project's dev-server commands off the render path
+        // so the toolbar control can hide for projects that have none.
+        .task(id: viewModel.piAgentSessionStore.selectedSession?.projectPath) {
+            if let path = viewModel.piAgentSessionStore.selectedSession?.projectPath {
+                viewModel.projectServerService.refreshDetectedCommands(forProjectPath: path)
+            }
+        }
         .task(id: projectFilterText) {
             let trimmed = projectFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
             try? await Task.sleep(for: .milliseconds(120))
@@ -979,14 +986,15 @@ struct ContentView: View {
             ToolbarSpacer(.fixed, placement: .primaryAction)
         }
 
-        ToolbarItem(placement: .primaryAction) {
-            ProjectServerToolbarButton(
-                viewModel: viewModel,
-                store: viewModel.piAgentSessionStore
-            )
+        if viewModel.shouldShowProjectServerControls {
+            ToolbarItem(placement: .primaryAction) {
+                ProjectServerToolbarButton(
+                    viewModel: viewModel,
+                    store: viewModel.piAgentSessionStore
+                )
+            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
         }
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
 
         ToolbarItem(placement: .primaryAction) {
             PiAgentOpenTerminalToolbarButton(

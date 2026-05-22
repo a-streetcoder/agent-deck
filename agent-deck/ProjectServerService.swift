@@ -291,10 +291,35 @@ final class RunningServer: Identifiable {
 @Observable
 final class ProjectServerService {
     private(set) var servers: [RunningServer] = []
+    /// Cached dev-server command detection per project path. A `nil` entry (key
+    /// absent) means detection has not completed yet; an empty array means the
+    /// project has no runnable dev server. Kept off the render hot path so the
+    /// toolbar can decide visibility without per-frame filesystem I/O.
+    private(set) var detectedCommandsByPath: [String: [ServerCommand]] = [:]
     @ObservationIgnored private let commandRunner = CommandRunner()
 
     func servers(forProjectPath path: String) -> [RunningServer] {
         servers.filter { $0.projectPath == path }
+    }
+
+    /// Whether `path` is known to have at least one runnable dev-server command.
+    /// `nil` until `refreshDetectedCommands(forProjectPath:)` has completed for it.
+    func hasDetectedCommands(forProjectPath path: String) -> Bool? {
+        detectedCommandsByPath[path].map { !$0.isEmpty }
+    }
+
+    /// Runs marker-file detection for `path` off the main actor and caches the
+    /// result. Cheap to call repeatedly — callers debounce by triggering on a
+    /// project-path change — so a newly added dev script is picked up on the
+    /// next selection.
+    func refreshDetectedCommands(forProjectPath path: String) {
+        let url = URL(fileURLWithPath: path, isDirectory: true)
+        Task.detached(priority: .utility) { [weak self] in
+            let commands = ServerCommandDetector.detect(at: url)
+            await MainActor.run {
+                self?.detectedCommandsByPath[path] = commands
+            }
+        }
     }
 
     /// The most recent server tracked for a project, regardless of status, so a

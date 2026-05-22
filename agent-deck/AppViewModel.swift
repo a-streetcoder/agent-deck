@@ -2922,6 +2922,16 @@ final class AppViewModel: NSObject {
         piAgentCommitMessageModel() != nil
     }
 
+    /// Whether the dev-server toolbar control should appear for the selected
+    /// session: its project has a detectable dev server, or one is already
+    /// running for it. Hidden for projects with no dev server (e.g. a Swift app)
+    /// so the toolbar doesn't offer a control that can only report "none found".
+    var shouldShowProjectServerControls: Bool {
+        guard let path = piAgentSessionStore.selectedSession?.projectPath else { return false }
+        if projectServerService.currentServer(forProjectPath: path) != nil { return true }
+        return projectServerService.hasDetectedCommands(forProjectPath: path) == true
+    }
+
     var shouldShowCommitSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
               let session = piAgentSessionStore.selectedSession,
