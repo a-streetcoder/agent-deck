@@ -286,67 +286,74 @@ struct PiAgentSessionSubagentPickerCard: View {
 
     private static let accent = Color.teal
 
-    /// Every agent the session could select, non-disabled.
-    private var universe: [EffectiveAgentRecord] {
-        viewModel.selectableAgentUniverse(forProjectPath: session.projectPath)
-            .filter { $0.resolved.disabled != true }
+    /// All render-time data, resolved once per `body` evaluation so the
+    /// catalog scan in `selectableAgentUniverse` runs exactly once — not once
+    /// per derived list.
+    private struct Resolved {
+        let rows: [EffectiveAgentRecord]
+        let addable: [EffectiveAgentRecord]
+        let selection: Set<String>
+        let hasExplicitSelection: Bool
+
+        var selectedCount: Int {
+            rows.filter { selection.contains($0.name) }.count
+        }
     }
 
-    /// Names the session gets by default (project + global + builtin).
-    private var defaultNames: Set<String> {
-        Set(
+    private func resolve() -> Resolved {
+        let universe = viewModel.selectableAgentUniverse(forProjectPath: session.projectPath)
+            .filter { $0.resolved.disabled != true }
+        let defaultNames = Set(
             viewModel.startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
                 .filter { $0.resolved.disabled != true }
                 .map(\.name)
         )
-    }
+        let selection = session.agentSelection ?? defaultNames
+        let rowNames = defaultNames.union(selection)
 
-    private var currentSelection: Set<String> {
-        session.agentSelection ?? defaultNames
-    }
+        let byName: (EffectiveAgentRecord, EffectiveAgentRecord) -> Bool = {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        // `seenRows` ends up holding exactly the row names, so the "addable"
+        // pass reuses it instead of rebuilding a separate set.
+        var seenRows = Set<String>()
+        let rows = universe
+            .filter { rowNames.contains($0.name) && seenRows.insert($0.name).inserted }
+            .sorted(by: byName)
+        var seenAddable = Set<String>()
+        let addable = universe
+            .filter { !seenRows.contains($0.name) && seenAddable.insert($0.name).inserted }
+            .sorted(by: byName)
 
-    /// Checklist rows: the default set plus any explicitly added extras.
-    private var rowAgents: [EffectiveAgentRecord] {
-        let names = defaultNames.union(currentSelection)
-        var seen = Set<String>()
-        return universe
-            .filter { names.contains($0.name) && seen.insert($0.name).inserted }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    /// Agents not already shown as a row — the "Add agents…" picker contents.
-    private var addableAgents: [EffectiveAgentRecord] {
-        let shown = Set(rowAgents.map(\.name))
-        var seen = Set<String>()
-        return universe
-            .filter { !shown.contains($0.name) && seen.insert($0.name).inserted }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private var selectedCount: Int {
-        rowAgents.filter { currentSelection.contains($0.name) }.count
+        return Resolved(
+            rows: rows,
+            addable: addable,
+            selection: selection,
+            hasExplicitSelection: session.agentSelection != nil
+        )
     }
 
     var body: some View {
-        if universe.isEmpty {
+        let data = resolve()
+        if data.rows.isEmpty && data.addable.isEmpty {
             EmptyView()
         } else {
             AppRowCard {
                 VStack(alignment: .leading, spacing: 0) {
-                    header
+                    header(data)
                     if isExpanded {
                         Divider().padding(.vertical, 10)
-                        agentList
+                        agentList(data)
                     }
                 }
             }
             .popover(isPresented: $isAddPresented) {
-                addAgentsPopover
+                addAgentsPopover(data)
             }
         }
     }
 
-    private var header: some View {
+    private func header(_ data: Resolved) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
         } label: {
@@ -358,7 +365,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                     Text("Subagents for this session")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("\(selectedCount) of \(rowAgents.count) selected · set before sending the first message")
+                    Text("\(data.selectedCount) of \(data.rows.count) selected · set before sending the first message")
                         .font(.caption)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -373,10 +380,10 @@ struct PiAgentSessionSubagentPickerCard: View {
         .buttonStyle(.plain)
     }
 
-    private var agentList: some View {
+    private func agentList(_ data: Resolved) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(rowAgents, id: \.name) { agent in
-                agentRow(agent)
+            ForEach(data.rows, id: \.name) { agent in
+                agentRow(agent, checked: data.selection.contains(agent.name), selection: data.selection)
             }
             HStack(spacing: 14) {
                 Button {
@@ -387,10 +394,10 @@ struct PiAgentSessionSubagentPickerCard: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Self.accent)
-                .disabled(addableAgents.isEmpty)
-                .opacity(addableAgents.isEmpty ? 0.4 : 1)
+                .disabled(data.addable.isEmpty)
+                .opacity(data.addable.isEmpty ? 0.4 : 1)
 
-                if session.agentSelection != nil {
+                if data.hasExplicitSelection {
                     Button("Reset to default") {
                         viewModel.setAgentSelection(nil, for: session.id)
                     }
@@ -404,10 +411,9 @@ struct PiAgentSessionSubagentPickerCard: View {
         }
     }
 
-    private func agentRow(_ agent: EffectiveAgentRecord) -> some View {
-        let checked = currentSelection.contains(agent.name)
-        return Button {
-            toggle(agent.name, on: !checked)
+    private func agentRow(_ agent: EffectiveAgentRecord, checked: Bool, selection: Set<String>) -> some View {
+        Button {
+            apply(selection, name: agent.name, include: !checked)
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: checked ? "checkmark.circle.fill" : "circle")
@@ -432,7 +438,7 @@ struct PiAgentSessionSubagentPickerCard: View {
         .buttonStyle(.plain)
     }
 
-    private var addAgentsPopover: some View {
+    private func addAgentsPopover(_ data: Resolved) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Add agents")
                 .font(.headline)
@@ -440,7 +446,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                 .padding(.top, 14)
                 .padding(.bottom, 8)
             Divider()
-            if addableAgents.isEmpty {
+            if data.addable.isEmpty {
                 Text("Every available agent is already in the list.")
                     .font(.callout)
                     .foregroundStyle(AppTheme.mutedText)
@@ -449,9 +455,10 @@ struct PiAgentSessionSubagentPickerCard: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(addableAgents, id: \.name) { agent in
+                        ForEach(data.addable, id: \.name) { agent in
                             Button {
-                                add(agent.name)
+                                apply(data.selection, name: agent.name, include: true)
+                                if data.addable.count <= 1 { isAddPresented = false }
                             } label: {
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: "plus.circle")
@@ -479,7 +486,7 @@ struct PiAgentSessionSubagentPickerCard: View {
                     }
                     .padding(10)
                 }
-                .frame(width: 360, height: min(CGFloat(addableAgents.count) * 58 + 20, 320))
+                .frame(width: 360, height: min(CGFloat(data.addable.count) * 58 + 20, 320))
             }
         }
     }
@@ -490,17 +497,9 @@ struct PiAgentSessionSubagentPickerCard: View {
         return raw.isEmpty ? nil : raw
     }
 
-    private func toggle(_ name: String, on: Bool) {
-        var selection = currentSelection
-        if on { selection.insert(name) } else { selection.remove(name) }
-        viewModel.setAgentSelection(selection, for: session.id)
-    }
-
-    private func add(_ name: String) {
-        let wasLast = addableAgents.count <= 1
-        var selection = currentSelection
-        selection.insert(name)
-        viewModel.setAgentSelection(selection, for: session.id)
-        if wasLast { isAddPresented = false }
+    private func apply(_ selection: Set<String>, name: String, include: Bool) {
+        var updated = selection
+        if include { updated.insert(name) } else { updated.remove(name) }
+        viewModel.setAgentSelection(updated, for: session.id)
     }
 }
