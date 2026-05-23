@@ -9,7 +9,8 @@ struct GitHubIssueListRow: View {
     /// (e.g. the Pi composer's attach-issue popover), which collapses the
     /// context menu to the always-safe Open in Browser / Copy entries.
     var onOpenInPi: (() -> Void)? = nil
-    var onToggleState: (() -> Void)? = nil
+    var onClose: ((GitHubIssueCloseReason) -> Void)? = nil
+    var onReopen: (() -> Void)? = nil
 
     @State private var isHovering = false
 
@@ -130,13 +131,23 @@ struct GitHubIssueListRow: View {
         Link(destination: item.url) {
             Label("Open in Browser", systemImage: "safari")
         }
-        if let onToggleState {
+        if isOpen, let onClose {
             Divider()
-            Button(action: onToggleState) {
-                Label(
-                    isOpen ? "Close Issue" : "Reopen Issue",
-                    systemImage: isOpen ? "checkmark.circle" : "arrow.counterclockwise.circle"
-                )
+            Menu {
+                ForEach(GitHubIssueCloseReason.allCases) { reason in
+                    Button {
+                        onClose(reason)
+                    } label: {
+                        Label(reason.title, systemImage: reason.systemImage)
+                    }
+                }
+            } label: {
+                Label("Close Issue", systemImage: "checkmark.circle")
+            }
+        } else if !isOpen, let onReopen {
+            Divider()
+            Button(action: onReopen) {
+                Label("Reopen Issue", systemImage: "arrow.counterclockwise.circle")
             }
         }
         Divider()
@@ -336,8 +347,14 @@ struct GitHubIssueDetailView: View {
             .help(viewModel.selectedDiscoveredProject == nil ? "Select a project first." : "Open a Pi Agent session for this issue.")
 
             if detail.state.lowercased() == "open" {
-                Button {
-                    viewModel.closeSelectedIssue()
+                Menu {
+                    ForEach(GitHubIssueCloseReason.allCases) { reason in
+                        Button {
+                            viewModel.closeSelectedIssue(reason: reason)
+                        } label: {
+                            Label(reason.title, systemImage: reason.systemImage)
+                        }
+                    }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle")
@@ -345,11 +362,15 @@ struct GitHubIssueDetailView: View {
                         Text(viewModel.githubIsClosingIssue ? "Closing…" : "Close")
                             .fontWeight(.semibold)
                     }
+                } primaryAction: {
+                    viewModel.closeSelectedIssue(reason: .completed)
                 }
                 .appSecondaryButton()
+                .menuIndicator(.visible)
+                .fixedSize()
                 .disabled(viewModel.githubIsClosingIssue)
                 .opacity(viewModel.githubIsClosingIssue ? 0.6 : 1)
-                .help("Close this issue on GitHub.")
+                .help("Close this issue on GitHub. Click ▾ to pick a reason.")
             }
         }
     }

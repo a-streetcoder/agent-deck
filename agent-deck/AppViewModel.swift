@@ -3557,26 +3557,26 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func closeSelectedIssue() {
+    func closeSelectedIssue(reason: GitHubIssueCloseReason = .completed) {
         guard let item = githubSelectedWorkItem else {
             githubLastError = "Select an issue first."
             return
         }
-        closeIssue(item)
+        closeIssue(item, reason: reason)
     }
 
-    func closeIssue(_ item: GitHubWorkItem) {
-        setIssueState(item, open: false)
+    func closeIssue(_ item: GitHubWorkItem, reason: GitHubIssueCloseReason = .completed) {
+        setIssueState(item, open: false, reason: reason)
     }
 
     func reopenIssue(_ item: GitHubWorkItem) {
-        setIssueState(item, open: true)
+        setIssueState(item, open: true, reason: nil)
     }
 
     /// Closes or reopens an issue on GitHub and reconciles the cached board,
     /// selection, and open detail with the new state. `githubIsClosingIssue`
     /// doubles as the in-flight flag for both directions.
-    private func setIssueState(_ item: GitHubWorkItem, open: Bool) {
+    private func setIssueState(_ item: GitHubWorkItem, open: Bool, reason: GitHubIssueCloseReason?) {
         guard let session = gitHubSession else {
             githubLastError = "Connect GitHub first."
             return
@@ -3590,7 +3590,7 @@ final class AppViewModel: NSObject {
                 if open {
                     try await service.reopenIssue(item)
                 } else {
-                    try await service.closeIssue(item)
+                    try await service.closeIssue(item, reason: reason ?? .completed)
                 }
                 await MainActor.run {
                     self.githubIsClosingIssue = false

@@ -142,13 +142,8 @@ struct IssuesScreen: View {
                         isSelected: viewModel.githubSelectedWorkItem == item,
                         onSelect: { viewModel.selectWorkItem(item) },
                         onOpenInPi: { viewModel.startPiAgentForWorkItem(item) },
-                        onToggleState: {
-                            if item.state.lowercased() == "open" {
-                                viewModel.closeIssue(item)
-                            } else {
-                                viewModel.reopenIssue(item)
-                            }
-                        }
+                        onClose: { reason in viewModel.closeIssue(item, reason: reason) },
+                        onReopen: { viewModel.reopenIssue(item) }
                     )
                 }
             }
