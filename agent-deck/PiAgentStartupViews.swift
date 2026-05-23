@@ -344,30 +344,37 @@ struct PiAgentSessionSubagentPickerCard: View {
 
     var body: some View {
         let data = resolve()
-        if data.rows.isEmpty && data.addable.isEmpty {
-            EmptyView()
-        } else {
-            AppRowCard {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(data)
-                    if isExpanded {
-                        Divider().padding(.vertical, 10)
-                        agentList(data)
+        let isHidden = data.rows.isEmpty && data.addable.isEmpty
+        // Fade in on cold start: the universe is briefly empty while the
+        // first project scan runs, then populates. Softens that handoff.
+        Group {
+            if isHidden {
+                EmptyView()
+            } else {
+                AppRowCard {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(data)
+                        if isExpanded {
+                            Divider().padding(.vertical, 10)
+                            agentList(data)
+                        }
                     }
                 }
-            }
-            .sheet(isPresented: $isAddSheetPresented) {
-                PiAgentAddAgentsSheet(
-                    addable: data.addable,
-                    description: description(for:),
-                    onAdd: { names in
-                        var updated = data.selection
-                        for name in names { updated.insert(name) }
-                        viewModel.setAgentSelection(updated, for: session.id)
-                    }
-                )
+                .sheet(isPresented: $isAddSheetPresented) {
+                    PiAgentAddAgentsSheet(
+                        addable: data.addable,
+                        description: description(for:),
+                        onAdd: { names in
+                            var updated = data.selection
+                            for name in names { updated.insert(name) }
+                            viewModel.setAgentSelection(updated, for: session.id)
+                        }
+                    )
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .animation(.easeOut(duration: 0.22), value: isHidden)
     }
 
     private func header(_ data: Resolved) -> some View {
