@@ -343,13 +343,12 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     var body: some View {
-        // Reserve the slot during the first project scan so the card doesn't
-        // pop in after EmptyView() once the cross-project catalog publishes.
-        if !viewModel.hasCompletedInitialRefresh {
-            loadingPlaceholder
-        } else {
-            let data = resolve()
-            if data.rows.isEmpty && data.addable.isEmpty {
+        let data = resolve()
+        let isHidden = data.rows.isEmpty && data.addable.isEmpty
+        // Fade in on cold start: the universe is briefly empty while the
+        // first project scan runs, then populates. Softens that handoff.
+        Group {
+            if isHidden {
                 EmptyView()
             } else {
                 AppRowCard {
@@ -372,31 +371,10 @@ struct PiAgentSessionSubagentPickerCard: View {
                         }
                     )
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-    }
-
-    private var loadingPlaceholder: some View {
-        AppRowCard {
-            HStack(spacing: 10) {
-                Image(systemName: "rectangle.connected.to.line.below")
-                    .foregroundStyle(Self.accent.opacity(0.6))
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Subagents for this session")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("Loading subagents…")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.mutedText)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.mutedText.opacity(0.4))
-                    .rotationEffect(.degrees(-90))
-            }
-        }
+        .animation(.easeOut(duration: 0.22), value: isHidden)
     }
 
     private func header(_ data: Resolved) -> some View {
