@@ -119,6 +119,16 @@ nonisolated enum GitHubIssueCloseReason: String, CaseIterable, Identifiable, Sen
         case .duplicate: return "doc.on.doc"
         }
     }
+
+    /// Qualifier for the GitHub search API. Matches `state_reason` on closed
+    /// issues; including it implicitly restricts results to closed issues.
+    var searchQualifier: String {
+        switch self {
+        case .completed: return "reason:completed"
+        case .notPlanned: return "reason:not-planned"
+        case .duplicate: return "reason:duplicate"
+        }
+    }
 }
 
 nonisolated enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {

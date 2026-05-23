@@ -10,6 +10,7 @@ struct GitHubSearchService {
     func fetchAggregateIssues(
         repos: [GitHubRemote],
         state: GitHubIssueStateFilter,
+        closeReason: GitHubIssueCloseReason? = nil,
         bypassCache: Bool = false
     ) async throws -> GitHubBoardSnapshot {
         guard !repos.isEmpty else {
@@ -24,17 +25,25 @@ struct GitHubSearchService {
             )
         }
 
-        let query = buildIssuesQuery(repos: repos, state: state)
-        return try await fetchBoard(query: query, description: "Issues · \(state.rawValue)", bypassCache: bypassCache)
+        let query = buildIssuesQuery(repos: repos, state: state, closeReason: closeReason)
+        return try await fetchBoard(query: query, description: queryDescription(state: state, closeReason: closeReason), bypassCache: bypassCache)
     }
 
     func fetchRepositoryIssues(
         repo: GitHubRemote,
         state: GitHubIssueStateFilter,
+        closeReason: GitHubIssueCloseReason? = nil,
         bypassCache: Bool = false
     ) async throws -> GitHubBoardSnapshot {
-        let query = buildIssuesQuery(repos: [repo], state: state)
-        return try await fetchBoard(query: query, description: "Issues · \(state.rawValue) · \(repo.nameWithOwner)", bypassCache: bypassCache)
+        let query = buildIssuesQuery(repos: [repo], state: state, closeReason: closeReason)
+        return try await fetchBoard(query: query, description: "\(queryDescription(state: state, closeReason: closeReason)) · \(repo.nameWithOwner)", bypassCache: bypassCache)
+    }
+
+    private func queryDescription(state: GitHubIssueStateFilter, closeReason: GitHubIssueCloseReason?) -> String {
+        if let closeReason {
+            return "Issues · \(state.rawValue) · \(closeReason.title)"
+        }
+        return "Issues · \(state.rawValue)"
     }
 
     private func fetchBoard(query: String, description: String, bypassCache: Bool) async throws -> GitHubBoardSnapshot {
@@ -128,10 +137,13 @@ struct GitHubSearchService {
         }
     }
 
-    private func buildIssuesQuery(repos: [GitHubRemote], state: GitHubIssueStateFilter) -> String {
+    private func buildIssuesQuery(repos: [GitHubRemote], state: GitHubIssueStateFilter, closeReason: GitHubIssueCloseReason?) -> String {
         var parts: [String] = ["is:issue"]
         if let stateQualifier = state.searchQualifier {
             parts.append(stateQualifier)
+        }
+        if let closeReason {
+            parts.append(closeReason.searchQualifier)
         }
 
         let uniqueRepos = Array(Set(repos.map(\.nameWithOwner))).sorted()

@@ -16,6 +16,11 @@ struct GitHubIssueListRow: View {
 
     private var isOpen: Bool { item.state.lowercased() == "open" }
 
+    private var closedReason: GitHubIssueCloseReason? {
+        guard !isOpen, let raw = item.stateReason else { return nil }
+        return GitHubIssueCloseReason(rawValue: raw)
+    }
+
     /// The issue's native type (if any) followed by its labels, rendered as one
     /// wrapping tag strip so the type reads as the leading, color-coded chip.
     private var tags: [IssueTag] {
@@ -52,11 +57,37 @@ struct GitHubIssueListRow: View {
     // MARK: - Pieces
 
     private var stateIndicator: some View {
-        Image(systemName: isOpen ? "smallcircle.filled.circle" : "checkmark.circle.fill")
+        Image(systemName: stateIndicatorSymbol)
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(isOpen ? Color.green : AppTheme.assistantAccent)
+            .foregroundStyle(stateIndicatorColor)
             .padding(.top, 1)
-            .help(isOpen ? "Open" : "Closed")
+            .help(stateIndicatorTooltip)
+    }
+
+    private var stateIndicatorSymbol: String {
+        if isOpen { return "smallcircle.filled.circle" }
+        switch closedReason {
+        case .notPlanned: return "slash.circle.fill"
+        case .duplicate: return "doc.on.doc.fill"
+        case .completed, nil: return "checkmark.circle.fill"
+        }
+    }
+
+    private var stateIndicatorColor: Color {
+        if isOpen { return .green }
+        switch closedReason {
+        case .notPlanned, .duplicate: return AppTheme.mutedText
+        case .completed, nil: return AppTheme.assistantAccent
+        }
+    }
+
+    private var stateIndicatorTooltip: String {
+        if isOpen { return "Open" }
+        switch closedReason {
+        case .notPlanned: return "Closed · Not Planned"
+        case .duplicate: return "Closed · Duplicate"
+        case .completed, nil: return "Closed"
+        }
     }
 
     private var titleRow: some View {
@@ -311,6 +342,12 @@ struct GitHubIssueDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     AppLabelTag(text: detail.state.capitalized, color: detail.state.lowercased() == "open" ? .green : .secondary)
+                    if detail.state.lowercased() != "open",
+                       let raw = detail.stateReason,
+                       let reason = GitHubIssueCloseReason(rawValue: raw),
+                       reason != .completed {
+                        AppLabelTag(text: reason.title, color: .secondary)
+                    }
                     if let issueType = detail.type, !issueType.isEmpty {
                         AppLabelTag(text: issueType, color: issueTypeColor(issueType))
                     }
