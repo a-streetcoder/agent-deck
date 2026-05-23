@@ -99,6 +99,9 @@ final class AppViewModel: NSObject {
     private var lastPiRuntimeSettingsStatCheck: Date?
     var githubConnectionState: GitHubConnectionState = .checking
     var githubIssueStateFilter: GitHubIssueStateFilter = .open
+    /// Server-side `state_reason` qualifier; only applied when the state filter
+    /// is `.closed` (the underlying GitHub field is closed-only).
+    var githubCloseReasonFilter: GitHubIssueCloseReason?
     var githubAuthorFilter: String?
     var githubAssigneeFilter: String?
     var githubTypeFilter: String?
@@ -1232,7 +1235,8 @@ final class AppViewModel: NSObject {
                 let service = GitHubSearchService(apiClient: GitHubAPIClient(session: session))
                 let snapshot = try await service.fetchAggregateIssues(
                     repos: repos,
-                    state: self.githubIssueStateFilter
+                    state: self.githubIssueStateFilter,
+                    closeReason: self.effectiveCloseReasonFilter
                 )
 
                 await MainActor.run {
@@ -1269,7 +1273,8 @@ final class AppViewModel: NSObject {
         }
 
         let state = githubIssueStateFilter
-        let cacheKey = boardCacheKey(for: remote, state: state)
+        let closeReason = effectiveCloseReasonFilter
+        let cacheKey = boardCacheKey(for: remote, state: state, closeReason: closeReason)
         if !force,
            githubProjectBoard != nil,
            githubProjectBoardCacheKey == cacheKey,
@@ -1288,13 +1293,15 @@ final class AppViewModel: NSObject {
                 let snapshot = try await service.fetchRepositoryIssues(
                     repo: remote,
                     state: state,
+                    closeReason: closeReason,
                     bypassCache: force
                 )
 
                 await MainActor.run {
                     guard self.githubProjectBoardRequestID == requestID,
                           self.selectedGitHubProject?.gitHubRemote == remote,
-                          self.githubIssueStateFilter == state else { return }
+                          self.githubIssueStateFilter == state,
+                          self.effectiveCloseReasonFilter == closeReason else { return }
 
                     // Compute selection before publishing the board so the first
                     // render of boardContent already has a selection (avoids a
@@ -1337,7 +1344,8 @@ final class AppViewModel: NSObject {
                 await MainActor.run {
                     guard self.githubProjectBoardRequestID == requestID,
                           self.selectedGitHubProject?.gitHubRemote == remote,
-                          self.githubIssueStateFilter == state else { return }
+                          self.githubIssueStateFilter == state,
+                          self.effectiveCloseReasonFilter == closeReason else { return }
 
                     self.githubProjectBoard = nil
                     self.githubProjectBoardCacheKey = nil
@@ -1429,6 +1437,7 @@ final class AppViewModel: NSObject {
         githubAssigneeFilter = nil
         githubTypeFilter = nil
         githubLabelFilters = []
+        githubCloseReasonFilter = nil
     }
 
     func refreshRepositoryChanges(preservingDiffSelection: Bool = false, force: Bool = true) {
@@ -3557,26 +3566,26 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func closeSelectedIssue() {
+    func closeSelectedIssue(reason: GitHubIssueCloseReason = .completed) {
         guard let item = githubSelectedWorkItem else {
             githubLastError = "Select an issue first."
             return
         }
-        closeIssue(item)
+        closeIssue(item, reason: reason)
     }
 
-    func closeIssue(_ item: GitHubWorkItem) {
-        setIssueState(item, open: false)
+    func closeIssue(_ item: GitHubWorkItem, reason: GitHubIssueCloseReason = .completed) {
+        setIssueState(item, open: false, reason: reason)
     }
 
     func reopenIssue(_ item: GitHubWorkItem) {
-        setIssueState(item, open: true)
+        setIssueState(item, open: true, reason: nil)
     }
 
     /// Closes or reopens an issue on GitHub and reconciles the cached board,
     /// selection, and open detail with the new state. `githubIsClosingIssue`
     /// doubles as the in-flight flag for both directions.
-    private func setIssueState(_ item: GitHubWorkItem, open: Bool) {
+    private func setIssueState(_ item: GitHubWorkItem, open: Bool, reason: GitHubIssueCloseReason?) {
         guard let session = gitHubSession else {
             githubLastError = "Connect GitHub first."
             return
@@ -3590,7 +3599,7 @@ final class AppViewModel: NSObject {
                 if open {
                     try await service.reopenIssue(item)
                 } else {
-                    try await service.closeIssue(item)
+                    try await service.closeIssue(item, reason: reason ?? .completed)
                 }
                 await MainActor.run {
                     self.githubIsClosingIssue = false
@@ -3662,8 +3671,16 @@ final class AppViewModel: NSObject {
         githubLabelFilters = []
     }
 
-    private func boardCacheKey(for remote: GitHubRemote, state: GitHubIssueStateFilter) -> String {
-        "\(remote.host.lowercased())|\(remote.nameWithOwner.lowercased())|\(state.rawValue.lowercased())"
+    private func boardCacheKey(for remote: GitHubRemote, state: GitHubIssueStateFilter, closeReason: GitHubIssueCloseReason?) -> String {
+        let reasonPart = closeReason?.rawValue ?? "any"
+        return "\(remote.host.lowercased())|\(remote.nameWithOwner.lowercased())|\(state.rawValue.lowercased())|\(reasonPart)"
+    }
+
+    /// The reason filter only applies server-side when the state filter is
+    /// Closed — GitHub's `state_reason` is closed-only, and combining it with
+    /// `is:open` would always return zero results.
+    private var effectiveCloseReasonFilter: GitHubIssueCloseReason? {
+        githubIssueStateFilter == .closed ? githubCloseReasonFilter : nil
     }
 
     private func isGitHubBoardCacheStale(fetchedAt: Date?) -> Bool {

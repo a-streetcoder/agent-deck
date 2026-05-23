@@ -86,6 +86,51 @@ nonisolated enum GitHubConnectionState: Hashable, Sendable {
     }
 }
 
+/// Reason sent alongside `state: closed` when closing an issue via the
+/// GitHub REST API. Raw values match the `state_reason` field documented at
+/// https://docs.github.com/en/rest/issues/issues#update-an-issue.
+nonisolated enum GitHubIssueCloseReason: String, CaseIterable, Identifiable, Sendable {
+    case completed = "completed"
+    case notPlanned = "not_planned"
+    case duplicate = "duplicate"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .completed: return "Completed"
+        case .notPlanned: return "Not Planned"
+        case .duplicate: return "Duplicate"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .completed: return "Done, closed, fixed"
+        case .notPlanned: return "Won’t fix, can’t repro"
+        case .duplicate: return "Duplicate of another issue"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .completed: return "checkmark.circle"
+        case .notPlanned: return "slash.circle"
+        case .duplicate: return "doc.on.doc"
+        }
+    }
+
+    /// Qualifier for the GitHub search API. Matches `state_reason` on closed
+    /// issues; including it implicitly restricts results to closed issues.
+    var searchQualifier: String {
+        switch self {
+        case .completed: return "reason:completed"
+        case .notPlanned: return "reason:not-planned"
+        case .duplicate: return "reason:duplicate"
+        }
+    }
+}
+
 nonisolated enum GitHubIssueStateFilter: String, CaseIterable, Identifiable {
     case open = "Open"
     case closed = "Closed"

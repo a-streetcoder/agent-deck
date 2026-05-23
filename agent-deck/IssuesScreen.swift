@@ -21,6 +21,9 @@ struct IssuesScreen: View {
         .onChange(of: viewModel.githubIssueStateFilter) { _, _ in
             viewModel.refreshProjectBoard(force: true)
         }
+        .onChange(of: viewModel.githubCloseReasonFilter) { _, _ in
+            viewModel.refreshProjectBoard(force: true)
+        }
         .onChange(of: viewModel.githubAuthorFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubAssigneeFilter) { _, _ in reconcileSelectionWithFilters() }
         .onChange(of: viewModel.githubTypeFilter) { _, _ in reconcileSelectionWithFilters() }
@@ -142,13 +145,8 @@ struct IssuesScreen: View {
                         isSelected: viewModel.githubSelectedWorkItem == item,
                         onSelect: { viewModel.selectWorkItem(item) },
                         onOpenInPi: { viewModel.startPiAgentForWorkItem(item) },
-                        onToggleState: {
-                            if item.state.lowercased() == "open" {
-                                viewModel.closeIssue(item)
-                            } else {
-                                viewModel.reopenIssue(item)
-                            }
-                        }
+                        onClose: { reason in viewModel.closeIssue(item, reason: reason) },
+                        onReopen: { viewModel.reopenIssue(item) }
                     )
                 }
             }
@@ -255,6 +253,9 @@ struct IssuesFiltersPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             stateSection
+            if viewModel.githubIssueStateFilter == .closed {
+                closeReasonSection
+            }
             if !viewModel.githubAvailableTypes.isEmpty {
                 Divider()
                 typeSection
@@ -287,6 +288,7 @@ struct IssuesFiltersPopover: View {
             || viewModel.githubAssigneeFilter != nil
             || viewModel.githubTypeFilter != nil
             || !viewModel.githubLabelFilters.isEmpty
+            || (viewModel.githubIssueStateFilter == .closed && viewModel.githubCloseReasonFilter != nil)
     }
 
     private var stateSection: some View {
@@ -300,6 +302,27 @@ struct IssuesFiltersPopover: View {
             .pickerStyle(.segmented)
             .labelsHidden()
         }
+    }
+
+    private var closeReasonSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("Close Reason")
+            Picker("Close Reason", selection: closeReasonBinding) {
+                Text("Any reason").tag(GitHubIssueCloseReason?.none)
+                Divider()
+                ForEach(GitHubIssueCloseReason.allCases) { reason in
+                    Text(reason.title).tag(GitHubIssueCloseReason?.some(reason))
+                }
+            }
+            .labelsHidden()
+        }
+    }
+
+    private var closeReasonBinding: Binding<GitHubIssueCloseReason?> {
+        Binding(
+            get: { viewModel.githubCloseReasonFilter },
+            set: { viewModel.githubCloseReasonFilter = $0 }
+        )
     }
 
     private var typeSection: some View {
