@@ -978,6 +978,9 @@ struct ContentView: View {
                 ControlGroup {
                     PiAgentCommitToolbarButton(viewModel: viewModel)
                     PiAgentPushToolbarButton(viewModel: viewModel)
+                    if viewModel.shouldShowMergeSelectedPiAgentSession {
+                        PiAgentMergeToolbarButton(viewModel: viewModel)
+                    }
                 } label: {
                     Label("Git Actions", systemImage: "checkmark")
                 }

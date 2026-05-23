@@ -836,6 +836,15 @@ private struct AutomationsSettingsTab: View {
 
             SettingsSection {
                 SettingsToggleRow(
+                    title: "Worktree isolation:",
+                    label: "Run each new session in its own git branch + worktree",
+                    note: "Off by default. When enabled, every new session creates a branch named agent-deck/session-<id> and an isolated working copy under ~/Library/Application Support/agent-deck/Session Worktrees/. Use the Merge toolbar button to bring the work back into the source branch. Only affects new sessions; existing sessions stay in the project root.",
+                    isOn: sessionsUseWorktreeBinding
+                )
+            }
+
+            SettingsSection {
+                SettingsToggleRow(
                     title: "Agent avatars:",
                     label: "Generate Image Playground prompts with AI",
                     note: "Off by default. When enabled, Agent Deck uses the agent frontmatter to draft a short prompt before generating an avatar with Image Playground. When disabled, it uses a simple fallback prompt.",
@@ -899,6 +908,13 @@ private struct AutomationsSettingsTab: View {
         Binding(
             get: { viewModel.appSettings.piAgentCommitMessageModelIdentifier ?? "" },
             set: { viewModel.setPiAgentCommitMessageModelIdentifier($0) }
+        )
+    }
+
+    private var sessionsUseWorktreeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.appSettings.piAgentSessionsUseWorktree },
+            set: { viewModel.setPiAgentSessionsUseWorktree($0) }
         )
     }
 

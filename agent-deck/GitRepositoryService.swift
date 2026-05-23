@@ -1,5 +1,10 @@
 import Foundation
 
+enum GitMergeOutcome: Hashable {
+    case success
+    case conflict(status: String)
+}
+
 struct GitRepositoryService {
     private let commandRunner: CommandRunning
 
@@ -59,7 +64,82 @@ struct GitRepositoryService {
     }
 
     func pushCurrentBranch(in repositoryURL: URL) async throws {
-        try await runGitMutation(arguments: ["push"], commandDescription: "git push", in: repositoryURL, timeout: 60)
+        // First try a plain `git push`. If it fails because the current branch has no upstream
+        // (common for newly-created session branches), re-run with `-u origin <branch>`.
+        let result = try await commandRunner.run(
+            "git",
+            arguments: ["push"],
+            currentDirectoryURL: repositoryURL,
+            timeout: 60,
+            environment: nil
+        )
+        if result.exitCode == 0 { return }
+
+        let stderr = result.stderr.lowercased()
+        let isMissingUpstream = stderr.contains("no upstream") || stderr.contains("set-upstream") || stderr.contains("has no upstream branch")
+        guard isMissingUpstream else {
+            throw CommandRunnerError.nonZeroExit(command: "git push", exitCode: result.exitCode, stderr: result.stderr)
+        }
+
+        let branch = try await currentBranch(in: repositoryURL)
+        try await runGitMutation(
+            arguments: ["push", "-u", "origin", branch],
+            commandDescription: "git push -u origin \(branch)",
+            in: repositoryURL,
+            timeout: 60
+        )
+    }
+
+    func currentBranch(in repositoryURL: URL) async throws -> String {
+        let text = try await runText(arguments: ["rev-parse", "--abbrev-ref", "HEAD"], commandDescription: "git rev-parse --abbrev-ref HEAD", in: repositoryURL)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func isClean(in repositoryURL: URL) async throws -> Bool {
+        let text = try await runText(arguments: ["status", "--porcelain=v1"], commandDescription: "git status --porcelain=v1", in: repositoryURL)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func hasBranch(_ name: String, in repositoryURL: URL) async throws -> Bool {
+        let result = try await commandRunner.run(
+            "git",
+            arguments: ["show-ref", "--verify", "--quiet", "refs/heads/\(name)"],
+            currentDirectoryURL: repositoryURL,
+            timeout: 10,
+            environment: nil
+        )
+        return result.exitCode == 0
+    }
+
+    func checkoutBranch(_ name: String, in repositoryURL: URL) async throws {
+        try await runGitMutation(arguments: ["checkout", name], commandDescription: "git checkout \(name)", in: repositoryURL, timeout: 30)
+    }
+
+    func deleteBranch(_ name: String, force: Bool, in repositoryURL: URL) async throws {
+        let flag = force ? "-D" : "-d"
+        try await runGitMutation(arguments: ["branch", flag, name], commandDescription: "git branch \(flag) \(name)", in: repositoryURL, timeout: 15)
+    }
+
+    func merge(branch: String, in repositoryURL: URL) async throws -> GitMergeOutcome {
+        let result = try await commandRunner.run(
+            "git",
+            arguments: ["merge", "--no-ff", branch],
+            currentDirectoryURL: repositoryURL,
+            timeout: 60,
+            environment: nil
+        )
+        if result.exitCode == 0 {
+            return .success
+        }
+        // A non-zero exit may mean conflict or some other error. Detect a real merge-in-progress
+        // by checking for unmerged paths via `git ls-files --unmerged` — empty output means no
+        // conflicts, so the merge failed for some other reason and we throw.
+        let unmerged = try await runText(arguments: ["ls-files", "--unmerged"], commandDescription: "git ls-files --unmerged", in: repositoryURL)
+        if !unmerged.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let statusText = (try? await runText(arguments: ["status", "--short", "--branch"], commandDescription: "git status --short --branch", in: repositoryURL)) ?? unmerged
+            return .conflict(status: statusText)
+        }
+        throw CommandRunnerError.nonZeroExit(command: "git merge --no-ff \(branch)", exitCode: result.exitCode, stderr: result.stderr)
     }
 
     func statusText(in repositoryURL: URL) async throws -> String {

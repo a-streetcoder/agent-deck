@@ -797,6 +797,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var launchCommand: String?
     var branchName: String?
     var worktreePath: String?
+    var sourceBranch: String?
     var status: PiAgentRunStatus
     var lastError: String?
     var lastSummary: String?
@@ -833,9 +834,13 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         return title
     }
 
+    /// The working tree the agent and toolbar actions operate in. Falls back to the
+    /// project path for sessions that pre-date worktree isolation or that opted out.
+    var repositoryRoot: String { worktreePath ?? projectPath }
+
     enum CodingKeys: String, CodingKey {
         case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
-        case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath
+        case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath, sourceBranch
         case status, lastError, lastSummary, needsAttention, isPinned, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
         case finalSystemPrompt, finalSystemPromptCapturedAt
@@ -862,6 +867,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         launchCommand: String?,
         branchName: String?,
         worktreePath: String?,
+        sourceBranch: String? = nil,
         status: PiAgentRunStatus,
         lastError: String?,
         lastSummary: String?,
@@ -910,6 +916,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.launchCommand = launchCommand
         self.branchName = branchName
         self.worktreePath = worktreePath
+        self.sourceBranch = sourceBranch
         self.status = status
         self.lastError = lastError
         self.lastSummary = lastSummary
@@ -962,6 +969,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             launchCommand: try container.decodeIfPresent(String.self, forKey: .launchCommand),
             branchName: try container.decodeIfPresent(String.self, forKey: .branchName),
             worktreePath: try container.decodeIfPresent(String.self, forKey: .worktreePath),
+            sourceBranch: try container.decodeIfPresent(String.self, forKey: .sourceBranch),
             status: try container.decode(PiAgentRunStatus.self, forKey: .status),
             lastError: try container.decodeIfPresent(String.self, forKey: .lastError),
             lastSummary: try container.decodeIfPresent(String.self, forKey: .lastSummary),

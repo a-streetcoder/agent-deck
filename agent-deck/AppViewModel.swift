@@ -189,6 +189,7 @@ final class AppViewModel: NSObject {
     private let shipService = PiAgentShipService()
     private let agentAvatarPromptService = AgentAvatarPromptGenerationService()
     private let subagentWorktreeService = PiSubagentWorktreeService()
+    private let sessionWorktreeService = PiAgentSessionWorktreeService()
     @ObservationIgnored private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     @ObservationIgnored private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
     /// Memoizes `selectableAgentUniverse(forProjectPath:)` so the subagent
@@ -1840,12 +1841,13 @@ final class AppViewModel: NSObject {
                 selectPiAgentSession(existing.id)
                 ensurePiAgentModelCatalogLoaded()
             } else {
-                _ = piAgentSessionStore.createSession(
+                let created = piAgentSessionStore.createSession(
                     kind: .project,
                     title: "Project agent · \(project.name)",
                     project: project,
                     repository: project.gitHubRemote?.nameWithOwner
                 )
+                provisionWorktreeIfEnabledFireAndForget(for: created.id, project: project)
                 ensurePiAgentModelCatalogLoaded()
             }
         } else {
@@ -1860,12 +1862,13 @@ final class AppViewModel: NSObject {
     func createPiAgentDraft(for project: DiscoveredProject) {
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        _ = piAgentSessionStore.createSession(
+        let created = piAgentSessionStore.createSession(
             kind: .project,
             title: "Draft · \(project.name)",
             project: project,
             repository: project.gitHubRemote?.nameWithOwner
         )
+        provisionWorktreeIfEnabledFireAndForget(for: created.id, project: project)
         ensurePiAgentModelCatalogLoaded()
     }
 
@@ -1877,6 +1880,29 @@ final class AppViewModel: NSObject {
         }
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = true
+
+        // If worktree isolation is enabled, create the session and provision the
+        // worktree before the runner spawns Pi — otherwise Pi launches in the
+        // project root and won't pick up the worktree path on the first turn.
+        if appSettings.piAgentSessionsUseWorktree, project.isGitRepository {
+            let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n").first.map(String.init) ?? "Project agent · \(project.name)"
+            let session = piAgentSessionStore.createSession(
+                kind: .project,
+                title: title.isEmpty ? "New Agent Session" : String(title.prefix(80)),
+                project: project,
+                repository: project.gitHubRemote?.nameWithOwner
+            )
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.provisionWorktreeIfEnabled(for: session.id, project: project)
+                guard let refreshed = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }) else { return }
+                let prompt = PiIssuePromptBuilder.projectPrompt(project: project, initialInstruction: initialInstruction)
+                self.piAgentRunner.resume(session: refreshed, initialPrompt: prompt)
+            }
+            return
+        }
+
         piAgentRunner.startProjectSession(project: project, initialInstruction: initialInstruction)
     }
 
@@ -1887,7 +1913,7 @@ final class AppViewModel: NSObject {
         }
         selectedSidebarItem = .agent
         isPiAgentInspectorPresented = false
-        _ = piAgentSessionStore.createSession(
+        let created = piAgentSessionStore.createSession(
             kind: .issue,
             title: detail.item.title,
             project: project,
@@ -1895,6 +1921,7 @@ final class AppViewModel: NSObject {
             issueNumber: detail.item.number,
             issueURL: detail.item.url
         )
+        provisionWorktreeIfEnabledFireAndForget(for: created.id, project: project)
         ensurePiAgentModelCatalogLoaded()
         piAgentPendingComposerText = PiIssuePromptBuilder.issueDraft(detail: detail, project: project)
         piAgentPendingIssueAttachment = PiAgentIssueAttachment(detail: detail)
@@ -2957,7 +2984,7 @@ final class AppViewModel: NSObject {
     var shouldShowCommitSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
               let session = piAgentSessionStore.selectedSession,
-              let changes = repositoryChangesCache[session.projectPath]?.snapshot else { return false }
+              let changes = repositoryChangesCache[session.repositoryRoot]?.snapshot else { return false }
         return changes.conflicted.isEmpty
             && (!changes.staged.isEmpty || !changes.unstaged.isEmpty || !changes.untracked.isEmpty)
     }
@@ -2965,7 +2992,7 @@ final class AppViewModel: NSObject {
     var shouldShowPushSelectedPiAgentSession: Bool {
         guard shouldShowPiAgentGitActions,
               let session = piAgentSessionStore.selectedSession,
-              let changes = repositoryChangesCache[session.projectPath]?.snapshot else { return false }
+              let changes = repositoryChangesCache[session.repositoryRoot]?.snapshot else { return false }
         return changes.aheadCount > 0
     }
 
@@ -2983,6 +3010,18 @@ final class AppViewModel: NSObject {
 
     var canCommitAndPushSelectedPiAgentSession: Bool { canCommitSelectedPiAgentSession }
 
+    var shouldShowMergeSelectedPiAgentSession: Bool {
+        guard shouldShowPiAgentGitActions,
+              let session = piAgentSessionStore.selectedSession else { return false }
+        return session.worktreePath != nil && session.branchName != nil && session.sourceBranch != nil
+    }
+
+    var canMergeSelectedPiAgentSession: Bool {
+        guard shouldShowMergeSelectedPiAgentSession,
+              let session = piAgentSessionStore.selectedSession else { return false }
+        return piAgentGitAutomationAction == nil && !session.status.isActive
+    }
+
     func commitSelectedPiAgentSession() {
         shipSelectedPiAgentSession(pushAfterCommit: false)
     }
@@ -2994,7 +3033,7 @@ final class AppViewModel: NSObject {
     func pushSelectedPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession else { return }
         let sessionID = session.id
-        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        let projectURL = URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
         piAgentGitAutomationAction = .push
         piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Push Started", text: "Pushing committed changes on the current branch."))
         Task { [weak self] in
@@ -3024,7 +3063,7 @@ final class AppViewModel: NSObject {
         }
 
         let sessionID = session.id
-        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        let projectURL = URL(fileURLWithPath: session.repositoryRoot, isDirectory: true)
         let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
         piAgentGitAutomationAction = pushAfterCommit ? .commitAndPush : .commit
         piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: pushAfterCommit ? "Commit & Push Started" : "Commit Started", text: pushAfterCommit ? "Staging all changes, generating a commit message, committing, and pushing the current branch." : "Staging all changes, generating a commit message, and committing on the current branch."))
@@ -3061,6 +3100,98 @@ final class AppViewModel: NSObject {
                     self.prepareRepoChangesForSelectedPiAgentSession(force: true)
                 }
             }
+        }
+    }
+
+    func mergeSelectedPiAgentSession() {
+        guard let session = piAgentSessionStore.selectedSession,
+              let worktreePath = session.worktreePath,
+              let branchName = session.branchName,
+              let sourceBranch = session.sourceBranch else { return }
+        let sessionID = session.id
+        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true)
+        piAgentGitAutomationAction = .merge
+        piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Merge Started", text: "Merging `\(branchName)` into `\(sourceBranch)`."))
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let parentClean = try await self.gitRepositoryService.isClean(in: projectURL)
+                guard parentClean else {
+                    throw NSError(domain: "AgentDeckMerge", code: 1, userInfo: [NSLocalizedDescriptionKey: "The project repository has uncommitted changes. Commit, stash, or discard them before merging."])
+                }
+
+                guard try await self.gitRepositoryService.hasBranch(sourceBranch, in: projectURL) else {
+                    throw NSError(domain: "AgentDeckMerge", code: 2, userInfo: [NSLocalizedDescriptionKey: "Source branch `\(sourceBranch)` no longer exists in the project."])
+                }
+
+                let parentBranch = try await self.gitRepositoryService.currentBranch(in: projectURL)
+                if parentBranch != sourceBranch {
+                    try await self.gitRepositoryService.checkoutBranch(sourceBranch, in: projectURL)
+                }
+
+                let outcome = try await self.gitRepositoryService.merge(branch: branchName, in: projectURL)
+                switch outcome {
+                case .success:
+                    await MainActor.run {
+                        self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Merge Completed", text: "Merged `\(branchName)` into `\(sourceBranch)`. Cleaning up worktree."))
+                    }
+                    try? await self.sessionWorktreeService.removeWorktree(worktreePath: worktreeURL.path, projectURL: projectURL, branchName: branchName, deleteBranch: true)
+                    await MainActor.run {
+                        self.piAgentSessionStore.updateSession(sessionID) { record in
+                            record.worktreePath = nil
+                            record.branchName = nil
+                            record.sourceBranch = nil
+                        }
+                        self.piAgentGitAutomationAction = nil
+                        self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Removed", text: "Removed the session worktree and deleted branch `\(branchName)`."))
+                        self.prepareRepoChangesForSelectedPiAgentSession(force: true)
+                    }
+                case let .conflict(status):
+                    await MainActor.run {
+                        self.piAgentGitAutomationAction = nil
+                        self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Merge Conflict", text: "Merge of `\(branchName)` into `\(sourceBranch)` left conflicts. Resolve them in the project, then commit.\n\n\(status)"))
+                        self.prepareRepoChangesForSelectedPiAgentSession(force: true)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.piAgentGitAutomationAction = nil
+                    self.piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Merge Failed", text: error.localizedDescription))
+                    self.prepareRepoChangesForSelectedPiAgentSession(force: true)
+                }
+            }
+        }
+    }
+
+    /// Creates a session worktree for the given project if the user opted in via
+    /// settings. Posts a status entry to the session's transcript on success or
+    /// failure. Callers should await this before starting the agent if they want
+    /// Pi to launch in the worktree on the very first turn.
+    func provisionWorktreeIfEnabled(for sessionID: UUID, project: DiscoveredProject) async {
+        guard appSettings.piAgentSessionsUseWorktree else { return }
+        guard project.isGitRepository else {
+            piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Skipped", text: "Worktree isolation is enabled, but the project is not a git repository. Running in the project root."))
+            return
+        }
+        do {
+            let creation = try await sessionWorktreeService.createWorktree(for: sessionID, projectURL: project.url)
+            piAgentSessionStore.updateSession(sessionID) { record in
+                record.worktreePath = creation.worktreePath
+                record.branchName = creation.branchName
+                record.sourceBranch = creation.sourceBranch
+            }
+            piAgentSessionStore.append(.init(sessionID: sessionID, role: .status, title: "Worktree Ready", text: "Created branch `\(creation.branchName)` off `\(creation.sourceBranch)` in an isolated worktree."))
+        } catch {
+            piAgentSessionStore.append(.init(sessionID: sessionID, role: .error, title: "Worktree Setup Failed", text: "Could not create a session worktree: \(error.localizedDescription). The session will run in the project root."))
+        }
+    }
+
+    private func provisionWorktreeIfEnabledFireAndForget(for sessionID: UUID, project: DiscoveredProject) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.provisionWorktreeIfEnabled(for: sessionID, project: project)
         }
     }
 
@@ -3400,18 +3531,40 @@ final class AppViewModel: NSObject {
         for sessionID in sessionIDs where piAgentRunner.isRunning(sessionID: sessionID) {
             piAgentRunner.stop(sessionID: sessionID, recordTranscript: false)
         }
+
+        // Best-effort worktree cleanup. We capture the metadata before deleting
+        // the session records and then fire-and-forget the git removals.
+        let worktreeCleanups: [(worktreePath: String, projectPath: String, branchName: String?)] = sessionIDs.compactMap { id in
+            guard let session = piAgentSessionStore.sessions.first(where: { $0.id == id }),
+                  let worktreePath = session.worktreePath else { return nil }
+            return (worktreePath, session.projectPath, session.branchName)
+        }
+
         piAgentSessionStore.deleteSessions(sessionIDs)
+
+        for cleanup in worktreeCleanups {
+            let projectURL = URL(fileURLWithPath: cleanup.projectPath, isDirectory: true)
+            Task { [weak self] in
+                try? await self?.sessionWorktreeService.removeWorktree(
+                    worktreePath: cleanup.worktreePath,
+                    projectURL: projectURL,
+                    branchName: cleanup.branchName,
+                    deleteBranch: true
+                )
+            }
+        }
     }
 
     func prepareRepoChangesForSelectedPiAgentSession(force: Bool = false) {
         guard let session = piAgentSessionStore.selectedSession else { return }
+        let repoRoot = session.repositoryRoot
         refreshRepositoryChanges(
-            forProjectPath: session.projectPath,
+            forProjectPath: repoRoot,
             preservingDiffSelection: true,
             force: force,
             activeContextIsCurrent: { [weak self] in
                 guard let self else { return false }
-                return self.piAgentSessionStore.selectedSession?.projectPath == session.projectPath || self.selectedDiscoveredProject?.path == session.projectPath
+                return self.piAgentSessionStore.selectedSession?.repositoryRoot == repoRoot || self.selectedDiscoveredProject?.path == repoRoot
             }
         )
     }
@@ -3518,7 +3671,12 @@ final class AppViewModel: NSObject {
     private func refreshRepositoryChangesForPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession,
               selectedProjectPath == session.projectPath else { return }
+        // The Git tab is showing the project — refresh by project path. The session's
+        // own worktree status is refreshed separately by prepareRepoChangesForSelectedPiAgentSession.
         refreshRepositoryChanges(preservingDiffSelection: true)
+        if session.repositoryRoot != session.projectPath {
+            prepareRepoChangesForSelectedPiAgentSession(force: true)
+        }
     }
 
     func submitComment() {
@@ -3935,6 +4093,11 @@ final class AppViewModel: NSObject {
 
     func setPiAgentCommitMessageModelIdentifier(_ identifier: String?) {
         guard appSettingsController.setPiAgentCommitMessageModelIdentifier(identifier) else { return }
+        syncAppSettings()
+    }
+
+    func setPiAgentSessionsUseWorktree(_ isEnabled: Bool) {
+        guard appSettingsController.setPiAgentSessionsUseWorktree(isEnabled) else { return }
         syncAppSettings()
     }
 

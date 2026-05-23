@@ -108,10 +108,51 @@ struct PiAgentCommitAndPushToolbarButton: View {
     }
 }
 
+struct PiAgentMergeToolbarButton: View {
+    var viewModel: AppViewModel
+    @State private var isConfirmationPresented = false
+
+    var body: some View {
+        Button { isConfirmationPresented = true } label: {
+            Label {
+                Text("Merge")
+            } icon: {
+                if viewModel.piAgentGitAutomationAction == .merge {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .symbolEffect(.rotate, options: .repeating)
+                        .transition(.identity)
+                } else {
+                    Image(systemName: "arrow.triangle.merge")
+                        .transition(.identity)
+                }
+            }
+        }
+        .accessibilityLabel("Merge")
+        .disabled(!viewModel.canMergeSelectedPiAgentSession)
+        .help("Switch the project to the source branch and merge the session branch back in")
+        .alert("Merge session branch?", isPresented: $isConfirmationPresented) {
+            Button("Merge") { viewModel.mergeSelectedPiAgentSession() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(piAgentMergeAlertMessage(viewModel: viewModel))
+        }
+    }
+}
+
 private func piAgentGitAlertMessage(for action: PiAgentGitAction, viewModel: AppViewModel) -> String {
     guard let session = viewModel.piAgentSessionStore.selectedSession else { return action.alertMessage }
-    let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
+    let repoName = URL(fileURLWithPath: session.repositoryRoot, isDirectory: true).lastPathComponent
     return "Repository: \(repoName)\n\n\(action.alertMessage)"
+}
+
+private func piAgentMergeAlertMessage(viewModel: AppViewModel) -> String {
+    guard let session = viewModel.piAgentSessionStore.selectedSession,
+          let branch = session.branchName,
+          let source = session.sourceBranch else {
+        return "Merge the session branch into its source branch."
+    }
+    let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
+    return "Repository: \(repoName)\n\nThis will switch the project to `\(source)` (if not already there) and merge `\(branch)` into it with `--no-ff`. After a successful merge, the session worktree and branch will be removed.\n\nThe project repository must be clean — uncommitted changes will block the merge."
 }
 
 private enum PiAgentGitAction: Identifiable {
@@ -137,9 +178,9 @@ private enum PiAgentGitAction: Identifiable {
     var alertMessage: String {
         switch self {
         case .commit:
-            return "This will stage all changes in the selected session's project, generate a commit title and description with a no-thinking helper model, and commit on the current branch. It will not push."
+            return "This will stage all changes in the selected session's working tree, generate a commit title and description with a no-thinking helper model, and commit on the current branch. It will not push."
         case .commitAndPush:
-            return "This will stage all changes in the selected session's project, generate a commit title and description with a no-thinking helper model, commit on the current branch, and push to the configured upstream. It will not ask follow-up questions."
+            return "This will stage all changes in the selected session's working tree, generate a commit title and description with a no-thinking helper model, commit on the current branch, and push to the configured upstream. It will not ask follow-up questions."
         }
     }
 }

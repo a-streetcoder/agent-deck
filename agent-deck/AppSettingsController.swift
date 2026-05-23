@@ -563,6 +563,14 @@ final class AppSettingsController {
     }
 
     @discardableResult
+    func setPiAgentSessionsUseWorktree(_ isEnabled: Bool) -> Bool {
+        guard settings.piAgentSessionsUseWorktree != isEnabled else { return false }
+        settings.piAgentSessionsUseWorktree = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
     func setAutoGenerateAgentAvatarPrompts(_ isEnabled: Bool) -> Bool {
         guard settings.autoGenerateAgentAvatarPrompts != isEnabled else { return false }
         settings.autoGenerateAgentAvatarPrompts = isEnabled

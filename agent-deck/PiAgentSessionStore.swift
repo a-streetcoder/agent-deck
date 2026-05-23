@@ -138,7 +138,7 @@ final class PiAgentSessionStore {
     }
 
     @discardableResult
-    func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil) -> PiAgentSessionRecord {
+    func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil) -> PiAgentSessionRecord {
         let now = Date()
         let record = PiAgentSessionRecord(
             id: UUID(),
@@ -157,8 +157,9 @@ final class PiAgentSessionStore {
             modelOverrideProvider: nil,
             thinkingLevel: nil,
             launchCommand: nil,
-            branchName: nil,
-            worktreePath: nil,
+            branchName: branchName,
+            worktreePath: worktreePath,
+            sourceBranch: sourceBranch,
             status: .draft,
             lastError: nil,
             lastSummary: nil,

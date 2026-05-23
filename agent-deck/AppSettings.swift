@@ -55,6 +55,7 @@ struct AppSettings: Codable, Hashable {
     var piAgentGitAutomationEnabled: Bool = false
     var piAgentGitAutomationRequiresConfirmation: Bool = true
     var piAgentCommitMessageModelIdentifier: String?
+    var piAgentSessionsUseWorktree: Bool = false
     var autoGenerateAgentAvatarPrompts: Bool = false
     var agentAvatarPromptModelIdentifier: String?
     var disabledModelIdentifiers: Set<String> = []
@@ -93,6 +94,7 @@ struct AppSettings: Codable, Hashable {
         case piAgentGitAutomationEnabled
         case piAgentGitAutomationRequiresConfirmation
         case piAgentCommitMessageModelIdentifier
+        case piAgentSessionsUseWorktree
         case autoGenerateAgentAvatarPrompts
         case agentAvatarPromptModelIdentifier
         case disabledModelIdentifiers
@@ -137,6 +139,7 @@ struct AppSettings: Codable, Hashable {
         piAgentGitAutomationEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationEnabled) ?? false
         piAgentGitAutomationRequiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .piAgentGitAutomationRequiresConfirmation) ?? true
         piAgentCommitMessageModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentCommitMessageModelIdentifier)
+        piAgentSessionsUseWorktree = try container.decodeIfPresent(Bool.self, forKey: .piAgentSessionsUseWorktree) ?? false
         autoGenerateAgentAvatarPrompts = try container.decodeIfPresent(Bool.self, forKey: .autoGenerateAgentAvatarPrompts) ?? false
         agentAvatarPromptModelIdentifier = try container.decodeIfPresent(String.self, forKey: .agentAvatarPromptModelIdentifier)
         disabledModelIdentifiers = try container.decodeIfPresent(Set<String>.self, forKey: .disabledModelIdentifiers) ?? []
