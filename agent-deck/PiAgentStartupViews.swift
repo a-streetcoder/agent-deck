@@ -343,12 +343,8 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     var body: some View {
-        // While the very first project scan is still in flight the cross-project
-        // catalog walk can return nothing, which used to drop the card to
-        // `EmptyView()` and pop it back in once snapshots published. We reserve
-        // the slot with a placeholder during that window so the composer doesn't
-        // shift; once the refresh completes the card either fills with data or
-        // — if the workspace truly has no subagents — hides itself as before.
+        // Reserve the slot during the first project scan so the card doesn't
+        // pop in after EmptyView() once the cross-project catalog publishes.
         if !viewModel.hasCompletedInitialRefresh {
             loadingPlaceholder
         } else {
