@@ -59,7 +59,9 @@ private struct RepositoryChangesCacheEntry {
 @Observable
 final class AppViewModel: NSObject {
     let windowID = UUID()
-    var snapshot: ScanSnapshot = .empty
+    var snapshot: ScanSnapshot = .empty {
+        didSet { clearAgentUniverseCache() }
+    }
     var selectedSidebarItem: SidebarItem = .agent
     var selectedAgentID: EffectiveAgentRecord.ID?
     var selectedSkillID: SkillRecord.ID?
@@ -81,8 +83,12 @@ final class AppViewModel: NSObject {
     var discoveredProjects: [DiscoveredProject] = []
     var isRefreshingProjects = false
     var projectPreferencesByPath: [String: ProjectPreference] = ProjectPreferencesStore.shared.preferencesByPath
-    var selectedProjectPath: String?
-    var allProjectSnapshots: [String: ScanSnapshot] = [:]
+    var selectedProjectPath: String? {
+        didSet { clearAgentUniverseCache() }
+    }
+    var allProjectSnapshots: [String: ScanSnapshot] = [:] {
+        didSet { clearAgentUniverseCache() }
+    }
     var availableModels: [AvailableModel] = [] {
         didSet { rebuildAutomationModelCaches() }
     }
@@ -182,9 +188,16 @@ final class AppViewModel: NSObject {
     private let subagentWorktreeService = PiSubagentWorktreeService()
     @ObservationIgnored private lazy var piAgentRunner = PiAgentRunnerService(store: piAgentSessionStore)
     @ObservationIgnored private lazy var nativeSubagentRunner = PiSubagentRunService(store: piAgentSessionStore)
+    /// Memoizes `selectableAgentUniverse(forProjectPath:)` so the subagent
+    /// picker (and `catalogAgents(for:)` / `sessionHasSelectableAgents`) read
+    /// a precomputed list instead of rebuilding it on every body evaluation.
+    /// Cleared in `clearAgentUniverseCache()` whenever a snapshot publishes.
+    @ObservationIgnored private var agentUniverseCacheByProjectPath: [String: [EffectiveAgentRecord]] = [:]
     private let piSessionTitleGenerator = PiSessionTitleGenerationService()
     let projectServerService = ProjectServerService()
-    private var globalSnapshot: ScanSnapshot = .empty
+    private var globalSnapshot: ScanSnapshot = .empty {
+        didSet { clearAgentUniverseCache() }
+    }
     private var gitHubSession: GitHubSession?
     private(set) var projectRootURL: URL?
     private var autoRefreshCancellable: AnyCancellable?
@@ -4314,7 +4327,15 @@ final class AppViewModel: NSObject {
     /// project-effective agents plus catalog-only and library agents not
     /// otherwise assigned. Parameterized by project path so it resolves for
     /// any session, not only the currently selected project.
+    ///
+    /// Results are memoized per project path; the cache is cleared via
+    /// `clearAgentUniverseCache()` whenever any underlying snapshot
+    /// publishes, so callers can read this on every `body` evaluation
+    /// without rebuilding the catalog walk each time.
     func selectableAgentUniverse(forProjectPath path: String) -> [EffectiveAgentRecord] {
+        if let cached = agentUniverseCacheByProjectPath[path] {
+            return cached
+        }
         let snap = startupSnapshot(forProjectPath: path)
         let effective = snap.effectiveAgents
         let effectivePaths = Set(effective.compactMap(\.sourcePath).map(standardizedPath))
@@ -4326,7 +4347,13 @@ final class AppViewModel: NSObject {
         let libraryOnly = snap.libraryAgents
             .filter { !effectiveNames.contains($0.name) }
             .map { libraryDisplayAgent(from: $0, projectRoot: snap.projectRoot) }
-        return effective + catalogOnly + libraryOnly
+        let result = effective + catalogOnly + libraryOnly
+        agentUniverseCacheByProjectPath[path] = result
+        return result
+    }
+
+    private func clearAgentUniverseCache() {
+        agentUniverseCacheByProjectPath.removeAll(keepingCapacity: true)
     }
 
     /// The exact, deduplicated set of subagents advertised to — and delegable

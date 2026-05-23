@@ -343,29 +343,62 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     var body: some View {
-        let data = resolve()
-        if data.rows.isEmpty && data.addable.isEmpty {
-            EmptyView()
+        // While the very first project scan is still in flight the cross-project
+        // catalog walk can return nothing, which used to drop the card to
+        // `EmptyView()` and pop it back in once snapshots published. We reserve
+        // the slot with a placeholder during that window so the composer doesn't
+        // shift; once the refresh completes the card either fills with data or
+        // — if the workspace truly has no subagents — hides itself as before.
+        if !viewModel.hasCompletedInitialRefresh {
+            loadingPlaceholder
         } else {
-            AppRowCard {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(data)
-                    if isExpanded {
-                        Divider().padding(.vertical, 10)
-                        agentList(data)
+            let data = resolve()
+            if data.rows.isEmpty && data.addable.isEmpty {
+                EmptyView()
+            } else {
+                AppRowCard {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(data)
+                        if isExpanded {
+                            Divider().padding(.vertical, 10)
+                            agentList(data)
+                        }
                     }
                 }
+                .sheet(isPresented: $isAddSheetPresented) {
+                    PiAgentAddAgentsSheet(
+                        addable: data.addable,
+                        description: description(for:),
+                        onAdd: { names in
+                            var updated = data.selection
+                            for name in names { updated.insert(name) }
+                            viewModel.setAgentSelection(updated, for: session.id)
+                        }
+                    )
+                }
             }
-            .sheet(isPresented: $isAddSheetPresented) {
-                PiAgentAddAgentsSheet(
-                    addable: data.addable,
-                    description: description(for:),
-                    onAdd: { names in
-                        var updated = data.selection
-                        for name in names { updated.insert(name) }
-                        viewModel.setAgentSelection(updated, for: session.id)
-                    }
-                )
+        }
+    }
+
+    private var loadingPlaceholder: some View {
+        AppRowCard {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.connected.to.line.below")
+                    .foregroundStyle(Self.accent.opacity(0.6))
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Subagents for this session")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Loading subagents…")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText.opacity(0.4))
+                    .rotationEffect(.degrees(-90))
             }
         }
     }
