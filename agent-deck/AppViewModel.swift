@@ -4659,6 +4659,38 @@ final class AppViewModel: NSObject {
         appSettingsController.piAgentTerminalApplicationOptions
     }
 
+    var piAgentLaunchPreview: String {
+        appSettingsController.piAgentLaunchPreview
+    }
+
+    var discoveredPiExtensions: [PiExtensionCandidate] {
+        appSettingsController.discoveredPiExtensions(projectRoot: projectRootURL)
+    }
+
+    func isPiExtensionEnabled(_ candidate: PiExtensionCandidate) -> Bool {
+        appSettingsController.isPiExtensionEnabled(candidate)
+    }
+
+    func setPiAgentExtensionLoadingMode(_ mode: PiAgentExtensionLoadingMode) {
+        guard appSettingsController.setPiAgentExtensionLoadingMode(mode) else { return }
+        syncAppSettings()
+    }
+
+    func setPiExtension(_ candidate: PiExtensionCandidate, enabled: Bool) {
+        guard appSettingsController.setPiExtension(candidate, enabled: enabled) else { return }
+        syncAppSettings()
+    }
+
+    func setAllDiscoveredPiExtensions(enabled: Bool) {
+        guard appSettingsController.setAllPiExtensions(discoveredPiExtensions, enabled: enabled) else { return }
+        syncAppSettings()
+    }
+
+    func pruneMissingPiExtensionSelections() {
+        guard appSettingsController.prunePiExtensionSelection(to: discoveredPiExtensions) else { return }
+        syncAppSettings()
+    }
+
     func setPiAgentTerminalApplicationSelection(_ selectionID: String) {
         appSettingsController.setPiAgentTerminalApplicationSelection(selectionID)
         syncAppSettings()

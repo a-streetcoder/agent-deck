@@ -621,21 +621,22 @@ final class PiAgentRunnerService {
         }
 
         do {
-            var extraArguments: [String] = ["--no-extensions"]
+            let settings = AppSettingsStore.shared.settings
+            var extraArguments: [String] = PiAgentLaunchArgumentBuilder.ambientExtensionArguments(settings: settings, projectURL: projectURL)
             if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", auditURL.path])
             }
             if let askURL = try? PiNativeSubagentBridgeExtensions.askUserExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", askURL.path])
             }
-            if AppSettingsStore.shared.settings.agentMemoryEnabled,
+            if settings.agentMemoryEnabled,
                let memoryURL = try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", memoryURL.path])
             }
             if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", fastURL.path])
             }
-            for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: AppSettingsStore.shared.settings) {
+            for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: settings) {
                 extraArguments.append(contentsOf: ["--extension", commandURL.path])
             }
             let sessionID = session.id
@@ -656,7 +657,7 @@ final class PiAgentRunnerService {
                 // appended to the system prompt, no child-boundary boilerplate.
                 let exaConfigured = PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment)
                 let webFetchInstalled = WebFetchDependencyService().status().isInstalled
-                let memoryEnabled = AppSettingsStore.shared.settings.agentMemoryEnabled
+                let memoryEnabled = settings.agentMemoryEnabled
                 extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.systemPromptArguments(
                     for: boundAgent,
                     prompt: boundAgent.resolved.systemPrompt
@@ -668,8 +669,9 @@ final class PiAgentRunnerService {
                     includeExaTools: exaConfigured,
                     includeFallbackWebFetchTool: !exaConfigured && webFetchInstalled
                 )))
-                // Share the single `--no-extensions` already at the top of
-                // extraArguments; only append the agent's authored extensions.
+                // Only append the agent's authored extensions. The user's
+                // parent-session extension-loading preference controls whether
+                // ambient Pi extension discovery stays enabled for this launch.
                 extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.agentExtensionArguments(
                     for: boundAgent,
                     prependNoExtensions: false

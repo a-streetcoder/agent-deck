@@ -89,6 +89,90 @@ enum NativeSubagentDelegationPolicy: String, Codable, CaseIterable, Hashable, Id
     }
 }
 
+enum PiAgentExtensionLoadingMode: String, Codable, CaseIterable, Hashable, Identifiable {
+    case agentDeckManaged = "agentDeckManaged"
+    case piDefaultsAndAgentDeck = "piDefaultsAndAgentDeck"
+    case customSelectionAndAgentDeck = "customSelectionAndAgentDeck"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .agentDeckManaged:
+            return "Agent Deck managed"
+        case .piDefaultsAndAgentDeck:
+            return "Pi defaults + Agent Deck"
+        case .customSelectionAndAgentDeck:
+            return "Custom selection + Agent Deck"
+        }
+    }
+
+    var settingsDescription: String {
+        switch self {
+        case .agentDeckManaged:
+            return "Disable Pi's ambient extension discovery and load only Agent Deck's required bridge extensions plus explicitly selected Deck command extensions."
+        case .piDefaultsAndAgentDeck:
+            return "Let Pi load your normal configured extensions, while Agent Deck still adds its required bridge extensions for app features."
+        case .customSelectionAndAgentDeck:
+            return "Disable ambient discovery, then explicitly load only checked Pi extensions plus Agent Deck's required bridge extensions."
+        }
+    }
+
+    var disablesAmbientPiExtensions: Bool {
+        switch self {
+        case .agentDeckManaged, .customSelectionAndAgentDeck:
+            return true
+        case .piDefaultsAndAgentDeck:
+            return false
+        }
+    }
+
+    var usesCustomPiExtensionSelection: Bool {
+        self == .customSelectionAndAgentDeck
+    }
+
+    var ambientPiExtensionArguments: [String] {
+        disablesAmbientPiExtensions ? ["--no-extensions"] : []
+    }
+
+    var parentSessionAmbientExtensionArguments: [String] {
+        ambientPiExtensionArguments
+    }
+
+    var launchSummary: String {
+        switch self {
+        case .agentDeckManaged:
+            return "pi --mode rpc --no-extensions …"
+        case .piDefaultsAndAgentDeck:
+            return "pi --mode rpc …"
+        case .customSelectionAndAgentDeck:
+            return "pi --mode rpc --no-extensions --extension <checked-pi-extension> …"
+        }
+    }
+
+    var extensionDiscoverySummary: String {
+        switch self {
+        case .agentDeckManaged:
+            return "Pi extension discovery is disabled. Agent Deck loads only its required bridges plus explicitly configured Deck extensions."
+        case .piDefaultsAndAgentDeck:
+            return "Pi extension discovery is enabled. Your normal Pi extensions load in addition to Agent Deck’s required bridges."
+        case .customSelectionAndAgentDeck:
+            return "Pi extension discovery is disabled. Agent Deck loads checked Pi extensions explicitly, then adds its required bridges."
+        }
+    }
+
+    var parentSessionLaunchPreview: String {
+        switch self {
+        case .agentDeckManaged:
+            return "Parent session: pi --mode rpc --no-extensions --extension <agent-deck-bridge.ts> …\nNative subagent: pi --mode rpc --no-extensions --extension <agent-extension.ts> --extension <agent-deck-bridge.ts> …\nAutomation helper: pi --mode rpc --no-session --no-extensions --no-tools …"
+        case .piDefaultsAndAgentDeck:
+            return "Parent session: pi --mode rpc --extension <agent-deck-bridge.ts> …\nNative subagent: pi --mode rpc --extension <agent-extension.ts> --extension <agent-deck-bridge.ts> …\nAutomation helper: pi --mode rpc --no-session --no-tools …"
+        case .customSelectionAndAgentDeck:
+            return "Parent session: pi --mode rpc --no-extensions --extension <checked-pi-extension> --extension <agent-deck-bridge.ts> …\nNative subagent: pi --mode rpc --no-extensions --extension <checked-pi-extension> --extension <agent-extension.ts> --extension <agent-deck-bridge.ts> …\nAutomation helper: pi --mode rpc --no-session --no-extensions --extension <checked-pi-extension> --no-tools …"
+        }
+    }
+}
+
 struct AppSettings: Codable, Hashable {
     var gitHubBoardCacheLifetimeMinutes: Int = 15
     var piAgentNotificationDelayMinutes: Int = 3
@@ -96,6 +180,10 @@ struct AppSettings: Codable, Hashable {
     var piAgentIdleParkingTimeoutMinutes: Int = 10
     var piAgentTranscriptVisibility: PiAgentTranscriptVisibilitySettings = .init()
     var piAgentTerminalApplicationPath: String?
+    var piAgentExtensionLoadingMode: PiAgentExtensionLoadingMode = .agentDeckManaged
+    /// Stable candidate IDs disabled in Agent Deck's custom Pi extension mode.
+    /// New/discovered extensions default to enabled until the user unchecks them.
+    var disabledPiExtensionIDs: Set<String> = []
     var projectsRootPaths: [String] = [ProjectDiscovery.defaultRootDirectoryURL().path]
     var didConfirmProjectsRootPaths: Bool = false
     var nativeSubagentsEnabledForNewSessions: Bool = true
@@ -143,6 +231,8 @@ struct AppSettings: Codable, Hashable {
         case piAgentIdleParkingTimeoutMinutes
         case piAgentTranscriptVisibility
         case piAgentTerminalApplicationPath
+        case piAgentExtensionLoadingMode
+        case disabledPiExtensionIDs
         case projectsRootPaths
         case didConfirmProjectsRootPaths
         case nativeSubagentsEnabledForNewSessions
@@ -194,6 +284,8 @@ struct AppSettings: Codable, Hashable {
         piAgentIdleParkingTimeoutMinutes = max(decodedIdleParkingTimeout, 1)
         piAgentTranscriptVisibility = try container.decodeIfPresent(PiAgentTranscriptVisibilitySettings.self, forKey: .piAgentTranscriptVisibility) ?? .init()
         piAgentTerminalApplicationPath = try container.decodeIfPresent(String.self, forKey: .piAgentTerminalApplicationPath)
+        piAgentExtensionLoadingMode = (try? container.decodeIfPresent(PiAgentExtensionLoadingMode.self, forKey: .piAgentExtensionLoadingMode)) ?? .agentDeckManaged
+        disabledPiExtensionIDs = try container.decodeIfPresent(Set<String>.self, forKey: .disabledPiExtensionIDs) ?? []
         let hasStoredProjectsRootPaths = container.contains(.projectsRootPaths)
         projectsRootPaths = try container.decodeIfPresent([String].self, forKey: .projectsRootPaths) ?? [ProjectDiscovery.defaultRootDirectoryURL().path]
         didConfirmProjectsRootPaths = try container.decodeIfPresent(Bool.self, forKey: .didConfirmProjectsRootPaths) ?? hasStoredProjectsRootPaths

@@ -113,7 +113,8 @@ nonisolated struct AppRefreshService: Sendable {
     }
 
     static func watchedURLs(projects: [DiscoveredProject], snapshot: ScanSnapshot, externalSkillPaths: Set<String>, externalPromptPaths: Set<String>) -> [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let fileManager = FileManager.default
+        let home = fileManager.homeDirectoryForCurrentUser
         let globalAgentRoot = home.appendingPathComponent(".pi/agent", isDirectory: true)
         let legacyGlobalAgentRoot = home.appendingPathComponent(".agents", isDirectory: true)
         var urls: [URL] = [
@@ -121,6 +122,7 @@ nonisolated struct AppRefreshService: Sendable {
             globalAgentRoot.appendingPathComponent("agent-library/agents", isDirectory: true),
             globalAgentRoot.appendingPathComponent("settings.json"),
             globalAgentRoot.appendingPathComponent(".env"),
+            globalAgentRoot.appendingPathComponent("extensions", isDirectory: true),
             globalAgentRoot.appendingPathComponent("skills", isDirectory: true),
             globalAgentRoot.appendingPathComponent("prompts", isDirectory: true),
             globalAgentRoot.appendingPathComponent("prompt-library", isDirectory: true),
@@ -128,14 +130,15 @@ nonisolated struct AppRefreshService: Sendable {
             legacyGlobalAgentRoot.appendingPathComponent("skills", isDirectory: true)
         ]
 
-        // Watch the skill-repositories root as a single recursive watch. Every
-        // cloned repo lives under it, so this one entry covers all their skills
-        // once `watchPaths(for:)` prunes the now-redundant per-skill directories.
-        // Without it, each imported skill becomes its own watch path and the
-        // FSEventStream exhausts the process file-descriptor limit (EMFILE).
+        // Watch known skill-library roots as single recursive watches. Every
+        // skill below these roots is already covered, so `watchPaths(for:)` can
+        // prune the now-redundant per-skill directories. Without this, each
+        // imported skill becomes its own FSEvents watch path and can exhaust the
+        // process file-descriptor limit (EMFILE).
+        let sharedSkillLibrariesRoot = home.appendingPathComponent(".agents-skill-libraries", isDirectory: true)
         let skillRepositoriesRoot = SkillRepositorySyncService.repositoriesDirectoryURL()
-        if FileManager.default.fileExists(atPath: skillRepositoriesRoot.path) {
-            urls.append(skillRepositoriesRoot)
+        for root in [sharedSkillLibrariesRoot, skillRepositoriesRoot] where fileManager.fileExists(atPath: root.path) {
+            urls.append(root)
         }
 
         for project in projects {
@@ -143,6 +146,7 @@ nonisolated struct AppRefreshService: Sendable {
             urls.append(piRoot.appendingPathComponent("agents", isDirectory: true))
             urls.append(piRoot.appendingPathComponent("settings.json"))
             urls.append(piRoot.appendingPathComponent(".env"))
+            urls.append(piRoot.appendingPathComponent("extensions", isDirectory: true))
             urls.append(piRoot.appendingPathComponent("skills", isDirectory: true))
             urls.append(piRoot.appendingPathComponent("prompts", isDirectory: true))
             urls.append(project.url.appendingPathComponent(".agents", isDirectory: true))

@@ -64,11 +64,12 @@ For a normal Pi session, Pi builds the effective system prompt in this order:
 
 Parent Pi Agent sessions are the main chat sessions in Agent Deck.
 
-Agent Deck launches them as normal Pi RPC sessions with controlled app resources:
+Agent Deck launches them as normal Pi RPC sessions with controlled app resources. By default, Agent Deck uses managed extension loading and includes `--no-extensions`; users can change **Settings → General → Pi extensions** to "Pi defaults + Agent Deck" to omit that flag and allow normal Pi extension discovery, or to "Custom selection + Agent Deck" to keep `--no-extensions` while explicitly loading only checked Pi default extensions for parent sessions, native subagents, and automation helpers.
 
 ```text
 pi --mode rpc
-  --no-extensions
+  [--no-extensions]
+  [--extension <checked Pi default extension>]...
   --extension <system-prompt-audit-bridge.ts>
   --extension <agent-deck-ask-user-bridge.ts>
   --extension <agent-deck-web-access.ts>
@@ -96,7 +97,7 @@ Parent sessions pass `--no-skills` and then only Agent Deck's assigned skills. T
 
 Parent sessions pass `--no-prompt-templates` and then only Agent Deck's assigned prompt templates.
 
-Parent sessions pass `--no-extensions` and then only Agent Deck-controlled extensions. This avoids unexpected ambient extensions while keeping app bridge tools available.
+Parent sessions default to passing `--no-extensions` and then Agent Deck-controlled extensions. This avoids unexpected ambient extensions while keeping app bridge tools available. If the General setting is changed to "Pi defaults + Agent Deck", Agent Deck omits `--no-extensions`, so Pi loads the user's normal configured extensions in addition to the explicit Agent Deck bridge extensions.
 
 ### Parent Append Preservation
 
@@ -149,7 +150,7 @@ pi --mode rpc
   --append-system-prompt ""
   # or only --append-system-prompt <agent prompt + common child-session boundary> when systemPromptMode: append
   [--tools <agent tool allowlist> | --no-tools]
-  --no-extensions
+  [--no-extensions]
   [--extension <agent-configured extension>]...
   [--extension <contact-supervisor-bridge.ts>]
   --extension <agent-deck-web-access.ts>
@@ -177,7 +178,7 @@ Native subagents always pass `--no-skills` and then explicit `--skill` arguments
 
 Native subagents always pass `--no-prompt-templates` and `--no-themes`.
 
-Native subagents disable ambient extensions with `--no-extensions` and load only configured extensions plus required Agent Deck bridge extensions.
+Native subagents default to disabling ambient extensions with `--no-extensions` and load configured extensions plus required Agent Deck bridge extensions. If the General setting is changed to "Pi defaults + Agent Deck", Agent Deck omits `--no-extensions` for native subagents too, so Pi also loads the user's normal configured extensions.
 
 Read-first files are hints in the user task prompt. Agent Deck does not inject current file contents into the system prompt.
 
@@ -189,7 +190,7 @@ Session title generation and commit-message generation use `--system-prompt` wit
 
 ```text
 --no-session
---no-extensions
+[--no-extensions]
 --no-skills
 --no-tools
 --no-context-files
@@ -198,7 +199,7 @@ Session title generation and commit-message generation use `--system-prompt` wit
 --append-system-prompt ""
 ```
 
-They do not receive project context files, skills, prompt templates, extensions, tools, or project/global `APPEND_SYSTEM.md` content.
+They do not receive project context files, skills, prompt templates, tools, or project/global `APPEND_SYSTEM.md` content. Ambient extensions are disabled by default; if the General setting is changed to "Pi defaults + Agent Deck", helper launches omit `--no-extensions` while still passing `--no-tools`.
 
 ## Projects View Preview
 

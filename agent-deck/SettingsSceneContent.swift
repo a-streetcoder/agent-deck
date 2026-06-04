@@ -424,6 +424,31 @@ private struct GeneralSettingsTab: View {
             }
 
             SettingsSection {
+                SettingsPickerRow(
+                    title: "Pi extensions:",
+                    selection: Binding(
+                        get: { viewModel.appSettings.piAgentExtensionLoadingMode },
+                        set: { viewModel.setPiAgentExtensionLoadingMode($0) }
+                    ),
+                    note: "Applies to Pi Agent sessions, native Deck agents, and automation helpers. Restart running sessions for changes to apply."
+                ) {
+                    ForEach(PiAgentExtensionLoadingMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                SettingsRow(title: "Current mode:", alignment: .top) {
+                    PiExtensionLoadingSummary(mode: viewModel.appSettings.piAgentExtensionLoadingMode)
+                }
+
+                if viewModel.appSettings.piAgentExtensionLoadingMode.usesCustomPiExtensionSelection {
+                    SettingsRow(title: "Loaded extensions:", alignment: .top, note: "Unchecked extensions are skipped only by Agent Deck launches. Pi's own settings.json is not changed.") {
+                        PiExtensionSelectionList(viewModel: viewModel)
+                    }
+                }
+            }
+
+            SettingsSection {
                 SettingsValueButtonRow(
                     title: "Skill repositories:",
                     value: SkillRepositorySyncService.repositoriesDirectoryURL().path
@@ -436,6 +461,190 @@ private struct GeneralSettingsTab: View {
                     .appSecondaryButton()
                 }
             }
+        }
+    }
+}
+
+private struct PiExtensionSelectionList: View {
+    var viewModel: AppViewModel
+
+    private var candidates: [PiExtensionCandidate] {
+        viewModel.discoveredPiExtensions
+    }
+
+    private var disabledExtensionIDs: Set<String> {
+        viewModel.appSettings.disabledPiExtensionIDs
+    }
+
+    private var enabledCount: Int {
+        candidates.filter { !disabledExtensionIDs.contains($0.id) }.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("\(enabledCount) of \(candidates.count) selected")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("All") { viewModel.setAllDiscoveredPiExtensions(enabled: true) }
+                    .appSecondaryButton()
+                    .disabled(candidates.isEmpty || enabledCount == candidates.count)
+                Button("None") { viewModel.setAllDiscoveredPiExtensions(enabled: false) }
+                    .appSecondaryButton()
+                    .disabled(candidates.isEmpty || enabledCount == 0)
+            }
+
+            if candidates.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No Pi default extensions were discovered.")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Agent Deck looked in ~/.pi/agent/extensions, the selected project's .pi/extensions folder, settings.json extension paths, and installed package extension directories.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(candidates) { candidate in
+                        PiExtensionSelectionRow(
+                            candidate: candidate,
+                            isEnabled: Binding(
+                                get: { !viewModel.appSettings.disabledPiExtensionIDs.contains(candidate.id) },
+                                set: { viewModel.setPiExtension(candidate, enabled: $0) }
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        }
+    }
+}
+
+private struct PiExtensionSelectionRow: View {
+    let candidate: PiExtensionCandidate
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        Toggle(isOn: $isEnabled) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(candidate.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    PiExtensionScopeBadge(candidate: candidate)
+                }
+                HStack(spacing: 5) {
+                    Text(candidate.detailLabel)
+                    Text("•")
+                    Text(candidate.launchSource)
+                        .truncationMode(.middle)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+        }
+        .appCheckbox()
+    }
+}
+
+private struct PiExtensionScopeBadge: View {
+    let candidate: PiExtensionCandidate
+
+    var body: some View {
+        Label(candidate.scopeLabel, systemImage: iconName)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.10), in: Capsule())
+            .overlay(Capsule().stroke(color.opacity(0.25), lineWidth: 1))
+    }
+
+    private var iconName: String {
+        switch candidate.source.kind {
+        case .project, .legacyProject:
+            return "folder"
+        case .package:
+            return "shippingbox"
+        default:
+            return "globe"
+        }
+    }
+
+    private var color: Color {
+        switch candidate.source.kind {
+        case .project, .legacyProject:
+            return .cyan
+        case .package:
+            return .purple
+        default:
+            return .blue
+        }
+    }
+}
+
+private struct PiExtensionLoadingSummary: View {
+    let mode: PiAgentExtensionLoadingMode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: mode.disablesAmbientPiExtensions ? "lock.shield" : "puzzlepiece.extension")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(AppTheme.brandAccent)
+                    .frame(width: 26, height: 26)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mode.disablesAmbientPiExtensions ? "Managed extension loading" : "Pi extension discovery enabled")
+                        .font(.headline)
+                    Text(mode.extensionDiscoverySummary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Divider()
+                .opacity(0.6)
+
+            VStack(alignment: .leading, spacing: 6) {
+                summaryLine(label: "Launch", value: mode.launchSummary, monospaced: true)
+                summaryLine(label: "Scope", value: "Parent sessions, Deck agents, and helpers")
+                summaryLine(label: "Agent Deck bridges", value: "Always loaded when required")
+            }
+        }
+        .padding(12)
+        .frame(width: SettingsLayout.controlWidth, alignment: .leading)
+        .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppTheme.contentStroke, lineWidth: 1)
+        }
+    }
+
+    private func summaryLine(label: String, value: String, monospaced: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 88, alignment: .leading)
+            Text(value)
+                .font(monospaced ? .caption.monospaced() : .caption)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

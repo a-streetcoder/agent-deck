@@ -5,6 +5,7 @@ Use this file to quickly find the source of a behavior.
 ## Core models
 
 - `agent-deck/Models.swift` — resource records, agent configs, effective agents, chains, skills, prompts, settings summaries, env keys, snapshots
+- `agent-deck/AppSettings.swift` — persisted app preferences, including Pi extension launch mode and custom extension disabled IDs
 - `agent-deck/PiAgentSessionModels.swift` — Pi Agent session state, native subagent records, bridge request payloads, supervisor request models
 - `agent-deck/GitHubModels.swift` — GitHub auth, issue, board, and repository change models
 
@@ -12,6 +13,7 @@ Use this file to quickly find the source of a behavior.
 
 - `agent-deck/PiScanner.swift` — resource discovery, parsing, baseline resolution, warnings, runtime command scan
 - `agent-deck/PiAgentLaunchResolver.swift` — app assignment-based native agent resolution
+- `agent-deck/PiExtensionDiscoveryService.swift` — discover selectable Pi default extensions from global/project folders, settings paths, and installed packages
 - `agent-deck/AppRefreshService.swift` — project/global snapshot orchestration, watch fingerprinting, and FSEvents monitor
 - `agent-deck/ProjectDiscovery.swift` — local project discovery and GitHub remote extraction
 - `agent-deck-documentation/resource-refresh-and-file-watching.md` — refresh/watch lifecycle, debounce, and fallback polling behavior
@@ -29,6 +31,7 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/PiAgentProcess.swift` — process launch, Pi executable resolution, stdout/stderr streaming
 - `agent-deck/PiRPCClient.swift` — JSONL RPC client and commands
 - `agent-deck/PiAgentRunnerService.swift` — parent session orchestration
+- `agent-deck/PiAgentLaunchArgumentBuilder.swift` — shared parent/subagent/helper launch argument helpers for prompts, tools, and extension selection
 - `agent-deck/PiModelDiscoveryService.swift` — model catalog parsing/probing
 
 ## Native subagents
@@ -47,7 +50,7 @@ Use this file to quickly find the source of a behavior.
 - `agent-deck/PiAgentActivityPanelViews.swift`, `PiAgentInspectorPanelViews.swift`, `PiAgentRepoChangesPanelViews.swift` — activity, inspector, and repo change panels
 - `agent-deck/CommandsAndPromptsViews.swift` — prompts/commands screen
 - `agent-deck/GitHubViews.swift`, `GitHubIssuesViews.swift`, `GitHubRepoChangesViews.swift`, `GitHubConnectionViews.swift` — GitHub screen and feature sections
-- `agent-deck/SettingsAndCatalogViews.swift` — settings, extensions, models, subagent config screens
+- `agent-deck/SettingsSceneContent.swift`, `SettingsAndCatalogViews.swift` — app settings, catalog settings, extensions, models, subagent config screens
 - `agent-deck/MarkdownViews.swift` — markdown rendering
 
 ## GitHub and Git

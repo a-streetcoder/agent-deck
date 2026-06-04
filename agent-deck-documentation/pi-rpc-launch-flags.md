@@ -24,7 +24,7 @@ Agent Deck launches Pi RPC subprocesses from exactly four production call sites:
 
 | Launch path | File | Purpose | Isolation posture |
 |---|---|---|---|
-| Parent Pi Agent session | `agent-deck/PiAgentRunnerService.swift` | Main app chat session | Normal Pi runtime with Agent Deck bridge extensions explicitly loaded. |
+| Parent Pi Agent session | `agent-deck/PiAgentRunnerService.swift` | Main app chat session | Normal Pi runtime with Agent Deck bridge extensions explicitly loaded; ambient extension discovery is user-configurable. |
 | Native subagent child session | `agent-deck/PiSubagentRunService.swift` | App-owned child Pi process for bounded subagent work | Mostly isolated by default; explicit extensions/tools/context/skills are controlled by agent settings. |
 | Session title helper | `agent-deck/PiSessionTitleGenerationService.swift` | Generate a short title from the first user message | Highly isolated: no session, tools, extensions, skills, context files, or prompt templates. |
 | Commit-message helper | `agent-deck/PiAgentShipService.swift` | Generate commit title/body from staged git status/diff | Highly isolated: no session, tools, extensions, skills, context files, or prompt templates. |
@@ -77,8 +77,8 @@ Pi built-in tool names from current docs: `read`, `bash`, `edit`, `write`, `grep
 
 | Flag | Pi meaning | Agent Deck usage |
 |---|---|---|
-| `--extension <source>`, `-e <source>` | Load an explicit extension path/package/git source. Repeatable. | Used for Agent Deck bridge extensions, web extension, audit extension, enabled command extensions, configured native subagent extensions, and optional `contact_supervisor`. |
-| `--no-extensions`, `-ne` | Disable extension discovery. Explicit `--extension` paths still load. | Used by all four launch paths. This is the basis of Agent Deck's explicit extension allowlist behavior. |
+| `--extension <source>`, `-e <source>` | Load an explicit extension path/package/git source. Repeatable. | Used for Agent Deck bridge extensions, web extension, audit extension, enabled command extensions, configured native subagent extensions, optional `contact_supervisor`, and checked Pi default extensions in custom-selection mode. |
+| `--no-extensions`, `-ne` | Disable extension discovery. Explicit `--extension` paths still load. | Used by every Agent Deck Pi launch when Settings → General → Pi extensions is "Agent Deck managed" (the default) or "Custom selection + Agent Deck". Omitted for parent sessions, native subagents, and helpers when the setting is "Pi defaults + Agent Deck". |
 | `--skill <path>` | Load explicit skill file/directory. Repeatable. Still honored when `--no-skills` is present. | Used by parent sessions for Default + current Project skill assignments and by native subagents for agent-assigned skills. |
 | `--no-skills`, `-ns` | Disable normal skill discovery/loading. Explicit `--skill` paths still load. | Used by all Agent Deck RPC launches. Parent and native subagent sessions combine it with explicit app-selected `--skill` paths. |
 | `--prompt-template <path>` | Load explicit prompt template file/directory. Repeatable. | Used by parent sessions for Default + current Project prompt-template assignments. |
@@ -114,7 +114,8 @@ Current launch shape:
 
 ```text
 --mode rpc
---no-extensions
+[--no-extensions]
+[--extension <checked Pi default extension>]...
 --extension <system-prompt-audit-bridge.ts>
 --extension <agent-deck-ask-user-bridge.ts>
 --extension <agent-deck-web-access.ts>
@@ -137,7 +138,7 @@ Runtime context/resources:
 
 - Working directory is the session project/worktree path.
 - Environment is produced by `EnvRuntimeEnvironment().environment(projectRoot:extra:)` and includes merged global/project `.env` values plus `AGENT_DECK_PARENT_SESSION_ID=<uuid>`.
-- Ambient extension discovery is disabled.
+- Ambient extension discovery is disabled by default. If Settings → General → Pi extensions is "Pi defaults + Agent Deck", Agent Deck omits `--no-extensions` so Pi also loads the user's normal configured extensions. If the mode is "Custom selection + Agent Deck", Agent Deck keeps `--no-extensions` and emits `--extension` only for checked Pi default extensions discovered from `~/.pi/agent/extensions`, project `.pi/extensions`, settings extension paths, and installed package extension folders.
 - Explicit Agent Deck extensions are loaded:
   - system-prompt audit extension, which captures the final Pi prompt back into Agent Deck;
   - `ask_user` bridge for native app prompt cards;
@@ -155,7 +156,7 @@ Runtime context/resources:
 
 Privacy/context implications:
 
-- Parent sessions intentionally behave like normal Pi sessions except for ambient extension, skill, and prompt-template discovery being disabled and Agent Deck resources being explicit.
+- Parent sessions intentionally behave like normal Pi sessions except that skill and prompt-template discovery are disabled and Agent Deck resources are explicit. Ambient extension discovery is disabled only in the default Agent Deck-managed extension mode.
 - Pi may load project/global context files, system prompt files, append prompt files, and built-in tools according to normal Pi runtime rules.
 - Catalog-only skills and prompt templates are not injected into parent sessions by Agent Deck.
 - Model/thinking changes are applied by relaunching the process with CLI args, not by relying on Pi model cycling defaults.
@@ -179,7 +180,7 @@ Fresh launch shape:
 [--extension <contact-supervisor-bridge.ts>]
 [--tools <agent tool allowlist>]
 [--no-tools]                         # when tools are configured but empty after filtering
---no-extensions
+[--no-extensions]
 [--extension <agent-configured extension>]...
 --extension <agent-deck-web-access.ts>
 --extension <system-prompt-audit-bridge.ts>
@@ -224,6 +225,7 @@ Skills/context behavior:
 
 - Explicit native subagent `skills:` are resolved by name from the Agent Deck skill catalog and passed to Pi as explicit `--skill <path>` arguments.
 - Agent Deck no longer pastes full skill bodies into the child system prompt.
+- Native subagents pass `--no-extensions` only in the default Agent Deck-managed extension mode. If Settings → General → Pi extensions is "Pi defaults + Agent Deck", Agent Deck omits the flag so Pi can also load the user's normal configured extensions.
 - Native subagents always pass `--no-skills`; there is no ambient skill inheritance in the target runtime model.
 - Native subagents use normal Pi project context-file discovery; Agent Deck does not pass `--no-context-files` for child sessions.
 - Replace-mode native subagents pass `--append-system-prompt ""` so Pi does not append project/global `APPEND_SYSTEM.md`.
@@ -246,7 +248,7 @@ Current launch shape:
 ```text
 --mode rpc
 --no-session
---no-extensions
+[--no-extensions]
 --no-skills
 --no-tools
 --no-context-files
@@ -263,7 +265,7 @@ Runtime context/resources:
 - Working directory is the project URL supplied by the caller.
 - Environment is supplied by the caller.
 - No persistent Pi session file is created.
-- No tools, extensions, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available.
+- No tools, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available. Ambient extension discovery is available only when Settings → General → Pi extensions is "Pi defaults + Agent Deck"; helper launches still pass `--no-tools`.
 - Initial title generation prompt includes only the first user message, trimmed and capped at 2,000 characters.
 - Optional title refresh uses the same isolated helper shape and includes only the current title, latest user message capped at 2,000 characters, and up to 12 current plan items. The helper returns either `KEEP` or a replacement title.
 - Timeout is 20 seconds.
@@ -287,7 +289,7 @@ Current launch shape:
 ```text
 --mode rpc
 --no-session
---no-extensions
+[--no-extensions]
 --no-skills
 --no-tools
 --no-context-files
@@ -304,7 +306,7 @@ Runtime context/resources:
 - Working directory is the project URL supplied by the caller.
 - Environment is supplied by the caller.
 - No persistent Pi session file is created.
-- No tools, extensions, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available.
+- No tools, skills, prompt templates, context files, or `APPEND_SYSTEM.md` content are available. Ambient extension discovery is available only when Settings → General → Pi extensions is "Pi defaults + Agent Deck"; helper launches still pass `--no-tools`.
 - Before this helper runs, `AppViewModel.shipSelectedPiAgentSession` stages changes with `git add -A`.
 - `GitRepositoryService` supplies `git status --short --branch` and staged diff/stat content.
 - The prompt includes status and staged diff/stat capped at 12,000 characters.
@@ -339,7 +341,7 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 | `--no-tools`, `-nt` | ❌ | ◐ when agent declares tools but effective list is empty | ✅ | ✅ |
 | `--no-builtin-tools`, `-nbt` | ❌ | ❌ | ❌ | ❌ |
 | `--extension <source>`, `-e` | ✅ Agent Deck bridges/commands | ✅ Agent Deck bridges; ◐ agent/supervisor extensions | ❌ | ❌ |
-| `--no-extensions`, `-ne` | ✅ | ✅ | ✅ | ✅ |
+| `--no-extensions`, `-ne` | ◐ default setting only | ◐ default setting only | ◐ default setting only | ◐ default setting only |
 | `--skill <path>` | ◐ Default + current Project skill assignments | ◐ agent-assigned skills | ❌ | ❌ |
 | `--no-skills`, `-ns` | ✅ | ✅ | ✅ | ✅ |
 | `--prompt-template <path>` | ◐ Default + current Project prompt assignments | ❌ | ❌ | ❌ |
@@ -369,8 +371,8 @@ Legend: ✅ always used, ◐ conditionally used, ❌ not used.
 | Parent conversation history | Yes, when resuming `--session` | No; continuations receive only prior child-session history | No | No |
 | Persistent Pi session | Yes unless not yet created/resumed | Yes, under run artifact session dir; continuations resume by `--session` | No, `--no-session` | No, `--no-session` |
 | Built-in tools | Yes, normal Pi behavior | Yes unless `tools:` absent? If `tools:` is absent, Pi default tools apply; if present, allowlist or `--no-tools` applies. | No | No |
-| Extension tools/commands | Explicit Agent Deck extensions only | Explicit child/agent/Agent Deck extensions only | No | No |
-| Ambient extension discovery | No | No | No | No |
+| Extension tools/commands | Explicit Agent Deck extensions; plus ambient Pi extensions when enabled | Explicit child/agent/Agent Deck extensions; plus ambient Pi extensions when enabled | Ambient extensions when enabled, but helper passes `--no-tools` | Ambient extensions when enabled, but helper passes `--no-tools` |
+| Ambient extension discovery | Configurable; default No | Configurable; default No | Configurable; default No | Configurable; default No |
 | Project/global context files | Yes | Yes | No | No |
 | Ambient skills | No; disabled with `--no-skills` | No; disabled with `--no-skills` | No | No |
 | Native explicit skills | Default + current Project assignments via `--skill` | Agent-assigned skills via `--skill` | No | No |

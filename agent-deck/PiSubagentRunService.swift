@@ -60,7 +60,9 @@ final class PiSubagentRunService {
         fileManager.createFile(atPath: artifactDirectory.appendingPathComponent("output.md").path, contents: nil)
 
         let childSessionDirectory = artifactDirectory.appendingPathComponent("sessions", isDirectory: true)
-        var extraArguments: [String] = []
+        let projectURL = URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
+        let settings = AppSettingsStore.shared.settings
+        var extraArguments: [String] = PiAgentLaunchArgumentBuilder.ambientExtensionArguments(settings: settings, projectURL: projectURL)
         if !isContinuation {
             extraArguments.append(contentsOf: ["--session-dir", childSessionDirectory.path])
         }
@@ -74,7 +76,7 @@ final class PiSubagentRunService {
                 bridgeWarnings.append("contact_supervisor was requested, but \(AppBrand.displayName) could not write the child bridge extension.")
             }
         }
-        let memoryExtensionURL = AppSettingsStore.shared.settings.agentMemoryEnabled ? try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() : nil
+        let memoryExtensionURL = settings.agentMemoryEnabled ? try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() : nil
         extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.toolArguments(.init(
             agent: agent,
             includeSupervisorTool: wantsSupervisorTool && bridgeWarnings.isEmpty,
@@ -82,7 +84,10 @@ final class PiSubagentRunService {
             includeExaTools: PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment),
             includeFallbackWebFetchTool: !PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) && WebFetchDependencyService().status().isInstalled
         )))
-        extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.agentExtensionArguments(for: agent))
+        extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.agentExtensionArguments(
+            for: agent,
+            prependNoExtensions: false
+        ))
         if let memoryExtensionURL {
             extraArguments.append(contentsOf: ["--extension", memoryExtensionURL.path])
         }
@@ -116,7 +121,7 @@ final class PiSubagentRunService {
         let modelArgument = modelSelection.modelArgument
         let modelDisplayName = modelSelection.displayName
         let tools = displayTools(for: agent, includeSupervisorTool: bridgeWarnings.isEmpty, includeMemoryTools: memoryExtensionURL != nil)
-        let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
+        let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: projectURL)
         try childInput(agent: agent, task: trimmedTask, readFirstPaths: resolvedReadFirstPaths).write(
             to: artifactDirectory.appendingPathComponent("input.md"),
             atomically: true,

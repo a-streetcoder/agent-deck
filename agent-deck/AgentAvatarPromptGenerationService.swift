@@ -75,7 +75,7 @@ final class AgentAvatarPromptGenerationService {
                 modelArgument: PiSessionTitleGenerationService.runtimeModelArgument(modelID: model.model, thinkingLevel: "off"),
                 extraArguments: [
                     "--no-session",
-                    "--no-extensions",
+                ] + PiAgentLaunchArgumentBuilder.ambientExtensionArguments(settings: AppSettingsStore.shared.settings, projectURL: projectURL) + [
                     "--no-skills",
                     "--no-tools",
                     "--no-context-files",
