@@ -4,6 +4,30 @@ struct PiNativeSubagentBridgeExtensions {
     nonisolated static let exaToolNames: Set<String> = ["web_search", "fetch_content", "get_search_content"]
     nonisolated static let fallbackWebFetchToolName = "web_fetch"
     nonisolated static let memoryToolNames: [String] = ["agent_deck_memory_write", "agent_deck_memory_mark_stale"]
+    nonisolated static let askUserToolName = "ask_user"
+    nonisolated static let parentSubagentToolNames: Set<String> = [
+        "managed_subagent",
+        "managed_parallel",
+        "list_supervisor_requests",
+        "set_session_plan",
+        "update_session_plan",
+        "answer_supervisor_request"
+    ]
+    nonisolated static let childSupervisorToolName = "contact_supervisor"
+
+    /// Every tool name Agent Deck may register through its built-in bridge extensions.
+    /// Used to detect potential conflicts with user-supplied Pi extensions in custom-selection mode.
+    /// Some bridges are conditional per launch (memory, web, native subagents, child supervisor),
+    /// so callers should present this as a potential conflict rather than an unconditional shadow.
+    nonisolated static let allBridgeToolNames: Set<String> = {
+        var names = exaToolNames
+        names.insert(fallbackWebFetchToolName)
+        names.formUnion(Set(memoryToolNames))
+        names.insert(askUserToolName)
+        names.formUnion(parentSubagentToolNames)
+        names.insert(childSupervisorToolName)
+        return names
+    }()
 
     static func isExaConfigured(environment: [String: String]) -> Bool {
         environment["EXA_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

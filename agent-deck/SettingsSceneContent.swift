@@ -467,6 +467,9 @@ private struct GeneralSettingsTab: View {
 
 private struct PiExtensionSelectionList: View {
     var viewModel: AppViewModel
+    /// Keyed by `PiExtensionCandidate.id`. Populated asynchronously once per
+    /// candidate-set change so we don't re-read source files on every layout pass.
+    @State private var conflictsByID: [String: [String]] = [:]
 
     private var candidates: [PiExtensionCandidate] {
         viewModel.discoveredPiExtensions
@@ -515,7 +518,8 @@ private struct PiExtensionSelectionList: View {
                             isEnabled: Binding(
                                 get: { !viewModel.appSettings.disabledPiExtensionIDs.contains(candidate.id) },
                                 set: { viewModel.setPiExtension(candidate, enabled: $0) }
-                            )
+                            ),
+                            conflictingToolNames: conflictsByID[candidate.id] ?? []
                         )
                     }
                 }
@@ -528,34 +532,76 @@ private struct PiExtensionSelectionList: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AppTheme.contentStroke, lineWidth: 1)
         }
+        .task(id: candidates.map(\.id).joined()) {
+            // Run conflict detection off the main thread — each candidate requires
+            // a source-file read. Results are small and stable; the task re-fires
+            // only when the candidate set changes (add/remove/prune).
+            let snapshot = candidates
+            let detected = await Task.detached(priority: .utility) {
+                var result: [String: [String]] = [:]
+                for candidate in snapshot {
+                    let conflicts = PiExtensionConflictDetector.conflictingBridgeToolNames(for: candidate)
+                    if !conflicts.isEmpty {
+                        result[candidate.id] = conflicts
+                    }
+                }
+                return result
+            }.value
+            conflictsByID = detected
+        }
     }
 }
 
 private struct PiExtensionSelectionRow: View {
     let candidate: PiExtensionCandidate
     @Binding var isEnabled: Bool
+    /// Bridge tool names detected in this extension's source that overlap with
+    /// Agent Deck's built-in bridges. Empty means no detected conflict.
+    var conflictingToolNames: [String] = []
 
     var body: some View {
-        Toggle(isOn: $isEnabled) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(candidate.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    PiExtensionScopeBadge(candidate: candidate)
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $isEnabled) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(candidate.name)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        PiExtensionScopeBadge(candidate: candidate)
+                    }
+                    HStack(spacing: 5) {
+                        Text(candidate.detailLabel)
+                        Text("•")
+                        Text(candidate.launchSource)
+                            .truncationMode(.middle)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
-                HStack(spacing: 5) {
-                    Text(candidate.detailLabel)
-                    Text("•")
-                    Text(candidate.launchSource)
-                        .truncationMode(.middle)
+            }
+            .appCheckbox()
+
+            if isEnabled && !conflictingToolNames.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Text(conflictWarningText)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .padding(.leading, 22)
             }
         }
-        .appCheckbox()
+    }
+
+    private var conflictWarningText: String {
+        let names = conflictingToolNames.joined(separator: ", ")
+        let plural = conflictingToolNames.count == 1 ? "Tool" : "Tools"
+        let verb = conflictingToolNames.count == 1 ? "is" : "are"
+        return "\(plural) \(names) \(verb) also registered by an Agent Deck bridge. If both are enabled for a launch, Agent Deck's bridge is loaded after this extension and may shadow this implementation."
     }
 }
 

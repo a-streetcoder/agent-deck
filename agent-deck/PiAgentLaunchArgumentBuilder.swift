@@ -92,7 +92,7 @@ enum PiAgentLaunchArgumentBuilder {
     private static func resolvedTools(from tools: [String], profile: ToolProfile) -> [String] {
         var result = tools.filter { tool in
             let normalized = tool.lowercased()
-            if normalized == "contact_supervisor" { return profile.includeSupervisorTool }
+            if normalized == PiNativeSubagentBridgeExtensions.childSupervisorToolName { return profile.includeSupervisorTool }
             if PiNativeSubagentBridgeExtensions.exaToolNames.contains(normalized) { return profile.includeExaTools }
             if normalized == PiNativeSubagentBridgeExtensions.fallbackWebFetchToolName { return profile.includeFallbackWebFetchTool }
             return true

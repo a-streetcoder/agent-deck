@@ -350,3 +350,31 @@ nonisolated struct PiExtensionDiscoveryService: @unchecked Sendable {
         }
     }
 }
+
+/// Scans a Pi extension's TypeScript source for tool name registrations that
+/// overlap with tool names Agent Deck may register through built-in bridges.
+///
+/// Uses a simple quoted-string scan — conservative and fast. False positives
+/// (e.g. a comment that mentions a tool name) are acceptable; false negatives
+/// (dynamically computed tool names) are ignored by design. Some Agent Deck
+/// bridge tools are conditional per launch, so detections are potential conflicts.
+/// When the source file cannot be read the detector fails open, returning no
+/// conflicts so the UI never produces a spurious warning from a read error.
+nonisolated struct PiExtensionConflictDetector: @unchecked Sendable {
+    /// Returns bridge tool names detected in the TypeScript source of `candidate`.
+    /// Performs synchronous file I/O; call from a background context when batching
+    /// across many candidates.
+    static func conflictingBridgeToolNames(for candidate: PiExtensionCandidate) -> [String] {
+        guard let source = try? String(contentsOfFile: candidate.launchSource, encoding: .utf8) else {
+            return []
+        }
+        return PiNativeSubagentBridgeExtensions.allBridgeToolNames
+            .filter { name in
+                // Match the name as a quoted string literal — single or double quotes.
+                // This catches `server.tool("web_search", …)` and `name: 'web_search'`
+                // while ignoring coincidental substring matches like variable names.
+                source.contains("\"\(name)\"") || source.contains("'\(name)'")
+            }
+            .sorted()
+    }
+}
