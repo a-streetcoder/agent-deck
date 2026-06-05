@@ -60,6 +60,7 @@ struct SkillUpdateConflictSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { isPresented = false }
+                    .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
                 Button {
                     apply()

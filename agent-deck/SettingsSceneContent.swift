@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsSceneContent: View {
     @Environment(AppViewModel.self) private var viewModel
+    @State private var themeManager = ThemeManager.shared
     @State private var selectedTab: SettingsTab = .general
 
     private var visibleTabs: [SettingsTab] {
@@ -26,16 +27,16 @@ struct SettingsSceneContent: View {
             selectedTabContent(for: selectedTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear {
-            if selectedTab == .appearance {
-                selectedTab = .general
-            }
-        }
         .frame(minWidth: 700, idealWidth: 780, minHeight: 560, idealHeight: 640)
         .background(AppTheme.windowBackground)
         // Theme the Settings window itself (bg + transparent titlebar) so its
         // titlebar matches, like the main window.
         .background(WindowBackgroundApplier(color: AppTheme.windowBackground))
+        // `AppTheme`'s themed tokens are computed `static var`s, invisible to
+        // SwiftUI's dependency graph, so re-key on the theme revision to force a
+        // uniform repaint. Crucially this `.id` is INSIDE the body — below the
+        // `selectedTab` @State owner — so the tab selection survives the rebuild.
+        .id(themeManager.revision)
     }
 
     @ViewBuilder

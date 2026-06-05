@@ -539,6 +539,7 @@ private struct MemoryEditorSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .appSecondaryButton()
                 Button("Save") {
                     onSave(memoryTitle.trimmedForMemory, summary.trimmedForMemory, bodyText, kind, parsedTags)
                     dismiss()

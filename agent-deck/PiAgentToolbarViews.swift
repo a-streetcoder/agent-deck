@@ -259,104 +259,72 @@ struct PiAgentTranscriptDisplayOptionsPopover: View {
         viewModel.appSettings.piAgentTranscriptVisibility
     }
 
+    private struct Option: Identifiable {
+        let title: String
+        let subtitle: String
+        let systemImage: String
+        let keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>
+        var id: String { title }
+    }
+
+    private let options: [Option] = [
+        .init(title: "Keyboard shortcuts", subtitle: "Show the shortcut strip at the top of the transcript", systemImage: "keyboard", keyPath: \.showShortcutsStrip),
+        .init(title: "Thinking", subtitle: "Show Pi reasoning blocks", systemImage: "brain.head.profile", keyPath: \.showThinking),
+        .init(title: "Web activity", subtitle: "Show searches and fetched/read links", systemImage: "globe", keyPath: \.showWebActivity),
+        .init(title: "Tool calls", subtitle: "Show non-web tool call summaries", systemImage: "wrench.and.screwdriver", keyPath: \.showToolCalls),
+        .init(title: "Errors", subtitle: "Show error rows in the transcript", systemImage: "exclamationmark.triangle", keyPath: \.showErrors),
+        .init(title: "Final system prompt", subtitle: "Show Pi's captured final system prompt card", systemImage: "doc.text", keyPath: \.showFinalSystemPrompt),
+        .init(title: "Diffs", subtitle: "Show compact file changes in chat", systemImage: "doc.text.magnifyingglass", keyPath: \.showDiffs),
+        .init(title: "Memory", subtitle: "Show memory recall cards in the transcript", systemImage: "brain", keyPath: \.showMemoryCards),
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // Plain dividered rows, matching the native Session resources popover —
+        // no per-row themed card surface.
+        VStack(alignment: .leading, spacing: 0) {
             Label("Transcript display", systemImage: "eye")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.mutedText)
+                .padding(.bottom, 10)
 
-            optionRow(
-                title: "Keyboard shortcuts",
-                subtitle: "Show the shortcut strip at the top of the transcript",
-                systemImage: "keyboard",
-                isOn: visibility.showShortcutsStrip,
-                keyPath: \.showShortcutsStrip
-            )
-            optionRow(
-                title: "Thinking",
-                subtitle: "Show Pi reasoning blocks",
-                systemImage: "brain.head.profile",
-                isOn: visibility.showThinking,
-                keyPath: \.showThinking
-            )
-            optionRow(
-                title: "Web activity",
-                subtitle: "Show searches and fetched/read links",
-                systemImage: "globe",
-                isOn: visibility.showWebActivity,
-                keyPath: \.showWebActivity
-            )
-            optionRow(
-                title: "Tool calls",
-                subtitle: "Show non-web tool call summaries",
-                systemImage: "wrench.and.screwdriver",
-                isOn: visibility.showToolCalls,
-                keyPath: \.showToolCalls
-            )
-            optionRow(
-                title: "Errors",
-                subtitle: "Show error rows in the transcript",
-                systemImage: "exclamationmark.triangle",
-                isOn: visibility.showErrors,
-                keyPath: \.showErrors
-            )
-            optionRow(
-                title: "Final system prompt",
-                subtitle: "Show Pi's captured final system prompt card",
-                systemImage: "doc.text",
-                isOn: visibility.showFinalSystemPrompt,
-                keyPath: \.showFinalSystemPrompt
-            )
-            optionRow(
-                title: "Diffs",
-                subtitle: "Show compact file changes in chat",
-                systemImage: "doc.text.magnifyingglass",
-                isOn: visibility.showDiffs,
-                keyPath: \.showDiffs
-            )
-            optionRow(
-                title: "Memory",
-                subtitle: "Show memory recall cards in the transcript",
-                systemImage: "brain",
-                isOn: visibility.showMemoryCards,
-                keyPath: \.showMemoryCards
-            )
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                    optionRow(option)
+                    if index < options.count - 1 {
+                        Divider()
+                    }
+                }
+            }
         }
         .padding(12)
-        .frame(width: 260)
+        .frame(width: 280)
     }
 
-    private func optionRow(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isOn: Bool,
-        keyPath: WritableKeyPath<PiAgentTranscriptVisibilitySettings, Bool>
-    ) -> some View {
-        Button {
-            viewModel.setPiAgentTranscriptVisibility(keyPath, to: !isOn)
+    private func optionRow(_ option: Option) -> some View {
+        let isOn = visibility[keyPath: option.keyPath]
+        return Button {
+            viewModel.setPiAgentTranscriptVisibility(option.keyPath, to: !isOn)
         } label: {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isOn ? AppTheme.brandAccent : AppTheme.mutedText)
                     .frame(width: 17)
-                Image(systemName: systemImage)
+                Image(systemName: option.systemImage)
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(width: 17)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(option.title)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text(subtitle)
+                    Text(option.subtitle)
                         .font(.caption2)
                         .foregroundStyle(AppTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .appContentSurface(cornerRadius: 9, isSelected: isOn)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

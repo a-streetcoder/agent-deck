@@ -239,14 +239,6 @@ struct PiAgentCurrentPlanCard: View {
         self.showsSurface = showsSurface
     }
 
-    init(event: PiSessionPlanEventRecord, showsSurface: Bool = true) {
-        self.title = "Plan"
-        self.subtitle = String(event.planID.uuidString.prefix(8))
-        self.isSubtitleIdentifier = true
-        self.items = event.items
-        self.showsSurface = showsSurface
-    }
-
     var body: some View {
         if showsSurface {
             content
@@ -318,28 +310,29 @@ struct PiAgentCurrentPlanCard: View {
         }
     }
 
-    /// A small progress ring + count, tinted by completion state — brand accent while
-    /// in progress, green once every item is done. The ring fills and the count morphs
-    /// with a numeric transition as items complete.
+    /// A small progress ring + count. Neutral chrome (not tinted) so it reads as
+    /// quiet text on the glass and stays legible against any background. The ring
+    /// fills and the count morphs with a numeric transition as items complete.
     private var progressBadge: some View {
         HStack(spacing: 5) {
             ZStack {
                 Circle()
-                    .stroke(AppTheme.contentStroke, lineWidth: 2.5)
+                    .stroke(AppTheme.mutedText.opacity(0.3), lineWidth: 2.5)
                 Circle()
                     .trim(from: 0, to: progressFraction)
-                    .stroke(progressColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .stroke(AppTheme.mutedText, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: 13, height: 13)
             Text(progressText)
                 .font(AppTheme.Font.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(progressColor)
+                .foregroundStyle(AppTheme.mutedText)
                 .contentTransition(.numericText())
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .appGlassCapsule()
+        // Untinted native glass to match the other popovers.
+        .glassEffect(.regular, in: Capsule(style: .continuous))
         .animation(.snappy(duration: 0.3), value: progressFraction)
     }
 
@@ -355,10 +348,6 @@ struct PiAgentCurrentPlanCard: View {
         items.isEmpty ? 0 : Double(doneCount) / Double(items.count)
     }
 
-    private var progressColor: Color {
-        (!items.isEmpty && doneCount == items.count) ? .green : AppTheme.brandAccent
-    }
-
     private func icon(for status: PiSessionPlanItemStatus) -> String {
         switch status {
         case .todo: return "circle"
@@ -372,7 +361,7 @@ struct PiAgentCurrentPlanCard: View {
     private func color(for status: PiSessionPlanItemStatus) -> Color {
         switch status {
         case .todo: return AppTheme.mutedText
-        case .inProgress: return .blue
+        case .inProgress: return AppTheme.brandAccent
         case .done: return .green
         case .blocked: return .orange
         case .skipped: return AppTheme.mutedText

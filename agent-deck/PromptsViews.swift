@@ -31,31 +31,23 @@ struct PromptsScreen: View {
     ) = ([], [])
 
     var body: some View {
-        HSplitView {
+        SplitView {
             if viewModel.hasCompletedInitialRefresh {
                 promptLibraryPane
-                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                     .appDebugLayout("Prompts.libraryPane", logger: Self.layoutLog)
             } else {
                 AppLoadingView("Loading prompts…")
-                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                     .appDebugLayout("Prompts.libraryLoading", logger: Self.layoutLog)
             }
-
+        } detail: {
             if !viewModel.hasCompletedInitialRefresh {
                 AppLoadingView("Loading prompt details…")
-                    .frame(minWidth: 480, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                     .appDebugLayout("Prompts.detailLoading", logger: Self.layoutLog)
             } else if let prompt = viewModel.selectedPromptTemplate {
-                // idealWidth pins the HSplitView divider seed so it resolves in one
-                // pass instead of hunting (a ScrollView reports its content's variable
-                // ideal width). lazy:true on the AppPage bounds the build cost. See
-                // SkillsScreen for the full rationale.
                 promptDetail(prompt)
-                    .frame(minWidth: 480, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                     .appDebugLayout("Prompts.detail selected=\(prompt.name) source=\(prompt.source.kind.rawValue)", logger: Self.layoutLog)
             } else {
-                ContentUnavailableView("No Prompt Selected", systemImage: "doc.text")
+                ContentUnavailableView("No Prompt Selected", systemImage: AppSymbols.promptTemplate)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .appDebugLayout("Prompts.detailEmpty", logger: Self.layoutLog)
             }
@@ -471,7 +463,7 @@ struct PromptsScreen: View {
         if prompt.source.kind == .project { return "checkmark.circle" }
         if prompt.discoveryKind == .settings { return "gearshape" }
         if prompt.source.kind == .global { return "globe" }
-        return "doc.text"
+        return AppSymbols.promptTemplate
     }
 
     private func promptColor(_ prompt: PromptTemplateRecord) -> Color {
@@ -488,10 +480,9 @@ struct PromptsScreen: View {
         // ideal width straight through. With a plain VStack (lazy: false) every card
         // is measured up front, so a wide one (long path / markdown) reports a huge
         // ideal width that balloons this pane; the enclosing HSplitView then sizes to
-        // that oversized fitting width and centers it, sliding the library pane under
-        // the sidebar. A LazyVStack reports a bounded ideal (off-screen cards aren't
-        // summed), keeping the split's fitting width under the available width so it
-        // fills exactly. AgentDetailView uses lazy: true for the same reason.
+        // that oversized fitting width. A LazyVStack reports a bounded ideal
+        // (off-screen cards aren't summed), keeping the split's fitting width under
+        // the available width. AgentDetailView uses lazy: true for the same reason.
         AppPage(prompt.invocation, subtitle: prompt.description.isEmpty ? nil : prompt.description, lazy: true) {
             AppCard {
                 promptHeaderEditor(prompt)
@@ -821,14 +812,6 @@ private struct PromptListRowView: View {
                     .font(.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .lineLimit(2)
-                if let argumentHint = prompt.argumentHint {
-                    Label(argumentHint, systemImage: "text.cursor")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(iconColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(iconColor.opacity(0.10), in: Capsule(style: .continuous))
-                }
             }
 
             Spacer(minLength: 0)

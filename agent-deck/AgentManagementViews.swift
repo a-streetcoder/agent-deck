@@ -59,7 +59,7 @@ struct AgentsScreen: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HSplitView {
+            SplitView {
                 if viewModel.hasCompletedInitialRefresh {
                     AgentLibraryPane(
                         viewModel: viewModel,
@@ -68,17 +68,14 @@ struct AgentsScreen: View {
                             agentBeingEdited = AgentEditPresentation(agent: agent, initialTab: .config)
                         }
                     )
-                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                     .appDebugLayout("Agents.libraryPane", logger: Self.layoutLog)
                 } else {
                     AppLoadingView("Loading agents…")
-                        .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
                         .appDebugLayout("Agents.libraryLoading", logger: Self.layoutLog)
                 }
-
+            } detail: {
                 if !viewModel.hasCompletedInitialRefresh {
                     AppLoadingView("Loading agent details…")
-                        .frame(minWidth: 480, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                         .appDebugLayout("Agents.detailLoading", logger: Self.layoutLog)
                 } else if let agent = viewModel.selectedAgent {
                     AgentDetailView(
@@ -125,11 +122,6 @@ struct AgentsScreen: View {
                         autoGenerateAvatarPrompts: viewModel.appSettings.autoGenerateAgentAvatarPrompts,
                         generateAvatarPrompt: { try await viewModel.generateAgentAvatarPrompt(for: $0) }
                     )
-                    // idealWidth pins the HSplitView divider seed so it resolves in one
-                    // pass instead of hunting (a ScrollView reports its content's variable
-                    // ideal width); AgentDetailView's AppPage uses lazy:true to bound the
-                    // build cost. See SkillsScreen for the full rationale.
-                    .frame(minWidth: 480, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                     .appDebugLayout("Agents.detail selected=\(agent.name)", logger: Self.layoutLog)
                 } else {
                     ContentUnavailableView("No Agent Selected", systemImage: "sparkles.rectangle.stack")
@@ -357,6 +349,7 @@ private struct EditAgentAvatarSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
             }
         }

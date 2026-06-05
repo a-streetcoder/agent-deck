@@ -143,38 +143,60 @@ struct IssuesScreen: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            HSplitView {
+            SplitView {
                 issueList(items: visibleItems, totalShown: board.shownCount, totalCount: board.totalCount, incomplete: board.incompleteResults)
-                    .frame(minWidth: 430, idealWidth: 520, maxWidth: 640)
+            } detail: {
                 detailColumn
             }
         }
     }
 
     private func issueList(items: [GitHubWorkItem], totalShown: Int, totalCount: Int, incomplete: Bool) -> some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                if totalShown < totalCount {
-                    listNote("Showing first \(totalShown) of \(totalCount) matching issues.", tint: .orange)
+        // Same shared list primitive as Agents/Prompts/Skills (`AppList`): flat
+        // themed selection rows, not the bespoke bordered cards this screen used
+        // before. Truncation/incomplete notes are pinned above the list (mirroring
+        // the Skills warning strip) since `AppList` rows are typed to `Item`.
+        VStack(alignment: .leading, spacing: 0) {
+            if totalShown < totalCount || incomplete {
+                VStack(alignment: .leading, spacing: 4) {
+                    if totalShown < totalCount {
+                        listNote("Showing first \(totalShown) of \(totalCount) matching issues.", tint: .orange)
+                    }
+                    if incomplete {
+                        listNote("GitHub reported incomplete search results — narrow the scope if items look missing.", tint: .orange)
+                    }
                 }
-                if incomplete {
-                    listNote("GitHub reported incomplete search results — narrow the scope if items look missing.", tint: .orange)
-                }
-
-                ForEach(items) { item in
-                    GitHubIssueListRow(
-                        item: item,
-                        isSelected: viewModel.githubSelectedWorkItem == item,
-                        onSelect: { viewModel.selectWorkItem(item) },
-                        onOpenInPi: { viewModel.startPiAgentForWorkItem(item) },
-                        onClose: { reason in viewModel.closeIssue(item, reason: reason) },
-                        onReopen: { viewModel.reopenIssue(item) }
-                    )
-                }
+                .padding(.horizontal, AppTheme.pagePadding)
+                .padding(.top, 12)
             }
-            .padding(.horizontal, AppTheme.pagePadding)
-            .padding(.vertical, 16)
+
+            AppList(
+                sections: [AppListSection(id: "issues", items: items)],
+                selection: .single(selectedIssueIDBinding)
+            ) { item in
+                GitHubIssueRowContent(
+                    item: item,
+                    onOpenInPi: { viewModel.startPiAgentForWorkItem(item) },
+                    onClose: { reason in viewModel.closeIssue(item, reason: reason) },
+                    onReopen: { viewModel.reopenIssue(item) }
+                )
+                // Matches the Agents/Skills row density (this stacks on AppList's
+                // own row padding, same as `agentListRow`).
+                .padding(.vertical, 6)
+            }
         }
+    }
+
+    /// Bridges `AppList`'s id-based single selection to the view model's
+    /// item-based selection (which also kicks off the detail fetch).
+    private var selectedIssueIDBinding: Binding<GitHubWorkItem.ID?> {
+        Binding(
+            get: { viewModel.githubSelectedWorkItem?.id },
+            set: { id in
+                guard let id, let item = visibleItems.first(where: { $0.id == id }) else { return }
+                viewModel.selectWorkItem(item)
+            }
+        )
     }
 
     private func listNote(_ text: String, tint: Color) -> some View {
@@ -185,10 +207,10 @@ struct IssuesScreen: View {
     }
 
     private var detailColumn: some View {
-        // The GeometryReader wrapper was structurally a no-op (HSplitView already
-        // provides the width/height it was reading), and forced an extra layout
-        // pass on every change. Removing it follows the same "no GeometryReader"
-        // discipline the transcript pipeline already adopted.
+        // No GeometryReader here: the enclosing HSplitView already provides this
+        // pane's width/height, so reading it again would just force an extra layout
+        // pass — the same "no GeometryReader" discipline the transcript pipeline
+        // adopted.
         Group {
             if viewModel.githubSelectedWorkItem != nil {
                 GitHubIssueDetailView(viewModel: viewModel)

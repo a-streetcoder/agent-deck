@@ -189,12 +189,11 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
     private var expandedDiffRows: Set<String> = []
 
     private static let inlineLinkLimit = 5
-    // Mirror SwiftUI exactly: `contentSubtleFill.opacity(0.65)` — and
-    // contentSubtleFill already carries .opacity(0.62), so the resolved fill is
-    // controlColor at ~0.40 alpha. Apply .opacity on the Color (not
-    // withAlphaComponent, which would REPLACE the alpha and over-darken it).
-    private static let subtleFill = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.65))
-    private static let subtleStroke = AppTheme.ns(AppTheme.contentStroke)
+    // Quiet hairline transcript-card surface — see `AppTheme.Chat.cardFill`.
+    // Computed (not `static let`) so each sub-card build re-resolves against the
+    // active theme rather than snapshotting the launch theme.
+    private static var subtleFill: NSColor { AppTheme.ns(AppTheme.Chat.cardFill) }
+    private static var subtleStroke: NSColor { AppTheme.ns(AppTheme.Chat.cardStroke) }
     private static let muted = AppTheme.ns(AppTheme.mutedText)
 
     override func commonSetup() {

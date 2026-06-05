@@ -164,18 +164,17 @@ final class PiAgentNativeForkOriginCardView: NSView, PiAgentNativeRowContent {
 
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.cardCornerRadius = ChromeLayout.cardCorner
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.8))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         addSubview(surface)
 
         glyph.translatesAutoresizingMaskIntoConstraints = false
-        glyph.image = NSImage(systemSymbolName: "arrow.trianglehead.branch", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: NativeTranscriptFont.bodySize, weight: .semibold))
+        glyph.image = NativeTranscriptFont.headerIcon("arrow.trianglehead.branch")
         glyph.contentTintColor = AppTheme.ns(AppTheme.brandAccent)
-        glyph.imageScaling = .scaleProportionallyUpOrDown
+        glyph.imageScaling = .scaleProportionallyDown
         glyph.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.font = NativeTranscriptFont.body(.semibold)
+        titleLabel.font = NativeTranscriptFont.header
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingMiddle
         titleLabel.maximumNumberOfLines = 1
@@ -216,8 +215,8 @@ final class PiAgentNativeForkOriginCardView: NSView, PiAgentNativeRowContent {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             surface.leadingAnchor.constraint(equalTo: leadingAnchor),
             surfaceWidthC,
-            glyph.widthAnchor.constraint(equalToConstant: 30),
-            glyph.heightAnchor.constraint(equalToConstant: 30),
+            glyph.widthAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
+            glyph.heightAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
             row.topAnchor.constraint(equalTo: surface.topAnchor, constant: ChromeLayout.vPad),
             row.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: ChromeLayout.hPad),
             row.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -ChromeLayout.hPad),
@@ -279,131 +278,6 @@ final class PiAgentNativeForkOriginCardView: NSView, PiAgentNativeRowContent {
     func prepareForReuseIfNeeded() {}
 }
 
-// MARK: - 3. System prompt audit card
-
-struct NativeSystemPromptPayload {
-    var title: String
-    var subtitle: String
-    var prompt: String
-
-    @MainActor
-    static func make(title: String, subtitle: String, prompt: String) -> NativeSystemPromptPayload {
-        NativeSystemPromptPayload(title: title, subtitle: subtitle, prompt: prompt)
-    }
-}
-
-/// A card describing a captured system prompt: glyph + title + (subtitle · token
-/// count) and a "View" button that pops over the full prompt text.
-final class PiAgentNativeSystemPromptCardView: NSView, PiAgentNativeRowContent {
-    var onIntrinsicHeightChange: (() -> Void)?
-
-    private let surface = NativeCardSurface()
-    private let glyph = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let subtitleLabel = NSTextField(labelWithString: "")
-    private let viewButton = NSButton()
-
-    private var payload: NativeSystemPromptPayload?
-    private var surfaceWidthC: NSLayoutConstraint!
-
-    required init() {
-        super.init(frame: .zero)
-        wantsLayer = true
-
-        surface.translatesAutoresizingMaskIntoConstraints = false
-        surface.cardCornerRadius = ChromeLayout.cardCorner
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.8))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
-        addSubview(surface)
-
-        glyph.translatesAutoresizingMaskIntoConstraints = false
-        glyph.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: NativeTranscriptFont.bodySize, weight: .semibold))
-        glyph.contentTintColor = AppTheme.ns(AppTheme.brandAccent)
-        glyph.imageScaling = .scaleProportionallyUpOrDown
-        glyph.setContentHuggingPriority(.required, for: .horizontal)
-
-        titleLabel.font = NativeTranscriptFont.body(.semibold)
-        titleLabel.textColor = .labelColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
-
-        subtitleLabel.font = NativeTranscriptFont.caption()
-        subtitleLabel.textColor = AppTheme.ns(AppTheme.mutedText)
-        subtitleLabel.lineBreakMode = .byTruncatingTail
-        subtitleLabel.maximumNumberOfLines = 1
-
-        let textStack = NSStackView(views: [titleLabel, subtitleLabel])
-        textStack.translatesAutoresizingMaskIntoConstraints = false
-        textStack.orientation = .vertical
-        textStack.alignment = .leading
-        textStack.spacing = 3
-
-        viewButton.title = "View"
-        viewButton.bezelStyle = .rounded
-        viewButton.controlSize = .small
-        viewButton.font = NativeTranscriptFont.caption(.semibold)
-        viewButton.target = self
-        viewButton.action = #selector(viewTapped)
-        viewButton.setContentHuggingPriority(.required, for: .horizontal)
-
-        let row = NSStackView(views: [glyph, textStack, NSView(), viewButton])
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.orientation = .horizontal
-        row.spacing = 12
-        row.alignment = .centerY
-        surface.addSubview(row)
-
-        surfaceWidthC = surface.widthAnchor.constraint(equalToConstant: 100)
-        let rowBottom = row.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -ChromeLayout.vPad)
-        rowBottom.priority = NSLayoutConstraint.Priority(999)
-        NSLayoutConstraint.activate([
-            surface.topAnchor.constraint(equalTo: topAnchor),
-            surface.bottomAnchor.constraint(equalTo: bottomAnchor),
-            surface.leadingAnchor.constraint(equalTo: leadingAnchor),
-            surfaceWidthC,
-            glyph.widthAnchor.constraint(equalToConstant: 30),
-            glyph.heightAnchor.constraint(equalToConstant: 30),
-            row.topAnchor.constraint(equalTo: surface.topAnchor, constant: ChromeLayout.vPad),
-            row.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: ChromeLayout.hPad),
-            row.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -ChromeLayout.hPad),
-            rowBottom
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override var isFlipped: Bool { true }
-
-    func configure(payload: NativeSystemPromptPayload, width rowWidth: CGFloat) {
-        self.payload = payload
-        titleLabel.stringValue = payload.title
-        let tokens = "~\(formatPromptTokens(estimatedPromptTokens(payload.prompt)))"
-        if payload.subtitle.isEmpty {
-            subtitleLabel.stringValue = tokens
-        } else {
-            subtitleLabel.stringValue = "\(payload.subtitle) · \(tokens)"
-        }
-        surfaceWidthC.constant = max(1, rowWidth)
-        needsLayout = true
-    }
-
-    @objc private func viewTapped() {
-        guard let payload else { return }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = PiAgentNativeTextPopoverController(title: payload.title, text: payload.prompt)
-        popover.show(relativeTo: viewButton.bounds, of: viewButton, preferredEdge: .maxY)
-    }
-
-    func measuredHeight(forWidth rowWidth: CGFloat) -> CGFloat {
-        let titleH = ceil(titleLabel.intrinsicContentSize.height)
-        let subH = ceil(subtitleLabel.intrinsicContentSize.height)
-        let content = max(30, titleH + 3 + subH)
-        return ceil(ChromeLayout.vPad + content + ChromeLayout.vPad)
-    }
-
-    func prepareForReuseIfNeeded() {}
-}
-
 // MARK: - 4. Archive notice row
 
 struct NativeArchiveNoticePayload {
@@ -443,8 +317,8 @@ final class PiAgentNativeArchiveNoticeView: NSView, PiAgentNativeRowContent {
 
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.cardCornerRadius = ChromeLayout.cardCorner
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.8))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         addSubview(surface)
 
         glyph.translatesAutoresizingMaskIntoConstraints = false
@@ -630,8 +504,8 @@ final class PiAgentNativeStateCardView: NSView, PiAgentNativeRowContent {
 
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.cardCornerRadius = ChromeLayout.cardCorner
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.8))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         addSubview(surface)
 
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -644,12 +518,12 @@ final class PiAgentNativeStateCardView: NSView, PiAgentNativeRowContent {
         glyph.contentTintColor = AppTheme.ns(AppTheme.mutedText)
         glyph.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.font = NativeTranscriptFont.body(.semibold)
+        titleLabel.font = NativeTranscriptFont.header
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
 
-        subtitleLabel.font = NativeTranscriptFont.callout()
+        subtitleLabel.font = NativeTranscriptFont.footnote()
         subtitleLabel.textColor = AppTheme.ns(AppTheme.mutedText)
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = 1
@@ -679,8 +553,8 @@ final class PiAgentNativeStateCardView: NSView, PiAgentNativeRowContent {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             surface.leadingAnchor.constraint(equalTo: leadingAnchor),
             surfaceWidthC,
-            glyph.widthAnchor.constraint(equalToConstant: 22),
-            glyph.heightAnchor.constraint(equalToConstant: 22),
+            glyph.widthAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
+            glyph.heightAnchor.constraint(equalToConstant: NativeTranscriptFont.headerIconSize),
             row.topAnchor.constraint(equalTo: surface.topAnchor, constant: ChromeLayout.vPad),
             row.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: ChromeLayout.hPad),
             row.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -ChromeLayout.hPad),
@@ -699,8 +573,7 @@ final class PiAgentNativeStateCardView: NSView, PiAgentNativeRowContent {
             spinner.stopAnimation(nil)
             spinner.isHidden = true
             glyph.isHidden = false
-            glyph.image = NSImage(systemSymbolName: payload.icon, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: NativeTranscriptFont.bodySize + 2, weight: .regular))
+            glyph.image = NativeTranscriptFont.headerIcon(payload.icon, weight: .regular)
         }
         titleLabel.stringValue = payload.title
         subtitleLabel.stringValue = payload.subtitle

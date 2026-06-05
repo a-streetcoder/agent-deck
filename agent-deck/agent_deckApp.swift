@@ -106,10 +106,10 @@ struct agent_deckApp: App {
                 .environment(viewModel)
                 .environmentObject(appDelegate.updater)
                 .preferredColorScheme(.dark)
-                // Themed tokens are static vars (invisible to SwiftUI's dependency
-                // graph), so re-key on the theme revision to repaint on a switch —
-                // same approach as the main window.
-                .id(themeManager.revision)
+                // The theme re-key lives INSIDE SettingsSceneContent (around the
+                // themed content only) rather than here, so a theme switch repaints
+                // without discarding the view's `selectedTab` @State — otherwise
+                // every theme change bounced the user back to the General tab.
         }
         .commands {
             AgentDeckCommands()

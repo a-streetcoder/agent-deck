@@ -312,7 +312,6 @@ private extension PiAgentTranscriptEntry {
 private struct PiAgentTranscriptTimelineItem: Identifiable {
     enum Kind {
         case thread(PiAgentTranscriptThread)
-        case plan(PiSessionPlanEventRecord)
     }
 
     let id: String
@@ -532,6 +531,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         scrollView.documentView = tableView
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.postsFrameChangedNotifications = true
+        // Inset the resting content just into the tail of the top edge fade so
+        // the first row — the shortcuts strip, or the earliest message — lands
+        // where the gradient has already gone (near-)opaque, instead of half-
+        // dissolved into it. A touch less than the full 28pt fade height keeps
+        // the row snug to the fade's end with no dead gap. Content still fades
+        // normally as it scrolls up under the toolbar; a top inset leaves the
+        // bottom-pinning math (documentHeight − clipHeight) untouched.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 18, left: 0, bottom: 0, right: 0)
 
         context.coordinator.scrollView = scrollView
         context.coordinator.tableView = tableView
@@ -2637,19 +2645,6 @@ struct PiAgentScreen: View {
                             isThreadQuestion: false
                         ))
                     }
-                case let .plan(event):
-                    let planPayload = NativePlanCardPayload.make(event: event)
-                    descriptors.append(PiAgentTranscriptBlockDescriptor(
-                        id: item.id,
-                        view: nil,
-                        kind: .native(.of(PiAgentNativePlanCardView.self) { view, width in
-                            view.configure(payload: planPayload, width: width)
-                        }),
-                        baseRevision: appKitTranscriptContentRevision(for: item, snapshot: timelineSnapshot, contextRevision: contextRevision),
-                        estimatedContentHeight: { _ in 120 },
-                        threadID: nil,
-                        isThreadQuestion: false
-                    ))
                 }
             }
         }
@@ -3037,11 +3032,6 @@ struct PiAgentScreen: View {
                 hashThreadRevision(thread, into: &hasher)
                 return hasher.finalize()
             }
-        case let .plan(event):
-            var hasher = Hasher()
-            hasher.combine(contextRevision)
-            hashPlanEventRevision(event, into: &hasher)
-            return hasher.finalize()
         }
     }
 
@@ -3109,19 +3099,6 @@ struct PiAgentScreen: View {
         hasher.combine(entry.timestamp)
     }
 
-    private func hashPlanEventRevision(_ event: PiSessionPlanEventRecord, into hasher: inout Hasher) {
-        hasher.combine(event.id)
-        hasher.combine(event.planID)
-        hasher.combine(event.kind)
-        hasher.combine(event.timestamp)
-        hasher.combine(event.items.count)
-        for item in event.items {
-            hasher.combine(item.id)
-            hasher.combine(item.title.count)
-            hasher.combine(item.status)
-            hasher.combine(item.updatedAt)
-        }
-    }
 
     private var loadingTranscriptCard: some View {
         AppRowCard {
@@ -3327,9 +3304,6 @@ struct PiAgentScreen: View {
                 nativeSubagentCard: nativeSubagentCard
             )
             .id(item.id)
-        case let .plan(event):
-            PiAgentCurrentPlanCard(event: event)
-                .id(item.id)
         }
     }
 

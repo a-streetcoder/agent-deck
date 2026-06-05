@@ -1220,11 +1220,13 @@ struct PiNativeSubagentRunSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
+                    .appSecondaryButton()
                     .keyboardShortcut(.cancelAction)
                 Button("Run") {
                     let trimmedOutputPath = requestedOutputPath.trimmingCharacters(in: .whitespacesAndNewlines)
                     onRun(selectedAgentName, task, useWorktreeIsolation, allowDirectProjectWrites, expectedOutcome, trimmedOutputPath.isEmpty ? nil : trimmedOutputPath, allowOverwrite, parsedReadFirstPaths)
                 }
+                .appPrimaryButton()
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canRun)
             }

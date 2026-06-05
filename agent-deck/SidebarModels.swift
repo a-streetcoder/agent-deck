@@ -1,5 +1,9 @@
 import Foundation
 
+enum AppSymbols {
+    static let promptTemplate = "rectangle.and.pencil.and.ellipsis"
+}
+
 enum SidebarItem: String, CaseIterable, Identifiable {
     case projects = "Projects"
     case instructions = "System Prompt"
@@ -25,7 +29,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .agent: return "sparkles.rectangle.stack"
         case .agents: return "paperplane"
         case .skills: return "wand.and.stars"
-        case .prompts: return "rectangle.and.pencil.and.ellipsis"
+        case .prompts: return AppSymbols.promptTemplate
         case .subagents: return "slider.horizontal.3"
         case .models: return "cpu"
         case .environment: return "key"

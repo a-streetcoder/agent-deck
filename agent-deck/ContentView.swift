@@ -100,22 +100,64 @@ struct WindowBackgroundApplier: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        apply(from: view)
+        context.coordinator.attach(to: view, color: NSColor(color))
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        apply(from: nsView)
+        context.coordinator.attach(to: nsView, color: NSColor(color))
     }
 
-    private func apply(from view: NSView) {
-        let nsColor = NSColor(color)
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.backgroundColor = nsColor
-            // The titlebar/toolbar draws its own material on top of the window bg;
-            // making it transparent lets the themed window color show there too.
-            window.titlebarAppearsTransparent = true
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// Themes the window canvas and keeps the toolbar dark in fullscreen.
+    ///
+    /// In a normal window we make the titlebar transparent so the unified toolbar
+    /// shows the themed (navy) window background instead of the system material.
+    /// But macOS 26's toolbar background is translucent Liquid Glass: a transparent
+    /// titlebar removes the solid dark backing the glass needs, and in native
+    /// fullscreen — where the toolbar lives in its own window with no app content
+    /// behind it — the glass then renders bright (a white strip).
+    ///
+    /// NetNewsWire's main window avoids this by never making the titlebar
+    /// transparent, so the solid dark titlebar material is always there. We want the
+    /// themed blend in windowed mode, so we only drop the transparency in
+    /// fullscreen: the solid dark material returns as the glass's backing — no white.
+    /// `titlebarAppearsTransparent` is pure window chrome, so toggling it neither
+    /// flattens the toolbar's glass islands nor shifts the split-view layout.
+    final class Coordinator: NSObject {
+        private weak var window: NSWindow?
+        private var color: NSColor = .windowBackgroundColor
+
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        func attach(to view: NSView, color: NSColor) {
+            self.color = color
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = view.window else { return }
+                window.backgroundColor = color
+                if window !== self.window {
+                    self.window = window
+                    let center = NotificationCenter.default
+                    center.removeObserver(self)
+                    center.addObserver(self, selector: #selector(self.fullScreenChanged),
+                                       name: NSWindow.didEnterFullScreenNotification, object: window)
+                    center.addObserver(self, selector: #selector(self.fullScreenChanged),
+                                       name: NSWindow.didExitFullScreenNotification, object: window)
+                }
+                self.updateTitlebarTransparency(window)
+            }
+        }
+
+        @objc private func fullScreenChanged(_ note: Notification) {
+            guard let window = note.object as? NSWindow else { return }
+            updateTitlebarTransparency(window)
+        }
+
+        /// Transparent (themed blend) when windowed; opaque (solid dark backing,
+        /// so the Liquid Glass toolbar never goes white) when fullscreen.
+        private func updateTitlebarTransparency(_ window: NSWindow) {
+            window.titlebarAppearsTransparent = !window.styleMask.contains(.fullScreen)
         }
     }
 }
@@ -126,7 +168,9 @@ struct WindowBackgroundApplier: NSViewRepresentable {
 /// A normal SwiftUI `.overlay` only reaches the window's content region; the
 /// `NavigationSplitView` toolbar lives in the titlebar *above* that, so it would
 /// stay visible and clickable through the splash. We cover everything with a
-/// borderless **child window** ordered above the main window. (An earlier version
+/// chromeless **child window** ordered above the main window — titled (so macOS
+/// rounds its corners to match the host) but stripped of all titlebar chrome. (An
+/// earlier version
 /// parented the splash into the window's private `NSThemeFrame`, which worked but
 /// made AppKit log `_didAddUnknownSubview` every launch and is flagged "may break
 /// in the future." A child window is the supported way to overlay the
@@ -170,7 +214,7 @@ struct AppInitialLoadWindowCover: NSViewRepresentable {
     }
 
     final class Coordinator {
-        /// Borderless child window that overlays the whole main window.
+        /// Chromeless titled child window that overlays the whole main window.
         private var coverWindow: NSWindow?
         /// Parent-window frame observers, removed on dismiss. Child windows track
         /// the parent's *moves* automatically but not its *resizes*, so we mirror
@@ -205,14 +249,18 @@ struct AppInitialLoadWindowCover: NSViewRepresentable {
             if active {
                 guard coverWindow == nil else { return }
                 let host = NSHostingView(rootView: AppInitialLoadOverlay())
-                // A non-activating panel: it overlays and swallows clicks but never
-                // tries to become key/main. A plain borderless NSWindow declines
-                // `canBecomeKeyWindow`, and ordering it front made AppKit attempt
-                // `makeKeyWindow` anyway and log a warning; `.nonactivatingPanel`
-                // tells AppKit not to.
+                // A non-activating *titled* panel. Titled is the key choice: the
+                // window server rounds titled windows' corners — content included —
+                // at the exact OS radius, so the splash matches the host window's
+                // rounding with no hardcoded value to drift across macOS versions.
+                // (A `.borderless` panel is the one kind macOS does NOT round, which
+                // is why the full-bleed material was painting a bare rectangle.)
+                // `.fullSizeContentView` lets the overlay fill the titlebar region
+                // too; `.nonactivatingPanel` keeps it from stealing key/main and
+                // logging a `makeKeyWindow` warning.
                 let window = NSPanel(
                     contentRect: parent.frame,
-                    styleMask: [.borderless, .nonactivatingPanel],
+                    styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
                     backing: .buffered,
                     defer: false
                 )
@@ -223,6 +271,20 @@ struct AppInitialLoadWindowCover: NSViewRepresentable {
                 window.backgroundColor = .clear
                 window.hasShadow = false
                 window.ignoresMouseEvents = false // swallow clicks so nothing leaks through
+                // Titled windows are draggable by their titlebar, and with a
+                // transparent full-size titlebar that makes the WHOLE splash a drag
+                // handle — dragging would slide the cover off the parent (the frame
+                // sync only mirrors parent→cover) and reveal the UI underneath. Pin
+                // it so it can't be moved independently.
+                window.isMovable = false
+                window.isMovableByWindowBackground = false
+                // Strip every scrap of titlebar chrome so only the splash shows.
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = true
+                window.titlebarSeparatorStyle = .none
+                window.standardWindowButton(.closeButton)?.isHidden = true
+                window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+                window.standardWindowButton(.zoomButton)?.isHidden = true
                 window.contentView = host
                 window.setFrame(parent.frame, display: true)
                 parent.addChildWindow(window, ordered: .above)
@@ -288,20 +350,6 @@ struct AppInitialLoadWindowCover: NSViewRepresentable {
     }
 }
 
-/// SwiftUI wrapper around `PiAgentNativeTextPopoverController` so the System Prompt
-/// toolbar button shows the exact same title + scrollable monospaced text popover the
-/// old transcript "Final System Prompt" card's "View" button used.
-private struct PiAgentTextPopover: NSViewControllerRepresentable {
-    let title: String
-    let text: String
-
-    func makeNSViewController(context: Context) -> PiAgentNativeTextPopoverController {
-        PiAgentNativeTextPopoverController(title: title, text: text)
-    }
-
-    func updateNSViewController(_ controller: PiAgentNativeTextPopoverController, context: Context) {}
-}
-
 final class ScrollerHidingProbe: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -325,6 +373,9 @@ final class ScrollerHidingProbe: NSView {
 
     private func applySuppression() {
         guard let scrollView = targetScrollView() else { return }
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         if !(scrollView.verticalScroller is HiddenScroller) {
@@ -1246,11 +1297,9 @@ struct ContentView: View {
                 .toolbarNeutralChrome()
                 .help("View the final system prompt sent to the agent")
                 .disabled((viewModel.piAgentSessionStore.selectedSession?.finalSystemPrompt ?? "").isEmpty)
-                .popover(isPresented: $isPiAgentSystemPromptPresented, arrowEdge: .bottom) {
+                .sheet(isPresented: $isPiAgentSystemPromptPresented) {
                     if let prompt = viewModel.piAgentSessionStore.selectedSession?.finalSystemPrompt, !prompt.isEmpty {
-                        // Same text popover the old transcript card's "View" button used.
-                        PiAgentTextPopover(title: "Final System Prompt", text: prompt)
-                            .frame(width: 420, height: 300)
+                        PiAgentFinalSystemPromptSheet(text: prompt)
                     }
                 }
             }

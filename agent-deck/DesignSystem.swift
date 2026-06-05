@@ -8,8 +8,28 @@ enum AppTheme {
     static let cardPadding: CGFloat = 18
     static let sectionSpacing: CGFloat = 18
     static let contentSpacing: CGFloat = 12
+
+    /// Default geometry for the list/detail split shared by every resource and
+    /// workspace screen (Issues, Agents, Prompts, Skills), all built with
+    /// `SplitView`. One source of truth — tweak here to re-balance every split at
+    /// once.
+    enum Split {
+        /// List-pane share of the available width (0–1). The detail pane gets the
+        /// rest, and both panes scale proportionally on window resize. `0.5` = even.
+        /// Change this one number to re-balance every split.
+        static let listFraction: CGFloat = 0.42
+        /// Top inset for the *content* of both panes, so the list's first row and
+        /// the detail's first card start at the same height. The detail pane uses
+        /// this instead of the full `pagePadding` at the top.
+        static let contentTopInset: CGFloat = 8
+    }
     static let toolbarIconFrame = CGSize(width: 26, height: 20)
     static let toolbarAssetIconSize = CGSize(width: 16, height: 16)
+
+    /// SF Symbol scale for the glyphs inside transcript cards & bubbles — one knob
+    /// so every header symbol renders at the same scale. The AppKit equivalent of
+    /// SwiftUI's `.imageScale(.large)`.
+    static let cardSymbolScale: NSImage.SymbolScale = .large
 
     // MARK: Typography
     //
@@ -65,6 +85,14 @@ enum AppTheme {
         static let chipCornerRadius: CGFloat = 6
         static let glassPanelCornerRadius: CGFloat = 22
         static let quoteBarCornerRadius: CGFloat = 1
+
+        // Neutral transcript-card surface (Memory, subagent, tool group, fork,
+        // state, archive, supervisor). A whisper of fill defined mostly by a crisp
+        // hairline edge — replaces the old muddy `contentSubtleFill` box. Both
+        // compute off the active theme via the shared neutral tokens, so they
+        // track the theme (and light/dark) automatically.
+        static var cardFill: Color { AppTheme.contentSubtleFill.opacity(0.18) }
+        static var cardStroke: Color { AppTheme.hairlineStroke }
 
         static let bubbleHPadding: CGFloat = 16
         static let bubbleVPadding: CGFloat = 12
@@ -883,6 +911,30 @@ extension View {
     }
 }
 
+/// The list/detail split used by every resource and workspace screen (Issues,
+/// Agents, Prompts, Skills). A plain `HStack`: the list pane takes
+/// `AppTheme.Split.listFraction` of the width, the detail fills the rest, and both
+/// panes scale proportionally when the window resizes. No divider, no drag — the
+/// ratio is fixed (and configurable) in `AppTheme.Split`.
+struct SplitView<ListPane: View, DetailPane: View>: View {
+    @ViewBuilder var list: () -> ListPane
+    @ViewBuilder var detail: () -> DetailPane
+
+    var body: some View {
+        GeometryReader { geo in
+            let listWidth = geo.size.width * AppTheme.Split.listFraction
+            HStack(spacing: 0) {
+                list()
+                    .frame(width: listWidth)
+                    .frame(maxHeight: .infinity)
+                detail()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+}
+
 struct AppPage<Content: View>: View {
     let title: String
     let subtitle: String?
@@ -901,27 +953,47 @@ struct AppPage<Content: View>: View {
     }
 
     var body: some View {
-        ScrollView {
-            if lazy {
+        if lazy {
+            // 1:1 with the GitHub Issues detail (`GitHubIssueDetailView.detailContent`),
+            // which lays out symmetrically at every window width: a plain
+            // `ScrollView(showsIndicators:)` (no `.contentMargins` / `.scrollIndicators`
+            // / `.hideNativeScrollers`, which caused this pane to render with trailing
+            // slack that grew with width) wrapping a `LazyVStack`.
+            //
+            // A `LazyVStack` sizes itself to its children's ideal width, not the
+            // proposed width, so its greedy cards otherwise sit leading-aligned with
+            // empty trailing slack. The Issues detail fills because its first row is a
+            // full-width `Text`; we reproduce that with a zero-height, full-width first
+            // child that is greedy at layout time and pulls the stack to the full
+            // width. The negative bottom padding cancels the stack spacing this anchor
+            // would otherwise add above the first card.
+            ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: 0)
+                        .padding(.bottom, -AppTheme.sectionSpacing)
                     content
                 }
-                .padding(AppTheme.pagePadding)
+                // Smaller top inset so the first card lines up with the list pane's
+                // top (which starts at `Split.contentTopInset`). Sides/bottom keep
+                // the normal page padding.
+                .padding(.horizontal, AppTheme.pagePadding)
+                .padding(.bottom, AppTheme.pagePadding)
+                .padding(.top, AppTheme.Split.contentTopInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
+            }
+        } else {
+            ScrollView {
                 VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                     content
                 }
                 .padding(AppTheme.pagePadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+            .scrollIndicators(.never)
+            .hideNativeScrollers()
         }
-        // `.never`, not the deprecated `showsIndicators: false` (≈ `.hidden`):
-        // `.hidden` still lets AppKit briefly *flash* the overlay scroller when the
-        // content size changes — which a tall page (e.g. a skill's markdown body)
-        // hits as its lazy content grows the height on appear. Short pages that
-        // don't overflow never showed it, which is why only some pages flashed.
-        .scrollIndicators(.never)
     }
 }
 
@@ -1000,6 +1072,7 @@ struct AppCard<Content: View, Trailing: View>: View {
             }
         }
         .padding(AppTheme.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .appContentSurface()
     }
 }

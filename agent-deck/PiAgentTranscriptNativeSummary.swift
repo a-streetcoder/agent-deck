@@ -160,8 +160,8 @@ final class PiAgentNativeSubagentSummaryView: NSView, PiAgentNativeRowContent {
     }
 
     func configure(payload: NativeSubagentSummaryPayload, width rowWidth: CGFloat) {
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.55))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         surfaceWidthC.constant = cardWidth(rowWidth)
         titleLabel.stringValue = payload.title
         if payload.isRunning { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }

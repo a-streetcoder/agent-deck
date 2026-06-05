@@ -393,8 +393,8 @@ final class PiAgentNativeSupervisorCardView: NSView, PiAgentNativeRowContent {
 
     func configure(payload: NativeSupervisorPayload, width rowWidth: CGFloat) {
         self.payload = payload
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill)
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         surfaceWidthC.constant = max(1, rowWidth)
 
         titleLabel.stringValue = payload.title

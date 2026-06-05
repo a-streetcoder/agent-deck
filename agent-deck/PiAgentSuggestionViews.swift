@@ -134,7 +134,9 @@ struct PiAgentCommandSuggestions: View {
         // Clip row backgrounds to the panel's rounded shape so the highlight
         // doesn't bleed past the corners.
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous))
-        .appGlassPanel(cornerRadius: AppTheme.Chat.suggestionCornerRadius)
+        // Untinted native glass to match the toolbar popovers (Session resources,
+        // etc.). The brand-tinted appGlassPanel read as a saturated blue slab here.
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous)
                 .strokeBorder(AppTheme.contentStroke, lineWidth: 0.5)
@@ -285,7 +287,9 @@ struct PiAgentSlashSuggestions: View {
         // Clip row backgrounds to the panel's rounded shape so the highlight
         // doesn't bleed past the corners.
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous))
-        .appGlassPanel(cornerRadius: AppTheme.Chat.suggestionCornerRadius)
+        // Untinted native glass to match the toolbar popovers (Session resources,
+        // etc.). The brand-tinted appGlassPanel read as a saturated blue slab here.
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.Chat.suggestionCornerRadius, style: .continuous)
                 .strokeBorder(AppTheme.contentStroke, lineWidth: 0.5)
@@ -434,7 +438,7 @@ struct PiAgentSlashSuggestions: View {
     private func icon(for kind: SlashItemKind) -> String {
         switch kind {
         case .command: return "terminal"
-        case .prompt: return "text.bubble"
+        case .prompt: return AppSymbols.promptTemplate
         case .skill: return "sparkles"
         }
     }
@@ -478,7 +482,7 @@ struct PiAgentSlashSelectionChip: View {
     private var icon: String {
         switch item.kind {
         case .command: return "terminal"
-        case .prompt: return "text.bubble"
+        case .prompt: return AppSymbols.promptTemplate
         case .skill: return "sparkles"
         }
     }

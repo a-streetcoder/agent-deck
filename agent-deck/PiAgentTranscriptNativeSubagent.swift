@@ -67,14 +67,14 @@ private final class PiAgentNativeSubagentGlyph: NSView {
         avatar.translatesAutoresizingMaskIntoConstraints = false
         avatar.imageScaling = .scaleProportionallyUpOrDown
         avatar.wantsLayer = true
-        avatar.layer?.cornerRadius = 13
+        avatar.layer?.cornerRadius = 17
         avatar.layer?.masksToBounds = true
         addSubview(avatar)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 34),
             heightAnchor.constraint(equalToConstant: 34),
-            avatar.widthAnchor.constraint(equalToConstant: 26),
-            avatar.heightAnchor.constraint(equalToConstant: 26),
+            avatar.widthAnchor.constraint(equalToConstant: 34),
+            avatar.heightAnchor.constraint(equalToConstant: 34),
             avatar.centerXAnchor.constraint(equalTo: centerXAnchor),
             avatar.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
@@ -93,7 +93,7 @@ private final class PiAgentNativeSubagentGlyph: NSView {
             avatar.contentTintColor = nil
         } else {
             avatar.image = NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+                .withSymbolConfiguration(.init(pointSize: 0, weight: .medium, scale: .medium))
             avatar.imageScaling = .scaleNone
             avatar.contentTintColor = color
         }
@@ -443,8 +443,8 @@ final class PiAgentNativeSubagentRunCardView: NSView, PiAgentNativeRowContent {
     }
 
     func configure(payload: NativeAgentBlockPayload, width rowWidth: CGFloat) {
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.55))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         surfaceWidthC.constant = cardWidth(rowWidth)
         block.configure(payload)
         needsLayout = true
@@ -524,7 +524,7 @@ final class PiAgentNativeSubagentParallelCardView: NSView, PiAgentNativeRowConte
         // Outer is an outline only (no fill) so the child cards are the single grey
         // layer — avoids grey-in-grey-in-grey.
         surface.fillColor = .clear
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         surfaceWidthC.constant = cardWidth(rowWidth)
         headerLabel.attributedStringValue = headerLine(payload)
 
@@ -552,10 +552,10 @@ final class PiAgentNativeSubagentParallelCardView: NSView, PiAgentNativeRowConte
                 blocks.append(blk); childSurfaces.append(card)
             }
         }
-        let childFill = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.6))
+        let childFill = AppTheme.ns(AppTheme.Chat.cardFill)
         for (i, child) in payload.children.enumerated() {
             childSurfaces[i].fillColor = childFill
-            childSurfaces[i].strokeColor = AppTheme.ns(AppTheme.contentStroke)
+            childSurfaces[i].strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
             blocks[i].configure(child)
         }
         needsLayout = true

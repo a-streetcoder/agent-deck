@@ -127,7 +127,10 @@ final class PiAgentRunnerService {
     var nativeSubagentCatalogProvider: ((PiAgentSessionRecord) -> String?)?
     var parentSkillArgumentsProvider: ((URL) throws -> [String])?
     var parentPromptTemplateArgumentsProvider: ((URL) throws -> [String])?
-    var parentMemoryArgumentsProvider: ((PiAgentSessionRecord, URL, String?) async throws -> [String])?
+    /// Returns the Agent Deck memory append *prompt texts* (policy + recall) for a
+    /// parent session — not flag pairs. APPEND_SYSTEM.md preservation is applied once
+    /// by the launch flow, not per provider, so memory must not re-add it here.
+    var parentMemoryAppendPromptsProvider: ((PiAgentSessionRecord, String?) async throws -> [String])?
     /// Resolves a session's bound agent against the current scan snapshot for
     /// `kind == .agent` sessions. Returning `nil` causes the launch to fail
     /// with an "Agent Unavailable" transcript error.
@@ -648,6 +651,10 @@ final class PiAgentRunnerService {
                     "AGENT_DECK_OPENAI_FAST_CONFIG": PiNativeSubagentBridgeExtensions.openAIFastConfigURL().path
                 ]
             )
+            // Agent Deck parent append prompts (Deck-agent catalog, then memory).
+            // Collected here and emitted once below so the active APPEND_SYSTEM.md is
+            // preserved a single time, regardless of how many features contribute.
+            var agentDeckAppendPrompts: [String] = []
             if let boundAgent {
                 // 1:1 agent chat: launch Pi with the agent's raw system prompt,
                 // its tool allowlist (minus `contact_supervisor` — there's no
@@ -684,10 +691,7 @@ final class PiAgentRunnerService {
                 // catalog is empty and the session launches exactly as if subagents
                 // were turned off — no bridge extension, no system-prompt block.
                 extraArguments.append(contentsOf: ["--extension", bridgeURL.path])
-                extraArguments.append(contentsOf: PiParentAppendPromptResolver.appendSystemPromptArguments(
-                    projectURL: projectURL,
-                    agentDeckAppendPrompts: [catalog]
-                ))
+                agentDeckAppendPrompts.append(catalog)
             }
             extraArguments.append("--no-skills")
             if let boundAgent {
@@ -702,9 +706,17 @@ final class PiAgentRunnerService {
             if let parentPromptTemplateArgumentsProvider {
                 extraArguments.append(contentsOf: try parentPromptTemplateArgumentsProvider(projectURL))
             }
-            if let parentMemoryArgumentsProvider {
-                extraArguments.append(contentsOf: try await parentMemoryArgumentsProvider(session, projectURL, initialPrompt))
+            if let parentMemoryAppendPromptsProvider {
+                agentDeckAppendPrompts.append(contentsOf: try await parentMemoryAppendPromptsProvider(session, initialPrompt))
             }
+            // Single APPEND_SYSTEM.md preservation point. Pi disables automatic
+            // APPEND_SYSTEM.md discovery as soon as any explicit append is passed, so
+            // this resolver re-adds the active file once and then stacks the catalog
+            // and memory prompts in order. Emitting it per feature double-injected it.
+            extraArguments.append(contentsOf: PiParentAppendPromptResolver.appendSystemPromptArguments(
+                projectURL: projectURL,
+                agentDeckAppendPrompts: agentDeckAppendPrompts
+            ))
             let launchConfiguration = self.launchConfiguration(for: session, boundAgent: boundAgent)
             if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
                 if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {

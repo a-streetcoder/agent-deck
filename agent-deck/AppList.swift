@@ -131,7 +131,7 @@ struct AppList<Item: Identifiable & Hashable, RowContent: View>: View {
                 ForEach(sections) { section in
                     if let title = section.title {
                         AppListSectionHeaderView(title: title, info: section.info)
-                            .padding(.top, firstSectionID == section.id ? 8 : 16)
+                            .padding(.top, firstSectionID == section.id ? AppTheme.Split.contentTopInset : 16)
                             .padding(.bottom, 2)
                     }
 
@@ -160,7 +160,13 @@ struct AppList<Item: Identifiable & Hashable, RowContent: View>: View {
             .padding(.bottom, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .scrollIndicators(.hidden)
+        // `.never`, not `.hidden`: `.hidden` still lets AppKit briefly *flash* the
+        // overlay scroller when the content size changes — which a list hits as its
+        // rows lay out on appear (most visible on the Skills list, whose warning
+        // strip + sections grow the content height). `.never` suppresses the
+        // reservation entirely so there's no flash. `.hideNativeScrollers()` then
+        // guarantees no scroller even when macOS is set to always show scroll bars.
+        .scrollIndicators(.never)
         .hideNativeScrollers()
         .modifier(AppListKeyboardNavigation(
             enabled: keyboardNavigation,

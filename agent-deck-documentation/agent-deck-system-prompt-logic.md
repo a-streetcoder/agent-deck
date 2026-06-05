@@ -4,7 +4,7 @@ This is the canonical Agent Deck prompt-context reference for LLMs and maintaine
 
 Agent Deck does not reimplement Pi's prompt builder. It launches the installed `pi` CLI in RPC mode, manages app-owned resources, and passes explicit CLI flags where the app needs deterministic behavior. The final system prompt is still assembled by Pi.
 
-Last checked against the installed Pi CLI `0.74.0` and Agent Deck source on 2026-05-11.
+Last checked against the installed Pi CLI `0.78.1` and Agent Deck source on 2026-06-05.
 
 Primary source files:
 
@@ -76,8 +76,9 @@ pi --mode rpc
   --extension <agent-deck-openai-fast.ts>
   --extension <enabled command extension>...
   [--extension <managed-subagent-bridge.ts>]
-  [--append-system-prompt <active APPEND_SYSTEM.md path>]
+  [--append-system-prompt <active APPEND_SYSTEM.md path>]   # preserved once, ahead of all Agent Deck appends
   [--append-system-prompt <native subagent catalog prompt>]
+  [--append-system-prompt <memory policy + recalled memory>]
   --no-skills
   [--skill <default-or-project-assigned-skill>]...
   --no-prompt-templates
@@ -101,23 +102,27 @@ Parent sessions default to passing `--no-extensions` and then Agent Deck-control
 
 ### Parent Append Preservation
 
-When native subagents are enabled, Agent Deck adds a generated native subagent catalog to the parent prompt with `--append-system-prompt`.
+A parent session can stack more than one Agent Deck append onto the prompt: the native subagent catalog (when subagents are enabled) and the memory policy plus recalled memory (when memory is enabled). All of these go through `--append-system-prompt`.
 
-Because any explicit append flag suppresses Pi's automatic `APPEND_SYSTEM.md` discovery, Agent Deck first resolves the append file Pi would have used:
+Because any explicit append flag suppresses Pi's automatic `APPEND_SYSTEM.md` discovery (`resource-loader.js`: `appendSystemPromptSource ?? discoverAppendSystemPromptFile()`), Agent Deck must re-add the file Pi would have used. It resolves it with the same precedence Pi uses:
 
 1. `<project>/.pi/APPEND_SYSTEM.md`
 2. else `~/.pi/agent/APPEND_SYSTEM.md`
 3. else no append file
 
-If such a file exists, Agent Deck passes it as the first explicit `--append-system-prompt`, then passes the native subagent catalog as the second explicit append. The effective append order is therefore:
+**This preservation happens exactly once per launch.** Agent Deck collects every Agent Deck append prompt (catalog, then memory) into a single list, then makes one `PiParentAppendPromptResolver.appendSystemPromptArguments` call that prepends the resolved `APPEND_SYSTEM.md` path ahead of them. The resolver runs once even when several features contribute — a previous version called it per feature, which injected `APPEND_SYSTEM.md` once per feature. The effective append order is therefore:
 
 ```text
 active APPEND_SYSTEM.md content
 
 Agent Deck native subagent catalog
+
+Agent Deck memory policy + recalled memory
 ```
 
-This preserves Pi behavior while adding Agent Deck's parent bridge instructions.
+Pi reads the path entry as a file and the catalog/memory entries as literal text, then joins all `--append-system-prompt` values with blank lines (`agent-session.js`). When no Agent Deck append is present, no `--append-system-prompt` is passed and Pi discovers `APPEND_SYSTEM.md` itself — still exactly one copy.
+
+The memory append prompts are produced by `parentMemoryAppendPromptsProvider`, which returns prompt *texts* only; it must never re-add `APPEND_SYSTEM.md` itself, since the single launch-flow call owns preservation. Helper sessions and replace-mode child subagents pass `--append-system-prompt ""` literally and never reach this resolver.
 
 ## Native Subagent Child Sessions
 

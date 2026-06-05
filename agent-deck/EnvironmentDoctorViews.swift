@@ -555,9 +555,11 @@ struct DoctorScreen: View {
                     HStack(spacing: 8) {
                         if let action = item.action {
                             Button(action.buttonTitle) { performSetupAction(action) }
+                                .appPrimaryButton()
                         }
                         if let secondaryAction = item.secondaryAction {
                             Button(secondaryAction.buttonTitle) { performSetupAction(secondaryAction) }
+                                .appSecondaryButton()
                         }
                     }
                     .controlSize(.small)
@@ -624,6 +626,7 @@ struct DoctorScreen: View {
                         Button("Connect GitHub") {
                             viewModel.connectGitHubUsingCLI()
                         }
+                        .appPrimaryButton()
                         .controlSize(.small)
                     }
                 }
@@ -700,6 +703,7 @@ struct DoctorScreen: View {
                     Button("Add EXA_API_KEY…") {
                         envDraft = viewModel.makeNewEnvDraft(scope: .global, prefilledKey: "EXA_API_KEY")
                     }
+                    .appPrimaryButton()
                     .controlSize(.small)
                 }
             }
@@ -830,7 +834,9 @@ struct DoctorScreen: View {
                     .textSelection(.enabled)
                 Spacer()
                 Button("Open") { openFile(settings.path) }
+                    .appSmallSecondaryButton()
                 Button("Reveal") { revealInFinder(settings.path) }
+                    .appSmallSecondaryButton()
             }
 
             AppKeyValueList(rows: [

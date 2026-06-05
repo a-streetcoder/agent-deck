@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+/// Bordered "card" wrapper around `GitHubIssueRowContent`, used where an issue
+/// row stands alone with its own selection chrome — currently the Pi composer's
+/// attach-issue popover. The Issues screen itself renders the content inside an
+/// `AppList` row, which supplies the selection chrome there.
 struct GitHubIssueListRow: View {
     let item: GitHubWorkItem
     let isSelected: Bool
@@ -14,45 +18,63 @@ struct GitHubIssueListRow: View {
 
     @State private var isHovering = false
 
-    // isOpen / closedReason now come from the cached fields on GitHubWorkItem,
-    // computed once at snapshot time. Tags still build a fresh [IssueTag]
-    // array — that's a view-layer construct, so we cache it in @State and
-    // refresh only when the underlying item identity changes.
-    private var isOpen: Bool { item.isOpen }
-    private var closedReason: GitHubIssueCloseReason? { item.closedReason }
-
-    @State private var cachedTags: [IssueTag] = []
-
-    private var tags: [IssueTag] { cachedTags }
-
     var body: some View {
         Button(action: onSelect) {
-            HStack(alignment: .top, spacing: 11) {
-                stateIndicator
-                VStack(alignment: .leading, spacing: 8) {
-                    titleRow
-                    if !tags.isEmpty { tagRow }
-                    metaRow
-                }
-            }
+            GitHubIssueRowContent(
+                item: item,
+                onOpenInPi: onOpenInPi,
+                onClose: onClose,
+                onReopen: onReopen
+            )
             .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(surface)
             // Make the entire padded card — gaps included — a single hit target.
             // Applied inside the button label so it defines the button's tap area.
+            .background(surface)
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .contextMenu { contextMenu }
-        .task(id: item.id) {
-            var result: [IssueTag] = []
-            if let type = item.type, !type.isEmpty {
-                result.append(.type(type))
+    }
+
+    private var surface: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let fill: Color = isSelected
+            ? AppTheme.selectionFill
+            : (isHovering ? Color.primary.opacity(0.04) : Color.clear)
+        return shape
+            .fill(fill)
+            .overlay(shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
+    }
+}
+
+/// The inner content of an issue row — state dot, title, and meta line — plus
+/// its context menu. Mirrors the Agents row shape (single-line title + one
+/// secondary line) so every row is the same height. Carries no selection chrome,
+/// padding, or background of its own, so it drops cleanly into either the
+/// bordered card (`GitHubIssueListRow`, used by the attach-issue popover) or an
+/// `AppList` row on the Issues screen.
+struct GitHubIssueRowContent: View {
+    let item: GitHubWorkItem
+    var onOpenInPi: (() -> Void)? = nil
+    var onClose: ((GitHubIssueCloseReason) -> Void)? = nil
+    var onReopen: (() -> Void)? = nil
+
+    // isOpen / closedReason come from the cached fields on GitHubWorkItem,
+    // computed once at snapshot time.
+    private var isOpen: Bool { item.isOpen }
+    private var closedReason: GitHubIssueCloseReason? { item.closedReason }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            stateIndicator
+            VStack(alignment: .leading, spacing: 6) {
+                titleRow
+                metaRow
             }
-            result += item.labels.map(IssueTag.label)
-            cachedTags = result
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu { contextMenu }
     }
 
     // MARK: - Pieces
@@ -61,6 +83,7 @@ struct GitHubIssueListRow: View {
         Image(systemName: stateIndicatorSymbol)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(stateIndicatorColor)
+            // Nudge down so the dot lines up with the title's first line.
             .padding(.top, 1)
             .help(stateIndicatorTooltip)
     }
@@ -93,28 +116,18 @@ struct GitHubIssueListRow: View {
 
     private var titleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // Always reserve two lines so every row is the same height and the
+            // meta line below always lands in the same place; titles longer than
+            // two lines truncate with an ellipsis.
             Text(item.title)
                 .font(.headline)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2, reservesSpace: true)
             Spacer(minLength: 4)
             Text("#\(item.number)")
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(AppTheme.mutedText)
-        }
-    }
-
-    private var tagRow: some View {
-        IssueTagFlowLayout(spacing: 6) {
-            ForEach(tags) { tag in
-                switch tag {
-                case let .type(value):
-                    GitHubGlassChip(text: value, palette: GitHubChipPalette(accent: issueTypeColor(value)))
-                case let .label(label):
-                    GitHubLabelTag(label: label)
-                }
-            }
         }
     }
 
@@ -141,16 +154,6 @@ struct GitHubIssueListRow: View {
 
     private var separator: some View {
         Text("·")
-    }
-
-    private var surface: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        let fill: Color = isSelected
-            ? AppTheme.selectionFill
-            : (isHovering ? Color.primary.opacity(0.04) : Color.clear)
-        return shape
-            .fill(fill)
-            .overlay(shape.stroke(isSelected ? AppTheme.selectionStroke : AppTheme.contentStroke, lineWidth: 1))
     }
 
     @ViewBuilder
@@ -198,75 +201,6 @@ struct GitHubIssueListRow: View {
     private func copyToPasteboard(_ string: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)
-    }
-}
-
-/// One chip in an issue card's tag strip — either the issue's native type
-/// (rendered as a stroked accent chip) or a GitHub label (glass-tinted with
-/// the label's own color).
-private enum IssueTag: Identifiable {
-    case type(String)
-    case label(GitHubLabel)
-
-    var id: String {
-        switch self {
-        case let .type(value): return "type:\(value)"
-        case let .label(label): return "label:\(label.name)"
-        }
-    }
-}
-
-/// Wrapping flow layout for the issue-card tag strip — lays chips left to right
-/// and wraps to a new line when a row runs out of width. Replaces a fixed
-/// single-line `HStack` + `.clipped()`, which sheared the chip stroke borders.
-private struct IssueTagFlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        let rows = arrange(subviews: subviews, maxWidth: maxWidth)
-        let width = rows.map(\.width).max() ?? 0
-        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
-        return CGSize(width: min(width, maxWidth), height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
-        let rows = arrange(subviews: subviews, maxWidth: bounds.width)
-        var y = bounds.minY
-        for row in rows {
-            var x = bounds.minX
-            for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-            y += row.height + spacing
-        }
-    }
-
-    private struct Row {
-        var indices: [Int] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func arrange(subviews: Subviews, maxWidth: CGFloat) -> [Row] {
-        var rows: [Row] = []
-        var current = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let projectedWidth = current.indices.isEmpty ? size.width : current.width + spacing + size.width
-            if !current.indices.isEmpty && projectedWidth > maxWidth {
-                rows.append(current)
-                current = Row()
-            }
-            if !current.indices.isEmpty { current.width += spacing }
-            current.indices.append(index)
-            current.width += size.width
-            current.height = max(current.height, size.height)
-        }
-        if !current.indices.isEmpty { rows.append(current) }
-        return rows
     }
 }
 
@@ -328,7 +262,10 @@ struct GitHubIssueDetailView: View {
                 commentsSection(detail)
                 addCommentSection(detail)
             }
-            .padding(AppTheme.pagePadding)
+            // Smaller top inset so the first row lines up with the list pane.
+            .padding(.horizontal, AppTheme.pagePadding)
+            .padding(.bottom, AppTheme.pagePadding)
+            .padding(.top, AppTheme.Split.contentTopInset)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

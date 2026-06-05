@@ -534,14 +534,8 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
 
-    /// Footnote-sized semibold, expanded width — matches the bubble header.
-    static let headerFont: NSFont = {
-        let base = NSFont.systemFont(ofSize: AppTheme.Font.footnoteSize, weight: .semibold)
-        let merged = base.fontDescriptor.addingAttributes([
-            .traits: [NSFontDescriptor.TraitKey.width: 0.2]
-        ])
-        return NSFont(descriptor: merged, size: base.pointSize) ?? base
-    }()
+    /// The shared transcript header font — same definition as the bubbles + cards.
+    static let headerFont = NativeTranscriptFont.header
 
     // MARK: Constraints
 
@@ -587,7 +581,7 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
         cardView.layer?.removeAllAnimations()
 
         headerLabel.stringValue = payload.headerTitle
-        iconView.image = NSImage(systemSymbolName: payload.headerIcon, accessibilityDescription: nil)
+        iconView.image = NativeTranscriptFont.headerIcon(payload.headerIcon)
 
         let cardW = cardWidth(forRowWidth: rowWidth)
         cardWidthC.constant = cardW
@@ -718,7 +712,9 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
             cardView.layer?.backgroundColor = fill.cgColor
             cardView.layer?.borderColor = stroke.cgColor
         }
-        iconView.contentTintColor = .labelColor
+        // The glyph takes the bubble's own color (the same `base` driving the
+        // fill/stroke); the title text keeps its label color.
+        iconView.contentTintColor = base
         headerLabel.textColor = .labelColor
         copyIcon.contentTintColor = .labelColor
         forkIcon.contentTintColor = .labelColor

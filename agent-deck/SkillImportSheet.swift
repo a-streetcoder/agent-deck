@@ -138,6 +138,7 @@ struct SkillImportSheet: View {
             }
             Spacer()
             Button("Cancel") { cancelAndDismiss() }
+                .appSecondaryButton()
                 .keyboardShortcut(.cancelAction)
             Button {
                 performImport()

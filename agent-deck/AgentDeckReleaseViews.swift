@@ -299,6 +299,7 @@ struct AgentDeckReleaseSheet: View {
                     .keyboardShortcut(.defaultAction)
             default:
                 Button("Cancel") { dismiss() }
+                    .appSecondaryButton()
                     .disabled(phase == .releasing)
                 Button(confirmTitle) { Task { await confirm() } }
                     .appPrimaryButton()

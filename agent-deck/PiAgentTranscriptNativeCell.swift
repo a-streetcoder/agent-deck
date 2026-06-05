@@ -221,17 +221,9 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
 
     // MARK: Fonts
 
-    /// Footnote-sized semibold, expanded width — matches the SwiftUI header.
-    static let headerFont: NSFont = {
-        let base = NSFont.systemFont(ofSize: AppTheme.Font.footnoteSize)
-        // SwiftUI .weight(.semibold) is the SF semibold face, not NSFontManager's
-        // .boldFontMask (heavier). Match it for header parity.
-        let semibold = NSFont.systemFont(ofSize: base.pointSize, weight: .semibold)
-        let merged = semibold.fontDescriptor.addingAttributes([
-            .traits: [NSFontDescriptor.TraitKey.width: 0.2]
-        ])
-        return NSFont(descriptor: merged, size: base.pointSize) ?? semibold
-    }()
+    /// The shared transcript header font (footnote semibold, width-expanded) —
+    /// every card + bubble title routes through one definition.
+    static let headerFont = NativeTranscriptFont.header
 
     // MARK: Layout
 
@@ -367,10 +359,11 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         // next draws — viewWillDraw lays out only if the subtree is dirty.
         needsLayout = true
 
-        // Header.
+        // Header — the glyph is tinted to the bubble's own role color in
+        // applyChromeColors(); the title text keeps its role header color.
         headerLabel.stringValue = payload.headerTitle
         if let symbol = payload.iconSymbol {
-            iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            iconView.image = NativeTranscriptFont.headerIcon(symbol)
         } else {
             iconView.image = NSImage(named: "pi")
             iconView.image?.isTemplate = true
@@ -453,7 +446,10 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             cardView.layer?.backgroundColor = fill.cgColor
             cardView.layer?.borderColor = stroke.cgColor
         }
-        iconView.contentTintColor = payload.iconSymbol == nil ? AppTheme.ns(AppTheme.piLogo) : headerColor
+        // The glyph takes the bubble's own color (the same `base` driving the
+        // fill/stroke); neutral status/raw rows get a muted glyph to match their
+        // neutral fill.
+        iconView.contentTintColor = neutral ? AppTheme.ns(AppTheme.mutedText) : base
         headerLabel.textColor = headerColor
         // Glass button glyphs use the primary label color — matches the SwiftUI
         // AppCopyIconButton / AppForkIconButton (.foregroundStyle(.primary)).

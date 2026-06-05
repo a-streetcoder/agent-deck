@@ -163,6 +163,7 @@ struct RenameResourceSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .appSecondaryButton()
                 Button("Rename") {
                     do {
                         try onRename(newName)

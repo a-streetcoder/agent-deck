@@ -112,7 +112,7 @@ struct PiAgentStartupResourcesPopover: View {
                         resourceSection("Environment", icon: "key", color: .green, items: envItems, columns: 1)
                         resourceSection("Agents", icon: "paperplane", color: .teal, items: agentItems, columns: 1, showsDetails: true)
                         resourceSection("Skills", icon: "wand.and.stars", color: AppTheme.assistantAccent, items: skillItems, columns: 1)
-                        resourceSection("Prompts", icon: "text.badge.star", color: .indigo, items: promptItems, columns: 1)
+                        resourceSection("Prompts", icon: AppSymbols.promptTemplate, color: .indigo, items: promptItems, columns: 1)
                     }
                 }
                 .padding(14)
@@ -178,7 +178,10 @@ struct PiAgentStartupResourcesPopover: View {
     }
 
     private var skillItems: [PiStartupResourceItem] {
-        startupSnapshot.skills
+        // Only the skills the orchestration parent was actually launched with —
+        // global defaults ∪ project-assigned — not every skill discovered on
+        // disk. Reuses the exact active set the composer `/` browser computes.
+        viewModel.activeParentSkills(forProjectPath: session.projectPath)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { skill in
                 let scope = skill.source.kind == .project ? "Project" : skill.source.kind.rawValue
@@ -188,7 +191,9 @@ struct PiAgentStartupResourcesPopover: View {
     }
 
     private var promptItems: [PiStartupResourceItem] {
-        startupSnapshot.promptTemplates
+        // Only the prompt templates the parent session was launched with — not
+        // every template discovered on disk. Mirrors the skills treatment above.
+        viewModel.activeParentPromptTemplates(forProjectPath: session.projectPath)
             .map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .prompt($0.id)) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
@@ -682,6 +687,7 @@ struct PiAgentAddAgentsSheet: View {
             }
             Spacer()
             Button("Cancel") { dismiss() }
+                .appSecondaryButton()
                 .keyboardShortcut(.cancelAction)
             Button(selected.isEmpty ? "Add" : "Add \(selected.count)") {
                 onAdd(selected)

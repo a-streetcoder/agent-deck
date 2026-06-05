@@ -1491,6 +1491,7 @@ private struct PiInstructionFileEditorSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { onCancel() }
+                    .appSecondaryButton()
                 Button(saveTitle) { onSave() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)

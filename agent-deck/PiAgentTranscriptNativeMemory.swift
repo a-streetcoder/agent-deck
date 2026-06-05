@@ -130,8 +130,8 @@ final class PiAgentNativeMemoryCardView: NSView, PiAgentNativeRowContent {
     var onIntrinsicHeightChange: (() -> Void)?
 
     private let pad: CGFloat = 14
-    private let iconSize: CGFloat = 30
-    private let iconGap: CGFloat = 12
+    private let iconSize: CGFloat = NativeTranscriptFont.headerIconSize
+    private let iconGap: CGFloat = 8
     private let titleToSummary: CGFloat = 3
     private let summaryToRows: CGFloat = 6
     private let rowSpacing: CGFloat = 2
@@ -147,18 +147,18 @@ final class PiAgentNativeMemoryCardView: NSView, PiAgentNativeRowContent {
         addSubview(surface)
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.imageScaling = .scaleProportionallyDown
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = NativeTranscriptFont.body(.semibold)
+        titleLabel.font = NativeTranscriptFont.header
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         summaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        summaryLabel.font = NativeTranscriptFont.callout()
+        summaryLabel.font = NativeTranscriptFont.footnote()
         summaryLabel.textColor = AppTheme.ns(AppTheme.mutedText)
         summaryLabel.lineBreakMode = .byWordWrapping
         summaryLabel.maximumNumberOfLines = 0
@@ -195,7 +195,9 @@ final class PiAgentNativeMemoryCardView: NSView, PiAgentNativeRowContent {
             surface.leadingAnchor.constraint(equalTo: leadingAnchor),
             surfaceWidthC,
 
-            iconView.topAnchor.constraint(equalTo: surface.topAnchor, constant: pad),
+            // Centered on the title line (like the message bubbles) rather than
+            // top-pinned, so the small glyph reads as part of the header row.
+            iconView.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             iconView.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: pad),
             iconView.widthAnchor.constraint(equalToConstant: iconSize),
             iconView.heightAnchor.constraint(equalToConstant: iconSize),
@@ -219,12 +221,11 @@ final class PiAgentNativeMemoryCardView: NSView, PiAgentNativeRowContent {
     }
 
     func configure(payload: NativeMemoryCardPayload, width rowWidth: CGFloat) {
-        surface.fillColor = AppTheme.ns(AppTheme.contentSubtleFill.opacity(0.55))
-        surface.strokeColor = AppTheme.ns(AppTheme.contentStroke)
+        surface.fillColor = AppTheme.ns(AppTheme.Chat.cardFill)
+        surface.strokeColor = AppTheme.ns(AppTheme.Chat.cardStroke)
         surfaceWidthC.constant = cardWidth(rowWidth)
 
-        iconView.image = NSImage(systemSymbolName: payload.iconSymbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: NativeTranscriptFont.bodySize + 4, weight: .semibold))
+        iconView.image = NativeTranscriptFont.headerIcon(payload.iconSymbol)
         iconView.contentTintColor = payload.tint
 
         titleLabel.stringValue = payload.title

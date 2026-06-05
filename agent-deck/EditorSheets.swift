@@ -213,6 +213,7 @@ struct EnvEditorSheet: View {
                 onCancel()
                 dismiss()
             }
+            .appSecondaryButton()
             Button("Save") { save() }
                 .appPrimaryButton()
                 .keyboardShortcut(.defaultAction)
@@ -391,6 +392,7 @@ struct MarkdownFileEditorSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .appSecondaryButton()
                 Button("Save") { save() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
@@ -434,6 +436,61 @@ struct MarkdownFileEditorSheet: View {
             errorMessage = "Could not save: \(error.localizedDescription)"
             NSSound.beep()
         }
+    }
+}
+
+/// Read-only sheet showing the final system prompt sent to the agent. Mirrors the
+/// `MarkdownFileEditorSheet` chrome (compact `.headline` header + Divider, 16pt
+/// footer) so it reads as a proper modal rather than a cramped popover.
+struct PiAgentFinalSystemPromptSheet: View {
+    let text: String
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Final System Prompt")
+                        .font(.headline)
+                        .fontWidth(.expanded)
+                    Text("The full system prompt sent to the agent")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                Spacer()
+            }
+            .padding(18)
+
+            Divider()
+
+            ScrollView {
+                Text(text)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+            }
+            .frame(minHeight: 360)
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .appSecondaryButton()
+                Button("Done") { dismiss() }
+                    .appPrimaryButton()
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 720, height: 600)
     }
 }
 
@@ -573,6 +630,7 @@ struct NewSkillEditorSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .appSecondaryButton()
                 Button("Save") { save() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
@@ -920,6 +978,7 @@ struct AgentEditorSheet: View {
                     onCancel()
                     dismiss()
                 }
+                .appSecondaryButton()
                 Button("Save") {
                     do {
                         try onSave(normalizedDraft())

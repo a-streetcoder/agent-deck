@@ -718,6 +718,7 @@ struct AgentModelQuickEditorSheet: View {
                 Button("Cancel") {
                     dismiss()
                 }
+                .appSecondaryButton()
                 Button("Save All") {
                     saveAll()
                 }

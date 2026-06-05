@@ -17,6 +17,32 @@ enum NativeTranscriptFont {
     static func caption(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: captionSize, weight: weight) }
     static func caption2(_ weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: caption2Size, weight: weight) }
     static func captionMono(_ weight: NSFont.Weight = .regular) -> NSFont { .monospacedSystemFont(ofSize: captionSize, weight: weight) }
+
+    // MARK: Shared card / bubble header
+
+    /// The one header title used by EVERY transcript row — message bubbles and
+    /// chrome cards alike: footnote-sized SF semibold, slightly width-expanded to
+    /// match SwiftUI's `.weight(.semibold)` header. Keep all card titles on this
+    /// so the transcript reads as a single scale rather than two competing ones.
+    static let header: NSFont = {
+        let semibold = NSFont.systemFont(ofSize: footnoteSize, weight: .semibold)
+        let merged = semibold.fontDescriptor.addingAttributes([
+            .traits: [NSFontDescriptor.TraitKey.width: 0.2]
+        ])
+        return NSFont(descriptor: merged, size: footnoteSize) ?? semibold
+    }()
+
+    /// Side length of the glyph box that sits beside `header` (matches the
+    /// message bubbles' 16pt icon).
+    static let headerIconSize: CGFloat = 16
+
+    /// A header glyph rendered at its natural ~15pt size (never upscaled to fill
+    /// the box) at the shared `AppTheme.cardSymbolScale`. Returned as a template
+    /// image so the caller flat-tints it to match its container's color.
+    static func headerIcon(_ name: String, weight: NSFont.Weight = .semibold) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: headerIconSize - 1, weight: weight, scale: AppTheme.cardSymbolScale))
+    }
 }
 
 // Native (pure AppKit) rendering for the non-bubble transcript rows — status,
