@@ -902,7 +902,7 @@ private struct PiAgentIssuePickerPopover: View {
         }
         .padding(12)
         .onAppear {
-            viewModel.ensureComposerIssuesLoaded(for: session)
+            viewModel.ensureComposerIssuesLoaded(for: session, force: true)
         }
     }
 

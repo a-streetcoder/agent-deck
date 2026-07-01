@@ -1935,7 +1935,7 @@ final class AppViewModel: NSObject {
         githubLastStatusCheckAt = Date()
     }
 
-    func refreshAggregateBoard() {
+    func refreshAggregateBoard(force: Bool = false) {
         guard let session = gitHubSession else {
             githubLastError = "Connect GitHub first."
             githubAggregateBoard = nil
@@ -1953,7 +1953,8 @@ final class AppViewModel: NSObject {
                 let snapshot = try await service.fetchAggregateIssues(
                     repos: repos,
                     state: self.githubIssueStateFilter,
-                    closeReason: self.effectiveCloseReasonFilter
+                    closeReason: self.effectiveCloseReasonFilter,
+                    bypassCache: force
                 )
 
                 await MainActor.run {
@@ -2548,7 +2549,7 @@ final class AppViewModel: NSObject {
             guard self != nil else { return }
             do {
                 let service = GitHubIssueService(apiClient: GitHubAPIClient(session: session))
-                let detail = try await service.fetchDetail(for: item)
+                let detail = try await service.fetchDetail(for: item, bypassCache: true)
                 await MainActor.run {
                     completion(.success(PiAgentIssueAttachment(detail: detail)))
                 }
@@ -2566,16 +2567,16 @@ final class AppViewModel: NSObject {
         return project
     }
 
-    func ensureComposerIssuesLoaded(for session: PiAgentSessionRecord? = nil) {
+    func ensureComposerIssuesLoaded(for session: PiAgentSessionRecord? = nil, force: Bool = false) {
         let projectPath = session?.projectPathForProjectFeatures
         Task { [weak self] in
             guard let self else { return }
             await prepareGitHubScreen()
             await MainActor.run {
                 if let remote = composerGitHubProject(forProjectPath: projectPath)?.gitHubRemote {
-                    refreshComposerBoard(for: remote, force: false)
-                } else if githubAggregateBoard == nil, !gitHubProjects.isEmpty {
-                    refreshAggregateBoard()
+                    refreshComposerBoard(for: remote, force: force)
+                } else if (force || githubAggregateBoard == nil), !gitHubProjects.isEmpty {
+                    refreshAggregateBoard(force: force)
                 }
             }
         }
