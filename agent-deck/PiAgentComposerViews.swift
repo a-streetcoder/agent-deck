@@ -305,8 +305,8 @@ struct PiAgentComposerBox: View {
             }
             return true
         }
-        .task {
-            viewModel.ensureComposerIssuesLoaded()
+        .task(id: footerSession?.id) {
+            viewModel.ensureComposerIssuesLoaded(for: footerSession)
         }
         .task(id: metricsSession?.id) {
             // For worktree-on sessions `branchName` is set at creation; for
@@ -330,7 +330,7 @@ struct PiAgentComposerBox: View {
 
     private var composerActionControls: some View {
         AppControlGroup(spacing: 6) {
-            if viewModel.githubConnectionState.isConnected && viewModel.selectedGitHubProject?.gitHubRemote != nil {
+            if viewModel.githubConnectionState.isConnected && viewModel.composerGitHubProject(for: footerSession)?.gitHubRemote != nil {
                 Button {
                     isIssuePickerPresented.toggle()
                 } label: {
@@ -349,6 +349,7 @@ struct PiAgentComposerBox: View {
                 .popover(isPresented: $isIssuePickerPresented, arrowEdge: .bottom) {
                     PiAgentIssuePickerPopover(
                         viewModel: viewModel,
+                        session: footerSession,
                         onSelect: { issue in
                             issueAttachment = issue
                             attachmentError = nil
@@ -832,6 +833,7 @@ struct PiAgentIssueAttachmentChip: View {
 
 private struct PiAgentIssuePickerPopover: View {
     var viewModel: AppViewModel
+    let session: PiAgentSessionRecord?
     let onSelect: (PiAgentIssueAttachment) -> Void
 
     @State private var query = ""
@@ -840,7 +842,7 @@ private struct PiAgentIssuePickerPopover: View {
     @State private var errorText: String?
 
     private var items: [GitHubWorkItem] {
-        let source = viewModel.githubComposerIssueItems
+        let source = viewModel.githubComposerIssueItems(for: session)
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return source }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return source.filter { item in
@@ -896,7 +898,7 @@ private struct PiAgentIssuePickerPopover: View {
         }
         .padding(12)
         .onAppear {
-            viewModel.ensureComposerIssuesLoaded()
+            viewModel.ensureComposerIssuesLoaded(for: session)
         }
     }
 
@@ -904,7 +906,7 @@ private struct PiAgentIssuePickerPopover: View {
         if !viewModel.githubConnectionState.isConnected {
             return "Connect GitHub first to attach an issue or pull request."
         }
-        if viewModel.selectedGitHubProject?.gitHubRemote != nil {
+        if viewModel.composerGitHubProject(for: session)?.gitHubRemote != nil {
             return viewModel.githubIsLoadingComposerBoard
                 ? "Loading issues and pull requests for the selected repository…"
                 : "No issues or pull requests loaded for the selected repository yet."

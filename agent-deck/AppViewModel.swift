@@ -165,6 +165,7 @@ final class AppViewModel: NSObject {
     var githubComposerBoardCacheKey: String?
     var githubComposerBoardFetchedAt: Date?
     var githubIsLoadingComposerBoard = false
+    private var githubComposerBoardRequestID = 0
     var githubProjectBoard: GitHubBoardSnapshot? {
         didSet { githubProjectBoardRevision &+= 1 }
     }
@@ -1950,20 +1951,27 @@ final class AppViewModel: NSObject {
     }
 
     var githubComposerIssueItems: [GitHubWorkItem] {
-        if let remote = selectedGitHubProject?.gitHubRemote {
-            if let githubComposerBoard {
-                return filteredBoardItems(from: githubComposerBoard)
-            }
-            if let githubProjectBoard {
-                return filteredBoardItems(from: githubProjectBoard)
-            }
-            if let githubAggregateBoard {
-                let filtered = filteredBoardItems(from: githubAggregateBoard)
-                return filtered.filter { $0.repository.caseInsensitiveCompare(remote.nameWithOwner) == .orderedSame }
-            }
-            return []
+        githubComposerIssueItems(for: nil)
+    }
+
+    func githubComposerIssueItems(for session: PiAgentSessionRecord?) -> [GitHubWorkItem] {
+        guard let remote = composerGitHubProject(for: session)?.gitHubRemote else {
+            return filteredBoardItems(from: githubAggregateBoard)
         }
-        return filteredBoardItems(from: githubAggregateBoard)
+
+        let boardKey = boardCacheKey(for: remote, state: githubIssueStateFilter, closeReason: effectiveCloseReasonFilter)
+        let composerKey = "composer|\(boardKey)"
+        if let githubComposerBoard, githubComposerBoardCacheKey == composerKey {
+            return filteredBoardItems(from: githubComposerBoard)
+        }
+        if let githubProjectBoard, githubProjectBoardCacheKey == boardKey {
+            return filteredBoardItems(from: githubProjectBoard)
+        }
+        if let githubAggregateBoard {
+            let filtered = filteredBoardItems(from: githubAggregateBoard)
+            return filtered.filter { $0.repository.caseInsensitiveCompare(remote.nameWithOwner) == .orderedSame }
+        }
+        return []
     }
 
     var githubAvailableAuthors: [String] {
@@ -2404,13 +2412,20 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func ensureComposerIssuesLoaded() {
+    func composerGitHubProject(for session: PiAgentSessionRecord?) -> DiscoveredProject? {
+        guard let session else { return selectedGitHubProject }
+        guard let project = projectByPath[session.projectPath], project.isGitHubRepository else { return nil }
+        return project
+    }
+
+    func ensureComposerIssuesLoaded(for session: PiAgentSessionRecord? = nil) {
+        let projectPath = session?.projectPath
         Task { [weak self] in
             guard let self else { return }
             await prepareGitHubScreen()
             await MainActor.run {
-                if selectedGitHubProject?.gitHubRemote != nil {
-                    refreshComposerBoard(force: false)
+                if let remote = composerGitHubProject(forProjectPath: projectPath)?.gitHubRemote {
+                    refreshComposerBoard(for: remote, force: false)
                 } else if githubAggregateBoard == nil, !gitHubProjects.isEmpty {
                     refreshAggregateBoard()
                 }
@@ -2418,7 +2433,13 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func refreshComposerBoard(force: Bool = false) {
+    private func composerGitHubProject(forProjectPath projectPath: String?) -> DiscoveredProject? {
+        guard let projectPath else { return selectedGitHubProject }
+        guard let project = projectByPath[projectPath], project.isGitHubRepository else { return nil }
+        return project
+    }
+
+    func refreshComposerBoard(for remote: GitHubRemote? = nil, force: Bool = false) {
         guard let session = gitHubSession else {
             githubIsLoadingComposerBoard = false
             githubComposerBoard = nil
@@ -2427,7 +2448,7 @@ final class AppViewModel: NSObject {
             return
         }
 
-        guard let remote = selectedGitHubProject?.gitHubRemote else {
+        guard let remote = remote ?? selectedGitHubProject?.gitHubRemote else {
             githubIsLoadingComposerBoard = false
             githubComposerBoard = nil
             githubComposerBoardCacheKey = nil
@@ -2445,6 +2466,8 @@ final class AppViewModel: NSObject {
             return
         }
 
+        githubComposerBoardRequestID += 1
+        let requestID = githubComposerBoardRequestID
         githubIsLoadingComposerBoard = true
 
         Task { [weak self] in
@@ -2460,7 +2483,7 @@ final class AppViewModel: NSObject {
                 )
 
                 await MainActor.run {
-                    guard self.selectedGitHubProject?.gitHubRemote == remote,
+                    guard self.githubComposerBoardRequestID == requestID,
                           self.githubIssueStateFilter == state,
                           self.effectiveCloseReasonFilter == closeReason else { return }
                     self.githubComposerBoard = snapshot
@@ -2470,7 +2493,7 @@ final class AppViewModel: NSObject {
                 }
             } catch {
                 await MainActor.run {
-                    guard self.selectedGitHubProject?.gitHubRemote == remote,
+                    guard self.githubComposerBoardRequestID == requestID,
                           self.githubIssueStateFilter == state,
                           self.effectiveCloseReasonFilter == closeReason else { return }
                     self.githubComposerBoard = nil
