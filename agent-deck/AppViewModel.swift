@@ -880,7 +880,10 @@ final class AppViewModel: NSObject {
             "sessionKind=\(session.kind.rawValue)",
             "project=\(projectURL.standardizedFileURL.path)",
             "subagentsEnabled=\(session.subagentsEnabled)",
-            "mcpEnabled=\(appSettings.mcpEnabled)"
+            "mcpEnabled=\(appSettings.mcpEnabled)",
+            "memoryEnabled=\(appSettings.agentMemoryEnabled)",
+            "memoryRecallCompleted=\(session.memoryRecallCompleted)",
+            "recalledMemoryPrompt=\(session.recalledMemoryPrompt ?? "")"
         ]
         var resourcePaths: [String] = []
         if !session.isNoProject {
@@ -6288,6 +6291,7 @@ final class AppViewModel: NSObject {
         guard appSettingsController.setAgentMemoryEnabled(isEnabled) else { return }
         syncAppSettings()
         if isEnabled { warmMemoryEmbedder() }
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     /// Kicks off the on-device embedding model download/load in the background so
@@ -6313,6 +6317,7 @@ final class AppViewModel: NSObject {
     func setAgentMemoryInjectionCharacterBudget(_ budget: Int) {
         guard appSettingsController.setAgentMemoryInjectionCharacterBudget(budget) else { return }
         syncAppSettings()
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     func createAgentMemory(title: String, summary: String, body: String, kind: AgentMemoryKind, tags: [String]) {
@@ -6950,6 +6955,7 @@ final class AppViewModel: NSObject {
         piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
             session.agentSelection = selection
         }
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     private func settingsSummary(for scope: AgentEditingTarget.OverrideScope) -> SettingsSummary? {

@@ -53,6 +53,8 @@ The fingerprint tracks modification dates for relevant resource files such as:
 If the fingerprint is unchanged, no refresh runs.
 If the fingerprint changed, Agent Deck runs `refresh(includeModels: false)`.
 
+After a successful refresh, Agent Deck also reconciles launch-bound resources for live Pi sessions. It fingerprints the launch resources that are passed only when the Pi process starts, including assigned skill arguments, assigned prompt-template arguments, selected extension arguments, the MCP catalog prompt, the Deck-agent catalog prompt when delegation is enabled, Pi system/append/context file metadata (`SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`, `CLAUDE.md`), the memory enabled/recalled-memory launch snapshot, and bound-agent prompt/skill inputs. If a running session's fingerprint changes, Agent Deck relaunches that session through the same relaunch path used for model/thinking launch-configuration changes. Idle sessions relaunch immediately; sessions in an active turn queue the relaunch until the turn settles.
+
 This means FSEvents is used as the trigger, but the fingerprint still protects the app from unnecessary refreshes caused by broad or noisy filesystem events.
 
 ## Watch list updates

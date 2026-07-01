@@ -3,6 +3,41 @@ import XCTest
 
 @MainActor
 final class PiAgentBridgeSmokeTests: XCTestCase {
+    func testLaunchResourceRelaunchRestartsIdleRunningSessionImmediately() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agent-deck-resource-relaunch-idle-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("pi")
+        let launchLog = directory.appendingPathComponent("launch.log")
+        let script = """
+        #!/bin/sh
+        printf 'launch\\n' >> \(PiTestSupport.shellSingleQuoted(launchLog.path))
+        printf '%s\\n' '{"type":"response","command":"get_state","success":true,"data":{"isStreaming":false}}'
+        cat >/dev/null
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
+        setenv("AGENT_DECK_PI_PATH", executable.path, 1)
+        defer { restoreEnv("AGENT_DECK_PI_PATH", oldValue: oldPiPath) }
+
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let runner = PiAgentRunnerService(store: store)
+        let session = store.createSession(kind: .project, title: "Resource Relaunch", project: try PiTestSupport.makeProject(url: directory), repository: nil)
+
+        runner.resume(session: session)
+        defer { runner.stop(sessionID: session.id, recordTranscript: false) }
+
+        XCTAssertTrue(PiTestSupport.waitUntil { runner.isRunning(sessionID: session.id) })
+        XCTAssertTrue(PiTestSupport.waitUntil {
+            store.sessions.first(where: { $0.id == session.id })?.status == .idle
+        })
+        runner.requestLaunchResourceRelaunch(sessionID: session.id, summary: "launch resources changed")
+        XCTAssertTrue(PiTestSupport.waitUntil(timeout: 3) {
+            ((try? String(contentsOf: launchLog, encoding: .utf8)) ?? "").split(separator: "\n").count >= 2
+        })
+    }
+
     func testIdleParkingStopsResumableIdleRPCClientWithoutMarkingSessionStopped() throws {
         let sessionFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-deck-idle-parking-\(UUID().uuidString).jsonl")
