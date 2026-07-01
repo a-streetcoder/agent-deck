@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Build a local signed, non-notarized Agent Deck DMG, generate a local Sparkle
-# appcast for it, and serve both from localhost without publishing to GitHub.
+# Build a local signed, non-notarized Agent Deck DMG without publishing to GitHub.
+# If a Sparkle private key is available, also generate and serve a local appcast.
 #
 # Required env/local setup:
 #   DEVELOPER_ID_APPLICATION  Developer ID Application signing identity
 #                             Auto-detected from Keychain when omitted.
+# Optional env/local setup:
 #   SPARKLE_PRIVATE_KEY        Sparkle EdDSA private key (base64), or store it
 #                             in macOS Keychain under service:
 #                             agent-deck-sparkle-private-key
+#                             When omitted, the DMG is built with the production
+#                             appcast URL and no local appcast is served.
 #
 # Optional env:
 #   VERSION=<project MARKETING_VERSION>
@@ -47,24 +50,22 @@ if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
     -w 2>/dev/null || true)"
 fi
 
-for var in DEVELOPER_ID_APPLICATION SPARKLE_PRIVATE_KEY; do
-  if [[ -z "${!var:-}" ]]; then
-    echo "Set $var before running this script." >&2
-    if [[ "$var" == "SPARKLE_PRIVATE_KEY" ]]; then
-      echo "Tip: store it once in Keychain with:" >&2
-      echo "  security add-generic-password -a \"${USER:-$(whoami)}\" -s \"$KEYCHAIN_SPARKLE_SERVICE\" -w '<sparkle-private-key>' -U" >&2
-    fi
-    exit 2
-  fi
-done
-
-export DEVELOPER_ID_APPLICATION SPARKLE_PRIVATE_KEY
-
-if ! command -v sign_update >/dev/null 2>&1; then
-  echo "Sparkle's sign_update tool is not on PATH." >&2
-  echo "Install/expose Sparkle tools first, then rerun." >&2
+if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  echo "Set DEVELOPER_ID_APPLICATION before running this script." >&2
   exit 2
 fi
+
+LOCAL_APPCAST=0
+if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+  LOCAL_APPCAST=1
+  if ! command -v sign_update >/dev/null 2>&1; then
+    echo "Sparkle's sign_update tool is not on PATH." >&2
+    echo "Install/expose Sparkle tools first, then rerun." >&2
+    exit 2
+  fi
+fi
+
+export DEVELOPER_ID_APPLICATION SPARKLE_PRIVATE_KEY
 
 if [[ -z "${VERSION:-}" ]]; then
   VERSION="$(/usr/libexec/PlistBuddy -c 'Print' agent-deck.xcodeproj/project.pbxproj 2>/dev/null \
@@ -91,19 +92,27 @@ RELEASE_NOTES="${RELEASE_NOTES:-Local Agent Deck update test for ${VERSION} (${B
 mkdir -p "$SERVE_DIR"
 
 cat <<EOF
-Building local update candidate:
+Building local production candidate:
   Version:      $VERSION
   Build number: $BUILD_NUMBER
-  Local feed:   $FEED_URL
 EOF
+if [[ "$LOCAL_APPCAST" == "1" ]]; then
+  echo "  Local feed:   $FEED_URL"
+else
+  echo "  Feed:         production appcast (no Sparkle private key found)"
+fi
 
-DMG_PATH="$(ALLOW_NON_PRODUCTION_FEED=1 \
-  SKIP_NOTARIZATION=1 \
-  SU_FEED_URL="$FEED_URL" \
-  VERSION="$VERSION" \
-  BUILD_NUMBER="$BUILD_NUMBER" \
-  BUILD_DIR="$BUILD_DIR" \
-  bash scripts/package-dmg.sh | tail -n 1)"
+PACKAGE_ENV=(
+  SKIP_NOTARIZATION=1
+  VERSION="$VERSION"
+  BUILD_NUMBER="$BUILD_NUMBER"
+  BUILD_DIR="$BUILD_DIR"
+)
+if [[ "$LOCAL_APPCAST" == "1" ]]; then
+  PACKAGE_ENV+=(ALLOW_NON_PRODUCTION_FEED=1 SU_FEED_URL="$FEED_URL")
+fi
+
+DMG_PATH="$(env "${PACKAGE_ENV[@]}" bash scripts/package-dmg.sh | tail -n 1)"
 
 if [[ ! -f "$DMG_PATH" ]]; then
   echo "Expected DMG at $DMG_PATH" >&2
@@ -112,6 +121,19 @@ fi
 
 DMG_NAME="$(basename "$DMG_PATH")"
 cp "$DMG_PATH" "$SERVE_DIR/$DMG_NAME"
+
+if [[ "$LOCAL_APPCAST" != "1" ]]; then
+  cat <<EOF
+
+Local production build is ready.
+  DMG: $DMG_PATH
+
+No Sparkle private key was found, so no localhost update feed was created.
+The app's Check for Updates will use the normal production feed.
+EOF
+  open -R "$DMG_PATH" >/dev/null 2>&1 || true
+  exit 0
+fi
 
 ED_FRAGMENT="$(sign_update --ed-key-file <(printf '%s' "$SPARKLE_PRIVATE_KEY") "$SERVE_DIR/$DMG_NAME")"
 PUBDATE="$(LC_ALL=en_US.UTF-8 date -u '+%a, %d %b %Y %H:%M:%S +0000')"
