@@ -581,6 +581,9 @@ private struct MCPServerEditorSheet: View {
     @State private var envText: String
     @State private var url: String
     @State private var headersText: String
+    @State private var oauthClientID: String
+    @State private var oauthClientSecret: String
+    @State private var oauthScopes: String
     @State private var pasteText: String = ""
     @State private var inputMode: InputMode = .manual
     @State private var importCandidates: [MCPForeignConfigScanner.Candidate] = []
@@ -588,7 +591,7 @@ private struct MCPServerEditorSheet: View {
     @State private var isScanningImports = false
     @FocusState private var focusedField: Field?
 
-    private enum Field { case name, command, args, env, url, headers, paste }
+    private enum Field { case name, command, args, env, url, headers, oauthClientID, oauthClientSecret, oauthScopes, paste }
     private enum InputMode: String, Hashable, CaseIterable, Identifiable {
         case manual, paste, importServers
 
@@ -620,6 +623,9 @@ private struct MCPServerEditorSheet: View {
         _envText = State(initialValue: (config.env ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n"))
         _url = State(initialValue: config.url ?? "")
         _headersText = State(initialValue: (config.headers ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n"))
+        _oauthClientID = State(initialValue: "")
+        _oauthClientSecret = State(initialValue: "")
+        _oauthScopes = State(initialValue: "")
     }
 
     private var isEditing: Bool { model.existingEntry != nil }
@@ -709,6 +715,9 @@ private struct MCPServerEditorSheet: View {
             guard isImportingServers else { return }
             await scanImportCandidates()
         }
+        .task(id: model.id) {
+            await loadOAuthClientSettings()
+        }
     }
 
     @ViewBuilder
@@ -777,7 +786,27 @@ private struct MCPServerEditorSheet: View {
             field("Headers (KEY: VALUE per line, optional)") {
                 editorBox($headersText, field: .headers, placeholder: "Authorization: Bearer …")
             }
-            Text("After saving, use Connect on the server to authorize with OAuth. For token servers, add an Authorization header instead.")
+            AppCard(title: "OAuth client (optional)") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Only fill these fields when the MCP provider gives you a client ID because it does not support Dynamic Client Registration. Secrets are saved in ~/.pi/agent/mcp-auth.json, not mcp.json.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    field("Client ID") {
+                        AppTextField(text: $oauthClientID, placeholder: "client_…")
+                            .focused($focusedField, equals: .oauthClientID)
+                    }
+                    field("Client secret") {
+                        AppTextField(text: $oauthClientSecret, placeholder: "Optional")
+                            .focused($focusedField, equals: .oauthClientSecret)
+                    }
+                    field("Scopes") {
+                        AppTextField(text: $oauthScopes, placeholder: "Optional, space-separated")
+                            .focused($focusedField, equals: .oauthScopes)
+                    }
+                }
+            }
+            Text("After saving, use Connect on the server to authorize with OAuth. If the provider supports Dynamic Client Registration, leave the OAuth client fields empty.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -950,7 +979,36 @@ private struct MCPServerEditorSheet: View {
             config.transport = .stdio
         }
         onSave(trimmedName, config)
-        dismiss()
+        if isRemote {
+            Task {
+                await saveOAuthClientSettings(for: trimmedName)
+                await MainActor.run { dismiss() }
+            }
+        } else {
+            dismiss()
+        }
+    }
+
+    @MainActor
+    private func loadOAuthClientSettings() async {
+        guard let name = model.existingEntry?.name else { return }
+        guard let auth = await MCPAuthStore.shared.auth(for: name) else { return }
+        oauthClientID = auth.clientID ?? ""
+        oauthClientSecret = auth.clientSecret ?? ""
+        oauthScopes = auth.scope ?? ""
+    }
+
+    private func saveOAuthClientSettings(for serverName: String) async {
+        var auth = await MCPAuthStore.shared.auth(for: serverName) ?? MCPServerAuth()
+        auth.clientID = emptyToNil(oauthClientID)
+        auth.clientSecret = emptyToNil(oauthClientSecret)
+        auth.scope = emptyToNil(oauthScopes)
+        await MCPAuthStore.shared.setAuth(auth, for: serverName)
+    }
+
+    private func emptyToNil(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     @MainActor

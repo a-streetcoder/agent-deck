@@ -61,11 +61,12 @@ Project-specific availability is controlled by Agent Deck assignment state. Agen
 |---|---|
 | Community/global MCP config (read-only in Agent Deck) | `~/.config/mcp/mcp.json` |
 | Agent Deck writable MCP config | `~/.pi/agent/mcp.json` |
+| MCP OAuth tokens, dynamic registrations, and pre-registered client settings | `~/.pi/agent/mcp-auth.json` |
 | Project MCP config (read-only in Agent Deck) | `PROJECT/.mcp.json` |
 | Pi project MCP config (read-only in Agent Deck) | `PROJECT/.pi/mcp.json` |
 | Explicit `+` sheet import sources (read-only scan, selected servers copied into `~/.pi/agent/mcp.json`) | Claude Desktop, Claude Code, and Codex config files |
 
-Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet.
+Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet. For remote MCP servers that require a pre-registered OAuth client, the optional client ID, client secret, and scopes entered in the Add/Edit sheet are stored in `mcp-auth.json`, not `mcp.json`.
 
 ## Extensions and packages
 

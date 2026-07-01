@@ -109,12 +109,47 @@ final class MCPOAuthTests: XCTestCase {
         }
     }
 
-    private func makeMockOAuthService(handler: @escaping MockURLProtocol.Handler) -> MCPOAuthService {
+    private final class BodyRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String] = []
+
+        func append(_ request: URLRequest) {
+            let bodyData: Data
+            if let httpBody = request.httpBody {
+                bodyData = httpBody
+            } else if let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var data = Data()
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count <= 0 { break }
+                    data.append(buffer, count: count)
+                }
+                bodyData = data
+            } else {
+                bodyData = Data()
+            }
+            lock.lock()
+            storage.append(String(decoding: bodyData, as: UTF8.self))
+            lock.unlock()
+        }
+
+        var bodies: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+    }
+
+    private func makeMockOAuthService(store: MCPAuthStore? = nil, handler: @escaping MockURLProtocol.Handler) -> MCPOAuthService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         MockURLProtocol.setHandler(handler)
         let session = URLSession(configuration: configuration)
-        return MCPOAuthService(session: session, store: MCPAuthStore(url: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json")))
+        let authStore = store ?? MCPAuthStore(url: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json"))
+        return MCPOAuthService(session: session, store: authStore)
     }
 
     func testDiscoverUsesAdvertisedProtectedResourceMetadataFromBearerChallenge() async throws {
@@ -318,6 +353,8 @@ final class MCPOAuthTests: XCTestCase {
 
         var auth = MCPServerAuth()
         auth.clientID = "cid"
+        auth.clientSecret = "secret"
+        auth.scope = "read tools"
         auth.tokenEndpoint = "https://x/token"
         auth.tokens = MCPOAuthTokens(accessToken: "tok", refreshToken: "r", tokenType: "Bearer", expiresAt: Date().addingTimeInterval(3600))
         await store.setAuth(auth, for: "srv")
@@ -329,8 +366,10 @@ final class MCPOAuthTests: XCTestCase {
 
         // A fresh store reading the same file sees it persisted.
         let reopened = MCPAuthStore(url: url)
-        let reopenedClientID = await reopened.auth(for: "srv")?.clientID
-        XCTAssertEqual(reopenedClientID, "cid")
+        let reopenedAuth = await reopened.auth(for: "srv")
+        XCTAssertEqual(reopenedAuth?.clientID, "cid")
+        XCTAssertEqual(reopenedAuth?.clientSecret, "secret")
+        XCTAssertEqual(reopenedAuth?.scope, "read tools")
 
         // Expired token is not returned.
         var expired = auth
@@ -338,6 +377,62 @@ final class MCPOAuthTests: XCTestCase {
         await store.setAuth(expired, for: "srv")
         let expiredToken = await store.validAccessToken(for: "srv")
         XCTAssertNil(expiredToken)
+    }
+
+    // MARK: - Pre-registered client behavior
+
+    func testConnectWithoutRegistrationEndpointAndWithoutClientFails() async throws {
+        let recorder = RequestRecorder()
+        let store = MCPAuthStore(url: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json"))
+        let service = makeMockOAuthService(store: store) { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp", "/.well-known/oauth-protected-resource/mcp":
+                return (404, [:], Data())
+            case "/.well-known/oauth-protected-resource":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        do {
+            try await service.connect(serverName: "fixture", serverURLString: "https://resource.example/mcp")
+            XCTFail("Expected connect to require a pre-registered client")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("pre-registered client"))
+        }
+        XCTAssertFalse(recorder.paths.contains("/register"))
+    }
+
+    func testRefreshIncludesPreconfiguredClientSecretAndScope() async throws {
+        let bodies = BodyRecorder()
+        let store = MCPAuthStore(url: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json"))
+        var auth = MCPServerAuth()
+        auth.clientID = "client-123"
+        auth.clientSecret = "secret-456"
+        auth.scope = "read tools"
+        auth.tokenEndpoint = "https://auth.example/token"
+        auth.tokens = MCPOAuthTokens(accessToken: "old", refreshToken: "refresh-789", expiresAt: Date().addingTimeInterval(-120))
+        await store.setAuth(auth, for: "fixture")
+
+        let service = makeMockOAuthService(store: store) { request in
+            if request.url!.path == "/token" {
+                bodies.append(request)
+                return (200, [:], Data(#"{"access_token":"new-access","refresh_token":"new-refresh","token_type":"Bearer","expires_in":3600}"#.utf8))
+            }
+            return (404, [:], Data())
+        }
+
+        let token = try await service.refresh(serverName: "fixture")
+
+        XCTAssertEqual(token, "new-access")
+        let body = try XCTUnwrap(bodies.bodies.first)
+        XCTAssertTrue(body.contains("client_id=client-123"))
+        XCTAssertTrue(body.contains("client_secret=secret-456"))
+        XCTAssertTrue(body.contains("scope=read%20tools"))
     }
 
     // MARK: - Loopback round-trip
@@ -380,12 +475,35 @@ final class MCPOAuthTests: XCTestCase {
     server.listen(0, '127.0.0.1', () => { base = 'http://127.0.0.1:' + server.address().port; console.log('PORT ' + server.address().port); });
     """
 
-    private func startMockServer() throws -> (process: Process, port: Int) {
+    private static let preRegisteredOAuthServer = """
+    const http = require('http');
+    const url = require('url');
+    let base = '';
+    const server = http.createServer((req, res) => {
+      const u = url.parse(req.url, true);
+      const json = (status, o) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+      if (u.pathname === '/.well-known/oauth-protected-resource') return json(200, { resource: base + '/mcp', authorization_servers: [base] });
+      if (u.pathname === '/.well-known/oauth-authorization-server') return json(200, { authorization_endpoint: base + '/authorize', token_endpoint: base + '/token' });
+      if (u.pathname === '/register') return json(500, { error: 'registration should not be called' });
+      if (u.pathname === '/authorize') {
+        if (u.query.client_id !== 'pre-client' || u.query.scope !== 'read tools') return json(400, { error: 'bad authorize request', query: u.query });
+        res.writeHead(302, { Location: u.query.redirect_uri + '?code=AUTHCODE&state=' + encodeURIComponent(u.query.state) }); return res.end();
+      }
+      if (u.pathname === '/token' && req.method === 'POST') { let b=''; req.on('data',c=>b+=c); req.on('end',()=>{
+        if (!b.includes('client_id=pre-client') || !b.includes('client_secret=pre-secret')) return json(400, { error: 'missing client credentials', body: b });
+        json(200, { access_token: 'PREACCESS', refresh_token: 'PREREFRESH', token_type: 'Bearer', expires_in: 3600 });
+      }); return; }
+      res.writeHead(404); res.end();
+    });
+    server.listen(0, '127.0.0.1', () => { base = 'http://127.0.0.1:' + server.address().port; console.log('PORT ' + server.address().port); });
+    """
+
+    private func startMockServer(script scriptText: String? = nil) throws -> (process: Process, port: Int) {
         guard let node = resolveNode() else { throw XCTSkip("node not found; skipping OAuth flow test.") }
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-oauth-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let script = dir.appendingPathComponent("server.js")
-        try Self.mockOAuthServer.write(to: script, atomically: true, encoding: .utf8)
+        try (scriptText ?? Self.mockOAuthServer).write(to: script, atomically: true, encoding: .utf8)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: node)
         process.arguments = [script.path]
@@ -435,5 +553,33 @@ final class MCPOAuthTests: XCTestCase {
         XCTAssertEqual(auth?.tokens?.refreshToken, "REFRESH123")
         let validToken = await store.validAccessToken(for: "fixture")
         XCTAssertEqual(validToken, "ACCESS123")
+    }
+
+    func testConnectUsesPreconfiguredClientWhenRegistrationEndpointIsAbsent() async throws {
+        let fixture = try startMockServer(script: Self.preRegisteredOAuthServer)
+        defer { fixture.process.terminate() }
+
+        let storeURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let store = MCPAuthStore(url: storeURL)
+        var storedAuth = MCPServerAuth()
+        storedAuth.clientID = "pre-client"
+        storedAuth.clientSecret = "pre-secret"
+        storedAuth.scope = "read tools"
+        await store.setAuth(storedAuth, for: "fixture")
+
+        let openURL: @Sendable (URL) -> Void = { authURL in
+            Task.detached { _ = try? await URLSession.shared.data(from: authURL) }
+        }
+        let service = MCPOAuthService(session: .shared, store: store, openURL: openURL)
+
+        try await service.connect(serverName: "fixture", serverURLString: "http://127.0.0.1:\(fixture.port)/mcp")
+
+        let auth = await store.auth(for: "fixture")
+        XCTAssertEqual(auth?.clientID, "pre-client")
+        XCTAssertEqual(auth?.clientSecret, "pre-secret")
+        XCTAssertEqual(auth?.scope, "read tools")
+        XCTAssertEqual(auth?.tokens?.accessToken, "PREACCESS")
+        XCTAssertEqual(auth?.tokens?.refreshToken, "PREREFRESH")
     }
 }
