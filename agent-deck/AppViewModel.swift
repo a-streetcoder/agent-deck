@@ -9618,6 +9618,7 @@ final class AppViewModel: NSObject {
     func slashUniverse(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> SlashUniverse {
         let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
         let scopedPath = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        guard scopedPath != nil || useSelectedProjectFallback else { return .empty }
         let projectFeatureSlashEnabled = scopedPath != nil
 
         // Skills

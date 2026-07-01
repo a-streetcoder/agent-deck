@@ -4676,6 +4676,7 @@ struct PiAgentScreen: View {
             showArchivedPreCompactionTranscript = false
             isEarlierTranscriptSheetPresented = false
             syncRuntimeFooterSnapshot()
+            resetSlashComposerState()
             // Load + publish SYNCHRONOUSLY, like onAppear already does. Deferring
             // these behind Task.yield let the transcript host render a full pass
             // with the new session id but the OLD session's cache content (and
@@ -6514,7 +6515,7 @@ struct PiAgentScreen: View {
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 isDisabled: isCompacting,
-                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm… Type / for skills and prompts." : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
+                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || slashSelection != nil),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: piAgentNewSessionProjects,
@@ -6573,6 +6574,7 @@ struct PiAgentScreen: View {
 
         switch first {
         case "/":
+            guard store.selectedSession?.isNoProject != true else { return nil }
             // Pi only dispatches slash commands/templates when the prompt starts with `/`.
             // Keep file mentions available anywhere, but only suggest/action slash commands
             // when this token is the first non-whitespace content in the composer.
@@ -6764,6 +6766,14 @@ struct PiAgentScreen: View {
         slashSelection = item
         slashState = SlashSuggestionState()
         composerSuggestionsDismissed = true
+    }
+
+    private func resetSlashComposerState() {
+        slashSelection = nil
+        slashUniverse = .empty
+        slashState = SlashSuggestionState()
+        lastSlashTriggerActive = false
+        composerSuggestionsDismissed = false
     }
 
     /// Builds (or releases) the cached slash universe on transitions in/out of
@@ -7455,7 +7465,7 @@ private struct PiAgentComposerPanel: View {
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     isDisabled: isCompacting,
-                    placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm… Type / for skills and prompts." : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
+                    placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
                     canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || slashSelection != nil),
                     canCreateSession: !isCompacting && store.selectedSession == nil,
                     createSessionProjects: piAgentNewSessionProjects,
@@ -7556,6 +7566,7 @@ private struct PiAgentComposerPanel: View {
             saveComposerDraft(for: oldID)
             loadComposerDraft(for: newID)
             syncRuntimeFooterSnapshot()
+            resetSlashComposerState()
         }
         .onChange(of: store.selectedSession?.status.isActive) { _, _ in
             syncRuntimeFooterSnapshot()
@@ -7621,6 +7632,7 @@ private struct PiAgentComposerPanel: View {
               let first = active.token.first else { return nil }
         switch first {
         case "/":
+            guard store.selectedSession?.isNoProject != true else { return nil }
             let prefix = composerText[..<active.range.lowerBound]
             guard prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return .slash(query: String(active.token.dropFirst()).lowercased())
@@ -7809,6 +7821,14 @@ private struct PiAgentComposerPanel: View {
         slashSelection = item
         slashState = SlashSuggestionState()
         composerSuggestionsDismissed = true
+    }
+
+    private func resetSlashComposerState() {
+        slashSelection = nil
+        slashUniverse = .empty
+        slashState = SlashSuggestionState()
+        lastSlashTriggerActive = false
+        composerSuggestionsDismissed = false
     }
 
     /// Builds (or releases) the cached slash universe on transitions in/out of

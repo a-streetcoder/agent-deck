@@ -1,8 +1,21 @@
+import Foundation
 import XCTest
 @testable import agent_deck
 
 @MainActor
 final class SlashUniverseTests: XCTestCase {
+    func testGeneralChatSlashUniverseIsEmptyWithoutProjectFallback() {
+        let viewModel = AppViewModel()
+        let projectURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        viewModel.selectedProjectPath = projectURL.path
+
+        let projectFallbackUniverse = viewModel.slashUniverse(forProjectPath: nil, useSelectedProjectFallback: true)
+        let generalChatUniverse = viewModel.slashUniverse(forProjectPath: nil, useSelectedProjectFallback: false)
+
+        XCTAssertFalse(projectFallbackUniverse.loops.isEmpty)
+        XCTAssertTrue(generalChatUniverse.isEmpty)
+    }
+
     func testCategoryPickerOmitsEmptyProjectOnlyCategories() {
         let skill = SlashItem(
             id: "skill:global",
