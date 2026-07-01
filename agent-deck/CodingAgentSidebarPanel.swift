@@ -343,10 +343,10 @@ struct CodingAgentRecentRow: View, Equatable {
     var body: some View {
         HStack(spacing: 8) {
             ProjectIconView(
-                imageURL: project?.iconFileURL,
-                symbolName: project?.fallbackSymbolName ?? "folder",
+                imageURL: iconImageURL,
+                symbolName: iconSymbolName,
                 size: 18,
-                assetName: project?.projectType.assetName
+                assetName: iconAssetName
             )
             .opacity(isSelected || hasUIRequest || isRunning || session.needsAttention ? 1 : 0.58)
 
@@ -378,6 +378,18 @@ struct CodingAgentRecentRow: View, Equatable {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .help(session.displayTitle)
+    }
+
+    var iconImageURL: URL? {
+        session.isNoProject ? nil : project?.iconFileURL
+    }
+
+    var iconSymbolName: String {
+        session.isNoProject ? "bubble.left.and.bubble.right" : (project?.fallbackSymbolName ?? "folder")
+    }
+
+    var iconAssetName: String? {
+        session.isNoProject ? nil : project?.projectType.assetName
     }
 
     @ViewBuilder
