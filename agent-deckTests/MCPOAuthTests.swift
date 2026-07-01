@@ -46,6 +46,177 @@ final class MCPOAuthTests: XCTestCase {
         XCTAssertTrue(soon.isExpired)
     }
 
+    // MARK: - Discovery
+
+    private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+        typealias Handler = @Sendable (URLRequest) throws -> (status: Int, headers: [String: String], body: Data)
+
+        private static let lock = NSLock()
+        nonisolated(unsafe) private static var handler: Handler?
+
+        static func setHandler(_ newHandler: Handler?) {
+            lock.lock()
+            handler = newHandler
+            lock.unlock()
+        }
+
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            Self.lock.lock()
+            let handler = Self.handler
+            Self.lock.unlock()
+
+            guard let handler else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+
+            do {
+                let result = try handler(request)
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: result.status,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: result.headers
+                )!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: result.body)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+        }
+
+        override func stopLoading() {}
+    }
+
+    private final class RequestRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String] = []
+
+        func append(_ path: String) {
+            lock.lock()
+            storage.append(path)
+            lock.unlock()
+        }
+
+        var paths: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+    }
+
+    private func makeMockOAuthService(handler: @escaping MockURLProtocol.Handler) -> MCPOAuthService {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        MockURLProtocol.setHandler(handler)
+        let session = URLSession(configuration: configuration)
+        return MCPOAuthService(session: session, store: MCPAuthStore(url: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mcp-auth-\(UUID().uuidString).json")))
+    }
+
+    func testDiscoverUsesAdvertisedProtectedResourceMetadataFromBearerChallenge() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (401, ["WWW-Authenticate": "Bearer resource_metadata=\"https://resource.example/.well-known/custom-resource\""], Data())
+            case "/.well-known/custom-resource":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","registration_endpoint":"https://auth.example/register"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/authorize")
+        XCTAssertEqual(auth.tokenEndpoint, "https://auth.example/token")
+        XCTAssertEqual(Array(requestedPaths.prefix(2)), ["/mcp", "/.well-known/custom-resource"])
+    }
+
+    func testDiscoverUsesPathScopedProtectedResourceMetadataBeforeOriginRoot() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/tenant/mcp":
+                return (401, ["WWW-Authenticate": "Bearer error=\"invalid_token\""], Data())
+            case "/.well-known/oauth-protected-resource/tenant/mcp":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/tenant/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/authorize")
+        XCTAssertTrue(requestedPaths.contains("/.well-known/oauth-protected-resource/tenant/mcp"))
+        XCTAssertFalse(requestedPaths.contains("/.well-known/oauth-protected-resource"))
+    }
+
+    func testDiscoverSupportsPathfulAuthorizationServerMetadataURLs() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (404, [:], Data())
+            case "/.well-known/oauth-protected-resource/mcp":
+                return (404, [:], Data())
+            case "/.well-known/oauth-protected-resource":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example/issuer/a"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server/issuer/a":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/issuer/a/authorize","token_endpoint":"https://auth.example/issuer/a/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/issuer/a/authorize")
+        XCTAssertTrue(requestedPaths.contains("/.well-known/oauth-authorization-server/issuer/a"))
+        XCTAssertFalse(requestedPaths.contains("/issuer/a/.well-known/oauth-authorization-server"))
+    }
+
+    func testDiscoverPreservesOriginRootProtectedResourceFlow() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (404, [:], Data())
+            case "/.well-known/oauth-protected-resource/mcp":
+                return (404, [:], Data())
+            case "/.well-known/oauth-protected-resource":
+                return (200, [:], Data(#"{"authorization_servers":["https://resource.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://resource.example/authorize","token_endpoint":"https://resource.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://resource.example/authorize")
+        XCTAssertEqual(auth.tokenEndpoint, "https://resource.example/token")
+        XCTAssertTrue(requestedPaths.contains("/.well-known/oauth-protected-resource"))
+    }
+
     // MARK: - Store
 
     func testAuthStoreRoundTripAndExpiry() async throws {

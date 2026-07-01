@@ -137,19 +137,47 @@ nonisolated final class MCPOAuthService: Sendable {
         auth.resource = serverURL.absoluteString
         let origin = Self.originURL(serverURL)
 
-        if let metadata: MCPProtectedResourceMetadata = try? await getJSON(origin.appendingPathComponent(".well-known/oauth-protected-resource")),
-           let authServer = metadata.authorization_servers?.first, let authServerURL = URL(string: authServer) {
-            apply(try await fetchAuthServerMetadata(authServerURL), to: &auth)
-        } else {
-            // Fallback: treat the resource origin as the authorization server.
-            apply(try await fetchAuthServerMetadata(origin), to: &auth)
+        var protectedResourceMetadataURLs: [URL] = []
+        if let advertisedURL = try? await advertisedProtectedResourceMetadataURL(from: serverURL) {
+            protectedResourceMetadataURLs.append(advertisedURL)
         }
+        protectedResourceMetadataURLs.append(Self.protectedResourceMetadataURL(for: serverURL, pathScoped: true))
+        protectedResourceMetadataURLs.append(Self.protectedResourceMetadataURL(for: serverURL, pathScoped: false))
+
+        for metadataURL in Self.uniqueURLs(protectedResourceMetadataURLs) {
+            guard let metadata: MCPProtectedResourceMetadata = try? await getJSON(metadataURL),
+                  let authServer = metadata.authorization_servers?.first,
+                  let authServerURL = URL(string: authServer),
+                  let authServerMetadata = try? await fetchAuthServerMetadata(authServerURL) else { continue }
+            apply(authServerMetadata, to: &auth)
+            return auth
+        }
+
+        // Last resort: treat the resource origin as the authorization server.
+        apply(try await fetchAuthServerMetadata(origin), to: &auth)
         return auth
     }
 
+    private func advertisedProtectedResourceMetadataURL(from serverURL: URL) async throws -> URL? {
+        var request = URLRequest(url: serverURL)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 401,
+              let challenge = http.value(forHTTPHeaderField: "WWW-Authenticate"),
+              let metadata = Self.bearerChallengeParameter("resource_metadata", in: challenge) else { return nil }
+        return URL(string: metadata)
+    }
+
     private func fetchAuthServerMetadata(_ base: URL) async throws -> MCPAuthServerMetadata {
-        if let metadata: MCPAuthServerMetadata = try? await getJSON(base.appendingPathComponent(".well-known/oauth-authorization-server")) {
-            return metadata
+        for candidate in Self.uniqueURLs(Self.authServerMetadataURLs(for: base, wellKnownName: "oauth-authorization-server")) {
+            if let metadata: MCPAuthServerMetadata = try? await getJSON(candidate) {
+                return metadata
+            }
+        }
+        for candidate in Self.uniqueURLs(Self.authServerMetadataURLs(for: base, wellKnownName: "openid-configuration")) {
+            if let metadata: MCPAuthServerMetadata = try? await getJSON(candidate) {
+                return metadata
+            }
         }
         return try await getJSON(base.appendingPathComponent(".well-known/openid-configuration"))
     }
@@ -219,6 +247,90 @@ nonisolated final class MCPOAuthService: Sendable {
             let v = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
             return "\(k)=\(v)"
         }.joined(separator: "&")
+    }
+
+    private static func bearerChallengeParameter(_ name: String, in header: String) -> String? {
+        guard let bearerRange = header.range(of: "Bearer", options: [.caseInsensitive]) else { return nil }
+        let characters = Array(header[bearerRange.upperBound...])
+        var index = 0
+
+        func skipSeparators() {
+            while index < characters.count, characters[index].isWhitespace || characters[index] == "," {
+                index += 1
+            }
+        }
+
+        while index < characters.count {
+            skipSeparators()
+            let keyStart = index
+            while index < characters.count, characters[index] != "=", characters[index] != "," {
+                index += 1
+            }
+            let key = String(characters[keyStart..<index]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard index < characters.count, characters[index] == "=" else { continue }
+            index += 1
+            while index < characters.count, characters[index].isWhitespace { index += 1 }
+
+            var value = ""
+            if index < characters.count, characters[index] == "\"" {
+                index += 1
+                while index < characters.count {
+                    let character = characters[index]
+                    index += 1
+                    if character == "\\", index < characters.count {
+                        value.append(characters[index])
+                        index += 1
+                    } else if character == "\"" {
+                        break
+                    } else {
+                        value.append(character)
+                    }
+                }
+            } else {
+                let valueStart = index
+                while index < characters.count, characters[index] != ",", !characters[index].isWhitespace {
+                    index += 1
+                }
+                value = String(characters[valueStart..<index])
+            }
+
+            if key.caseInsensitiveCompare(name) == .orderedSame {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func protectedResourceMetadataURL(for serverURL: URL, pathScoped: Bool) -> URL {
+        let origin = originURL(serverURL)
+        guard pathScoped else { return origin.appendingPathComponent(".well-known/oauth-protected-resource") }
+        var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)
+        components?.path = wellKnownPath("oauth-protected-resource", suffixPath: serverURL.path)
+        return components?.url ?? origin.appendingPathComponent(".well-known/oauth-protected-resource")
+    }
+
+    private static func authServerMetadataURLs(for base: URL, wellKnownName: String) -> [URL] {
+        guard !normalizedPath(base.path).isEmpty else {
+            return [base.appendingPathComponent(".well-known/\(wellKnownName)")]
+        }
+        var insertedComponents = URLComponents(url: originURL(base), resolvingAgainstBaseURL: false)
+        insertedComponents?.path = wellKnownPath(wellKnownName, suffixPath: base.path)
+        let inserted = insertedComponents?.url ?? base.appendingPathComponent(".well-known/\(wellKnownName)")
+        return [inserted, base.appendingPathComponent(".well-known/\(wellKnownName)")]
+    }
+
+    private static func wellKnownPath(_ name: String, suffixPath: String) -> String {
+        let suffix = normalizedPath(suffixPath)
+        return suffix.isEmpty ? "/.well-known/\(name)" : "/.well-known/\(name)/\(suffix)"
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        path.split(separator: "/").joined(separator: "/")
+    }
+
+    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.absoluteString).inserted }
     }
 
     static func originURL(_ url: URL) -> URL {
