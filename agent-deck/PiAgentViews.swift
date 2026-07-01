@@ -1240,6 +1240,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private var sessionSwitchSettleGeneration = 0
         private var pendingRemeasureWork: DispatchWorkItem?
         private var pendingRemeasureIDs = Set<String>()
+        private var pendingStreamingReconfigureWork: DispatchWorkItem?
+        private var pendingStreamingReconfigureIDs = Set<String>()
+        private var pendingStreamingReconfigureWasFollowing = false
+        private let streamingReconfigureInterval: TimeInterval = 0.033
         private var pendingScrollSettle = false
         private var pendingWidthWork: DispatchWorkItem?
         private var widthReconfigureGeneration = 0
@@ -1378,11 +1382,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         /// session switch and width change (geometry/content invalidate the
         /// block — the row may be cheaper to build at the new width or not exist).
         private var prewarmBlockedIDs: Set<String> = []
-        /// Hard per-row cost cap: if a single prewarm build exceeds this, the row
-        /// is blocked from future prewarm attempts so the budget goes to cheaper
-        /// rows instead. Kept well above the per-slice budget so a normal row is
-        /// never blocked, but a pathological 20ms+ markdown stack is.
-        private let prewarmPerRowCostCapMs: Double = 15.0
+        /// Hard per-row cost cap: if a single prewarm build exceeds roughly one
+        /// 120Hz frame, the row is blocked from future prewarm attempts so the
+        /// budget goes to cheaper rows instead.
+        private let prewarmPerRowCostCapMs: Double = 8.0
         /// Speculative offscreen prewarm is enabled by default for cheap/medium rows:
         /// current hitch samples convict fresh visible cell vend (`FRESH-VIEW` builds)
         /// during scroll, while heavy rows and offscreen height measurement remain
@@ -1412,7 +1415,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         private let prewarmExtendedIdleWindow: CFTimeInterval = 2.5
         private let prewarmRetryDelay: CFTimeInterval = 0.25
         private let prewarmInterSliceDelay: CFTimeInterval = 0.05
-        private let prewarmMaxEstimatedHeight: CGFloat = 420
+        private let prewarmMaxEstimatedHeight: CGFloat = 340
         private var lastPrewarmBlockingActivityTime: CFTimeInterval = CACurrentMediaTime()
 
         private func extendedPrewarmIdleReady(now: CFTimeInterval) -> Bool {
@@ -1973,6 +1976,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             pendingSessionSwitchSettleWork?.cancel()
             pendingRemeasureWork?.cancel()
             pendingRemeasureIDs.removeAll()
+            pendingStreamingReconfigureWork?.cancel()
+            pendingStreamingReconfigureWork = nil
+            pendingStreamingReconfigureIDs.removeAll()
+            pendingStreamingReconfigureWasFollowing = false
             pendingWidthWork?.cancel()
             stopFollowGlide()
         }
@@ -2074,6 +2081,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     pendingRemeasureWork?.cancel()
                     pendingRemeasureWork = nil
                     pendingRemeasureIDs.removeAll()
+                    cancelPendingStreamingReconfigure()
                     pendingSessionSwitchSettleWork?.cancel()
                     pendingSessionSwitchSettleWork = nil
                     sessionSwitchSettleGeneration &+= 1
@@ -2083,6 +2091,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     // evaluation.
                     prewarmBlockedIDs.removeAll()
                 }
+                cancelPendingStreamingReconfigure()
                 let previousIDs = Set(orderedIDs)
                 let removedIDs = previousIDs.subtracting(nextIDs)
                 for id in removedIDs {
@@ -2151,6 +2160,9 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             } else {
                 let changedIDs = nextIDs.filter { contentRevisionByID[$0] != nextRevisions[$0] }
                 for (id, revision) in nextRevisions { contentRevisionByID[id] = revision }
+                if changedIDs.isEmpty, structuralUpdate || !streamingUpdate || explicitScroll {
+                    flushPendingStreamingReconfigure()
+                }
                 if !changedIDs.isEmpty {
                     // Keep the last measured height (see the idsChanged branch):
                     // the cell re-renders and reports the new height, so the
@@ -2158,7 +2170,14 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     for id in changedIDs {
                         estimateByID.removeValue(forKey: id)
                     }
-                    reconfigureVisibleCellsForIDs(Set(changedIDs))
+                    let changedIDSet = Set(changedIDs)
+                    let coalesceStreamingReconfigure = streamingUpdate && !structuralUpdate && !explicitScroll
+                    if coalesceStreamingReconfigure {
+                        scheduleStreamingVisibleReconfigure(forIDs: changedIDSet, wasFollowing: wasFollowing)
+                    } else {
+                        flushPendingStreamingReconfigure()
+                        reconfigureVisibleCellsForIDs(changedIDSet)
+                    }
                     // Re-tile the changed rows synchronously, in this same pass.
                     // The cell was just handed taller content; if we wait for the
                     // debounced async measurement (~16ms) the row stays tiled at
@@ -2197,10 +2216,10 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     // pinned streaming row needs its height in this same pass.
                     let pinnedToBottom = wasFollowing && !isUserScrollingRecently
                         && (streamingUpdate || structuralUpdate)
-                    if pinnedToBottom {
+                    if pinnedToBottom, !coalesceStreamingReconfigure {
                         let retileIDs = profiler.measureForced {
                             measureChangedCellsSynchronously(
-                                Set(changedIDs),
+                                changedIDSet,
                                 budgetMs: 4,
                                 maxRows: 1,
                                 deferUnmeasured: true
@@ -2218,7 +2237,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                     isSessionSwitch: false,
                     explicitScroll: explicitScroll,
                     wasFollowing: wasFollowing,
-                    contentAdvanced: !changedIDs.isEmpty
+                    contentAdvanced: !changedIDs.isEmpty && !(streamingUpdate && !structuralUpdate && !explicitScroll)
                 )
             }
 
@@ -2619,6 +2638,72 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             }
         }
 
+        private func scheduleStreamingVisibleReconfigure(forIDs ids: Set<String>, wasFollowing: Bool) {
+            guard !ids.isEmpty else { return }
+            pendingStreamingReconfigureIDs.formUnion(ids)
+            pendingStreamingReconfigureWasFollowing = pendingStreamingReconfigureWasFollowing || wasFollowing
+            guard pendingStreamingReconfigureWork == nil else { return }
+            let work = DispatchWorkItem { [weak self] in
+                self?.flushPendingStreamingReconfigure()
+            }
+            pendingStreamingReconfigureWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + streamingReconfigureInterval, execute: work)
+        }
+
+        private func cancelPendingStreamingReconfigure() {
+            pendingStreamingReconfigureWork?.cancel()
+            pendingStreamingReconfigureWork = nil
+            pendingStreamingReconfigureIDs.removeAll()
+            pendingStreamingReconfigureWasFollowing = false
+        }
+
+        private func flushPendingStreamingReconfigure() {
+            guard !pendingStreamingReconfigureIDs.isEmpty else {
+                pendingStreamingReconfigureWork?.cancel()
+                pendingStreamingReconfigureWork = nil
+                pendingStreamingReconfigureWasFollowing = false
+                return
+            }
+            pendingStreamingReconfigureWork?.cancel()
+            pendingStreamingReconfigureWork = nil
+            let ids = pendingStreamingReconfigureIDs
+            let wasFollowing = pendingStreamingReconfigureWasFollowing
+            pendingStreamingReconfigureIDs.removeAll()
+            pendingStreamingReconfigureWasFollowing = false
+
+            reconfigureVisibleCellsForIDs(ids)
+            if wasFollowing && !isUserScrollingRecently {
+                let retileIDs = profiler.measureForced {
+                    measureChangedCellsSynchronously(
+                        ids,
+                        budgetMs: 4,
+                        maxRows: 1,
+                        deferUnmeasured: true
+                    )
+                }
+                if !retileIDs.isEmpty {
+                    flushPendingHeightWorkSynchronously()
+                    noteHeightsChanged(forIDs: retileIDs)
+                }
+                handleScrollAfterUpdate(
+                    isSessionSwitch: false,
+                    explicitScroll: false,
+                    wasFollowing: wasFollowing,
+                    contentAdvanced: true
+                )
+            } else {
+                publishPinnedState(isAutoFollowing)
+            }
+        }
+
+        private func canPerformSynchronousTranscriptLayout() -> Bool {
+            guard tableView?.window?.inLiveResize != true else { return false }
+            // Only suppress forced layout in states known to be unsafe/re-entrant.
+            // Active scrolling/streaming still need same-turn anchor compensation;
+            // skipping it causes visible jumps when rows above the viewport settle.
+            return !isInsideNSViewUpdate
+        }
+
         /// Force-lay-out freshly-reconfigured visible cells for `ids` and write
         /// their true heights into `measuredHeightByID` synchronously, so a re-tile
         /// issued in this same pass uses the new content height. The pinned
@@ -2875,29 +2960,37 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let wasProgrammatic = isProgrammaticScroll
             isProgrammaticScroll = true
             tableView.noteHeightOfRows(withIndexesChanged: rows)
+            let safeToForceTableLayout = canPerformSynchronousTranscriptLayout()
             if let anchor, let changedRowAboveAnchor = rows.min(), changedRowAboveAnchor < anchor.rowIndex {
                 // rect(ofRow:) must see the new heights before we re-anchor. If
                 // every changed row is at/below the anchor, the anchor's minY is
                 // unchanged, so avoid the synchronous full subtree layout entirely.
-                tableView.layoutSubtreeIfNeeded()
-                restoreScrollAnchor(anchor)
+                if safeToForceTableLayout {
+                    tableView.layoutSubtreeIfNeeded()
+                    restoreScrollAnchor(anchor)
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.restoreScrollAnchorIfNeeded(anchor)
+                    }
+                }
             } else if willAutoFollow, let scrollView,
                       let bottomMostChangedRow = rows.max(),
                       tableView.rect(ofRow: bottomMostChangedRow).maxY < scrollView.contentView.bounds.minY + 1 {
                 // Pinned to the bottom while rows ABOVE the viewport corrected
                 // (estimate → real heights after a session switch into a large
                 // transcript). The re-tile just shifted the content under the
-                // viewport; the deferred scrollToBottom below would re-pin a
-                // runloop turn later — one visible frame of mis-position, the
-                // "content jiggles after switching" artifact. Above-viewport
-                // corrections never need the streaming glide, so re-pin
-                // synchronously inside this same transaction instead.
-                tableView.layoutSubtreeIfNeeded()
-                if let documentView = scrollView.documentView {
-                    let clipView = scrollView.contentView
-                    let maxY = max(0, documentView.bounds.height - clipView.bounds.height)
-                    clipView.scroll(to: NSPoint(x: 0, y: maxY))
-                    scrollView.reflectScrolledClipView(clipView)
+                // viewport; prefer a deferred re-pin when layout/stream/scroll
+                // state makes synchronous full-table layout unsafe.
+                if safeToForceTableLayout {
+                    tableView.layoutSubtreeIfNeeded()
+                    if let documentView = scrollView.documentView {
+                        let clipView = scrollView.contentView
+                        let maxY = max(0, documentView.bounds.height - clipView.bounds.height)
+                        clipView.scroll(to: NSPoint(x: 0, y: maxY))
+                        scrollView.reflectScrolledClipView(clipView)
+                    }
+                } else {
+                    scrollToBottom(settle: false)
                 }
             }
             isProgrammaticScroll = wasProgrammatic

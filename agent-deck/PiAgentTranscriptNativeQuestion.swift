@@ -698,6 +698,7 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
     private let forkIcon = NSImageView()
     private let rerunGlass = NSGlassEffectView()
     private let rerunIcon = NSImageView()
+    private var configuredButtonStackHasFork: Bool?
     private var copiedResetWork: DispatchWorkItem?
     private var trackingArea: NSTrackingArea?
 
@@ -1121,12 +1122,14 @@ final class PiAgentNativeQuestionView: NSView, PiAgentNativeRowContent {
 
     /// Order: [rerun][fork][copy] to the LEFT of the card (rerun outboard).
     private func configureButtonStack(hasFork: Bool) {
-        buttonStack.arrangedSubviews.forEach { buttonStack.removeArrangedSubview($0); $0.removeFromSuperview() }
-        if hasFork {
-            buttonStack.addArrangedSubview(rerunGlass)
-            buttonStack.addArrangedSubview(forkGlass)
-        }
-        buttonStack.addArrangedSubview(copyGlass)
+        let desired: [NSView] = hasFork ? [rerunGlass, forkGlass, copyGlass] : [copyGlass]
+        let current = buttonStack.arrangedSubviews
+        let orderMatches = current.count == desired.count
+            && zip(current, desired).allSatisfy { currentView, desiredView in currentView === desiredView }
+        guard configuredButtonStackHasFork != hasFork || !orderMatches else { return }
+        configuredButtonStackHasFork = hasFork
+        current.forEach { buttonStack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        desired.forEach { buttonStack.addArrangedSubview($0) }
     }
 
     @objc private func rerunTapped() { payload?.fork?.onRerun() }
