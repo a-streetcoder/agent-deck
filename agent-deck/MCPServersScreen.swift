@@ -62,7 +62,7 @@ struct MCPServersScreen: View {
         .onChange(of: viewModel.mcpAddRequestToken) { _, _ in editorModel = .add }
         .onChange(of: viewModel.mcpRefreshRequestToken) { _, _ in reloadTick += 1 }
         .sheet(item: $editorModel) { model in
-            MCPServerEditorSheet(model: model, existingNames: Set(servers.map(\.name))) { name, config in
+            MCPServerEditorSheet(model: model, existingNames: Set(servers.map(\.name)), projectRoot: viewModel.projectRootURL) { name, config in
                 do {
                     try viewModel.upsertMCPServer(name: name, config: config)
                     reloadTick += 1
@@ -560,6 +560,7 @@ enum MCPServerEditorModel: Identifiable {
 private struct MCPServerEditorSheet: View {
     let model: MCPServerEditorModel
     let existingNames: Set<String>
+    let projectRoot: URL?
     let onSave: (String, MCPServerConfig) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -572,17 +573,33 @@ private struct MCPServerEditorSheet: View {
     @State private var headersText: String
     @State private var pasteText: String = ""
     @State private var inputMode: InputMode = .manual
+    @State private var importCandidates: [MCPForeignConfigScanner.Candidate] = []
+    @State private var selectedImportIDs: Set<MCPForeignConfigScanner.Candidate.ID> = []
+    @State private var isScanningImports = false
     @FocusState private var focusedField: Field?
 
     private enum Field { case name, command, args, env, url, headers, paste }
-    private enum InputMode: Hashable { case manual, paste }
+    private enum InputMode: String, Hashable, CaseIterable, Identifiable {
+        case manual, paste, importServers
+
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .manual: return "Manual"
+            case .paste: return "Paste"
+            case .importServers: return "Import"
+            }
+        }
+    }
 
     /// True when the paste tab is the active input (add only).
     private var isPasting: Bool { !isEditing && inputMode == .paste }
+    private var isImportingServers: Bool { !isEditing && inputMode == .importServers }
 
-    init(model: MCPServerEditorModel, existingNames: Set<String>, onSave: @escaping (String, MCPServerConfig) -> Void) {
+    init(model: MCPServerEditorModel, existingNames: Set<String>, projectRoot: URL?, onSave: @escaping (String, MCPServerConfig) -> Void) {
         self.model = model
         self.existingNames = existingNames
+        self.projectRoot = projectRoot
         self.onSave = onSave
         let entry = model.existingEntry
         let config = entry?.config ?? MCPServerConfig()
@@ -599,6 +616,7 @@ private struct MCPServerEditorSheet: View {
 
     private var canSave: Bool {
         if isPasting { return !MCPConfigParser.parse(pasteText).isEmpty }
+        if isImportingServers { return !selectedImportIDs.isEmpty }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return false }
         if isRemote {
@@ -631,15 +649,18 @@ private struct MCPServerEditorSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if !isEditing {
                         Picker("Input", selection: $inputMode) {
-                            Text("Manual").tag(InputMode.manual)
-                            Text("Paste").tag(InputMode.paste)
+                            ForEach(InputMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
                         }
-                        .pickerStyle(.segmented)
+                        .appSegmentedPicker()
                         .labelsHidden()
                     }
 
                     if isPasting {
                         pasteSection
+                    } else if isImportingServers {
+                        importSection
                     } else {
                         manualSection
                     }
@@ -657,7 +678,7 @@ private struct MCPServerEditorSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .appSecondaryButton()
-                Button(isEditing ? "Save" : "Add") { save() }
+                Button(isImportingServers ? "Import" : (isEditing ? "Save" : "Add")) { save() }
                     .appPrimaryButton()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
@@ -665,6 +686,11 @@ private struct MCPServerEditorSheet: View {
             .padding(16)
         }
         .frame(width: 560, height: 620)
+        .background(AppTheme.windowBackground)
+        .task(id: inputMode) {
+            guard isImportingServers else { return }
+            await scanImportCandidates()
+        }
     }
 
     @ViewBuilder
@@ -722,7 +748,7 @@ private struct MCPServerEditorSheet: View {
                 Text("Local (stdio)").tag(false)
                 Text("Remote (HTTP)").tag(true)
             }
-            .pickerStyle(.segmented)
+            .appSegmentedPicker()
             .labelsHidden()
         }
         if isRemote {
@@ -751,6 +777,75 @@ private struct MCPServerEditorSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var importSection: some View {
+        AppCard(title: "Available MCP Servers") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Scans Claude Desktop, Claude Code, and Codex config files read-only. Selected servers are copied into ~/.pi/agent/mcp.json.")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if isScanningImports {
+                    HStack(spacing: 8) {
+                        AppSpinner().controlSize(.small)
+                        Text("Scanning known config files…")
+                            .font(.callout)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+                } else if importCandidates.isEmpty {
+                    ContentUnavailableView("No importable servers", systemImage: "tray", description: Text("No Claude or Codex MCP servers were found that are not already in Agent Deck."))
+                        .frame(maxWidth: .infinity, minHeight: 160)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(importCandidates) { candidate in
+                            importRow(candidate)
+                            if candidate.id != importCandidates.last?.id { Divider() }
+                        }
+                    }
+                    .background(AppTheme.contentSubtleFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(AppTheme.contentStroke.opacity(0.8), lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    private func importRow(_ candidate: MCPForeignConfigScanner.Candidate) -> some View {
+        Toggle(isOn: Binding(
+            get: { selectedImportIDs.contains(candidate.id) },
+            set: { isSelected in
+                if isSelected { selectedImportIDs.insert(candidate.id) }
+                else { selectedImportIDs.remove(candidate.id) }
+            }
+        )) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(candidate.name)
+                        .font(.callout.weight(.semibold))
+                    Text(candidate.config.resolvedTransport == .stdio ? "Local" : "Remote")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(AppTheme.contentFill, in: Capsule())
+                }
+                Text("\(candidate.sourceName) · \(candidate.sourcePath)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .appCheckbox()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
     /// A name for a pasted server when the source didn't carry one.
     private func derivedName(_ parsed: MCPParsedServer) -> String {
         if let parsedName = parsed.name?.trimmingCharacters(in: .whitespacesAndNewlines), !parsedName.isEmpty {
@@ -772,6 +867,13 @@ private struct MCPServerEditorSheet: View {
             dismiss()
             return
         }
+        if isImportingServers {
+            for candidate in importCandidates where selectedImportIDs.contains(candidate.id) {
+                onSave(candidate.name, candidate.config)
+            }
+            dismiss()
+            return
+        }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var config = MCPServerConfig()
         if isRemote {
@@ -787,6 +889,18 @@ private struct MCPServerEditorSheet: View {
         }
         onSave(trimmedName, config)
         dismiss()
+    }
+
+    @MainActor
+    private func scanImportCandidates() async {
+        isScanningImports = true
+        let names = existingNames
+        let candidates = await Task.detached(priority: .userInitiated) {
+            MCPForeignConfigScanner().scan(excluding: names, projectRoot: projectRoot)
+        }.value
+        importCandidates = candidates
+        selectedImportIDs = Set(candidates.map(\.id))
+        isScanningImports = false
     }
 
     private func parsePairs(_ text: String, separator: Character) -> [String: String]? {

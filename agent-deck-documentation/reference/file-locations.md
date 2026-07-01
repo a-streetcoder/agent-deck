@@ -55,6 +55,18 @@ Project-specific availability is controlled by Agent Deck assignment state. Agen
 
 Project-specific availability is controlled by Agent Deck assignment state. Agent Deck does not discover project-local `.pi/prompts`, project settings `prompts`, or project package prompt folders as resource catalog sources.
 
+## MCP servers
+
+| Purpose | Path |
+|---|---|
+| Community/global MCP config (read-only in Agent Deck) | `~/.config/mcp/mcp.json` |
+| Agent Deck writable MCP config | `~/.pi/agent/mcp.json` |
+| Project MCP config (read-only in Agent Deck) | `PROJECT/.mcp.json` |
+| Pi project MCP config (read-only in Agent Deck) | `PROJECT/.pi/mcp.json` |
+| Explicit `+` sheet import sources (read-only scan, selected servers copied into `~/.pi/agent/mcp.json`) | Claude Desktop, Claude Code, and Codex config files |
+
+Agent Deck does not treat Claude or Codex MCP files as live discovery sources. They are scanned only when the user explicitly chooses Import in the Add MCP server sheet.
+
 ## Extensions and packages
 
 | Purpose | Path / setting |
