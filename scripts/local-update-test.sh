@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Build a local signed/notarized Agent Deck DMG, generate a local Sparkle
+# Build a local signed, non-notarized Agent Deck DMG, generate a local Sparkle
 # appcast for it, and serve both from localhost without publishing to GitHub.
 #
 # Required env/local setup:
 #   DEVELOPER_ID_APPLICATION  Developer ID Application signing identity
 #                             Auto-detected from Keychain when omitted.
-#   NOTARY_PROFILE            xcrun notarytool keychain profile name
 #   SPARKLE_PRIVATE_KEY        Sparkle EdDSA private key (base64), or store it
 #                             in macOS Keychain under service:
 #                             agent-deck-sparkle-private-key
@@ -48,7 +47,7 @@ if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
     -w 2>/dev/null || true)"
 fi
 
-for var in DEVELOPER_ID_APPLICATION NOTARY_PROFILE SPARKLE_PRIVATE_KEY; do
+for var in DEVELOPER_ID_APPLICATION SPARKLE_PRIVATE_KEY; do
   if [[ -z "${!var:-}" ]]; then
     echo "Set $var before running this script." >&2
     if [[ "$var" == "SPARKLE_PRIVATE_KEY" ]]; then
@@ -59,7 +58,7 @@ for var in DEVELOPER_ID_APPLICATION NOTARY_PROFILE SPARKLE_PRIVATE_KEY; do
   fi
 done
 
-export DEVELOPER_ID_APPLICATION NOTARY_PROFILE SPARKLE_PRIVATE_KEY
+export DEVELOPER_ID_APPLICATION SPARKLE_PRIVATE_KEY
 
 if ! command -v sign_update >/dev/null 2>&1; then
   echo "Sparkle's sign_update tool is not on PATH." >&2
@@ -99,6 +98,7 @@ Building local update candidate:
 EOF
 
 DMG_PATH="$(ALLOW_NON_PRODUCTION_FEED=1 \
+  SKIP_NOTARIZATION=1 \
   SU_FEED_URL="$FEED_URL" \
   VERSION="$VERSION" \
   BUILD_NUMBER="$BUILD_NUMBER" \

@@ -4,6 +4,7 @@
 # Required env:
 #   DEVELOPER_ID_APPLICATION  - signing identity, e.g. "Developer ID Application: Name (D37Z4S3883)"
 #   NOTARY_PROFILE            - xcrun notarytool keychain profile name
+#                                required unless SKIP_NOTARIZATION=1
 #
 # Optional env (defaults shown):
 #   PROJECT=agent-deck.xcodeproj
@@ -16,8 +17,9 @@
 #   BUILD_NUMBER=<current project build number>
 #   SU_FEED_URL=https://agentdeck.site/appcast.xml
 #   ALLOW_NON_PRODUCTION_FEED=0
+#   SKIP_NOTARIZATION=0
 #
-# Set ALLOW_NON_PRODUCTION_FEED=1 only for local update testing.
+# Set ALLOW_NON_PRODUCTION_FEED=1 and SKIP_NOTARIZATION=1 only for local update testing.
 #
 # Output: $BUILD_DIR/Agent-Deck-<VERSION>.dmg (path printed on stdout)
 #
@@ -43,8 +45,8 @@ if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
   exit 2
 fi
 
-if [[ -z "${NOTARY_PROFILE:-}" ]]; then
-  echo "Set NOTARY_PROFILE to an xcrun notarytool keychain profile." >&2
+if [[ "${SKIP_NOTARIZATION:-0}" != "1" && -z "${NOTARY_PROFILE:-}" ]]; then
+  echo "Set NOTARY_PROFILE to an xcrun notarytool keychain profile, or SKIP_NOTARIZATION=1 for local testing." >&2
   exit 2
 fi
 
@@ -148,8 +150,12 @@ create-dmg \
   "$APP_PATH"
 
 codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH"
-xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
-xcrun stapler staple "$DMG_PATH"
-spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
+if [[ "${SKIP_NOTARIZATION:-0}" == "1" ]]; then
+  echo "Skipping notarization for local testing: $DMG_PATH" >&2
+else
+  xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$DMG_PATH"
+  spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
+fi
 
 echo "$DMG_PATH"
