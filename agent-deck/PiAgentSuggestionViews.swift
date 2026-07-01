@@ -142,6 +142,7 @@ struct PiAgentCommandSuggestions: View {
                 .strokeBorder(AppTheme.contentStroke, lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 6)
+        .perfScene("pi-command-suggestions")
     }
 
     /// Deterministic height — fixed row + header sizes, capped. No measurement,
@@ -199,7 +200,8 @@ struct PiAgentCommandSuggestions: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            if hovering { onHover(index) }
+            guard hovering, !isSelected else { return }
+            onHover(index)
         }
     }
 
@@ -295,6 +297,7 @@ struct PiAgentSlashSuggestions: View {
                 .strokeBorder(AppTheme.contentStroke, lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 6)
+        .perfScene("pi-slash-suggestions")
     }
 
     private var listHeight: CGFloat {
@@ -387,7 +390,7 @@ struct PiAgentSlashSuggestions: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            guard hovering, let index = selectableIndex else { return }
+            guard hovering, !highlighted, let index = selectableIndex else { return }
             onHoverSelectable(index)
         }
     }
@@ -432,7 +435,7 @@ struct PiAgentSlashSuggestions: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            guard hovering, let index = selectableIndex else { return }
+            guard hovering, !highlighted, let index = selectableIndex else { return }
             onHoverSelectable(index)
         }
     }

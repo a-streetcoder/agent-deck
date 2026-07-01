@@ -260,29 +260,32 @@ struct GitHubIssueDetailView: View {
     }
 
     private func detailContent(_ detail: GitHubIssueDetail) -> some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                titleRow(detail)
-                metadataRow(detail)
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    titleRow(detail)
+                    metadataRow(detail)
 
-                if !detail.labels.isEmpty {
-                    labelsRow(detail.labels)
+                    if !detail.labels.isEmpty {
+                        labelsRow(detail.labels)
+                    }
+
+                    if detail.parent != nil || !detail.subIssues.isEmpty || !detail.blockedBy.isEmpty || !detail.blocking.isEmpty {
+                        relationshipsSection(detail)
+                    }
+
+                    descriptionSection(detail)
+                    commentsSection(detail)
+                    addCommentSection(detail)
                 }
-
-                if detail.parent != nil || !detail.subIssues.isEmpty || !detail.blockedBy.isEmpty || !detail.blocking.isEmpty {
-                    relationshipsSection(detail)
-                }
-
-                descriptionSection(detail)
-                commentsSection(detail)
-                addCommentSection(detail)
+                // Smaller top inset so the first row lines up with the list pane.
+                .frame(width: max(0, proxy.size.width - (AppTheme.pagePadding * 2)), alignment: .leading)
+                .padding(.horizontal, AppTheme.pagePadding)
+                .padding(.bottom, AppTheme.pagePadding)
+                .padding(.top, AppTheme.Split.contentTopInset)
             }
-            // Smaller top inset so the first row lines up with the list pane.
-            .padding(.horizontal, AppTheme.pagePadding)
-            .padding(.bottom, AppTheme.pagePadding)
-            .padding(.top, AppTheme.Split.contentTopInset)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .perfScene("github-issue-detail")
     }
 
     // MARK: - Sections

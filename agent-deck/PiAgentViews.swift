@@ -6374,7 +6374,8 @@ struct PiAgentScreen: View {
                     scrollTick: composerSuggestionScrollTick,
                     onSelect: { item in insertComposerSuggestion(item.insertion) },
                     onHover: { index in
-                        guard Date.now >= composerSuggestionHoverSuppressedUntil else { return }
+                        guard Date.now >= composerSuggestionHoverSuppressedUntil,
+                              index != composerSuggestionIndex else { return }
                         composerSuggestionIndex = index
                     }
                 )
@@ -6388,7 +6389,8 @@ struct PiAgentScreen: View {
                     title: slashPanelTitle,
                     onSelect: { row in handleSlashRowSelect(row) },
                     onHoverSelectable: { index in
-                        guard Date.now >= composerSuggestionHoverSuppressedUntil else { return }
+                        guard Date.now >= composerSuggestionHoverSuppressedUntil,
+                              index != slashState.highlightedIndex else { return }
                         slashState.highlightedIndex = index
                     },
                     onBack: slashCanGoBack ? { popSlashScreen() } : nil
@@ -7256,7 +7258,8 @@ private struct PiAgentComposerPanel: View {
                         scrollTick: composerSuggestionScrollTick,
                         onSelect: { item in insertComposerSuggestion(item.insertion) },
                         onHover: { index in
-                            guard Date.now >= composerSuggestionHoverSuppressedUntil else { return }
+                            guard Date.now >= composerSuggestionHoverSuppressedUntil,
+                                  index != composerSuggestionIndex else { return }
                             composerSuggestionIndex = index
                         }
                     )
@@ -7270,7 +7273,8 @@ private struct PiAgentComposerPanel: View {
                         title: slashPanelTitle,
                         onSelect: { row in handleSlashRowSelect(row) },
                         onHoverSelectable: { index in
-                            guard Date.now >= composerSuggestionHoverSuppressedUntil else { return }
+                            guard Date.now >= composerSuggestionHoverSuppressedUntil,
+                                  index != slashState.highlightedIndex else { return }
                             slashState.highlightedIndex = index
                         },
                         onBack: slashCanGoBack ? { popSlashScreen() } : nil

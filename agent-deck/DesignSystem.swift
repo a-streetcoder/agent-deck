@@ -1070,10 +1070,9 @@ private struct SplitPaneLayout: Layout {
 struct AppPage<Content: View>: View {
     let title: String
     let subtitle: String?
-    /// When true, sections render lazily as they scroll into view rather than all
-    /// at once. Use for pages whose lower sections are expensive to build (e.g. a
-    /// large markdown document) so navigating to the page doesn't pay that cost up
-    /// front. Defaults to false so every existing page is byte-for-byte unchanged.
+    /// Uses the split-pane page scroll style with hidden indicators and a smaller
+    /// top inset. This path renders eagerly and constrains content to the viewport
+    /// width to avoid lazy remount churn during fast scrolling.
     let lazy: Bool
     /// Measures the viewport and gives eager content an explicit width. Use when
     /// a page must avoid LazyVStack virtualization but may contain long,
@@ -1112,33 +1111,19 @@ struct AppPage<Content: View>: View {
                 .hideNativeScrollers()
             }
         } else if lazy {
-            // 1:1 with the GitHub Issues detail (`GitHubIssueDetailView.detailContent`),
-            // which lays out symmetrically at every window width: a plain
-            // `ScrollView(showsIndicators:)` (no `.contentMargins` / `.scrollIndicators`
-            // / `.hideNativeScrollers`, which caused this pane to render with trailing
-            // slack that grew with width) wrapping a `LazyVStack`.
-            //
-            // A `LazyVStack` sizes itself to its children's ideal width, not the
-            // proposed width, so its greedy cards otherwise sit leading-aligned with
-            // empty trailing slack. The Issues detail fills because its first row is a
-            // full-width `Text`; we reproduce that with a zero-height, full-width first
-            // child that is greedy at layout time and pulls the stack to the full
-            // width. The negative bottom padding cancels the stack spacing this anchor
-            // would otherwise add above the first card.
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
-                    Color.clear
-                        .frame(maxWidth: .infinity, maxHeight: 0)
-                        .padding(.bottom, -AppTheme.sectionSpacing)
-                    content
+            GeometryReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
+                        content
+                    }
+                    // Smaller top inset so the first card lines up with the list pane's
+                    // top (which starts at `Split.contentTopInset`). Sides/bottom keep
+                    // the normal page padding.
+                    .frame(width: max(0, proxy.size.width - (AppTheme.pagePadding * 2)), alignment: .leading)
+                    .padding(.horizontal, AppTheme.pagePadding)
+                    .padding(.bottom, AppTheme.pagePadding)
+                    .padding(.top, AppTheme.Split.contentTopInset)
                 }
-                // Smaller top inset so the first card lines up with the list pane's
-                // top (which starts at `Split.contentTopInset`). Sides/bottom keep
-                // the normal page padding.
-                .padding(.horizontal, AppTheme.pagePadding)
-                .padding(.bottom, AppTheme.pagePadding)
-                .padding(.top, AppTheme.Split.contentTopInset)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
             ScrollView {
