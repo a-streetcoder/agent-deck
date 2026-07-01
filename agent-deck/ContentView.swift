@@ -798,8 +798,8 @@ struct ContentView: View {
         .toolbar { mainToolbarContent }
         // Detect the selected project's dev-server commands off the render path
         // so the toolbar control can hide for projects that have none.
-        .task(id: viewModel.piAgentSessionStore.selectedSession?.projectPath) {
-            if let path = viewModel.piAgentSessionStore.selectedSession?.projectPath {
+        .task(id: viewModel.piAgentSessionStore.selectedSession?.projectPathForProjectFeatures) {
+            if let path = viewModel.piAgentSessionStore.selectedSession?.projectPathForProjectFeatures {
                 viewModel.projectServerService.refreshDetectedCommands(forProjectPath: path)
             }
         }

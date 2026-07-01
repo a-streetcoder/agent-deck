@@ -250,14 +250,46 @@ final class PiAgentSessionStore {
     }
 
     @discardableResult
+    func createNoProjectCodingAgentSession(title: String = "Draft · No Project", model: String? = nil) -> PiAgentSessionRecord {
+        createSession(
+            kind: .project,
+            title: title,
+            projectPath: "",
+            projectName: PiAgentSessionRecord.noProjectDisplayName,
+            repository: nil,
+            model: model,
+            subagentsEnabled: false
+        )
+    }
+
+    @discardableResult
     func createSession(kind: PiAgentSessionKind, title: String, project: DiscoveredProject, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil) -> PiAgentSessionRecord {
+        createSession(
+            kind: kind,
+            title: title,
+            projectPath: project.path,
+            projectName: project.name,
+            repository: repository,
+            issueNumber: issueNumber,
+            issueURL: issueURL,
+            model: model,
+            worktreePath: worktreePath,
+            branchName: branchName,
+            sourceBranch: sourceBranch,
+            agentName: agentName,
+            subagentsEnabled: newSessionSubagentsEnabled
+        )
+    }
+
+    @discardableResult
+    private func createSession(kind: PiAgentSessionKind, title: String, projectPath: String, projectName: String, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil, subagentsEnabled: Bool) -> PiAgentSessionRecord {
         let now = Date()
         let record = PiAgentSessionRecord(
             id: UUID(),
             kind: kind,
             title: title.isEmpty ? "New Agent Session" : title,
-            projectPath: project.path,
-            projectName: project.name,
+            projectPath: projectPath,
+            projectName: projectName,
             repository: repository,
             issueNumber: issueNumber,
             issueURL: issueURL,
@@ -292,7 +324,7 @@ final class PiAgentSessionStore {
             finalSystemPromptCapturedAt: nil,
             pendingSteeringMessages: [],
             pendingFollowUpMessages: [],
-            subagentsEnabled: newSessionSubagentsEnabled,
+            subagentsEnabled: subagentsEnabled,
             injectedExtensions: nil,
             agentName: agentName,
             createdAt: now,
@@ -335,7 +367,7 @@ final class PiAgentSessionStore {
     private func prewarmNeighborTranscripts(of id: UUID) {
         guard let selected = sessions.first(where: { $0.id == id }) else { return }
         let scoped = sessions
-            .filter { $0.projectPath == selected.projectPath }
+            .filter { $0.projectPath == selected.projectPath && $0.isNoProject == selected.isNoProject }
             .sorted { PiAgentSessionRecord.sessionListPrecedes($0, $1) }
         guard let index = scoped.firstIndex(where: { $0.id == id }) else { return }
         for offset in [1, -1, 2] {

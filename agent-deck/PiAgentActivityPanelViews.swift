@@ -141,7 +141,7 @@ struct PiAgentActivityPanel: View {
     }
 
     private var selectedRootPath: String? {
-        store.selectedSession.map { $0.worktreePath ?? $0.projectPath }
+        store.selectedSession.map { $0.launchWorkingDirectory.path }
     }
 
     private var selectedSubagentRuns: [PiSubagentRunRecord] {

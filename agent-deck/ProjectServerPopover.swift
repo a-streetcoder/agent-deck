@@ -14,8 +14,9 @@ struct ProjectServerPopover: View {
 
     private var service: ProjectServerService { viewModel.projectServerService }
 
-    private var projectURL: URL {
-        URL(fileURLWithPath: session.projectPath, isDirectory: true)
+    private var projectURL: URL? {
+        guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+        return URL(fileURLWithPath: projectPath, isDirectory: true)
     }
 
     private var selectedCommand: ServerCommand? {
@@ -23,7 +24,8 @@ struct ProjectServerPopover: View {
     }
 
     private var currentServer: RunningServer? {
-        service.currentServer(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+        return service.currentServer(forProjectPath: projectPath)
     }
 
     private var predictedPort: Int? {
@@ -34,12 +36,12 @@ struct ProjectServerPopover: View {
     }
 
     private var conflicts: [RunningServer] {
-        service.conflictingServers(predictedPort: predictedPort, excludingProjectPath: session.projectPath)
+        service.conflictingServers(predictedPort: predictedPort, excludingProjectPath: session.projectPathForProjectFeatures ?? "")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AppPopoverHeader(title: "Dev Server", subtitle: session.projectName) {
+            AppPopoverHeader(title: "Dev Server", subtitle: session.projectNameForDisplay) {
                 if let status = currentServer?.status {
                     headerStatusPill(status)
                 }
@@ -59,6 +61,11 @@ struct ProjectServerPopover: View {
         }
         .frame(width: AppTheme.Popover.standardWidth)
         .task {
+            guard let projectURL else {
+                commands = []
+                didLoadCommands = true
+                return
+            }
             let detected = ServerCommandDetector.detect(at: projectURL)
             commands = detected
             if selectedCommandID == nil || !detected.contains(where: { $0.id == selectedCommandID }) {

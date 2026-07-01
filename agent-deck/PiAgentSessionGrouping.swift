@@ -12,6 +12,10 @@ import Foundation
 /// This module is intentionally Foundation-only (no SwiftUI/AppKit) so the
 /// preview rule is unit-testable in isolation.
 enum PiAgentSessionGrouping {
+    /// Identity of the explicit no-project group. These sessions are not
+    /// project orphans and must not be treated as a discovered-project bucket.
+    static let noProjectSectionID = "agent-deck.session-group.no-project"
+
     /// Identity of the trailing catch-all group that holds sessions whose
     /// `projectPath` no longer resolves to a discovered project.
     static let otherSectionID = "agent-deck.session-group.other"
@@ -131,9 +135,12 @@ enum PiAgentSessionGrouping {
         touchedThisRunSessionIDs: Set<UUID> = []
     ) -> [PiAgentSessionListSection] {
         var byPath: [String: [PiAgentSessionRecord]] = [:]
+        var noProjectSessions: [PiAgentSessionRecord] = []
         var orphans: [PiAgentSessionRecord] = []
         for session in sessions {
-            if projectByPath[session.projectPath] != nil {
+            if session.isNoProject {
+                noProjectSessions.append(session)
+            } else if projectByPath[session.projectPath] != nil {
                 byPath[session.projectPath, default: []].append(session)
             } else {
                 orphans.append(session)
@@ -141,7 +148,7 @@ enum PiAgentSessionGrouping {
         }
 
         var projectSections: [PiAgentSessionListSection] = []
-        projectSections.reserveCapacity(byPath.count + (orphans.isEmpty ? 0 : 1))
+        projectSections.reserveCapacity(byPath.count + (noProjectSessions.isEmpty ? 0 : 1) + (orphans.isEmpty ? 0 : 1))
 
         for (path, projectSessions) in byPath {
             let project = projectByPath[path]!
@@ -167,6 +174,28 @@ enum PiAgentSessionGrouping {
         }
 
         projectSections.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
+        if !noProjectSessions.isEmpty {
+            projectSections.append(makeSection(
+                id: noProjectSectionID,
+                title: PiAgentSessionRecord.noProjectDisplayName,
+                subtitle: nil,
+                iconFileURL: nil,
+                fallbackSymbolName: "macwindow",
+                assetName: nil,
+                sessions: noProjectSessions,
+                isProjectGroup: false,
+                isShowMoreRequested: expandedProjectIDs.contains(noProjectSectionID),
+                isCollapsed: collapsedProjectIDs.contains(noProjectSectionID),
+                capPreviews: capPreviews,
+                isWorking: isWorking,
+                selectedSessionID: selectedSessionID,
+                now: now,
+                options: options,
+                exactSort: exactSort,
+                touchedThisRunSessionIDs: touchedThisRunSessionIDs
+            ))
+        }
 
         if !orphans.isEmpty {
             projectSections.append(makeSection(

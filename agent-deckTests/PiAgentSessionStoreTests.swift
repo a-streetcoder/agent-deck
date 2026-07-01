@@ -39,6 +39,22 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
     }
 
+    func testNoProjectCodingAgentSessionPersistsAsNoProject() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createNoProjectCodingAgentSession(title: "No Project")
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+
+        let reloaded = try XCTUnwrap(reloadedStore.sessions.first(where: { $0.id == session.id }))
+        XCTAssertTrue(reloaded.isNoProject)
+        XCTAssertNil(reloaded.projectPathForProjectFeatures)
+        XCTAssertEqual(reloaded.projectNameForDisplay, PiAgentSessionRecord.noProjectDisplayName)
+        XCTAssertFalse(reloaded.subagentsEnabled)
+    }
+
     func testLazyTranscriptLoadingReloadsEvictedTranscriptFromDisk() async throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)

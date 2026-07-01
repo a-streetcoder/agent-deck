@@ -149,6 +149,7 @@ final class PiAgentRunnerService {
     private var idleParkingTimeout: TimeInterval?
     private let idleConfirmationDelay: Duration = .milliseconds(900)
     var onTurnFinished: ((UUID) -> Void)?
+    var onSessionLaunched: ((UUID) -> Void)?
     var onManagedSubagentRequest: ((UUID, PiManagedSubagentBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onManagedParallelRequest: ((UUID, PiManagedParallelBridgeRequest, @escaping (String) -> Void) -> Void)?
     var onSupervisorRequestsList: ((UUID) -> String)?
@@ -257,7 +258,7 @@ final class PiAgentRunnerService {
     }
 
     func resume(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
-        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let projectURL = session.launchWorkingDirectory
         // If Pi has already created a session file, always resume it before sending a new prompt.
         // Otherwise an idle follow-up (or a model change followed by Send) starts a fresh Pi session
         // and the chat appears to lose context.
@@ -268,7 +269,7 @@ final class PiAgentRunnerService {
     }
 
     private func restartForLaunchConfiguration(session: PiAgentSessionRecord, initialPrompt: String? = nil, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
-        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let projectURL = session.launchWorkingDirectory
         Task { @MainActor [weak self] in
             await self?.start(
                 session: session,
@@ -285,8 +286,15 @@ final class PiAgentRunnerService {
     }
 
     private func applyLaunchConfigurationChange(sessionID: UUID) {
+        requestLaunchResourceRelaunch(sessionID: sessionID)
+    }
+
+    func requestLaunchResourceRelaunch(sessionID: UUID, summary: String? = nil) {
         guard clientsBySessionID[sessionID] != nil,
               let session = store.sessions.first(where: { $0.id == sessionID }) else { return }
+        if let summary {
+            recordPendingConfigurationChangeSummary(sessionID: sessionID, summary: summary)
+        }
         if session.status.isActive {
             pendingConfigurationRestartSessionIDs.insert(sessionID)
             return
@@ -694,6 +702,7 @@ final class PiAgentRunnerService {
         }
 
         do {
+            try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
             let launchSettings = AppSettingsStore.shared.settings
             var extraArguments: [String] = PiAgentLaunchArgumentBuilder.noExtensionsArgument(settings: launchSettings)
             if let auditURL = try? PiNativeSubagentBridgeExtensions.systemPromptAuditExtensionURL() {
@@ -702,7 +711,8 @@ final class PiAgentRunnerService {
             if let askURL = try? PiNativeSubagentBridgeExtensions.askUserExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", askURL.path])
             }
-            if AppSettingsStore.shared.settings.agentMemoryEnabled,
+            if !session.isNoProject,
+               AppSettingsStore.shared.settings.agentMemoryEnabled,
                let memoryURL = try? PiNativeSubagentBridgeExtensions.memoryExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", memoryURL.path])
             }
@@ -730,7 +740,7 @@ final class PiAgentRunnerService {
             // provider discovers on demand for sessions in a project other than the
             // active one, so their assigned servers are connected even when the
             // active-project snapshot wouldn't cover them.
-            let mcpCatalog: String? = await mcpCatalogProvider?(session)
+            let mcpCatalog: String? = session.isNoProject ? nil : await mcpCatalogProvider?(session)
             if let boundAgent {
                 // 1:1 agent chat: launch Pi with the agent's raw system prompt,
                 // its tool allowlist (minus `contact_supervisor` — there's no
@@ -761,7 +771,8 @@ final class PiAgentRunnerService {
                     for: boundAgent,
                     prependNoExtensions: false
                 ))
-            } else if session.subagentsEnabled,
+            } else if !session.isNoProject,
+                      session.subagentsEnabled,
                       let catalog = nativeSubagentCatalogProvider?(session), !catalog.isEmpty,
                       let bridgeURL = try? PiNativeSubagentBridgeExtensions.parentExtensionURL() {
                 // The subagent bridge and its catalog are injected together. If the
@@ -787,25 +798,34 @@ final class PiAgentRunnerService {
                 if let boundAgentSkillArgumentsProvider {
                     extraArguments.append(contentsOf: try boundAgentSkillArgumentsProvider(boundAgent))
                 }
-            } else if let parentSkillArgumentsProvider {
+            } else if !session.isNoProject,
+                      let parentSkillArgumentsProvider {
                 extraArguments.append(contentsOf: try parentSkillArgumentsProvider(projectURL))
             }
             extraArguments.append("--no-prompt-templates")
             extraArguments.append("--no-themes")
-            if let parentPromptTemplateArgumentsProvider {
+            if !session.isNoProject,
+               let parentPromptTemplateArgumentsProvider {
                 extraArguments.append(contentsOf: try parentPromptTemplateArgumentsProvider(projectURL))
             }
-            if let parentMemoryAppendPromptsProvider {
+            if !session.isNoProject,
+               let parentMemoryAppendPromptsProvider {
                 agentDeckAppendPrompts.append(contentsOf: try await parentMemoryAppendPromptsProvider(session, initialPrompt))
             }
             // Single APPEND_SYSTEM.md preservation point. Pi disables automatic
             // APPEND_SYSTEM.md discovery as soon as any explicit append is passed, so
             // this resolver re-adds the active file once and then stacks the catalog
             // and memory prompts in order. Emitting it per feature double-injected it.
-            extraArguments.append(contentsOf: PiParentAppendPromptResolver.appendSystemPromptArguments(
-                projectURL: projectURL,
-                agentDeckAppendPrompts: agentDeckAppendPrompts
-            ))
+            if session.isNoProject {
+                for prompt in agentDeckAppendPrompts where !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    extraArguments.append(contentsOf: ["--append-system-prompt", prompt])
+                }
+            } else {
+                extraArguments.append(contentsOf: PiParentAppendPromptResolver.appendSystemPromptArguments(
+                    projectURL: projectURL,
+                    agentDeckAppendPrompts: agentDeckAppendPrompts
+                ))
+            }
             let launchConfiguration = self.launchConfiguration(for: session, boundAgent: boundAgent)
             if PiNativeSubagentBridgeExtensions.isExaConfigured(environment: environment) {
                 if let webURL = try? PiNativeSubagentBridgeExtensions.webAccessExtensionURL() {
@@ -817,10 +837,12 @@ final class PiAgentRunnerService {
             }
             // User-selected Pi extensions load LAST so every Agent Deck bridge above
             // registers first and wins any tool-name conflict (e.g. ask_user, web_search).
-            extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
-                settings: launchSettings,
-                projectURL: projectURL
-            ))
+            if !session.isNoProject {
+                extraArguments.append(contentsOf: PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
+                    settings: launchSettings,
+                    projectURL: projectURL
+                ))
+            }
             var injectedExtensionPaths: [String] = []
             for i in 0..<(extraArguments.count - 1) {
                 if extraArguments[i] == "--extension" {
@@ -864,10 +886,11 @@ final class PiAgentRunnerService {
                 // Stamped per launch: memory injection (recall prompts, memory
                 // tools) is decided by the global setting at process start, so
                 // the resources popover can report what this run actually got.
-                record.memoryEnabled = AppSettingsStore.shared.settings.agentMemoryEnabled
+                record.memoryEnabled = !session.isNoProject && AppSettingsStore.shared.settings.agentMemoryEnabled
             }
             client.getState()
             client.getCommands()
+            onSessionLaunched?(session.id)
             let currentSession = store.sessions.first(where: { $0.id == session.id }) ?? session
             if currentSession.isTitleUserEdited || (session.title.hasPrefix("Draft ·") && !currentSession.title.hasPrefix("Draft ·")) {
                 client.setSessionName(currentSession.displayTitle)

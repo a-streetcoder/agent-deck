@@ -920,9 +920,34 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         return title
     }
 
+    static let noProjectDisplayName = "No Project"
+
+    /// Only normal Coding Agent project chats may run without a discovered project.
+    /// Persisted records keep `projectPath`/`projectName` as strings for backwards
+    /// compatibility; an empty path is the no-project sentinel.
+    var isNoProject: Bool { kind == .project && projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var projectPathForProjectFeatures: String? {
+        let trimmed = projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var projectNameForDisplay: String {
+        isNoProject ? Self.noProjectDisplayName : projectName
+    }
+
     /// The working tree the agent and toolbar actions operate in. Falls back to the
     /// project path for sessions that pre-date worktree isolation or that opted out.
-    var repositoryRoot: String { worktreePath ?? projectPath }
+    var repositoryRoot: String { worktreePath ?? projectPathForProjectFeatures ?? launchWorkingDirectory.path }
+
+    var launchWorkingDirectory: URL {
+        if let worktreePath { return URL(fileURLWithPath: worktreePath, isDirectory: true) }
+        if let projectPathForProjectFeatures { return URL(fileURLWithPath: projectPathForProjectFeatures, isDirectory: true) }
+        let base = URL.applicationSupportDirectory
+            .appendingPathComponent(AppBrand.displayName, isDirectory: true)
+            .appendingPathComponent("No Project Sessions", isDirectory: true)
+        return base.appendingPathComponent(id.uuidString, isDirectory: true)
+    }
 
     /// True when this session is a 1:1 chat with a specific agent (`kind == .agent`
     /// and `agentName` resolved). The runner launches Pi with the agent's system

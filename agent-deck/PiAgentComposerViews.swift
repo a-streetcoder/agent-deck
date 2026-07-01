@@ -320,7 +320,11 @@ struct PiAgentComposerBox: View {
                 resolvedBranch = nil
                 return
             }
-            let url = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+            guard let projectPath = session.projectPathForProjectFeatures else {
+                resolvedBranch = nil
+                return
+            }
+            let url = URL(fileURLWithPath: projectPath, isDirectory: true)
             let branch = try? await GitRepositoryService().currentBranch(in: url)
             guard !Task.isCancelled else { return }
             resolvedBranch = (branch?.isEmpty == false && branch != "HEAD") ? branch : nil

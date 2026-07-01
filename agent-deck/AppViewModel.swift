@@ -332,6 +332,8 @@ final class AppViewModel: NSObject {
     private var watchedURLsForAutoRefresh: [URL] = []
     private var refreshTask: Task<Void, Never>?
     private var refreshRequestID = 0
+    private var launchResourceFingerprintTask: Task<Void, Never>?
+    private var launchResourceFingerprintsBySessionID: [UUID: String] = [:]
     private var isRefreshingModels = false
     private var githubProjectBoardRequestID = 0
     private var githubRepositoryChangesRequestID = 0
@@ -407,6 +409,9 @@ final class AppViewModel: NSObject {
         }
         piAgentRunner.onTurnFinished = { [weak self] sessionID in
             Task { @MainActor in self?.handlePiAgentTurnFinished(sessionID) }
+        }
+        piAgentRunner.onSessionLaunched = { [weak self] sessionID in
+            Task { @MainActor in await self?.recordCurrentLaunchResourceFingerprint(sessionID: sessionID) }
         }
         piAgentRunner.onManagedSubagentRequest = { [weak self] sessionID, request, completion in
             Task { @MainActor in
@@ -508,6 +513,9 @@ final class AppViewModel: NSObject {
         stopAutoRefresh(cancelPendingScan: true)
         refreshTask?.cancel()
         refreshTask = nil
+        launchResourceFingerprintTask?.cancel()
+        launchResourceFingerprintTask = nil
+        launchResourceFingerprintsBySessionID.removeAll()
         artifactCleanupTask?.cancel()
         artifactCleanupTask = nil
         for task in pendingPiAgentNotificationTasks.values {
@@ -826,7 +834,143 @@ final class AppViewModel: NSObject {
         }
 
         rebuildWarningCaches()
+        self.reconcileRunningSessionLaunchResourceFingerprints()
         hasCompletedInitialRefresh = true
+    }
+
+    private func reconcileRunningSessionLaunchResourceFingerprints() {
+        launchResourceFingerprintTask?.cancel()
+        let runningSessions = piAgentSessionStore.sessions.filter { piAgentRunner.isRunning(sessionID: $0.id) }
+        guard !runningSessions.isEmpty else {
+            launchResourceFingerprintsBySessionID.removeAll()
+            return
+        }
+        launchResourceFingerprintTask = Task { @MainActor [weak self] in
+            var fresh: [UUID: String] = [:]
+            for session in runningSessions {
+                guard let self, !Task.isCancelled else { return }
+                fresh[session.id] = await self.launchResourceFingerprint(for: session)
+            }
+            guard let self, !Task.isCancelled else { return }
+            for session in runningSessions where self.piAgentRunner.isRunning(sessionID: session.id) {
+                guard let fingerprint = fresh[session.id] else { continue }
+                if let previous = self.launchResourceFingerprintsBySessionID[session.id], previous != fingerprint {
+                    self.piAgentRunner.requestLaunchResourceRelaunch(
+                        sessionID: session.id,
+                        summary: "launch resources changed"
+                    )
+                }
+                self.launchResourceFingerprintsBySessionID[session.id] = fingerprint
+            }
+            self.launchResourceFingerprintsBySessionID = self.launchResourceFingerprintsBySessionID.filter { id, _ in
+                self.piAgentRunner.isRunning(sessionID: id)
+            }
+        }
+    }
+
+    private func recordCurrentLaunchResourceFingerprint(sessionID: UUID) async {
+        guard piAgentRunner.isRunning(sessionID: sessionID),
+              let session = piAgentSessionStore.sessions.first(where: { $0.id == sessionID }) else { return }
+        launchResourceFingerprintsBySessionID[sessionID] = await launchResourceFingerprint(for: session)
+    }
+
+    private func launchResourceFingerprint(for session: PiAgentSessionRecord) async -> String {
+        let projectURL = session.launchWorkingDirectory
+        var parts: [String] = [
+            "sessionKind=\(session.kind.rawValue)",
+            "project=\(projectURL.standardizedFileURL.path)",
+            "subagentsEnabled=\(session.subagentsEnabled)",
+            "mcpEnabled=\(appSettings.mcpEnabled)"
+        ]
+        var resourcePaths: [String] = []
+        if !session.isNoProject {
+            resourcePaths.append(contentsOf: launchSystemPromptResourcePaths(projectURL: projectURL))
+            let extensionArgs = PiAgentLaunchArgumentBuilder.userSelectedExtensionArguments(
+                settings: appSettings,
+                projectURL: projectURL
+            )
+            parts.append("extensionArgs=\(extensionArgs.joined(separator: "\u{1f}"))")
+            resourcePaths.append(contentsOf: launchResourcePaths(in: extensionArgs, flags: ["--extension"]))
+        }
+
+        if let boundAgent = boundAgent(for: session) {
+            parts.append("boundAgent=\(boundAgent.name)")
+            parts.append("boundAgentPrompt=\(boundAgent.resolved.systemPrompt)")
+            parts.append("boundAgentSkills=\(boundAgent.resolved.skills.sorted().joined(separator: ","))")
+            if let sourcePath = boundAgent.sourcePath {
+                resourcePaths.append(sourcePath)
+            }
+            if let args = try? boundAgentSkillArguments(for: boundAgent) {
+                parts.append("boundAgentSkillArgs=\(args.joined(separator: "\u{1f}"))")
+                resourcePaths.append(contentsOf: launchResourcePaths(in: args, flags: ["--skill"]))
+            }
+        } else if !session.isNoProject {
+            if let args = try? parentSkillArguments(for: projectURL) {
+                parts.append("skillArgs=\(args.joined(separator: "\u{1f}"))")
+                resourcePaths.append(contentsOf: launchResourcePaths(in: args, flags: ["--skill"]))
+            }
+            if let args = try? parentPromptTemplateArguments(for: projectURL) {
+                parts.append("promptTemplateArgs=\(args.joined(separator: "\u{1f}"))")
+                resourcePaths.append(contentsOf: launchResourcePaths(in: args, flags: ["--prompt-template"]))
+            }
+            if session.subagentsEnabled, let catalog = nativeSubagentCatalogPrompt(for: session) {
+                parts.append("subagentCatalog=\(catalog)")
+            } else {
+                parts.append("subagentCatalog=")
+            }
+        }
+
+        if !session.isNoProject, let catalog = await mcpCatalogPrompt(for: session) {
+            parts.append("mcpCatalog=\(catalog)")
+        } else {
+            parts.append("mcpCatalog=")
+        }
+
+        parts.append("files=\(resourcePaths.sorted().map(fileMetadataFingerprint(path:)).joined(separator: "\u{1e}"))")
+        return parts.joined(separator: "\u{1d}")
+    }
+
+    private func launchSystemPromptResourcePaths(projectURL: URL) -> [String] {
+        let project = projectURL.standardizedFileURL
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        var paths: [String] = [
+            project.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("SYSTEM.md").path,
+            home.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("agent", isDirectory: true).appendingPathComponent("SYSTEM.md").path,
+            project.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("APPEND_SYSTEM.md").path,
+            home.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("agent", isDirectory: true).appendingPathComponent("APPEND_SYSTEM.md").path
+        ]
+        let contextNames = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
+        paths.append(contentsOf: contextNames.map {
+            home.appendingPathComponent(".pi", isDirectory: true).appendingPathComponent("agent", isDirectory: true).appendingPathComponent($0).path
+        })
+        var cursor: URL? = project
+        while let directory = cursor {
+            paths.append(contentsOf: contextNames.map { directory.appendingPathComponent($0).path })
+            let parent = directory.deletingLastPathComponent()
+            guard parent.path != directory.path else { break }
+            cursor = parent
+        }
+        return Array(Set(paths))
+    }
+
+    private func launchResourcePaths(in arguments: [String], flags: Set<String>) -> [String] {
+        var paths: [String] = []
+        for index in arguments.indices where flags.contains(arguments[index]) {
+            let valueIndex = arguments.index(after: index)
+            guard valueIndex < arguments.endIndex else { continue }
+            paths.append(arguments[valueIndex])
+        }
+        return paths
+    }
+
+    private func fileMetadataFingerprint(path: String) -> String {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey]) else {
+            return "\(url.path)#missing"
+        }
+        let modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let size = values.fileSize ?? -1
+        return "\(url.path)#\(values.isDirectory == true ? "dir" : "file")#\(size)#\(modified)"
     }
 
     /// Re-derive snapshot-scoped state from the already-cached raw snapshots
@@ -872,6 +1016,7 @@ final class AppViewModel: NSObject {
            let newID = cachedAllDisplayAgents.first(where: { $0.name == name })?.id {
             selectedAgentID = newID
         }
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     /// Patch the in-memory effective-agent skill list so snapshot-derived
@@ -2419,7 +2564,7 @@ final class AppViewModel: NSObject {
     }
 
     func ensureComposerIssuesLoaded(for session: PiAgentSessionRecord? = nil) {
-        let projectPath = session?.projectPath
+        let projectPath = session?.projectPathForProjectFeatures
         Task { [weak self] in
             guard let self else { return }
             await prepareGitHubScreen()
@@ -2530,7 +2675,14 @@ final class AppViewModel: NSObject {
     }
 
     func createPiAgentDraftForSelectedProject() {
-        createPiAgentDraft(for: piAgentSessionProjectContext())
+        guard let project = selectedDiscoveredProject else {
+            selectedSidebarItem = .agent
+            let session = piAgentSessionStore.createNoProjectCodingAgentSession()
+            uncollapseSessionGroup(session)
+            selectPiAgentSession(session.id)
+            return
+        }
+        createPiAgentDraft(for: project)
     }
 
     func createPiAgentDraft(for project: DiscoveredProject) {
@@ -2555,8 +2707,15 @@ final class AppViewModel: NSObject {
 
     func startPiAgentForSelectedProject(initialInstruction: String) {
         guard let project = selectedDiscoveredProject else {
-            githubLastError = "Select a project before starting Pi Agent."
             selectedSidebarItem = .agent
+            let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n").first.map(String.init) ?? "No Project agent"
+            let session = piAgentSessionStore.createNoProjectCodingAgentSession(
+                title: title.isEmpty ? "No Project agent" : String(title.prefix(80))
+            )
+            revealSessionGroup(session)
+            selectPiAgentSession(session.id)
+            piAgentRunner.resume(session: session, initialPrompt: initialInstruction)
             return
         }
         selectedSidebarItem = .agent
@@ -2790,7 +2949,8 @@ final class AppViewModel: NSObject {
     }
 
     private func sessionGroupID(for session: PiAgentSessionRecord) -> String {
-        projectByPath[session.projectPath] != nil
+        if session.isNoProject { return PiAgentSessionGrouping.noProjectSectionID }
+        return projectByPath[session.projectPath] != nil
             ? session.projectPath
             : PiAgentSessionGrouping.otherSectionID
     }
@@ -3179,7 +3339,7 @@ final class AppViewModel: NSObject {
               let sessionRef = resumablePiSessionReference(for: session) else { return }
         acknowledgePiAgentSession(session.id)
 
-        let workingDirectory = session.worktreePath ?? session.projectPath
+        let workingDirectory = session.launchWorkingDirectory.path
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-deck-resume-\(session.id.uuidString)")
             .appendingPathExtension("command")
@@ -3528,6 +3688,10 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     func launchLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
+        guard session.projectPathForProjectFeatures != nil else {
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+            return nil
+        }
         prepareSessionForLoopLaunch(session: session, draft: draft)
         switch draft.structure {
         case .singleAgent:
@@ -3993,6 +4157,7 @@ final class AppViewModel: NSObject {
             guard enabled else {
                 await self.mcpConnectionManager.configure(servers: [])
                 self.mcpCatalogSnapshot = []
+                self.reconcileRunningSessionLaunchResourceFingerprints()
                 return
             }
             await self.mcpConnectionManager.configure(servers: configured)
@@ -4006,6 +4171,7 @@ final class AppViewModel: NSObject {
             // discovery for other projects — see `mcpCatalogEntries`) and on each bridge call.
             let scoped = self.assignedMCPServerNames(forProjectPath: projectURL?.path)
             self.mcpCatalogSnapshot = await self.mcpConnectionManager.discoverCatalog(serverNames: scoped)
+            self.reconcileRunningSessionLaunchResourceFingerprints()
         }
     }
 
@@ -4636,7 +4802,8 @@ final class AppViewModel: NSObject {
            repository.caseInsensitiveCompare(target) == .orderedSame {
             return true
         }
-        if let remote = projectByPath[session.projectPath]?.gitHubRemote?.nameWithOwner,
+        if let projectPath = session.projectPathForProjectFeatures,
+           let remote = projectByPath[projectPath]?.gitHubRemote?.nameWithOwner,
            remote.caseInsensitiveCompare(target) == .orderedSame {
             return true
         }
@@ -4646,8 +4813,8 @@ final class AppViewModel: NSObject {
     /// The main checkout to tag against — the project path, never a worktree, so the
     /// release lands on `main` rather than a session's feature branch.
     var agentDeckReleaseProjectURL: URL? {
-        guard let session = piAgentSessionStore.selectedSession else { return nil }
-        return URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        guard let projectPath = piAgentSessionStore.selectedSession?.projectPathForProjectFeatures else { return nil }
+        return URL(fileURLWithPath: projectPath, isDirectory: true)
     }
 
     /// Draft friendly release notes for the pending Agent Deck release using the
@@ -4689,7 +4856,7 @@ final class AppViewModel: NSObject {
     /// running for it. Hidden for projects with no dev server (e.g. a Swift app)
     /// so the toolbar doesn't offer a control that can only report "none found".
     var shouldShowProjectServerControls: Bool {
-        guard let path = piAgentSessionStore.selectedSession?.projectPath else { return false }
+        guard let path = piAgentSessionStore.selectedSession?.projectPathForProjectFeatures else { return false }
         if projectServerService.currentServer(forProjectPath: path) != nil { return true }
         return projectServerService.hasDetectedCommands(forProjectPath: path) == true
     }
@@ -4837,7 +5004,8 @@ final class AppViewModel: NSObject {
     }
 
     func startProjectServer(for session: PiAgentSessionRecord, command: ServerCommand) {
-        projectServerService.start(command: command, projectPath: session.projectPath, projectName: session.projectName)
+        guard let projectPath = session.projectPathForProjectFeatures else { return }
+        projectServerService.start(command: command, projectPath: projectPath, projectName: session.projectName)
         piAgentSessionStore.append(.init(sessionID: session.id, role: .status, title: "Dev Server Started", text: "Started dev server."))
     }
 
@@ -4853,6 +5021,7 @@ final class AppViewModel: NSObject {
 
     func mergeSelectedPiAgentSession() {
         guard let session = piAgentSessionStore.selectedSession,
+              let projectPath = session.projectPathForProjectFeatures,
               let worktreePath = session.worktreePath,
               let branchName = session.branchName,
               let sourceBranch = session.sourceBranch else { return }
@@ -4861,7 +5030,7 @@ final class AppViewModel: NSObject {
             return
         }
         let sessionID = session.id
-        let projectURL = URL(fileURLWithPath: session.projectPath, isDirectory: true)
+        let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
         let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true)
         let environment = EnvRuntimeEnvironment().environment(projectRoot: worktreeURL)
         let keepWorktreeAfterMerge = appSettings.piAgentSessionsKeepWorktreeAfterMerge
@@ -5023,7 +5192,7 @@ final class AppViewModel: NSObject {
         }
     }
 
-    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
+    func sendPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String? = nil, titleSource: String? = nil, images: [PiAgentImageAttachment] = [], pasteAttachments: [PiAgentPasteAttachment] = [], issueAttachment: PiAgentIssueAttachment? = nil) {
         guard let session = piAgentSessionStore.selectedSession else { return }
         // Worktree isolation materializes on the first message, reading the
         // global setting at send time. Until then the draft is a pure record,
@@ -5047,22 +5216,22 @@ final class AppViewModel: NSObject {
                 guard let self else { return }
                 self.worktreeProvisionTasksBySessionID.removeValue(forKey: session.id)
                 guard let refreshed = self.piAgentSessionStore.sessions.first(where: { $0.id == session.id }) else { return }
-                self.deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: refreshed)
+                self.deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: refreshed)
             }
             return
         }
-        deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: session)
+        deliverPiAgentMessage(text, mode: mode, transcriptText: transcriptText, titleSource: titleSource, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment, session: session)
     }
 
-    private func deliverPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], issueAttachment: PiAgentIssueAttachment?, session: PiAgentSessionRecord) {
+    private func deliverPiAgentMessage(_ text: String, mode: PiAgentInputMode, transcriptText: String?, titleSource: String?, images: [PiAgentImageAttachment], pasteAttachments: [PiAgentPasteAttachment], issueAttachment: PiAgentIssueAttachment?, session: PiAgentSessionRecord) {
         let visibleText = (transcriptText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
         var effectiveText: String
-        if let issueAttachment {
+        if let issueAttachment, let projectPath = session.projectPathForProjectFeatures {
             effectiveText = PiIssuePromptBuilder.rpcMessage(
                 userText: text,
                 issue: issueAttachment,
                 projectName: session.projectName,
-                projectPath: session.worktreePath ?? session.projectPath
+                projectPath: session.worktreePath ?? projectPath
             )
         } else {
             effectiveText = text
@@ -5092,12 +5261,23 @@ final class AppViewModel: NSObject {
             \(effectiveText)
             """
         }
-        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: visibleText.isEmpty ? effectiveText.trimmingCharacters(in: .whitespacesAndNewlines) : visibleText)
+        schedulePiAgentTitleGenerationIfNeeded(for: session, firstMessage: piAgentTitleGenerationSource(titleSource: titleSource, visibleText: visibleText, effectiveText: effectiveText, issueAttachment: issueAttachment))
         if !piAgentRunner.isRunning(sessionID: session.id), mode == .prompt {
             piAgentRunner.resume(session: session, initialPrompt: effectiveText, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
             return
         }
         piAgentRunner.send(effectiveText, mode: mode, to: session.id, transcriptText: displayOverride, images: images, pasteAttachments: pasteAttachments, issueAttachment: issueAttachment)
+    }
+
+    private func piAgentTitleGenerationSource(titleSource: String?, visibleText: String, effectiveText: String, issueAttachment: PiAgentIssueAttachment?) -> String {
+        let userSource = (titleSource ?? visibleText).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let issueAttachment {
+            let prefix = "\(issueAttachment.isPullRequest ? "PR" : "Issue") #\(issueAttachment.number): \(issueAttachment.title)"
+            return [prefix, userSource].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        }
+        if let titleSource { return titleSource.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if !userSource.isEmpty { return userSource }
+        return effectiveText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func schedulePiAgentTitleUpdateIfNeeded(sessionID: UUID, plan: PiSessionPlanRecord) {
@@ -5117,7 +5297,8 @@ final class AppViewModel: NSObject {
               let model = piAgentTitleGenerationModel() else { return }
 
         piAgentTitleGeneratingSessionIDs.insert(sessionID)
-        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let projectURL = session.launchWorkingDirectory
+        try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
         piSessionTitleGenerator.updateTitle(
             currentTitle: session.title,
@@ -5153,7 +5334,8 @@ final class AppViewModel: NSObject {
               let model = piAgentTitleGenerationModel() else { return }
 
         piAgentTitleGeneratingSessionIDs.insert(session.id)
-        let projectURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let projectURL = session.launchWorkingDirectory
+        try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let environment = EnvRuntimeEnvironment().environment(projectRoot: projectURL)
         piSessionTitleGenerator.generateTitle(
             for: trimmedMessage,
@@ -6050,11 +6232,13 @@ final class AppViewModel: NSObject {
     func setPiAgentExtensionLoadingMode(_ mode: PiAgentExtensionLoadingMode) {
         guard appSettingsController.setPiAgentExtensionLoadingMode(mode) else { return }
         syncAppSettings()
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     func setPiExtension(_ candidate: PiExtensionCandidate, enabled: Bool) {
         guard appSettingsController.setPiExtension(candidate, enabled: enabled) else { return }
         syncAppSettings()
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     /// Caller passes the already-discovered candidate list (the Extensions screen
@@ -6062,6 +6246,7 @@ final class AppViewModel: NSObject {
     func setAllPiExtensions(_ candidates: [PiExtensionCandidate], enabled: Bool) {
         guard appSettingsController.setAllPiExtensions(candidates, enabled: enabled) else { return }
         syncAppSettings()
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     func prunePiExtensionSelection(to candidates: [PiExtensionCandidate]) {
@@ -6745,6 +6930,7 @@ final class AppViewModel: NSObject {
         piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
             session.subagentsEnabled = isEnabled
         }
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     /// Draft-only footer control: before the first launch, subagents act like a
@@ -8569,6 +8755,7 @@ final class AppViewModel: NSObject {
         // of waiting for that rescan to land.
         patchEffectiveAgentSkills(agentName: agent.name, skills: draft.config.skills)
         rebuildWarningCaches()
+        reconcileRunningSessionLaunchResourceFingerprints()
     }
 
     private func setSkill(_ skill: SkillRecord, enabled: Bool, forProjectPath projectPath: String) throws {
@@ -9478,7 +9665,7 @@ final class AppViewModel: NSObject {
                     payload: .loopDefinition(definition)
                 )
             }
-        let loops = [createLoop] + savedLoops
+        let loops = scopedPath == nil ? [] : [createLoop] + savedLoops
 
         return SlashUniverse(skills: skills, prompts: prompts, commands: commands, loops: loops)
     }

@@ -236,6 +236,26 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertFalse(sections.last?.isProjectGroup ?? true)
     }
 
+    func testNoProjectSessionsUseDedicatedNonProjectGroup() throws {
+        let deck = try makeProject(path: "/p/deck", repo: "agent-deck", owner: "a-streetcoder")
+        var noProject = try makeSession(title: "blank", updatedAt: now)
+        noProject.projectPath = ""
+        noProject.projectName = PiAgentSessionRecord.noProjectDisplayName
+        let sessions = [
+            try makeSession(title: "d1", updatedAt: now, projectPath: deck.path),
+            try makeSession(title: "orphan", updatedAt: now, projectPath: "/p/ghost"),
+            noProject
+        ]
+        let sections = PiAgentSessionGrouping.sections(
+            from: sessions, projectByPath: [deck.path: deck], expandedProjectIDs: [],
+            collapsedProjectIDs: [],
+            capPreviews: true, isWorking: { _ in false }, selectedSessionID: nil, now: now)
+
+        XCTAssertEqual(sections.map(\.id), [deck.path, PiAgentSessionGrouping.noProjectSectionID, PiAgentSessionGrouping.otherSectionID])
+        XCTAssertEqual(sections[1].title, PiAgentSessionRecord.noProjectDisplayName)
+        XCTAssertFalse(sections[1].isProjectGroup)
+    }
+
     func testShowMoreRevealsAllAndReportsTotalCount() throws {
         let deck = try makeProject(path: "/p/deck", repo: "agent-deck", owner: "a-streetcoder")
         let sessions = try (0..<8).map { i in

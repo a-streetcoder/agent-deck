@@ -66,8 +66,8 @@ struct PiAgentAddSessionMenuButton: View {
             tint: isEnabled ? AppTheme.brandAccent : AppTheme.mutedText,
             size: 30,
             help: projects.isEmpty
-                ? "New projectless Pi Agent session"
-                : "Choose a project for the new Pi Agent session",
+                ? "New No Project Pi Agent session"
+                : "Choose a project or No Project for the new Pi Agent session",
             action: primaryAction
         ) {
             Image(systemName: "plus")
@@ -77,6 +77,10 @@ struct PiAgentAddSessionMenuButton: View {
             PiAgentProjectPickerPopover(
                 projects: orderedProjects,
                 selectedProject: selectedProject,
+                onSelectNoProject: {
+                    isPresented = false
+                    action()
+                },
                 onSelectProject: { project in
                     isPresented = false
                     onSelectProject(project)
@@ -176,6 +180,10 @@ struct PiAgentNewSessionSplitButton: View {
                 PiAgentProjectPickerPopover(
                     projects: projects,
                     selectedProject: selectedProject,
+                    onSelectNoProject: {
+                        isProjectPickerPresented = false
+                        onNewSession()
+                    },
                     onSelectProject: { project in
                         isProjectPickerPresented = false
                         onNewSessionForProject(project)
@@ -324,11 +332,23 @@ private struct PiAgentChatAgentRow: View {
 private struct PiAgentProjectPickerPopover: View {
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
+    let onSelectNoProject: () -> Void
     let onSelectProject: (DiscoveredProject) -> Void
 
     var body: some View {
-        AppPopoverContainer(title: "New Session", subtitle: "Choose a project for Pi Agent.") {
+        AppPopoverContainer(title: "New Session", subtitle: "Choose a project or start without one.") {
             AppProjectPickerPopoverList {
+                AppPopoverProjectRow(
+                    imageURL: nil,
+                    symbolName: "macwindow",
+                    assetName: nil,
+                    title: PiAgentSessionRecord.noProjectDisplayName,
+                    path: "Pi runs in a safe scratch folder.",
+                    isCurrent: selectedProject == nil
+                ) {
+                    onSelectNoProject()
+                }
+
                 ForEach(projects) { project in
                     AppPopoverProjectRow(
                         imageURL: project.iconFileURL,
@@ -408,11 +428,17 @@ struct PiAgentSessionRow: View, Equatable {
             }
 
             HStack(spacing: 6) {
-                Image("github")
-                    .resizable()
-                    .renderingMode(.template)
-                    .scaledToFit()
-                    .frame(width: 11, height: 11)
+                if session.isNoProject {
+                    Image(systemName: "macwindow")
+                        .font(AppTheme.Font.caption2.weight(.semibold))
+                        .frame(width: 11, alignment: .center)
+                } else {
+                    Image("github")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 11, height: 11)
+                }
                 Text(subtitle)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -645,6 +671,7 @@ struct PiAgentSessionRow: View, Equatable {
     }
 
     private var subtitle: String {
+        if session.isNoProject { return PiAgentSessionRecord.noProjectDisplayName }
         if let repository = session.repository {
             return repository
         }

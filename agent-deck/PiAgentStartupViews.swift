@@ -260,7 +260,8 @@ struct PiAgentStartupResourcesPopover: View {
     // MARK: - Resource items
 
     private var contextItems: [PiStartupResourceItem] {
-        let agents = URL(fileURLWithPath: session.projectPath).appendingPathComponent("AGENTS.md")
+        guard let projectPath = session.projectPathForProjectFeatures else { return [] }
+        let agents = URL(fileURLWithPath: projectPath).appendingPathComponent("AGENTS.md")
         if FileManager.default.fileExists(atPath: agents.path) {
             return [.init(title: "AGENTS.md", detail: agents.path, kind: .file(agents))]
         }
@@ -268,7 +269,8 @@ struct PiAgentStartupResourcesPopover: View {
     }
 
     private var startupSnapshot: ScanSnapshot {
-        viewModel.startupSnapshot(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return viewModel.snapshot }
+        return viewModel.startupSnapshot(forProjectPath: projectPath)
     }
 
     private var runtimeItems: [PiStartupResourceItem] {
@@ -310,6 +312,9 @@ struct PiAgentStartupResourcesPopover: View {
     }
 
     private var agentItems: [PiStartupResourceItem] {
+        guard !session.isNoProject else {
+            return [.init(title: "No Project session", detail: "Project-scoped Deck agents are not injected.", kind: .none)]
+        }
         guard session.subagentsEnabled else {
             return [.init(title: "This session started with Deck agents disabled", detail: "Re-enable Deck agents before creating a new session if you want agent discovery again.", kind: .none)]
         }
@@ -331,6 +336,9 @@ struct PiAgentStartupResourcesPopover: View {
     }
 
     private var memoryItems: [PiStartupResourceItem] {
+        guard !session.isNoProject else {
+            return [.init(title: "No Project session", detail: "Project memory is not injected.", kind: .none)]
+        }
         guard session.memoryEnabled else {
             return [.init(title: "This session started with Memory disabled", detail: "Enable Memory before starting a new session if you want recall and capture again.", kind: .none)]
         }
@@ -350,7 +358,8 @@ struct PiAgentStartupResourcesPopover: View {
         // Only the skills the orchestration parent was actually launched with —
         // global defaults ∪ project-assigned — not every skill discovered on
         // disk. Reuses the exact active set the composer `/` browser computes.
-        viewModel.activeParentSkills(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return [] }
+        return viewModel.activeParentSkills(forProjectPath: projectPath)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { skill in
                 let scope = skill.source.kind == .project ? "Project" : skill.source.kind.rawValue
@@ -362,7 +371,8 @@ struct PiAgentStartupResourcesPopover: View {
     private var promptItems: [PiStartupResourceItem] {
         // Only the prompt templates the parent session was launched with — not
         // every template discovered on disk. Mirrors the skills treatment above.
-        viewModel.activeParentPromptTemplates(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return [] }
+        return viewModel.activeParentPromptTemplates(forProjectPath: projectPath)
             .map { PiStartupResourceItem(title: $0.invocation, detail: $0.description, kind: .prompt($0.id)) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
@@ -516,10 +526,13 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     private func resolve() -> Resolved {
-        let universe = viewModel.selectableAgentUniverse(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else {
+            return Resolved(rows: [], addedRows: [], addable: [], selection: [], hasExplicitSelection: session.agentSelection != nil)
+        }
+        let universe = viewModel.selectableAgentUniverse(forProjectPath: projectPath)
             .filter { $0.resolved.disabled != true }
         let defaultNames = Set(
-            viewModel.startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
+            viewModel.startupSnapshot(forProjectPath: projectPath).effectiveAgents
                 .filter { $0.resolved.disabled != true }
                 .map(\.name)
         )

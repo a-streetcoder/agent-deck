@@ -4514,17 +4514,18 @@ struct PiAgentScreen: View {
             }
         }
         .sheet(isPresented: $isLoopLaunchSheetPresented) {
-            if let session = store.selectedSession {
+            if let session = store.selectedSession,
+               let projectPath = session.projectPathForProjectFeatures {
                 LoopLaunchSheet(
                     session: session,
                     activeRun: store.activeLoopRun(for: session.id),
                     initialDraft: loopLaunchDraft,
                     sourceDefinition: loopLaunchDefinition,
                     availableAgents: viewModel.allDisplayAgents,
-                    projectAgents: viewModel.startupSnapshot(forProjectPath: session.projectPath).effectiveAgents,
+                    projectAgents: viewModel.startupSnapshot(forProjectPath: projectPath).effectiveAgents,
                     onCancel: { isLoopLaunchSheetPresented = false },
                     onAssignMissingAgents: { names in
-                        viewModel.assignAgentNames(names, toProjectPath: session.projectPath)
+                        viewModel.assignAgentNames(names, toProjectPath: projectPath)
                     },
                     onEnableDeckAgents: {
                         viewModel.setSubagentsEnabled(true, forSessionID: session.id)
@@ -6612,6 +6613,16 @@ struct PiAgentScreen: View {
 
         switch item.payload {
         case .loopCreateNew:
+            guard store.selectedSession?.projectPathForProjectFeatures != nil else {
+                if let sessionID = store.selectedSession?.id {
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                }
+                slashSelection = nil
+                slashState = SlashSuggestionState()
+                slashUniverse = .empty
+                composerSuggestionsDismissed = true
+                return
+            }
             loopLaunchDraft = LoopDraft()
             loopLaunchDefinition = nil
             slashSelection = nil
@@ -6621,6 +6632,16 @@ struct PiAgentScreen: View {
             isLoopLaunchSheetPresented = true
             return
         case .loopDefinition(let definition):
+            guard store.selectedSession?.projectPathForProjectFeatures != nil else {
+                if let sessionID = store.selectedSession?.id {
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                }
+                slashSelection = nil
+                slashState = SlashSuggestionState()
+                slashUniverse = .empty
+                composerSuggestionsDismissed = true
+                return
+            }
             loopLaunchDraft = definition.makeDraft()
             loopLaunchDefinition = definition
             slashSelection = nil
@@ -6654,7 +6675,12 @@ struct PiAgentScreen: View {
         if case .slash = composerSuggestionTrigger { isSlashActive = true } else { isSlashActive = false }
 
         if isSlashActive && !lastSlashTriggerActive {
-            let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+            let projectPath: String?
+            if let session = store.selectedSession {
+                projectPath = session.projectPathForProjectFeatures
+            } else {
+                projectPath = viewModel.selectedProjectPath
+            }
 #if DEBUG
             SlashDebugLog.write("slash.lifecycle.enter", [
                 "query": slashQueryString,
@@ -6729,12 +6755,22 @@ struct PiAgentScreen: View {
     }
 
     private var snapshotForSelectedSession: ScanSnapshot {
-        let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+        let projectPath: String?
+        if let session = store.selectedSession {
+            projectPath = session.projectPathForProjectFeatures
+        } else {
+            projectPath = viewModel.selectedProjectPath
+        }
         return projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
     }
 
     private var visibleSkillsForSelectedSession: [SkillRecord] {
-        let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+        let projectPath: String?
+        if let session = store.selectedSession {
+            projectPath = session.projectPathForProjectFeatures
+        } else {
+            projectPath = viewModel.selectedProjectPath
+        }
         let snapshot = projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
         var seen = Set<String>()
         return (snapshot.skills + snapshot.librarySkills)
@@ -6749,8 +6785,9 @@ struct PiAgentScreen: View {
     private var forkAgentChoicesForSelectedSession: [EffectiveAgentRecord]? {
         guard let session = store.selectedSession,
               session.kind != .agent,
-              session.subagentsEnabled else { return nil }
-        let agents = viewModel.selectableAgentUniverse(forProjectPath: session.projectPath)
+              session.subagentsEnabled,
+              let projectPath = session.projectPathForProjectFeatures else { return nil }
+        let agents = viewModel.selectableAgentUniverse(forProjectPath: projectPath)
             .filter { $0.resolved.disabled != true }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return agents.isEmpty ? nil : agents
@@ -6772,7 +6809,7 @@ struct PiAgentScreen: View {
             if !fileSuggestionResults.isEmpty { fileSuggestionResults = [] }
             return
         }
-        let rootPath = session.worktreePath ?? session.projectPath
+        let rootPath = session.launchWorkingDirectory.path
         fileScanTask = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
@@ -6943,6 +6980,7 @@ struct PiAgentScreen: View {
         let baseTranscript = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = slashSelection?.materialize(userText: baseMessage) ?? baseMessage
         let transcriptMessage = slashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
+        let titleSource = slashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
@@ -6951,7 +6989,7 @@ struct PiAgentScreen: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         beginTranscriptAutoScrollTurn()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
         requestTranscriptBottomScroll()
         clearComposerInput()
         if let sentSessionID {
@@ -6961,7 +6999,7 @@ struct PiAgentScreen: View {
 
     private func expandFileReferences(in message: String) -> String {
         guard let session = store.selectedSession else { return message }
-        let rootURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let rootURL = session.launchWorkingDirectory
         return message
             .split(separator: " ", omittingEmptySubsequences: false)
             .map { part in
@@ -7345,17 +7383,18 @@ private struct PiAgentComposerPanel: View {
             )
         }
         .sheet(isPresented: $isLoopLaunchSheetPresented) {
-            if let session = store.selectedSession {
+            if let session = store.selectedSession,
+               let projectPath = session.projectPathForProjectFeatures {
                 LoopLaunchSheet(
                     session: session,
                     activeRun: store.activeLoopRun(for: session.id),
                     initialDraft: loopLaunchDraft,
                     sourceDefinition: loopLaunchDefinition,
                     availableAgents: viewModel.allDisplayAgents,
-                    projectAgents: viewModel.startupSnapshot(forProjectPath: session.projectPath).effectiveAgents,
+                    projectAgents: viewModel.startupSnapshot(forProjectPath: projectPath).effectiveAgents,
                     onCancel: { isLoopLaunchSheetPresented = false },
                     onAssignMissingAgents: { names in
-                        viewModel.assignAgentNames(names, toProjectPath: session.projectPath)
+                        viewModel.assignAgentNames(names, toProjectPath: projectPath)
                     },
                     onEnableDeckAgents: {
                         viewModel.setSubagentsEnabled(true, forSessionID: session.id)
@@ -7616,6 +7655,16 @@ private struct PiAgentComposerPanel: View {
 
         switch item.payload {
         case .loopCreateNew:
+            guard store.selectedSession?.projectPathForProjectFeatures != nil else {
+                if let sessionID = store.selectedSession?.id {
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                }
+                slashSelection = nil
+                slashState = SlashSuggestionState()
+                slashUniverse = .empty
+                composerSuggestionsDismissed = true
+                return
+            }
             loopLaunchDraft = LoopDraft()
             loopLaunchDefinition = nil
             slashSelection = nil
@@ -7625,6 +7674,16 @@ private struct PiAgentComposerPanel: View {
             isLoopLaunchSheetPresented = true
             return
         case .loopDefinition(let definition):
+            guard store.selectedSession?.projectPathForProjectFeatures != nil else {
+                if let sessionID = store.selectedSession?.id {
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                }
+                slashSelection = nil
+                slashState = SlashSuggestionState()
+                slashUniverse = .empty
+                composerSuggestionsDismissed = true
+                return
+            }
             loopLaunchDraft = definition.makeDraft()
             loopLaunchDefinition = definition
             slashSelection = nil
@@ -7658,7 +7717,12 @@ private struct PiAgentComposerPanel: View {
         if case .slash = composerSuggestionTrigger { isSlashActive = true } else { isSlashActive = false }
 
         if isSlashActive && !lastSlashTriggerActive {
-            let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+            let projectPath: String?
+            if let session = store.selectedSession {
+                projectPath = session.projectPathForProjectFeatures
+            } else {
+                projectPath = viewModel.selectedProjectPath
+            }
 #if DEBUG
             SlashDebugLog.write("slash.lifecycle.enter", [
                 "query": slashQueryString,
@@ -7731,7 +7795,12 @@ private struct PiAgentComposerPanel: View {
     }
 
     private var snapshotForSelectedSession: ScanSnapshot {
-        let projectPath = store.selectedSession?.projectPath ?? viewModel.selectedProjectPath
+        let projectPath: String?
+        if let session = store.selectedSession {
+            projectPath = session.projectPathForProjectFeatures
+        } else {
+            projectPath = viewModel.selectedProjectPath
+        }
         return projectPath.map { viewModel.startupSnapshot(forProjectPath: $0) } ?? viewModel.snapshot
     }
 
@@ -7751,7 +7820,7 @@ private struct PiAgentComposerPanel: View {
             if !fileSuggestionResults.isEmpty { fileSuggestionResults = [] }
             return
         }
-        let rootPath = session.worktreePath ?? session.projectPath
+        let rootPath = session.launchWorkingDirectory.path
         fileScanTask = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
@@ -7876,6 +7945,7 @@ private struct PiAgentComposerPanel: View {
         let baseTranscript = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = slashSelection?.materialize(userText: baseMessage) ?? baseMessage
         let transcriptMessage = slashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
+        let titleSource = slashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
@@ -7884,7 +7954,7 @@ private struct PiAgentComposerPanel: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let sentSessionID = store.selectedSession?.id
         onWillSend()
-        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
+        viewModel.sendPiAgentMessage(combined, mode: isRunning ? .steer : .prompt, transcriptText: transcriptCombined, titleSource: titleSource, images: composerImages, pasteAttachments: activePasteAttachments, issueAttachment: composerIssueAttachment)
         onDidSend()
         clearComposerInput()
         if let sentSessionID {
@@ -7894,7 +7964,7 @@ private struct PiAgentComposerPanel: View {
 
     private func expandFileReferences(in message: String) -> String {
         guard let session = store.selectedSession else { return message }
-        let rootURL = URL(fileURLWithPath: session.worktreePath ?? session.projectPath)
+        let rootURL = session.launchWorkingDirectory
         return message
             .split(separator: " ", omittingEmptySubsequences: false)
             .map { part in

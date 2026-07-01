@@ -21,16 +21,17 @@ struct ProjectServerToolbarButton: View {
         .foregroundStyle(tint)
         .tint(tint)
         .help("Start, stop, and restart this project's dev server")
-        .disabled(store.selectedSession == nil)
+        .disabled(store.selectedSession?.projectPathForProjectFeatures == nil)
         .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
-            if let session = store.selectedSession {
+            if let session = store.selectedSession,
+               session.projectPathForProjectFeatures != nil {
                 ProjectServerPopover(viewModel: viewModel, session: session)
             }
         }
     }
 
     private var hasActiveServer: Bool {
-        guard let path = store.selectedSession?.projectPath else { return false }
+        guard let path = store.selectedSession?.projectPathForProjectFeatures else { return false }
         return viewModel.projectServerService.activeServer(forProjectPath: path) != nil
     }
 
