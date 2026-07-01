@@ -61,9 +61,11 @@ When creating an agent, decide:
 Do not assume project-local scope just because the current working directory is a project. Agent Deck no longer discovers project `.pi/agents` or legacy project `.agents` as catalog sources. If the user asks to create an agent and does not specify where it should live, ask one focused question before writing:
 
 - user-global: `~/.pi/agent/agents/<name>.md`, available across the user's projects
-- library/catalog: `~/.pi/agent/agent-library/agents/<name>.md`, reusable but not automatically active
-- imported/catalog by reference: add an existing file through Agent Deck’s `+` import/catalog flow; import is by reference, not a copy
-If the agent references skills, also verify the skill is visible in the global/imported catalog or warn before completion.
+- library/catalog: `~/.pi/agent/agent-library/agents/<name>.md`, reusable but not automatically active until assigned
+
+Agent Deck does not currently have a general by-reference import flow for agent markdown files like it does for skills and prompts. To bring an existing agent into Agent Deck, create or copy it into the user-global or library catalog path instead of promising an imported-by-reference agent source.
+
+If the agent references skills, also verify the skill is visible in the global/imported skill catalog or warn before completion.
 
 ## Routing metadata rules
 
