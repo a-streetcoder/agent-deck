@@ -109,10 +109,11 @@ actor MCPConnection {
     }
 
     func callTool(name toolName: String, arguments: JSONValue?) async throws -> MCPCallResult {
+        let normalizedArguments = try MCPRequestFactory.normalizedToolArguments(arguments)
         try await ensureConnected()
         let response = try await request(
             method: MCPMethod.toolsCall,
-            params: MCPRequestFactory.toolsCall(id: 0, name: toolName, arguments: arguments).params
+            params: MCPRequestFactory.toolsCall(id: 0, name: toolName, arguments: normalizedArguments).params
         )
         return try decodeResult(response, as: MCPCallResult.self)
     }

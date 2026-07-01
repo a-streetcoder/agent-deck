@@ -89,6 +89,67 @@ final class MCPConnectionTests: XCTestCase {
         XCTAssertEqual(result.isError, false)
     }
 
+    func testCallToolNormalizesStringifiedObjectArguments() async throws {
+        let connection = makeConnection { line in
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  object["method"] as? String == "tools/call",
+                  let id = object["id"] as? Int,
+                  let params = object["params"] as? [String: Any],
+                  let arguments = params["arguments"] as? [String: Any],
+                  let text = arguments["text"] as? String,
+                  let limit = arguments["limit"] as? Int else {
+                return nil
+            }
+            return MCPMockServer.callResult(id: id, text: "\(text):\(limit)")
+        }
+        let result = try await connection.callTool(name: "echo", arguments: .string("{\"text\":\"ping\",\"limit\":2}"))
+        XCTAssertEqual(result.combinedText, "ping:2")
+    }
+
+    func testCallToolTreatsWhitespaceStringArgumentsAsEmptyObject() async throws {
+        let connection = makeConnection { line in
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  object["method"] as? String == "tools/call",
+                  let id = object["id"] as? Int,
+                  let params = object["params"] as? [String: Any],
+                  let arguments = params["arguments"] as? [String: Any],
+                  arguments.isEmpty else {
+                return nil
+            }
+            return MCPMockServer.callResult(id: id, text: "empty")
+        }
+        let result = try await connection.callTool(name: "echo", arguments: .string("  \n\t  "))
+        XCTAssertEqual(result.combinedText, "empty")
+    }
+
+    func testCallToolRejectsMalformedStringArgumentsClientSide() async throws {
+        let connection = makeConnection { line in
+            let id = ((try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any])?["id"] as? Int ?? 0
+            return #"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"server zod"}}"#
+        }
+        do {
+            _ = try await connection.callTool(name: "echo", arguments: .string("{ nope"))
+            XCTFail("expected client-side invalid arguments error")
+        } catch let error as MCPError {
+            guard case let .invalidArguments(message) = error else { return XCTFail("expected .invalidArguments, got \(error)") }
+            XCTAssertTrue(message.contains("malformed JSON string"))
+        }
+    }
+
+    func testCallToolRejectsNonObjectJSONStringArgumentsClientSide() async throws {
+        let connection = makeConnection { _ in
+            XCTFail("invalid arguments should be rejected before contacting the MCP server")
+            return nil
+        }
+        do {
+            _ = try await connection.callTool(name: "echo", arguments: .string("[1,2]"))
+            XCTFail("expected client-side invalid arguments error")
+        } catch let error as MCPError {
+            guard case let .invalidArguments(message) = error else { return XCTFail("expected .invalidArguments, got \(error)") }
+            XCTAssertTrue(message.contains("did not parse to an object"))
+        }
+    }
+
     func testCallToolTimesOutWhenServerSilent() async throws {
         let connection = makeConnection(timeout: .milliseconds(120)) { _ in nil }
         do {

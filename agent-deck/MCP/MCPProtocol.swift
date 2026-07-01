@@ -145,6 +145,34 @@ nonisolated enum MCPRequestFactory {
         return JSONRPCRequest(id: id, method: MCPMethod.toolsCall, params: params)
     }
 
+    /// MCP `tools/call` requires an object-shaped `arguments` value. Pi/tool bridges
+    /// can occasionally hand us an already-stringified JSON object; normalize that
+    /// client-side so servers do not fail later with schema/Zod errors.
+    static func normalizedToolArguments(_ arguments: JSONValue?) throws -> JSONValue {
+        guard let arguments else { return .object([:]) }
+        switch arguments {
+        case let .object(object):
+            return .object(object)
+        case .null:
+            return .object([:])
+        case let .string(raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .object([:]) }
+            guard let data = trimmed.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: data) else {
+                throw MCPError.invalidArguments("MCP tool arguments must be a JSON object; received a malformed JSON string.")
+            }
+            guard let dictionary = parsed as? [String: Any],
+                  let normalized = JSONValue.fromFoundation(dictionary),
+                  case .object = normalized else {
+                throw MCPError.invalidArguments("MCP tool arguments must be a JSON object; received a JSON string that did not parse to an object.")
+            }
+            return normalized
+        default:
+            throw MCPError.invalidArguments("MCP tool arguments must be a JSON object.")
+        }
+    }
+
     /// Encodes a request as a single newline-terminated JSON line.
     static func encodeLine(_ request: JSONRPCRequest) throws -> String {
         let encoder = JSONEncoder()
@@ -168,6 +196,7 @@ nonisolated enum MCPError: LocalizedError, Sendable, Equatable {
     case timeout(String)
     case cancelled
     case decoding(String)
+    case invalidArguments(String)
     case unsupportedTransport(MCPTransportKind)
     /// HTTP 401 — the server requires authentication (drives the OAuth Connect flow).
     case unauthorized
@@ -180,6 +209,7 @@ nonisolated enum MCPError: LocalizedError, Sendable, Equatable {
         case let .timeout(detail): return "MCP request timed out: \(detail)"
         case .cancelled: return "MCP request was cancelled."
         case let .decoding(detail): return "Could not decode MCP response: \(detail)"
+        case let .invalidArguments(detail): return detail
         case let .unsupportedTransport(kind): return "MCP transport \"\(kind.rawValue)\" is not supported yet."
         case .unauthorized: return "MCP server requires sign-in (401). Connect the server to authorize."
         }

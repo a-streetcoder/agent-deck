@@ -477,6 +477,19 @@ struct PiNativeSubagentBridgeExtensions {
         // as "server/tool" (or passes server + tool separately). Agent Deck holds the
         // real MCP connections natively; this bridge just forwards the request and
         // returns the result string.
+        function normalizeMCPArgs(args: unknown): unknown {
+            if (typeof args !== "string") return args;
+            const trimmed = args.trim();
+            if (!trimmed) return undefined;
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+            } catch {
+                // Swift validates again and returns a clear client-side MCP error.
+            }
+            return args;
+        }
+
         export default function (pi: ExtensionAPI) {
             pi.registerTool({
                 name: "mcp",
@@ -517,7 +530,7 @@ struct PiNativeSubagentBridgeExtensions {
                         server: typeof p.server === "string" && p.server.trim() ? String(p.server).trim() : undefined,
                         tool,
                         query,
-                        args: p.args
+                        args: normalizeMCPArgs(p.args)
                     });
                     if (signal?.aborted) {
                         return { content: [{ type: "text", text: "MCP call cancelled." }] };
