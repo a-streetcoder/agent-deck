@@ -4442,7 +4442,7 @@ struct PiAgentScreen: View {
             if showsSessionsColumn {
                 HSplitView {
                     sessionsColumn
-                        .frame(minWidth: 190, idealWidth: 250, maxWidth: 360)
+                        .frame(minWidth: 220, idealWidth: 250, maxWidth: 360)
 
                     activeSessionColumn
                         .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)

@@ -385,85 +385,78 @@ struct PiAgentSessionRow: View, Equatable {
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .center, spacing: 8) {
-                titleView
-                    .layoutPriority(1)
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .center, spacing: 8) {
+                    titleView
+                        .layoutPriority(1)
 
-                Spacer(minLength: 0)
-            }
+                    Spacer(minLength: 0)
+                }
 
-            if session.isAgentBound, let agentName = session.agentName, !agentName.isEmpty {
+                if session.isAgentBound, let agentName = session.agentName, !agentName.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paperplane")
+                            .font(AppTheme.Font.caption2.weight(.semibold))
+                            .frame(width: 11, alignment: .center)
+                        Text(agentName)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .font(AppTheme.Font.footnote)
+                    .foregroundStyle(AppTheme.mutedText)
+                }
+
                 HStack(spacing: 6) {
-                    Image(systemName: "paperplane")
-                        .font(AppTheme.Font.caption2.weight(.semibold))
-                        .frame(width: 11, alignment: .center)
-                    Text(agentName)
+                    Image("github")
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 11, height: 11)
+                    Text(subtitle)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .minimumScaleFactor(0.8)
                 }
                 .font(AppTheme.Font.footnote)
                 .foregroundStyle(AppTheme.mutedText)
-            }
 
-            HStack(spacing: 6) {
-                Image("github")
-                    .resizable()
-                    .renderingMode(.template)
-                    .scaledToFit()
-                    .frame(width: 11, height: 11)
-                Text(subtitle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .minimumScaleFactor(0.8)
-            }
-            .font(AppTheme.Font.footnote)
-            .foregroundStyle(AppTheme.mutedText)
-
-            if let branch = session.branchName, !branch.isEmpty {
-                HStack(spacing: 6) {
-                    Image("branch")
-                        .font(AppTheme.Font.caption2.weight(.semibold))
-                        .frame(width: 11, alignment: .center)
-                    Text(piAgentSessionDisplayBranchName(branch))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .font(AppTheme.Font.footnote)
-                .foregroundStyle(AppTheme.mutedText)
-                .help(branch)
-            }
-
-            HStack(spacing: 8) {
-                Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(AppTheme.Font.caption)
+                if let branch = session.branchName, !branch.isEmpty {
+                    HStack(spacing: 6) {
+                        Image("branch")
+                            .font(AppTheme.Font.caption2.weight(.semibold))
+                            .frame(width: 11, alignment: .center)
+                        Text(piAgentSessionDisplayBranchName(branch))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(AppTheme.Font.footnote)
                     .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 4)
-                SessionGitActivityStrip(activity: gitActivity, isSelected: isSelected, hasLoop: hasActiveLoop)
+                    .help(branch)
+                }
+
+                HStack(spacing: 8) {
+                    Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(AppTheme.Font.caption)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 4)
+                    SessionGitActivityStrip(activity: gitActivity, isSelected: isSelected, hasLoop: hasActiveLoop)
+                }
             }
+            .saturation(seenAppearanceAmount)
+            .opacity(seenContentOpacity)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            statusDeleteColumn
         }
-        .saturation(seenAppearanceAmount)
-        .opacity(seenContentOpacity)
         // 6 (AppList inset) + 8 = 14pt from the panel edge, left-aligning the
         // title with the header's project icon.
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .trailing) {
-            ZStack(alignment: .trailing) {
-                attentionStatusSlot
-                    .opacity(isRowHovered ? 0 : 1)
-                    .allowsHitTesting(false)
-                deleteButton
-                    .opacity(isRowHovered ? 1 : 0)
-                    .allowsHitTesting(isRowHovered)
-            }
-            .padding(.trailing, 8)
-            .animation(.easeInOut(duration: 0.15), value: isRowHovered)
-        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isRowHovered = $0 }
@@ -503,6 +496,19 @@ struct PiAgentSessionRow: View, Equatable {
         isSeenInactive ? 0.58 : 1
     }
 
+    private var statusDeleteColumn: some View {
+        ZStack(alignment: .trailing) {
+            attentionStatusSlot
+                .opacity(isRowHovered ? 0 : 1)
+                .allowsHitTesting(false)
+            deleteButton
+                .opacity(isRowHovered ? 1 : 0)
+                .allowsHitTesting(isRowHovered)
+        }
+        .frame(minWidth: 32, alignment: .trailing)
+        .animation(.easeInOut(duration: 0.15), value: isRowHovered)
+    }
+
     @ViewBuilder
     private var attentionStatusSlot: some View {
         ZStack(alignment: .trailing) {
@@ -524,6 +530,7 @@ struct PiAgentSessionRow: View, Equatable {
                     .transition(.opacity)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .animation(.snappy(duration: 0.24), value: hasUIRequest)
         .animation(.snappy(duration: 0.24), value: isRunning)
         .animation(.snappy(duration: 0.24), value: hasActiveLoop)
