@@ -21,7 +21,7 @@ This page lists the important paths Agent Deck scans or writes.
 | Scope | Path |
 |---|---|
 | App-bundled native builtins | app bundle `bundled-agents/` |
-| Global personal catalog | `~/.pi/agent/agents/*.md` |
+| Global user catalog | `~/.pi/agent/agents/*.md` |
 | Legacy global catalog | `~/.agents/*.md` |
 | Library/catalog | `~/.pi/agent/agent-library/agents/*.md` |
 | Assignment state | Agent Deck app settings/project preferences |
@@ -34,7 +34,7 @@ Project-specific availability is controlled by Agent Deck assignment state. Agen
 | Scope | Path |
 |---|---|
 | App-bundled skills | app bundle `bundled-skills/` |
-| Global personal catalog | `~/.pi/agent/skills/<skill>/SKILL.md` or root `.md` |
+| Global user catalog | `~/.pi/agent/skills/<skill>/SKILL.md` or root `.md` |
 | Legacy global catalog | recursive `~/.agents/skills/**/SKILL.md`; root `.md` files are ignored |
 | Imported/catalog references | Explicit paths stored in Agent Deck settings; imports are by reference, not copy |
 | Package skills | Globally resolved package-declared `pi.skills` or conventional package `skills/` folders |

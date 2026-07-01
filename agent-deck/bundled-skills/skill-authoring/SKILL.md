@@ -7,35 +7,39 @@ description: Create or improve Agent Deck/Pi skills, including where to save the
 
 Use this skill when the user wants to create, convert, review, or validate an Agent Deck/Pi skill.
 
-## Choose the save location
+## Choose catalog location and assignment
 
-Before creating a new skill, explicitly ask the user where it should live using `ask_user` unless they already gave an unambiguous location. Offer global/catalog choices, not project-local resources:
+Before creating a new skill, explicitly ask the user whether the skill should be enabled for all projects by default unless they already gave an unambiguous preference. Do not ask whether it is a "personal" skill: Agent Deck treats user-authored skills as catalog resources, then controls runtime use through assignment metadata.
 
-- Global personal skill — reusable across projects and safe to assign to global/library agents.
-- Catalog/imported skill — keep the skill where it lives and add it through Agent Deck’s `+` import flow. Import is by reference, not a copy.
-
-Do not infer project-local just because the current working directory is a repository. Agent Deck no longer discovers project-local `.pi/skills` as a resource catalog source.
-
-Use a global personal skill when the skill should be reusable across projects:
+For new user-authored skills, create the skill in the normal global Agent Deck/Pi skills catalog:
 
 ```text
 ~/.pi/agent/skills/<skill-name>/SKILL.md
 ```
 
-Use a non-standard path only when the user explicitly asks for one. Warn that Agent Deck will not discover that skill unless the path is also configured/imported as an external skill through the `+` import flow:
+Then explain or apply the requested assignment:
+
+- Default / All Projects — the skill is injected into parent sessions for every project.
+- Unassigned catalog skill — the skill is visible in the catalog but is not injected until the user manually assigns it to All Projects, a specific project, or a native agent.
+- Project assignment — the skill is injected into parent sessions for one project.
+- Agent assignment — the skill is injected into one native subagent.
+
+Do not infer project-local just because the current working directory is a repository. Agent Deck no longer discovers project-local `.pi/skills` as a resource catalog source.
+
+Use a non-standard external path only when the user explicitly asks to keep an existing skill or skill collection where it already lives. Warn that Agent Deck will not discover that skill unless the path is imported through Agent Deck’s `+` import flow; imports are catalog references, not copies:
 
 ```text
 /path/to/skills/<skill-name>/SKILL.md
 ```
 
-Read compatibility locations such as `.agents/skills/<skill-name>/SKILL.md` when reviewing existing skills, but do not create new project-local skills there. Use global personal storage or catalog/import instead.
+Read compatibility locations such as `.agents/skills/<skill-name>/SKILL.md` when reviewing existing skills, but do not create new project-local skills there. Create new skills in the global catalog path unless the user explicitly asks for an external imported-by-reference source.
 
-After creating a skill, tell the user where it was saved and whether it still needs Default, Project, or Agent assignment in Agent Deck before it is injected into a runtime session.
+After creating a skill, tell the user where it was saved and whether it is Default / All Projects, Project-assigned, Agent-assigned, or still unassigned in the catalog.
 
 Ask the user when any of these are unclear:
 
-- whether the skill should be global personal storage or catalog/imported by reference
-- whether the user really wants a non-standard path, with a warning that Agent Deck will not discover it unless configured/imported as an external skill
+- whether the new skill should be enabled for All Projects by default or left unassigned in the catalog for manual assignment
+- whether the user really wants a non-standard external path, with a warning that Agent Deck will not discover it unless configured/imported as an external skill
 - the skill's scope, activation trigger, or expected workflow
 - whether a complex skill should be modular or kept simple
 
@@ -137,13 +141,14 @@ This keeps the initial skill small and delegates token-heavy reference material 
 ## Authoring workflow
 
 1. Choose a short, stable kebab-case skill name.
-2. Decide whether it is a global personal skill or an imported/catalog skill; ask if unclear.
-3. Write frontmatter with a specific use-triggering description.
-4. Decide whether the skill should be simple or modular.
-5. For simple skills, keep the workflow in `SKILL.md`.
-6. For modular skills, keep `SKILL.md` as a router and create focused reference files.
-7. Validate the directory name, frontmatter name, description, and Markdown structure.
-8. Tell the user where the skill was created and whether it still needs Default, Project, or Agent assignment in Agent Deck.
+2. Create new skills under `~/.pi/agent/skills/<skill-name>/SKILL.md` unless the user explicitly requested an external imported-by-reference source.
+3. Decide whether the skill should be enabled for All Projects by default or left unassigned in the catalog; ask if unclear.
+4. Write frontmatter with a specific use-triggering description.
+5. Decide whether the skill should be simple or modular.
+6. For simple skills, keep the workflow in `SKILL.md`.
+7. For modular skills, keep `SKILL.md` as a router and create focused reference files.
+8. Validate the directory name, frontmatter name, description, and Markdown structure.
+9. Tell the user where the skill was created and whether it is Default / All Projects, Project-assigned, Agent-assigned, or still unassigned in Agent Deck.
 
 ## Agent Deck assignment notes
 

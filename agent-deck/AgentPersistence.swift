@@ -61,7 +61,7 @@ struct AgentPersistence {
 
     private func saveCustomAgent(_ config: AgentConfig, scope: AgentEditingTarget.CustomAgentScope, originalName: String, sourcePath: String?, projectRoot: String?) throws {
         guard scope != .project else {
-            throw PersistenceError.invalidWriteTarget("Project-local agents are no longer cataloged. Save to a global personal or library location instead.")
+            throw PersistenceError.invalidWriteTarget("Project-local agents are no longer cataloged. Save to a global user or library location instead.")
         }
         let path = sourcePath ?? customAgentPath(name: config.name, scope: scope, projectRoot: projectRoot)
         // Only validate computed paths for new files; existing source paths came from disk and are already trusted.

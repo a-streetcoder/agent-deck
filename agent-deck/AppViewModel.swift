@@ -6870,7 +6870,7 @@ final class AppViewModel: NSObject {
     }
 
     private var catalogOnlyEffectiveAgents: [EffectiveAgentRecord] {
-        // Global catalog: custom agents come from global/personal storage or
+        // Global catalog: custom agents come from global user storage or
         // explicit library imports, independent of `selectedProjectPath`.
         let effectivePaths = Set(globalSnapshot.effectiveAgents.compactMap(\.sourcePath).map(standardizedPath))
         return agentCatalog(forProjectPath: nil)
