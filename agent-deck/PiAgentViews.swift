@@ -6743,8 +6743,9 @@ struct PiAgentScreen: View {
                 composerSuggestionsDismissed = true
                 return
             }
-            loopLaunchDraft = definition.makeDraft()
-            loopLaunchDefinition = definition
+            let currentDefinition = viewModel.loopDefinitionForLaunch(definition)
+            loopLaunchDraft = currentDefinition.makeDraft()
+            loopLaunchDefinition = currentDefinition
             slashSelection = nil
             slashState = SlashSuggestionState()
             slashUniverse = .empty
@@ -7798,8 +7799,9 @@ private struct PiAgentComposerPanel: View {
                 composerSuggestionsDismissed = true
                 return
             }
-            loopLaunchDraft = definition.makeDraft()
-            loopLaunchDefinition = definition
+            let currentDefinition = viewModel.loopDefinitionForLaunch(definition)
+            loopLaunchDraft = currentDefinition.makeDraft()
+            loopLaunchDefinition = currentDefinition
             slashSelection = nil
             slashState = SlashSuggestionState()
             slashUniverse = .empty

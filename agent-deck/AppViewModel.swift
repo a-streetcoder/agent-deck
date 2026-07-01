@@ -9506,6 +9506,22 @@ final class AppViewModel: NSObject {
         }
     }
 
+    func loopDefinitionForLaunch(_ definition: LoopDefinition) -> LoopDefinition {
+        guard definition.source == .user,
+              let filePath = definition.filePath?.nonEmpty ?? definition.id.nonEmpty else {
+            return definition
+        }
+        let url = URL(fileURLWithPath: filePath)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let current = try? LoopDefinitionStore.decodeDefinition(at: url, source: .user) else {
+            return definition
+        }
+        if let index = loopDefinitions.firstIndex(where: { $0.id == definition.id || $0.filePath == definition.filePath }) {
+            loopDefinitions[index] = current
+        }
+        return current
+    }
+
     var selectedLoopDefinition: LoopDefinition? {
         guard let selectedLoopDefinitionID else { return nil }
         return loopDefinitions.first { $0.id == selectedLoopDefinitionID }
