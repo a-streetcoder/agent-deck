@@ -9,7 +9,7 @@
 #
 # Optional env:
 #   VERSION=<project MARKETING_VERSION>
-#   BUILD_NUMBER=<UTC timestamp, e.g. 202607011230>
+#   BUILD_NUMBER=<project CURRENT_PROJECT_VERSION>
 #   PORT=8765
 #   BUILD_DIR=build/local-update-test
 #   RELEASE_NOTES="..."
@@ -52,7 +52,15 @@ if [[ -z "${VERSION:-}" ]]; then
   exit 2
 fi
 
-BUILD_NUMBER="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
+if [[ -z "${BUILD_NUMBER:-}" ]]; then
+  BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print' agent-deck.xcodeproj/project.pbxproj 2>/dev/null \
+    | awk -F'= ' '/CURRENT_PROJECT_VERSION/ {gsub(/[";]/,"",$2); print $2; exit}')"
+fi
+if [[ -z "${BUILD_NUMBER:-}" ]]; then
+  echo "Could not resolve BUILD_NUMBER. Set BUILD_NUMBER=123 and rerun." >&2
+  exit 2
+fi
+
 MIN_OS="$(awk -F'= ' '/MACOSX_DEPLOYMENT_TARGET/ {gsub(/[";]/,"",$2); print $2; exit}' agent-deck.xcodeproj/project.pbxproj)"
 MIN_OS="${MIN_OS:-14.0}"
 RELEASE_NOTES="${RELEASE_NOTES:-Local Agent Deck update test for ${VERSION} (${BUILD_NUMBER}).}"
