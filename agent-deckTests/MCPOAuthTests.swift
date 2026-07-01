@@ -141,6 +141,98 @@ final class MCPOAuthTests: XCTestCase {
         XCTAssertEqual(Array(requestedPaths.prefix(2)), ["/mcp", "/.well-known/custom-resource"])
     }
 
+    func testDiscoverFindsNonLeadingBearerChallenge() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (401, ["WWW-Authenticate": "Digest realm=\"Bearer resource_metadata=not-a-challenge\", Basic realm=\"api\", Bearer resource_metadata=\"https://resource.example/.well-known/non-leading\""], Data())
+            case "/.well-known/non-leading":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/non-leading/authorize","token_endpoint":"https://auth.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/non-leading/authorize")
+        XCTAssertEqual(Array(requestedPaths.prefix(2)), ["/mcp", "/.well-known/non-leading"])
+    }
+
+    func testDiscoverUsesCaseInsensitiveResourceMetadataFromLaterBearerChallenge() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (401, ["WWW-Authenticate": "Bearer error=\"invalid_token\", Bearer realm=\"mcp\", RESOURCE_METADATA=\"https://resource.example/.well-known/case-insensitive\""], Data())
+            case "/.well-known/case-insensitive":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/case-insensitive/authorize","token_endpoint":"https://auth.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/case-insensitive/authorize")
+        XCTAssertEqual(Array(requestedPaths.prefix(2)), ["/mcp", "/.well-known/case-insensitive"])
+    }
+
+    func testDiscoverParsesQuotedCommaAndEscapedResourceMetadata() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (401, ["WWW-Authenticate": "Bearer resource_metadata=\"https://resource.example/.well-known/custom\\,meta\", error=\"invalid_token\""], Data())
+            case "/.well-known/custom,meta":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/quoted/authorize","token_endpoint":"https://auth.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/quoted/authorize")
+        XCTAssertEqual(Array(requestedPaths.prefix(2)), ["/mcp", "/.well-known/custom,meta"])
+    }
+
+    func testDiscoverParsesUnquotedResourceMetadataToken() async throws {
+        let recorder = RequestRecorder()
+        let service = makeMockOAuthService { request in
+            recorder.append(request.url!.path)
+            switch request.url!.path {
+            case "/mcp":
+                return (401, ["WWW-Authenticate": "Bearer resource_metadata=https://resource.example/.well-known/unquoted, error=invalid_token"], Data())
+            case "/.well-known/unquoted":
+                return (200, [:], Data(#"{"authorization_servers":["https://auth.example"]}"#.utf8))
+            case "/.well-known/oauth-authorization-server":
+                return (200, [:], Data(#"{"authorization_endpoint":"https://auth.example/unquoted/authorize","token_endpoint":"https://auth.example/token"}"#.utf8))
+            default:
+                return (404, [:], Data())
+            }
+        }
+
+        let auth = try await service.discover(serverURL: URL(string: "https://resource.example/mcp")!)
+
+        let requestedPaths = recorder.paths
+        XCTAssertEqual(auth.authorizationEndpoint, "https://auth.example/unquoted/authorize")
+        XCTAssertEqual(Array(requestedPaths.prefix(2)), ["/mcp", "/.well-known/unquoted"])
+    }
+
     func testDiscoverUsesPathScopedProtectedResourceMetadataBeforeOriginRoot() async throws {
         let recorder = RequestRecorder()
         let service = makeMockOAuthService { request in

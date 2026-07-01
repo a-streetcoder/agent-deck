@@ -250,34 +250,54 @@ nonisolated final class MCPOAuthService: Sendable {
     }
 
     private static func bearerChallengeParameter(_ name: String, in header: String) -> String? {
-        guard let bearerRange = header.range(of: "Bearer", options: [.caseInsensitive]) else { return nil }
-        let characters = Array(header[bearerRange.upperBound...])
+        let characters = Array(header)
         var index = 0
 
-        func skipSeparators() {
-            while index < characters.count, characters[index].isWhitespace || characters[index] == "," {
-                index += 1
-            }
-        }
-
         while index < characters.count {
-            skipSeparators()
-            let keyStart = index
-            while index < characters.count, characters[index] != "=", characters[index] != "," {
-                index += 1
+            skipChallengeSeparators(characters, &index)
+            let schemeStart = index
+            while index < characters.count, isHTTPTokenCharacter(characters[index]) { index += 1 }
+            guard schemeStart < index else { break }
+            let scheme = String(characters[schemeStart..<index])
+            guard index == characters.count || characters[index].isWhitespace else {
+                moveToNextChallenge(characters, &index)
+                continue
             }
-            let key = String(characters[keyStart..<index]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard index < characters.count, characters[index] == "=" else { continue }
-            index += 1
             while index < characters.count, characters[index].isWhitespace { index += 1 }
 
+            let paramsStart = index
+            let paramsEnd = nextChallengeIndex(characters, from: paramsStart)
+            if scheme.caseInsensitiveCompare("Bearer") == .orderedSame,
+               let value = challengeParameter(name, in: characters, start: paramsStart, end: paramsEnd) {
+                return value
+            }
+            index = paramsEnd < characters.count ? paramsEnd + 1 : paramsEnd
+        }
+        return nil
+    }
+
+    private static func challengeParameter(_ name: String, in characters: [Character], start: Int, end: Int) -> String? {
+        var index = start
+        while index < end {
+            while index < end, characters[index].isWhitespace || characters[index] == "," { index += 1 }
+            let keyStart = index
+            while index < end, isHTTPTokenCharacter(characters[index]) { index += 1 }
+            let key = String(characters[keyStart..<index])
+            while index < end, characters[index].isWhitespace { index += 1 }
+            guard keyStart < index, index < end, characters[index] == "=" else {
+                while index < end, characters[index] != "," { index += 1 }
+                continue
+            }
+            index += 1
+            while index < end, characters[index].isWhitespace { index += 1 }
+
             var value = ""
-            if index < characters.count, characters[index] == "\"" {
+            if index < end, characters[index] == "\"" {
                 index += 1
-                while index < characters.count {
+                while index < end {
                     let character = characters[index]
                     index += 1
-                    if character == "\\", index < characters.count {
+                    if character == "\\", index < end {
                         value.append(characters[index])
                         index += 1
                     } else if character == "\"" {
@@ -288,7 +308,7 @@ nonisolated final class MCPOAuthService: Sendable {
                 }
             } else {
                 let valueStart = index
-                while index < characters.count, characters[index] != ",", !characters[index].isWhitespace {
+                while index < end, characters[index] != ",", !characters[index].isWhitespace {
                     index += 1
                 }
                 value = String(characters[valueStart..<index])
@@ -299,6 +319,60 @@ nonisolated final class MCPOAuthService: Sendable {
             }
         }
         return nil
+    }
+
+    private static func nextChallengeIndex(_ characters: [Character], from start: Int) -> Int {
+        var index = start
+        var inQuotes = false
+        var escaped = false
+        while index < characters.count {
+            let character = characters[index]
+            if inQuotes {
+                if escaped {
+                    escaped = false
+                } else if character == "\\" {
+                    escaped = true
+                } else if character == "\"" {
+                    inQuotes = false
+                }
+            } else if character == "\"" {
+                inQuotes = true
+            } else if character == "," {
+                var lookahead = index + 1
+                while lookahead < characters.count, characters[lookahead].isWhitespace { lookahead += 1 }
+                let tokenStart = lookahead
+                while lookahead < characters.count, isHTTPTokenCharacter(characters[lookahead]) { lookahead += 1 }
+                var afterToken = lookahead
+                while afterToken < characters.count, characters[afterToken].isWhitespace { afterToken += 1 }
+                if tokenStart < lookahead, afterToken < characters.count, characters[afterToken] != "=" {
+                    return index
+                }
+            }
+            index += 1
+        }
+        return characters.count
+    }
+
+    private static func moveToNextChallenge(_ characters: [Character], _ index: inout Int) {
+        index = nextChallengeIndex(characters, from: index)
+        if index < characters.count { index += 1 }
+    }
+
+    private static func skipChallengeSeparators(_ characters: [Character], _ index: inout Int) {
+        while index < characters.count, characters[index].isWhitespace || characters[index] == "," {
+            index += 1
+        }
+    }
+
+    private static func isHTTPTokenCharacter(_ character: Character) -> Bool {
+        let scalars = character.unicodeScalars
+        guard scalars.count == 1, let scalar = scalars.first else { return false }
+        switch scalar.value {
+        case 0x21, 0x23...0x27, 0x2A, 0x2B, 0x2D, 0x2E, 0x30...0x39, 0x41...0x5A, 0x5E...0x7A, 0x7C, 0x7E:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func protectedResourceMetadataURL(for serverURL: URL, pathScoped: Bool) -> URL {
