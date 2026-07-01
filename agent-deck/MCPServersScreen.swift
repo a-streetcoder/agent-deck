@@ -241,10 +241,10 @@ struct MCPServersScreen: View {
                     } else if connectingServers.contains(entry.name) {
                         AppSpinner().controlSize(.small)
                     } else if connectedByServer[entry.name] ?? false {
-                        // Remote servers authorize via OAuth first; offer a Refresh once
+                        // Remote servers authorize via OAuth first; offer tool loading once
                         // signed in, plus Sign out.
                         Button("Sign out") { Task { await signOut(entry) } }.controlSize(.small)
-                        probeButton(entry)
+                        probeButton(entry, disconnectedTitle: "Load tools")
                     } else {
                         Button("Connect") { Task { await connect(entry) } }.controlSize(.small)
                     }
@@ -264,8 +264,8 @@ struct MCPServersScreen: View {
 
     /// Connect-or-refresh button: "Connect" when the server isn't connected yet, "Refresh"
     /// once it is (re-lists tools over the live connection).
-    private func probeButton(_ entry: MCPServerEntry) -> some View {
-        Button(isServerConnected(entry) ? "Refresh" : "Connect") { Task { await probe(entry) } }
+    private func probeButton(_ entry: MCPServerEntry, disconnectedTitle: String = "Connect") -> some View {
+        Button(isServerConnected(entry) ? "Refresh" : disconnectedTitle) { Task { await probe(entry) } }
             .controlSize(.small)
             .disabled(statusByServer[entry.name] == .probing)
     }
@@ -289,7 +289,11 @@ struct MCPServersScreen: View {
         case .failed:
             AppLabelTag(text: "Not reachable", color: .orange)
         case nil:
-            AppLabelTag(text: "Not connected", color: .secondary)
+            if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
+                AppLabelTag(text: "Signed in", color: .green)
+            } else {
+                AppLabelTag(text: "Not connected", color: .secondary)
+            }
         }
     }
 
@@ -303,9 +307,7 @@ struct MCPServersScreen: View {
         let tools = statusByServer[entry.name]?.tools ?? []
         return AppCard(title: tools.isEmpty ? "Tools" : "Tools (\(tools.count))") {
             if tools.isEmpty {
-                Text(statusByServer[entry.name] == .probing
-                     ? "Loading tools…"
-                     : "Connect this server to load its tools.")
+                Text(emptyToolsMessage(for: entry))
                     .font(.caption).foregroundStyle(AppTheme.mutedText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -325,6 +327,14 @@ struct MCPServersScreen: View {
                 }
             }
         }
+    }
+
+    private func emptyToolsMessage(for entry: MCPServerEntry) -> String {
+        if statusByServer[entry.name] == .probing { return "Loading tools…" }
+        if entry.config.resolvedTransport != .stdio, connectedByServer[entry.name] ?? false {
+            return "Load this server's tools to make them available."
+        }
+        return "Connect this server to load its tools."
     }
 
     private func projectAssignmentCard(_ entry: MCPServerEntry) -> some View {
