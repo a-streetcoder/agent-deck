@@ -14,6 +14,7 @@
 #   VERSION=<from MARKETING_VERSION in pbxproj>
 #   APP_NAME="Agent Deck"
 #   VOLUME_NAME="Agent Deck"
+#   DEVELOPMENT_TEAM=<parsed from signing identity when possible>
 #   BUILD_NUMBER=<current project build number>
 #   SU_FEED_URL=https://agentdeck.site/appcast.xml
 #   ALLOW_NON_PRODUCTION_FEED=0
@@ -72,6 +73,9 @@ fi
 
 DMG_PATH="$BUILD_DIR/Agent-Deck-${VERSION}.dmg"
 DEFAULT_SU_FEED_URL="https://agentdeck.site/appcast.xml"
+if [[ -z "${DEVELOPMENT_TEAM:-}" ]]; then
+  DEVELOPMENT_TEAM="$(printf '%s' "$DEVELOPER_ID_APPLICATION" | sed -n 's/.*(\([A-Z0-9][A-Z0-9]*\)).*/\1/p')"
+fi
 
 if [[ "${SU_FEED_URL:-$DEFAULT_SU_FEED_URL}" != "$DEFAULT_SU_FEED_URL" && "${ALLOW_NON_PRODUCTION_FEED:-0}" != "1" ]]; then
   echo "Refusing to package with non-production SU_FEED_URL=${SU_FEED_URL}." >&2
@@ -82,9 +86,13 @@ fi
 XCODEBUILD_OVERRIDES=(
   "MARKETING_VERSION=$VERSION"
   "CODE_SIGN_IDENTITY=$DEVELOPER_ID_APPLICATION"
+  "CODE_SIGN_STYLE=Manual"
   "ENABLE_HARDENED_RUNTIME=YES"
   "OTHER_CODE_SIGN_FLAGS=--timestamp"
 )
+if [[ -n "${DEVELOPMENT_TEAM:-}" ]]; then
+  XCODEBUILD_OVERRIDES+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
+fi
 if [[ -n "${BUILD_NUMBER:-}" ]]; then
   XCODEBUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
 fi
@@ -108,7 +116,15 @@ cat > "$EXPORT_OPTIONS" <<PLIST
   <key>method</key>
   <string>developer-id</string>
   <key>signingStyle</key>
-  <string>automatic</string>
+  <string>manual</string>
+PLIST
+if [[ -n "${DEVELOPMENT_TEAM:-}" ]]; then
+  cat >> "$EXPORT_OPTIONS" <<PLIST
+  <key>teamID</key>
+  <string>$DEVELOPMENT_TEAM</string>
+PLIST
+fi
+cat >> "$EXPORT_OPTIONS" <<PLIST
   <key>stripSwiftSymbols</key>
   <true/>
 </dict>
