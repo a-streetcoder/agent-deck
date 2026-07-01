@@ -3592,6 +3592,10 @@ final class AppViewModel: NSObject {
             completion("\(AppBrand.displayName) could not find the parent session.")
             return
         }
+        guard !session.isNoProject, session.projectPathForProjectFeatures != nil else {
+            completion("Deck agents are unavailable for No Project sessions. Select a project-backed session before delegating.")
+            return
+        }
         guard session.subagentsEnabled else {
             completion("Deck agents are disabled for this \(AppBrand.displayName) session.")
             return
@@ -3636,6 +3640,10 @@ final class AppViewModel: NSObject {
             completion("\(AppBrand.displayName) could not find the parent session.")
             return
         }
+        guard !session.isNoProject, session.projectPathForProjectFeatures != nil else {
+            completion("Deck agents are unavailable for No Project sessions. Select a project-backed session before delegating.")
+            return
+        }
         guard session.subagentsEnabled else {
             completion("Deck agents are disabled for this \(AppBrand.displayName) session.")
             return
@@ -3650,6 +3658,13 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
+        guard !parentSession.isNoProject, let projectPath = parentSession.projectPathForProjectFeatures else {
+            let message = "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching a Deck agent."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
+            completion?(placeholder)
+            return placeholder
+        }
         guard parentSession.subagentsEnabled else {
             let message = "Deck agents are disabled for this session."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Disabled", text: message))
@@ -3657,7 +3672,7 @@ final class AppViewModel: NSObject {
             completion?(placeholder)
             return placeholder
         }
-        let snapshot = startupSnapshot(forProjectPath: parentSession.projectPath)
+        let snapshot = startupSnapshot(forProjectPath: projectPath)
         guard let agent = catalogAgents(for: parentSession).first(where: { $0.name == agentName }) else {
             let message = "No enabled agent named \(agentName) was found for this session."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agent Not Found", text: message))
@@ -3671,7 +3686,7 @@ final class AppViewModel: NSObject {
             completion?(placeholder)
             return placeholder
         }
-        return await runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshotWithSkillCatalog(snapshot, projectPath: parentSession.projectPath), task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, completion: completion)
+        return await runNativeSubagent(parentSession: parentSession, agent: agent, snapshot: snapshotWithSkillCatalog(snapshot, projectPath: projectPath), task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, completion: completion)
     }
 
     private func snapshotWithSkillCatalog(_ base: ScanSnapshot, projectPath: String) -> ScanSnapshot {
@@ -3712,7 +3727,8 @@ final class AppViewModel: NSObject {
         case .parallelAgents:
             return await launchParallelAgentsLoop(session: session, draft: draft, stopExistingActive: stopExistingActive)
         case .humanApproval:
-            return piAgentSessionStore.launchSmokeLoop(sessionID: session.id, projectPath: session.projectPath, draft: draft, stopExistingActive: stopExistingActive)
+            guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+            return piAgentSessionStore.launchSmokeLoop(sessionID: session.id, projectPath: projectPath, draft: draft, stopExistingActive: stopExistingActive)
         }
     }
 
@@ -3728,7 +3744,8 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func launchSingleAgentLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
-        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+        let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
         return await piAgentSessionStore.launchSingleAgentLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, agentName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
@@ -3768,7 +3785,8 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func launchDiscoveryTriageLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
-        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+        let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
         return await piAgentSessionStore.launchDiscoveryTriageLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, agentName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
@@ -3789,7 +3807,8 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func launchMakerCheckerLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
-        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+        let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
         return await piAgentSessionStore.launchMakerCheckerLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, roleName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
@@ -3810,7 +3829,8 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func launchAgentPipelineLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
-        let snapshot = startupSnapshot(forProjectPath: session.projectPath)
+        guard let projectPath = session.projectPathForProjectFeatures else { return nil }
+        let snapshot = startupSnapshot(forProjectPath: projectPath)
         let agentsByName = Dictionary(uniqueKeysWithValues: allDisplayAgents.map { ($0.name, $0) })
         return await piAgentSessionStore.launchAgentPipelineLoop(session: session, draft: draft, stopExistingActive: stopExistingActive) { [weak self] loopID, stageName, task, writeTarget, workingDirectory, requestedOutputPath in
             guard let self else { return nil }
@@ -3880,6 +3900,13 @@ final class AppViewModel: NSObject {
 
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
+        guard !parentSession.isNoProject, parentSession.projectPathForProjectFeatures != nil else {
+            let message = "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching a Deck agent."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
+            let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: message)
+            completion?(placeholder)
+            return placeholder
+        }
         do {
             return try await nativeSubagentRunner.runSingle(parentSession: parentSession, agent: agent, snapshot: snapshot, task: task, continueRunID: continueRunID, useWorktreeIsolation: useWorktreeIsolation, expectedOutcome: expectedOutcome, requestedOutputPath: requestedOutputPath, allowOverwrite: allowOverwrite, readFirstPaths: readFirstPaths, onCompletion: completion)
         } catch {
@@ -3891,6 +3918,12 @@ final class AppViewModel: NSObject {
     }
 
     private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, forcedExpectedOutcome: PiSubagentExpectedOutcome? = nil, loopID: UUID? = nil, completion: ((PiSubagentRunRecord) -> Void)?) async {
+        guard !parentSession.isNoProject, parentSession.projectPathForProjectFeatures != nil else {
+            let message = "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching Deck agents."
+            piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
+            completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: "Parallel", task: "Parallel Deck agent task(s)", error: message))
+            return
+        }
         let tasks = agentTasks.map { ($0.agentName.trimmingCharacters(in: .whitespacesAndNewlines), $0.task.trimmingCharacters(in: .whitespacesAndNewlines)) }.filter { !$0.0.isEmpty && !$0.1.isEmpty }
         guard !tasks.isEmpty else { return }
         let now = Date()
@@ -3984,7 +4017,8 @@ final class AppViewModel: NSObject {
             let trimmedPath = requestedOutputPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !trimmedPath.isEmpty else { return "Write/update project file requires a project-relative output path." }
             guard !trimmedPath.hasPrefix("/") && !trimmedPath.contains("..") else { return "Output path must be project-relative and cannot contain `..`." }
-            let rootURL = URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
+            guard let projectPath = parentSession.projectPathForProjectFeatures else { return "Write/update project file requires a project-backed session." }
+            let rootURL = URL(fileURLWithPath: parentSession.worktreePath ?? projectPath)
             let outputURL = rootURL.appendingPathComponent(trimmedPath).standardizedFileURL
             let rootPath = rootURL.standardizedFileURL.path.hasSuffix("/") ? rootURL.standardizedFileURL.path : rootURL.standardizedFileURL.path + "/"
             guard (outputURL.path + (outputURL.hasDirectoryPath ? "/" : "")).hasPrefix(rootPath) else { return "Output path must stay inside the project." }
@@ -4002,7 +4036,7 @@ final class AppViewModel: NSObject {
             model: nil, thinking: nil, expectedOutcome: worktreeIsolation ? .editFilesInWorktree : .reportOnly, requestedOutputPath: nil, allowOverwrite: false, tools: [], skills: [],
             concurrencyLimit: concurrency, worktreePolicy: worktreeIsolation ? "isolated-per-child" : "parent", aggregateSummary: nil,
             artifactDirectory: artifactDirectory.path, outputPath: artifactDirectory.appendingPathComponent("summary.md").path,
-            worktreePath: nil, parentRepoPath: parentSession.worktreePath ?? parentSession.projectPath, baseCommit: nil,
+            worktreePath: nil, parentRepoPath: parentSession.worktreePath ?? parentSession.projectPathForProjectFeatures, baseCommit: nil,
             isWorktreeIsolated: false, worktreeStatus: PiSubagentWorktreeStatus.none, worktreePatchPath: nil,
             childSessionID: nil, childPiSessionFile: nil, launchCommand: nil, summary: nil, error: nil,
             child: nil, children: children, graphEdges: edges, injectedMemoryIDs: nil, injectedMemoryTitles: nil, createdAt: Date(), updatedAt: Date(), completedAt: nil, durationMs: nil
@@ -4304,7 +4338,9 @@ final class AppViewModel: NSObject {
             resolved = Set(agent.resolved.mcpServers ?? [])
         } else {
             var names = appSettings.defaultMcpServerNames
-            names.formUnion(projectPreference(for: session.projectPath).assignedMcpServerNames)
+            if let projectPath = session.projectPathForProjectFeatures {
+                names.formUnion(projectPreference(for: projectPath).assignedMcpServerNames)
+            }
             resolved = names
         }
         return resolved.intersection(mcpConfiguredServerNames)
@@ -4317,10 +4353,11 @@ final class AppViewModel: NSObject {
     /// (e.g. an Xcode MCP) is excluded here, so it is never connected and never prompts.
     private func assignedMCPServerNames(forProjectPath projectPath: String?) -> Set<String> {
         var names = appSettings.defaultMcpServerNames
-        if let projectPath {
-            names.formUnion(projectPreference(for: projectPath).assignedMcpServerNames)
+        let scopedProjectPath = projectPath?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        if let scopedProjectPath {
+            names.formUnion(projectPreference(for: scopedProjectPath).assignedMcpServerNames)
         }
-        let agents = projectPath.flatMap { allProjectSnapshots[$0]?.effectiveAgents } ?? globalSnapshot.effectiveAgents
+        let agents = scopedProjectPath.flatMap { allProjectSnapshots[$0]?.effectiveAgents } ?? globalSnapshot.effectiveAgents
         for agent in agents { names.formUnion(agent.resolved.mcpServers ?? []) }
         return names.intersection(mcpConfiguredServerNames)
     }
@@ -4376,7 +4413,7 @@ final class AppViewModel: NSObject {
     private func mcpCatalogPrompt(for session: PiAgentSessionRecord) async -> String? {
         guard appSettings.mcpEnabled else { return nil }
         let scope = assignedMCPServerNames(for: session)
-        let entries = await mcpCatalogEntries(forScope: scope, projectPath: session.projectPath)
+        let entries = await mcpCatalogEntries(forScope: scope, projectPath: session.projectPathForProjectFeatures)
         return mcpCatalogPrompt(fromEntries: entries)
     }
 
@@ -4400,9 +4437,10 @@ final class AppViewModel: NSObject {
     private func subagentMCPScope(parentSessionID: UUID, agentName: String?) -> Set<String> {
         guard let agentName,
               let parent = piAgentSessionStore.sessions.first(where: { $0.id == parentSessionID }) else { return [] }
-        let agent = (allProjectSnapshots[parent.projectPath]?.effectiveAgents ?? globalSnapshot.effectiveAgents)
+        let projectPath = parent.projectPathForProjectFeatures
+        let agent = (projectPath.flatMap { allProjectSnapshots[$0]?.effectiveAgents } ?? globalSnapshot.effectiveAgents)
             .first { $0.name == agentName }
-            ?? selectableAgentUniverse(forProjectPath: parent.projectPath).first { $0.name == agentName }
+            ?? projectPath.flatMap { selectableAgentUniverse(forProjectPath: $0).first { $0.name == agentName } }
         return Set(agent?.resolved.mcpServers ?? []).intersection(mcpConfiguredServerNames)
     }
 
@@ -4413,7 +4451,7 @@ final class AppViewModel: NSObject {
     private func childMCPArguments(for parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord) async -> [String] {
         guard appSettings.mcpEnabled else { return [] }
         let scope = Set(agent.resolved.mcpServers ?? []).intersection(mcpConfiguredServerNames)
-        let entries = await mcpCatalogEntries(forScope: scope, projectPath: parentSession.projectPath)
+        let entries = await mcpCatalogEntries(forScope: scope, projectPath: parentSession.projectPathForProjectFeatures)
         guard let catalog = mcpCatalogPrompt(fromEntries: entries), !catalog.isEmpty,
               let mcpURL = try? PiNativeSubagentBridgeExtensions.mcpExtensionURL() else { return [] }
         return ["--extension", mcpURL.path, "--append-system-prompt", catalog]
@@ -6621,9 +6659,10 @@ final class AppViewModel: NSObject {
     private func childMemoryLaunchContext(for parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, task: String) async -> PiSubagentMemoryLaunchContext {
         guard appSettings.agentMemoryEnabled, appSettings.agentMemorySubagentsEnabled else { return .empty }
         let query = [agent.name, agent.resolved.description, task].joined(separator: "\n")
-        var prompts = [agentMemoryGuidancePrompt(projectPath: parentSession.projectPath, isSubagent: true)]
+        let projectPath = parentSession.projectPathForProjectFeatures
+        var prompts = [agentMemoryGuidancePrompt(projectPath: projectPath, isSubagent: true)]
         guard let retrieval = await agentMemoryStore.retrieve(
-            projectPath: parentSession.projectPath,
+            projectPath: projectPath,
             query: query,
             maxItems: 4,
             maxCharacters: min(appSettings.agentMemoryInjectionCharacterBudget, 3_500)
@@ -7104,20 +7143,22 @@ final class AppViewModel: NSObject {
     /// transcript error.
     func boundAgent(for session: PiAgentSessionRecord) -> EffectiveAgentRecord? {
         guard session.isAgentBound, let name = session.agentName else { return nil }
-        if let scoped = allProjectSnapshots[session.projectPath]?.effectiveAgents.first(where: { $0.name == name }) {
+        let projectPath = session.projectPathForProjectFeatures
+        if let scoped = projectPath.flatMap({ allProjectSnapshots[$0]?.effectiveAgents.first(where: { $0.name == name }) }) {
             return scoped
         }
         if let global = globalSnapshot.effectiveAgents.first(where: { $0.name == name }) {
             return global
         }
-        return selectableAgentUniverse(forProjectPath: session.projectPath).first { $0.name == name }
+        return projectPath.flatMap { selectableAgentUniverse(forProjectPath: $0).first { $0.name == name } }
     }
 
     /// Skill argument list (`--skill <name=path>` pairs) for a 1:1 agent chat.
     /// Reuses the subagent runner's resolver so the agent sees the same skill
     /// universe it would as a delegated child.
     func boundAgentSkillArguments(for agent: EffectiveAgentRecord) throws -> [String] {
-        let snap = startupSnapshot(forProjectPath: agent.projectRoot ?? snapshot.projectRoot ?? "")
+        let projectPath = agent.projectRoot ?? snapshot.projectRoot
+        let snap = projectPath.map { startupSnapshot(forProjectPath: $0) } ?? globalSnapshot
         return try childSkillArguments(for: agent, snapshot: snap)
     }
 
@@ -7198,6 +7239,8 @@ final class AppViewModel: NSObject {
     }
 
     func selectableAgentUniverse(forProjectPath path: String) -> [EffectiveAgentRecord] {
+        let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return [] }
         if let cached = agentUniverseCacheByProjectPath[path] {
             return cached
         }
@@ -7228,12 +7271,13 @@ final class AppViewModel: NSObject {
     /// an explicit selection is resolved against the full universe so an agent
     /// not assigned to the project can still be included.
     func catalogAgents(for session: PiAgentSessionRecord) -> [EffectiveAgentRecord] {
+        guard !session.isNoProject, let projectPath = session.projectPathForProjectFeatures else { return [] }
         let agents: [EffectiveAgentRecord]
         if let selection = session.agentSelection {
-            agents = selectableAgentUniverse(forProjectPath: session.projectPath)
+            agents = selectableAgentUniverse(forProjectPath: projectPath)
                 .filter { selection.contains($0.name) }
         } else {
-            agents = startupSnapshot(forProjectPath: session.projectPath).effectiveAgents
+            agents = startupSnapshot(forProjectPath: projectPath).effectiveAgents
         }
         var seen = Set<String>()
         return agents.filter { $0.resolved.disabled != true && seen.insert($0.name).inserted }
@@ -7244,11 +7288,12 @@ final class AppViewModel: NSObject {
     /// immediately, so the broader global/imported catalog lookup only runs in
     /// the rare case where the project has no usable effective agents at all.
     func sessionHasSelectableAgents(_ session: PiAgentSessionRecord) -> Bool {
-        if startupSnapshot(forProjectPath: session.projectPath)
+        guard !session.isNoProject, let projectPath = session.projectPathForProjectFeatures else { return false }
+        if startupSnapshot(forProjectPath: projectPath)
             .effectiveAgents.contains(where: { $0.resolved.disabled != true }) {
             return true
         }
-        return selectableAgentUniverse(forProjectPath: session.projectPath)
+        return selectableAgentUniverse(forProjectPath: projectPath)
             .contains { $0.resolved.disabled != true }
     }
 
@@ -7374,6 +7419,8 @@ final class AppViewModel: NSObject {
     }
 
     func startupSnapshot(forProjectPath path: String) -> ScanSnapshot {
+        let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return globalSnapshot }
         guard let projectSnapshot = allProjectSnapshots[path] else { return snapshot }
         return scopedStartupSnapshot(projectSnapshot: projectSnapshot)
     }
@@ -9373,8 +9420,9 @@ final class AppViewModel: NSObject {
     /// `parentSkillArguments` launches the orchestrator with — the single source
     /// of truth shared by the composer `/` browser's `isActive` flag and the
     /// session-resources popover, so neither recomputes it independently.
-    func activeParentSkillNames(forProjectPath projectPath: String?) -> Set<String> {
-        let path = projectPath ?? selectedProjectPath
+    func activeParentSkillNames(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> Set<String> {
+        let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
+        let path = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         var directNames = appSettings.defaultSkillNames
         var collectionIDs = appSettings.defaultSkillCollectionIDs
         if let path {
@@ -9392,7 +9440,7 @@ final class AppViewModel: NSObject {
     /// `projectPath` — the active names above, resolved against the same
     /// disabled-bundled-filtered catalog the launch path uses, deduped by name.
     func activeParentSkills(forProjectPath projectPath: String?) -> [SkillRecord] {
-        let scopedPath = projectPath ?? selectedProjectPath
+        let scopedPath = (projectPath ?? selectedProjectPath)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         let activeNames = activeParentSkillNames(forProjectPath: scopedPath)
         let catalog: [SkillRecord]
         if let path = scopedPath {
@@ -9409,9 +9457,10 @@ final class AppViewModel: NSObject {
 
     /// Prompt-template analogue of `activeParentSkillNames`: the templates the
     /// parent session is launched with (`parentPromptTemplateArguments`).
-    func activeParentPromptTemplateNames(forProjectPath projectPath: String?) -> Set<String> {
+    func activeParentPromptTemplateNames(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> Set<String> {
         var names = appSettings.defaultPromptTemplateNames
-        if let path = projectPath ?? selectedProjectPath {
+        let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
+        if let path = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
             names.formUnion(projectPreference(for: path).assignedPromptTemplateNames)
         }
         return names
@@ -9421,7 +9470,7 @@ final class AppViewModel: NSObject {
     /// session for `projectPath`, deduped by name. Shared by the `/` browser's
     /// `isActive` flag and the session-resources popover.
     func activeParentPromptTemplates(forProjectPath projectPath: String?) -> [PromptTemplateRecord] {
-        let scopedPath = projectPath ?? selectedProjectPath
+        let scopedPath = (projectPath ?? selectedProjectPath)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         let activeNames = activeParentPromptTemplateNames(forProjectPath: scopedPath)
         let catalog: [PromptTemplateRecord]
         if let path = scopedPath {
@@ -9553,8 +9602,9 @@ final class AppViewModel: NSObject {
     /// Materializes the full universe of Skills, Prompts, Commands, and Loops the
     /// composer's `/` browser can show. Build once when the panel opens and hold
     /// the result in `@State` — never call inside a SwiftUI `body`.
-    func slashUniverse(forProjectPath projectPath: String?) -> SlashUniverse {
-        let scopedPath = projectPath ?? selectedProjectPath
+    func slashUniverse(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> SlashUniverse {
+        let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
+        let scopedPath = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
 
         // Skills
         let catalogSkillRecords: [SkillRecord]
@@ -9564,7 +9614,7 @@ final class AppViewModel: NSObject {
             var seen = Set<String>()
             catalogSkillRecords = (globalSnapshot.skills + globalSnapshot.librarySkills).filter { seen.insert($0.id).inserted }
         }
-        let activeSkillNames = activeParentSkillNames(forProjectPath: scopedPath)
+        let activeSkillNames = activeParentSkillNames(forProjectPath: scopedPath, useSelectedProjectFallback: false)
         let activeCollectionIDs = appSettings.defaultSkillCollectionIDs.union(scopedPath.map { projectPreference(for: $0).assignedSkillCollectionIDs } ?? [])
         let disabledBundledSkillNames = appSettings.disabledBundledSkillNames
         var seenSkillName = Set<String>()
@@ -9615,7 +9665,7 @@ final class AppViewModel: NSObject {
         } else {
             promptRecords = allVisiblePromptTemplateRecords
         }
-        let activePromptNames = activeParentPromptTemplateNames(forProjectPath: scopedPath)
+        let activePromptNames = activeParentPromptTemplateNames(forProjectPath: scopedPath, useSelectedProjectFallback: false)
         let disabledBundledPromptNames = appSettings.disabledBundledPromptNames
         var seenPromptName = Set<String>()
         let prompts = promptRecords

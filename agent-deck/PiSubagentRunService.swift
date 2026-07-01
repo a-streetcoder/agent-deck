@@ -62,6 +62,7 @@ final class PiSubagentRunService {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTask.isEmpty else { throw NativeSubagentError.emptyTask }
         guard agent.resolved.disabled != true else { throw NativeSubagentError.disabledAgent(agent.name) }
+        guard let parentProjectPath = parentSession.projectPathForProjectFeatures else { throw NativeSubagentError.noProjectUnavailable }
 
         let now = Date()
         let continuingRun = try continuableRun(parentSessionID: parentSession.id, runID: continueRunID)
@@ -73,9 +74,9 @@ final class PiSubagentRunService {
         let missingSkillNames: [String] = []
         let worktreeURL = isContinuation ? nil : (useWorktreeIsolation ? try await createWorktree(for: parentSession, artifactDirectory: artifactDirectory) : nil)
         let resolvedBaseCommit: String? = useWorktreeIsolation
-            ? await currentCommit(in: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
+            ? await currentCommit(in: URL(fileURLWithPath: parentSession.worktreePath ?? parentProjectPath))
             : nil
-        let childProjectURL = worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath)
+        let childProjectURL = worktreeURL ?? URL(fileURLWithPath: parentSession.worktreePath ?? parentProjectPath)
         let environment = EnvRuntimeEnvironment().environment(
             projectRoot: childProjectURL,
             extra: [
@@ -163,7 +164,7 @@ final class PiSubagentRunService {
         let modelArgument = modelSelection.modelArgument
         let modelDisplayName = modelSelection.displayName
         let tools = displayTools(for: agent, includeSupervisorTool: bridgeWarnings.isEmpty, includeMemoryTools: memoryExtensionURL != nil, includeMCPTool: !mcpArguments.isEmpty)
-        let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentSession.projectPath))
+        let resolvedReadFirstPaths = sanitizedReadFirstPaths(agentReads: agent.resolved.defaultReads ?? [], requestReads: readFirstPaths, projectRoot: URL(fileURLWithPath: parentSession.worktreePath ?? parentProjectPath))
         try childInput(agent: agent, task: trimmedTask, readFirstPaths: resolvedReadFirstPaths).write(
             to: artifactDirectory.appendingPathComponent("input.md"),
             atomically: true,
@@ -191,7 +192,7 @@ final class PiSubagentRunService {
             artifactDirectory: artifactDirectory.path,
             outputPath: artifactDirectory.appendingPathComponent("output.md").path,
             worktreePath: worktreeURL?.path ?? parentSession.worktreePath,
-            parentRepoPath: parentSession.worktreePath ?? parentSession.projectPath,
+            parentRepoPath: parentSession.worktreePath ?? parentProjectPath,
             baseCommit: resolvedBaseCommit,
             isWorktreeIsolated: useWorktreeIsolation,
             worktreeStatus: useWorktreeIsolation ? .active : PiSubagentWorktreeStatus.none,
@@ -259,7 +260,7 @@ final class PiSubagentRunService {
             run.worktreePolicy = "parent"
             run.outputPath = artifactDirectory.appendingPathComponent("output.md").path
             run.worktreePath = parentSession.worktreePath
-            run.parentRepoPath = parentSession.worktreePath ?? parentSession.projectPath
+            run.parentRepoPath = parentSession.worktreePath ?? parentProjectPath
             run.launchCommand = nil
             run.summary = nil
             run.error = diagnosticMessages.isEmpty ? nil : diagnosticMessages.joined(separator: "\n")
@@ -819,7 +820,8 @@ final class PiSubagentRunService {
 
     private func createWorktree(for parentSession: PiAgentSessionRecord, artifactDirectory: URL) async throws -> URL {
         let worktreeURL = artifactDirectory.appendingPathComponent("worktree", isDirectory: true)
-        let projectPath = parentSession.worktreePath ?? parentSession.projectPath
+        guard let parentProjectPath = parentSession.projectPathForProjectFeatures else { throw NativeSubagentError.noProjectUnavailable }
+        let projectPath = parentSession.worktreePath ?? parentProjectPath
         let result: (stdout: String, stderr: String, exitCode: Int32)
         do {
             result = try await Self.runGitDetached(arguments: ["-C", projectPath, "worktree", "add", "--detach", worktreeURL.path, "HEAD"], timeout: 30)
@@ -1379,6 +1381,7 @@ private struct ResolvedSkillBlock: Hashable {
 private enum NativeSubagentError: LocalizedError {
     case emptyTask
     case disabledAgent(String)
+    case noProjectUnavailable
     case worktreeFailed(String)
     case continuationUnavailable(String)
 
@@ -1388,6 +1391,8 @@ private enum NativeSubagentError: LocalizedError {
             return "Enter a task before running a Deck agent."
         case let .disabledAgent(name):
             return "Agent \(name) is disabled."
+        case .noProjectUnavailable:
+            return "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching a Deck agent."
         case let .worktreeFailed(message):
             return "Could not create Deck agent worktree: \(message)"
         case let .continuationUnavailable(message):

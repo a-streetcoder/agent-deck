@@ -6769,10 +6769,13 @@ struct PiAgentScreen: View {
 
         if isSlashActive && !lastSlashTriggerActive {
             let projectPath: String?
+            let useSelectedProjectFallback: Bool
             if let session = store.selectedSession {
                 projectPath = session.projectPathForProjectFeatures
+                useSelectedProjectFallback = false
             } else {
                 projectPath = viewModel.selectedProjectPath
+                useSelectedProjectFallback = true
             }
 #if DEBUG
             SlashDebugLog.write("slash.lifecycle.enter", [
@@ -6782,7 +6785,7 @@ struct PiAgentScreen: View {
             SlashDebugLog.write("slash.universe.build.start", ["projectPath": projectPath])
             let buildStart = Date()
 #endif
-            slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath)
+            slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath, useSelectedProjectFallback: useSelectedProjectFallback)
 #if DEBUG
             let durationMS = Date().timeIntervalSince(buildStart) * 1000
             SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
@@ -7811,10 +7814,13 @@ private struct PiAgentComposerPanel: View {
 
         if isSlashActive && !lastSlashTriggerActive {
             let projectPath: String?
+            let useSelectedProjectFallback: Bool
             if let session = store.selectedSession {
                 projectPath = session.projectPathForProjectFeatures
+                useSelectedProjectFallback = false
             } else {
                 projectPath = viewModel.selectedProjectPath
+                useSelectedProjectFallback = true
             }
 #if DEBUG
             SlashDebugLog.write("slash.lifecycle.enter", [
@@ -7824,7 +7830,7 @@ private struct PiAgentComposerPanel: View {
             SlashDebugLog.write("slash.universe.build.start", ["projectPath": projectPath])
             let buildStart = Date()
 #endif
-            slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath)
+            slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath, useSelectedProjectFallback: useSelectedProjectFallback)
 #if DEBUG
             let durationMS = Date().timeIntervalSince(buildStart) * 1000
             SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))

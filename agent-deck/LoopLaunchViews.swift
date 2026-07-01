@@ -497,10 +497,10 @@ struct LoopLaunchSheet: View {
                         Label("Assign fixable agents", systemImage: "plus.circle")
                     }
                     .appTintedSecondaryButton(.orange)
-                    .disabled(session.projectPath.isEmpty || assignablePreflightAgentNames.isEmpty)
+                    .disabled(session.projectPathForProjectFeatures == nil || assignablePreflightAgentNames.isEmpty)
                     .help(assignablePreflightAgentNames.isEmpty ? "No unassigned existing agents can be fixed automatically." : "Assign existing unassigned agents to the current project")
 
-                    if session.projectPath.isEmpty {
+                    if session.projectPathForProjectFeatures == nil {
                         Text("No project path available.")
                             .font(AppTheme.Font.caption2)
                             .foregroundStyle(AppTheme.mutedText)
@@ -659,7 +659,7 @@ struct LoopLaunchSheet: View {
                     }
                     Toggle("Available only in this project", isOn: $saveForCurrentProjectOnly)
                         .appSwitch()
-                        .disabled(session.projectPath.isEmpty)
+                        .disabled(session.projectPathForProjectFeatures == nil)
                 }
             }
         }
@@ -711,7 +711,7 @@ struct LoopLaunchSheet: View {
                 Label("Direct write target: this loop may edit files in the current checkout.", systemImage: "exclamationmark.triangle.fill")
                     .font(AppTheme.Font.caption.weight(.semibold))
                     .foregroundStyle(.orange)
-                Text("Resolved path: \(session.projectPath.isEmpty ? "Unavailable" : session.projectPath)")
+                Text("Resolved path: \(session.projectPathForProjectFeatures ?? "Unavailable")")
                     .font(AppTheme.Font.caption)
                     .foregroundStyle(AppTheme.mutedText)
                     .textSelection(.enabled)
@@ -723,7 +723,7 @@ struct LoopLaunchSheet: View {
 
     private func makeSaveRequest() -> LoopSaveRequest? {
         guard saveToLoopBank else { return nil }
-        let currentProjectPaths = (saveForCurrentProjectOnly && !session.projectPath.isEmpty) ? [session.projectPath] : []
+        let currentProjectPaths = (saveForCurrentProjectOnly ? session.projectPathForProjectFeatures.map { [$0] } : nil) ?? []
         return LoopSaveRequest(
             name: saveName,
             description: saveDescription,

@@ -151,7 +151,7 @@ private func piAgentMergeAlertMessage(viewModel: AppViewModel) -> String {
           let source = session.sourceBranch else {
         return "Merge the session branch into its source branch."
     }
-    let repoName = URL(fileURLWithPath: session.projectPath, isDirectory: true).lastPathComponent
+    let repoName = session.projectPathForProjectFeatures.map { URL(fileURLWithPath: $0, isDirectory: true).lastPathComponent } ?? PiAgentSessionRecord.noProjectDisplayName
     return """
     Repository: \(repoName)
     Source branch: \(source)
