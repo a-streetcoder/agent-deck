@@ -13,6 +13,11 @@
 #   VERSION=<from MARKETING_VERSION in pbxproj>
 #   APP_NAME="Agent Deck"
 #   VOLUME_NAME="Agent Deck"
+#   BUILD_NUMBER=<current project build number>
+#   SU_FEED_URL=https://agentdeck.site/appcast.xml
+#   ALLOW_NON_PRODUCTION_FEED=0
+#
+# Set ALLOW_NON_PRODUCTION_FEED=1 only for local update testing.
 #
 # Output: $BUILD_DIR/Agent-Deck-<VERSION>.dmg (path printed on stdout)
 #
@@ -64,6 +69,23 @@ if [[ -z "${VERSION:-}" ]]; then
 fi
 
 DMG_PATH="$BUILD_DIR/Agent-Deck-${VERSION}.dmg"
+DEFAULT_SU_FEED_URL="https://agentdeck.site/appcast.xml"
+
+if [[ "${SU_FEED_URL:-$DEFAULT_SU_FEED_URL}" != "$DEFAULT_SU_FEED_URL" && "${ALLOW_NON_PRODUCTION_FEED:-0}" != "1" ]]; then
+  echo "Refusing to package with non-production SU_FEED_URL=${SU_FEED_URL}." >&2
+  echo "Set ALLOW_NON_PRODUCTION_FEED=1 only for local update testing." >&2
+  exit 2
+fi
+
+XCODEBUILD_OVERRIDES=(
+  "MARKETING_VERSION=$VERSION"
+  "CODE_SIGN_IDENTITY=$DEVELOPER_ID_APPLICATION"
+  "ENABLE_HARDENED_RUNTIME=YES"
+  "OTHER_CODE_SIGN_FLAGS=--timestamp"
+)
+if [[ -n "${BUILD_NUMBER:-}" ]]; then
+  XCODEBUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
+fi
 
 mkdir -p "$BUILD_DIR"
 rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH" "$DMG_PATH"
@@ -73,9 +95,7 @@ xcodebuild archive \
   -scheme "$SCHEME" \
   -configuration "$CONFIGURATION" \
   -archivePath "$ARCHIVE_PATH" \
-  CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
-  ENABLE_HARDENED_RUNTIME=YES \
-  OTHER_CODE_SIGN_FLAGS="--timestamp"
+  "${XCODEBUILD_OVERRIDES[@]}"
 
 EXPORT_OPTIONS="$BUILD_DIR/ExportOptions.plist"
 cat > "$EXPORT_OPTIONS" <<PLIST
@@ -101,6 +121,13 @@ xcodebuild -exportArchive \
 APP_PATH="$EXPORT_PATH/$APP_NAME.app"
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Expected exported app at $APP_PATH" >&2
+  exit 2
+fi
+
+EXPECTED_SU_FEED_URL="${SU_FEED_URL:-$DEFAULT_SU_FEED_URL}"
+ACTUAL_SU_FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+if [[ "$ACTUAL_SU_FEED_URL" != "$EXPECTED_SU_FEED_URL" ]]; then
+  echo "Expected SUFeedURL=$EXPECTED_SU_FEED_URL, found ${ACTUAL_SU_FEED_URL:-<missing>} in $APP_PATH." >&2
   exit 2
 fi
 

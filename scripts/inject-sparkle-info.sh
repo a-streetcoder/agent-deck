@@ -33,7 +33,7 @@ fi
 
 # Keep this list in sync with the in-app Sparkle setup. Update the public
 # key if you ever rotate the Sparkle EdDSA keypair.
-SU_FEED_URL="https://agentdeck.site/appcast.xml"
+SU_FEED_URL="${SU_FEED_URL:-https://agentdeck.site/appcast.xml}"
 SU_PUBLIC_ED_KEY="CWncStYBPVugWOxjexH1nhbtMiUedfr62Zq/Colmf6U="
 SU_AUTOMATIC_CHECKS="YES"
 SU_CHECK_INTERVAL=86400   # once a day
