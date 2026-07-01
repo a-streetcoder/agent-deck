@@ -192,7 +192,7 @@ struct MCPServersScreen: View {
     private func rowStatus(_ entry: MCPServerEntry) -> some View {
         switch statusByServer[entry.name] {
         case .probing: AppSpinner().controlSize(.small)
-        case let .ok(tools): Text("\(tools.count)").font(.caption.weight(.semibold)).foregroundStyle(.green)
+        case .ok: EmptyView()
         case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
         case nil: EmptyView()
         }
