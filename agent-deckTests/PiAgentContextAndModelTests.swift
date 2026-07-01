@@ -195,6 +195,7 @@ google-vertex gemini-2.5-pro 1M 64K yes yes
 }
 
 final class PiProviderCatalogServiceTests: XCTestCase {
+    @MainActor
     func testConnectableProvidersMergeFallbacksWhenLoadedListIsPartial() async {
         let runner = FakeModelDiscoveryCommandRunner(
             listOutput: "",

@@ -217,7 +217,7 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         var hidden = PiAgentTranscriptVisibilitySettings()
         hidden.showThinking = false
         let merged = PiAgentTranscriptThreadCard.visibleChildren(
-            of: thread, visibility: hidden, nativeSubagentRunsByID: [:]
+            of: thread, visibility: hidden, nativeSubagentRunsByID: [:], projectPath: nil
         )
         XCTAssertEqual(merged.count, 1, "Hidden thinking must not fragment the diff cards.")
         guard case .toolGroup(let group)? = merged.first else {
@@ -236,7 +236,7 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         var shown = PiAgentTranscriptVisibilitySettings()
         shown.showThinking = true
         let split = PiAgentTranscriptThreadCard.visibleChildren(
-            of: thread, visibility: shown, nativeSubagentRunsByID: [:]
+            of: thread, visibility: shown, nativeSubagentRunsByID: [:], projectPath: nil
         )
         XCTAssertEqual(split.count, 3, "A visible thinking block must keep the diff cards separate.")
     }
@@ -351,14 +351,14 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         var mcpOff = PiAgentTranscriptVisibilitySettings()
         mcpOff.showMCPCards = false
         XCTAssertNil(NativeToolGroupModel.make(group: group, visibility: mcpOff, projectPath: nil)?.mcp)
-        XCTAssertTrue(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(group, visibility: .init()))
+        XCTAssertTrue(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(group, visibility: .init(), projectPath: nil))
         // Read alone isn't a diff/web/mcp section, so with mcp off the group hides.
         let mcpOnlyGroup = PiAgentThreadToolGroup(
             id: listStories.id,
             entries: [listStories, pipeline],
             activities: PiAgentTranscriptActivity.make(from: [listStories, pipeline])
         )
-        XCTAssertFalse(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(mcpOnlyGroup, visibility: mcpOff))
+        XCTAssertFalse(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(mcpOnlyGroup, visibility: mcpOff, projectPath: nil))
 
         // MCP is excluded from the generic tool-call recap (only Read remains)...
         let toolRecap = NativeToolGroupModel.toolCallRecap(from: entries)
@@ -384,7 +384,7 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
             activities: PiAgentTranscriptActivity.make(from: [listOnly])
         )
         XCTAssertFalse(listGroup.activities.first?.hasMCPCall ?? true)
-        XCTAssertFalse(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(listGroup, visibility: .init()))
+        XCTAssertFalse(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(listGroup, visibility: .init(), projectPath: nil))
         XCTAssertNil(NativeToolGroupModel.make(group: listGroup, visibility: .init(), projectPath: nil))
     }
 
