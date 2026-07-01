@@ -499,11 +499,11 @@ struct PiAgentSlashSelectionChip: View {
         switch item.payload {
         case .command(let slashName, _):
             return slashName.hasPrefix("/") ? String(slashName.dropFirst()) : slashName
-        case .prompt(let name, _):
+        case .prompt(let name, _, _, _):
             return name
-        case .skill(let name, _):
+        case .skill(let name, _, _, _):
             return name
-        case .skillCollection(let name, _):
+        case .skillCollection(_, let name, _):
             return name
         case .loopCreateNew:
             return "Create New Loop"

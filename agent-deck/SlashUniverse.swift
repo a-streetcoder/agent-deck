@@ -17,9 +17,9 @@ nonisolated struct SlashItem: Identifiable, Hashable, Sendable {
     let payload: Payload
 
     enum Payload: Hashable, Sendable {
-        case skill(name: String, body: String)
-        case skillCollection(name: String, body: String)
-        case prompt(name: String, body: String)
+        case skill(name: String, body: String, filePath: String?, recordID: String?)
+        case skillCollection(id: UUID, name: String, body: String)
+        case prompt(name: String, body: String, filePath: String?, recordID: String?)
         case command(slashName: String, commandID: String)
         case loopCreateNew
         case loopDefinition(LoopDefinition)
@@ -64,13 +64,13 @@ extension SlashItem {
         switch payload {
         case .command(let slashName, _):
             return trimmed.isEmpty ? slashName : "\(slashName) \(trimmed)"
-        case .skill(let name, let body):
+        case .skill(let name, let body, _, _):
             if isActive {
                 return trimmed.isEmpty ? "/skill:\(name)" : "/skill:\(name)\n\(trimmed)"
             }
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(trimmed)"
-        case .skillCollection(_, let body):
+        case .skillCollection(_, _, let body):
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(trimmed)"
         case .prompt:
@@ -89,7 +89,7 @@ extension SlashItem {
             return trimmed
         case .skill, .skillCollection:
             return trimmed
-        case .prompt(_, let body):
+        case .prompt(_, let body, _, _):
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed == trimmedBody { return "" }
             if trimmed.hasPrefix(trimmedBody) {
@@ -106,7 +106,7 @@ extension SlashItem {
         if displayName.lowercased().contains(lowercasedQuery) { return true }
         if let description, description.lowercased().contains(lowercasedQuery) { return true }
         if case .command(let slashName, _) = payload, slashName.lowercased().contains(lowercasedQuery) { return true }
-        if case .skillCollection(let name, let body) = payload {
+        if case .skillCollection(_, let name, let body) = payload {
             if name.lowercased().contains(lowercasedQuery) { return true }
             if body.lowercased().contains(lowercasedQuery) { return true }
         }

@@ -6712,7 +6712,9 @@ struct PiAgentScreen: View {
         }
         composerText = composerText.trimmingCharacters(in: .whitespaces)
 
-        switch item.payload {
+        let currentItem = viewModel.refreshedSlashItemForUse(item, projectPath: store.selectedSession?.projectPathForProjectFeatures)
+
+        switch currentItem.payload {
         case .loopCreateNew:
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
@@ -6743,9 +6745,8 @@ struct PiAgentScreen: View {
                 composerSuggestionsDismissed = true
                 return
             }
-            let currentDefinition = viewModel.loopDefinitionForLaunch(definition)
-            loopLaunchDraft = currentDefinition.makeDraft()
-            loopLaunchDefinition = currentDefinition
+            loopLaunchDraft = definition.makeDraft()
+            loopLaunchDefinition = definition
             slashSelection = nil
             slashState = SlashSuggestionState()
             slashUniverse = .empty
@@ -6759,12 +6760,12 @@ struct PiAgentScreen: View {
         // For prompts, seed the editor with the body so the user can edit
         // before sending. Commands and skills leave the editor alone — any
         // text the user types becomes the args / message body.
-        if case .prompt(_, let body) = item.payload {
+        if case .prompt(_, let body, _, _) = currentItem.payload {
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             composerText = composerText.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(composerText)"
         }
 
-        slashSelection = item
+        slashSelection = currentItem
         slashState = SlashSuggestionState()
         composerSuggestionsDismissed = true
     }
@@ -7091,9 +7092,13 @@ struct PiAgentScreen: View {
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let baseMessage = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseTranscript = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let message = slashSelection?.materialize(userText: baseMessage) ?? baseMessage
-        let transcriptMessage = slashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
-        let titleSource = slashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
+        let currentSlashSelection = slashSelection.map { item in
+            if case .prompt = item.payload { return item }
+            return viewModel.refreshedSlashItemForUse(item, projectPath: store.selectedSession?.projectPathForProjectFeatures)
+        }
+        let message = currentSlashSelection?.materialize(userText: baseMessage) ?? baseMessage
+        let transcriptMessage = currentSlashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
+        let titleSource = currentSlashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }
@@ -7768,7 +7773,9 @@ private struct PiAgentComposerPanel: View {
         }
         composerText = composerText.trimmingCharacters(in: .whitespaces)
 
-        switch item.payload {
+        let currentItem = viewModel.refreshedSlashItemForUse(item, projectPath: store.selectedSession?.projectPathForProjectFeatures)
+
+        switch currentItem.payload {
         case .loopCreateNew:
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
@@ -7799,9 +7806,8 @@ private struct PiAgentComposerPanel: View {
                 composerSuggestionsDismissed = true
                 return
             }
-            let currentDefinition = viewModel.loopDefinitionForLaunch(definition)
-            loopLaunchDraft = currentDefinition.makeDraft()
-            loopLaunchDefinition = currentDefinition
+            loopLaunchDraft = definition.makeDraft()
+            loopLaunchDefinition = definition
             slashSelection = nil
             slashState = SlashSuggestionState()
             slashUniverse = .empty
@@ -7815,12 +7821,12 @@ private struct PiAgentComposerPanel: View {
         // For prompts, seed the editor with the body so the user can edit
         // before sending. Commands and skills leave the editor alone — any
         // text the user types becomes the args / message body.
-        if case .prompt(_, let body) = item.payload {
+        if case .prompt(_, let body, _, _) = currentItem.payload {
             let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
             composerText = composerText.isEmpty ? trimmedBody : "\(trimmedBody)\n\n\(composerText)"
         }
 
-        slashSelection = item
+        slashSelection = currentItem
         slashState = SlashSuggestionState()
         composerSuggestionsDismissed = true
     }
@@ -8070,9 +8076,13 @@ private struct PiAgentComposerPanel: View {
         let expandedComposerText = PiAgentPasteMarkerCodec.expandMarkers(in: composerText, attachments: activePasteAttachments)
         let baseMessage = expandedComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseTranscript = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let message = slashSelection?.materialize(userText: baseMessage) ?? baseMessage
-        let transcriptMessage = slashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
-        let titleSource = slashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
+        let currentSlashSelection = slashSelection.map { item in
+            if case .prompt = item.payload { return item }
+            return viewModel.refreshedSlashItemForUse(item, projectPath: store.selectedSession?.projectPathForProjectFeatures)
+        }
+        let message = currentSlashSelection?.materialize(userText: baseMessage) ?? baseMessage
+        let transcriptMessage = currentSlashSelection?.materialize(userText: baseTranscript) ?? baseTranscript
+        let titleSource = currentSlashSelection?.titleGenerationSource(userText: baseTranscript) ?? baseTranscript
         guard !message.isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil else { return }
         guard store.selectedSession?.isCompacting != true else { return }
         guard let payload = attachedFilePayload() else { return }

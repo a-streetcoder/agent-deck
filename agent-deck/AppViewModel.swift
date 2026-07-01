@@ -9629,6 +9629,54 @@ final class AppViewModel: NSObject {
         reloadLoopDefinitions()
     }
 
+    func refreshedSlashItemForUse(_ item: SlashItem, projectPath: String?) -> SlashItem {
+        switch item.payload {
+        case .skill(let name, let body, let filePath, let recordID):
+            let currentBody = latestSkillBody(name: name, filePath: filePath, recordID: recordID, projectPath: projectPath) ?? body
+            return SlashItem(id: item.id, kind: item.kind, displayName: item.displayName, description: item.description, scopeLabel: item.scopeLabel, isActive: item.isActive, payload: .skill(name: name, body: currentBody, filePath: filePath, recordID: recordID))
+        case .skillCollection(let id, let name, let body):
+            guard let collection = appSettings.skillCollections.first(where: { $0.id == id }) else { return item }
+            let currentBody = slashSkillCollectionBody(collection, forProjectPath: projectPath)
+            return SlashItem(id: item.id, kind: item.kind, displayName: item.displayName, description: item.description, scopeLabel: item.scopeLabel, isActive: item.isActive, payload: .skillCollection(id: id, name: name, body: currentBody.isEmpty ? body : currentBody))
+        case .prompt(let name, let body, let filePath, let recordID):
+            let currentBody = latestPromptBody(name: name, filePath: filePath, recordID: recordID, projectPath: projectPath) ?? body
+            return SlashItem(id: item.id, kind: item.kind, displayName: item.displayName, description: item.description, scopeLabel: item.scopeLabel, isActive: item.isActive, payload: .prompt(name: name, body: currentBody, filePath: filePath, recordID: recordID))
+        case .loopDefinition(let definition):
+            let currentDefinition = loopDefinitionForLaunch(definition)
+            return SlashItem(id: item.id, kind: item.kind, displayName: item.displayName, description: item.description, scopeLabel: item.scopeLabel, isActive: item.isActive, payload: .loopDefinition(currentDefinition))
+        case .command, .loopCreateNew:
+            return item
+        }
+    }
+
+    private func latestSkillBody(name: String, filePath: String?, recordID: String?, projectPath: String?) -> String? {
+        if let filePath, let body = try? String(contentsOfFile: filePath, encoding: .utf8) { return body }
+        let catalog = projectPath.flatMap { skillCatalog(forProjectPath: $0) } ?? globalSnapshot.skills
+        return catalog.first { $0.id == recordID || $0.filePath == filePath || $0.name == name }?.body
+    }
+
+    private func latestPromptBody(name: String, filePath: String?, recordID: String?, projectPath: String?) -> String? {
+        if let filePath, let body = try? String(contentsOfFile: filePath, encoding: .utf8) { return body }
+        let catalog = projectPath.flatMap { promptTemplateCatalog(forProjectPath: $0) } ?? globalSnapshot.promptTemplates
+        return catalog.first { $0.id == recordID || $0.filePath == filePath || $0.name == name }?.body
+    }
+
+    private func slashSkillCollectionBody(_ collection: SkillCollectionRecord, forProjectPath projectPath: String?, catalog providedCatalog: [SkillRecord]? = nil) -> String {
+        let catalog = providedCatalog ?? projectPath.flatMap { skillCatalog(forProjectPath: $0) } ?? globalSnapshot.skills
+        let members = skillRecords(in: collection, forProjectPath: projectPath)
+            .filter { !skillIsExcludedFromRuntime($0, in: collection, catalog: catalog) }
+        let memberList = members.map { "- `\($0.name)`" }.joined(separator: "\n")
+        let description = collection.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        # \(collection.name)
+
+        \(description?.isEmpty == false ? description! : "Skill collection")
+
+        Included skills:
+        \(memberList.isEmpty ? "- None" : memberList)
+        """
+    }
+
     /// Materializes the full universe of Skills, Prompts, Commands, and Loops the
     /// composer's `/` browser can show. Build once when the panel opens and hold
     /// the result in `@State` — never call inside a SwiftUI `body`.
@@ -9660,22 +9708,12 @@ final class AppViewModel: NSObject {
                     description: record.description?.isEmpty == false ? record.description : nil,
                     scopeLabel: record.source.displayName,
                     isActive: activeSkillNames.contains(record.name),
-                    payload: .skill(name: record.name, body: record.body)
+                    payload: .skill(name: record.name, body: record.body, filePath: record.filePath, recordID: record.id)
                 )
             }
         let collectionItems = appSettings.skillCollections.map { collection in
-            let members = skillRecords(in: collection, forProjectPath: scopedPath)
-                .filter { !skillIsExcludedFromRuntime($0, in: collection, catalog: catalogSkillRecords) }
-            let memberList = members.map { "- `\($0.name)`" }.joined(separator: "\n")
+            let body = slashSkillCollectionBody(collection, forProjectPath: scopedPath, catalog: catalogSkillRecords)
             let description = collection.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let body = """
-            # \(collection.name)
-
-            \(description?.isEmpty == false ? description! : "Skill collection")
-
-            Included skills:
-            \(memberList.isEmpty ? "- None" : memberList)
-            """
             return SlashItem(
                 id: "skill-collection:\(collection.id.uuidString)",
                 kind: .skill,
@@ -9683,7 +9721,7 @@ final class AppViewModel: NSObject {
                 description: description?.isEmpty == false ? description : "Skill collection",
                 scopeLabel: "Collection",
                 isActive: activeCollectionIDs.contains(collection.id),
-                payload: .skillCollection(name: collection.name, body: body)
+                payload: .skillCollection(id: collection.id, name: collection.name, body: body)
             )
         }
         let skills = (collectionItems + individualSkillItems)
@@ -9711,7 +9749,7 @@ final class AppViewModel: NSObject {
                     description: record.description.isEmpty ? nil : record.description,
                     scopeLabel: record.source.displayName,
                     isActive: activePromptNames.contains(record.name),
-                    payload: .prompt(name: record.name, body: record.body)
+                    payload: .prompt(name: record.name, body: record.body, filePath: record.filePath, recordID: record.id)
                 )
             }
 

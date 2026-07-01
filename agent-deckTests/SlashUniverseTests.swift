@@ -24,7 +24,7 @@ final class SlashUniverseTests: XCTestCase {
             description: nil,
             scopeLabel: "Global",
             isActive: false,
-            payload: .skill(name: "Global Skill", body: "Use this skill")
+            payload: .skill(name: "Global Skill", body: "Use this skill", filePath: nil, recordID: nil)
         )
         let prompt = SlashItem(
             id: "prompt:global",
@@ -33,7 +33,7 @@ final class SlashUniverseTests: XCTestCase {
             description: nil,
             scopeLabel: "Global",
             isActive: false,
-            payload: .prompt(name: "Global Prompt", body: "Use this prompt")
+            payload: .prompt(name: "Global Prompt", body: "Use this prompt", filePath: nil, recordID: nil)
         )
         let universe = SlashUniverse(skills: [skill], prompts: [prompt], commands: [], loops: [])
 
