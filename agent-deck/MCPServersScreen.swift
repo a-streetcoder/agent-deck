@@ -816,13 +816,20 @@ private struct MCPServerEditorSheet: View {
     }
 
     private func importRow(_ candidate: MCPForeignConfigScanner.Candidate) -> some View {
-        Toggle(isOn: Binding(
+        let isSelected = Binding(
             get: { selectedImportIDs.contains(candidate.id) },
             set: { isSelected in
                 if isSelected { selectedImportIDs.insert(candidate.id) }
                 else { selectedImportIDs.remove(candidate.id) }
             }
-        )) {
+        )
+
+        return HStack(alignment: .center, spacing: 12) {
+            Toggle("", isOn: isSelected)
+                .appCheckbox()
+                .labelsHidden()
+                .frame(width: 18)
+                .allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(candidate.name)
@@ -840,8 +847,10 @@ private struct MCPServerEditorSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            Spacer(minLength: 0)
         }
-        .appCheckbox()
+        .contentShape(Rectangle())
+        .onTapGesture { isSelected.wrappedValue.toggle() }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
     }
