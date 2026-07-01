@@ -19,6 +19,8 @@
 #   BUILD_DIR=build/local-update-test
 #   RELEASE_NOTES="..."
 #   KEYCHAIN_SPARKLE_SERVICE=agent-deck-sparkle-private-key
+#   INSTALL_TO_APPLICATIONS=1
+#   RELAUNCH_AFTER_INSTALL=1
 #
 # Important: the app you use to check for updates must have SUFeedURL pointing
 # to the localhost feed printed by this script. Production-installed builds
@@ -35,6 +37,10 @@ HOST="${HOST:-127.0.0.1}"
 BUILD_DIR="${BUILD_DIR:-build/local-update-test}"
 SERVE_DIR="$BUILD_DIR/serve"
 FEED_URL="http://${HOST}:${PORT}/appcast.xml"
+INSTALL_TO_APPLICATIONS="${INSTALL_TO_APPLICATIONS:-1}"
+RELAUNCH_AFTER_INSTALL="${RELAUNCH_AFTER_INSTALL:-1}"
+APP_NAME="Agent Deck"
+INSTALL_PATH="/Applications/${APP_NAME}.app"
 
 KEYCHAIN_SPARKLE_SERVICE="${KEYCHAIN_SPARKLE_SERVICE:-agent-deck-sparkle-private-key}"
 
@@ -132,16 +138,44 @@ fi
 DMG_NAME="$(basename "$DMG_PATH")"
 cp "$DMG_PATH" "$SERVE_DIR/$DMG_NAME"
 
+EXPORTED_APP="$BUILD_DIR/export/${APP_NAME}.app"
+if [[ ! -d "$EXPORTED_APP" ]]; then
+  echo "Expected exported app at $EXPORTED_APP" >&2
+  exit 1
+fi
+
+if [[ "$INSTALL_TO_APPLICATIONS" == "1" ]]; then
+  echo "Replacing $INSTALL_PATH with local build..."
+  if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+    echo "Quitting running $APP_NAME..."
+    osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+    for _ in {1..30}; do
+      pgrep -x "$APP_NAME" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+      echo "$APP_NAME is still running; please quit it and rerun." >&2
+      exit 1
+    fi
+  fi
+  rm -rf "$INSTALL_PATH"
+  ditto "$EXPORTED_APP" "$INSTALL_PATH"
+  echo "Installed: $INSTALL_PATH"
+  if [[ "$RELAUNCH_AFTER_INSTALL" == "1" ]]; then
+    open "$INSTALL_PATH"
+  fi
+fi
+
 if [[ "$LOCAL_APPCAST" != "1" ]]; then
   cat <<EOF
 
-Local production build is ready.
+Local production build is ready and installed.
+  App: $INSTALL_PATH
   DMG: $DMG_PATH
 
 No Sparkle private key was found, so no localhost update feed was created.
 The app's Check for Updates will use the normal production feed.
 EOF
-  open -R "$DMG_PATH" >/dev/null 2>&1 || true
   exit 0
 fi
 
