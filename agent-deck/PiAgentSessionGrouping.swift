@@ -397,10 +397,15 @@ struct PiAgentSessionListSection: Equatable, Identifiable {
     let isCollapsed: Bool
     /// Total sessions belonging to this group (rendered + hidden).
     let totalCount: Int
-    /// True for real discovered projects; false for the catch-all "Other"
-    /// group. The header's "new session" affordance only renders for real
-    /// projects.
+    /// True for real discovered projects; false for General Chat and the
+    /// catch-all "Other" group.
     let isProjectGroup: Bool
+
+    /// The header's "new session" affordance renders for real projects and
+    /// for the dedicated General Chat group, but never for orphaned "Other".
+    var canCreateSession: Bool {
+        isProjectGroup || id == PiAgentSessionGrouping.noProjectSectionID
+    }
 
     /// Returns a copy of this section with `items` replaced. Used by the
     /// expanded panel's hybrid freeze, which preserves the prior visible row

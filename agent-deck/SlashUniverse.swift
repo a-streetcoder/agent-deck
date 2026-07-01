@@ -165,12 +165,9 @@ enum SlashSuggestionRowBuilder {
         switch state.screen {
         case .categoryPicker:
             if lowered.isEmpty {
-                return [
-                    SlashSuggestionRow(id: "cat:command", kind: .category(.command)),
-                    SlashSuggestionRow(id: "cat:prompt", kind: .category(.prompt)),
-                    SlashSuggestionRow(id: "cat:skill", kind: .category(.skill)),
-                    SlashSuggestionRow(id: "cat:loop", kind: .category(.loop))
-                ]
+                return [SlashItemKind.command, .prompt, .skill, .loop]
+                    .filter { !universe.items(in: $0).isEmpty }
+                    .map { SlashSuggestionRow(id: "cat:\($0.rawValue)", kind: .category($0)) }
             }
             return globalSearchRows(universe: universe, query: lowered)
         case .category(let kind):

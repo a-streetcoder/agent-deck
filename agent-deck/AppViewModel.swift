@@ -6976,7 +6976,10 @@ final class AppViewModel: NSObject {
 
     func setSubagentsEnabled(_ isEnabled: Bool, forSessionID sessionID: UUID) {
         piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
-            session.subagentsEnabled = isEnabled
+            session.subagentsEnabled = session.isNoProject ? false : isEnabled
+            if session.isNoProject {
+                session.agentSelection = nil
+            }
         }
         reconcileRunningSessionLaunchResourceFingerprints()
     }
@@ -6985,8 +6988,18 @@ final class AppViewModel: NSObject {
     /// session default. Update both the selected draft and the default for new
     /// sessions. Once Pi has started, the footer becomes read-only.
     func setSubagentsEnabledForSelectedDraftAndNewSessions(_ isEnabled: Bool) {
+        guard let session = piAgentSessionStore.selectedSession, session.status == .draft else {
+            setSubagentsEnabledForNewSessions(isEnabled)
+            return
+        }
+        guard !session.isNoProject else {
+            piAgentSessionStore.updateSession(session.id, bumpUpdatedAt: false) { session in
+                session.subagentsEnabled = false
+                session.agentSelection = nil
+            }
+            return
+        }
         setSubagentsEnabledForNewSessions(isEnabled)
-        guard let session = piAgentSessionStore.selectedSession, session.status == .draft else { return }
         piAgentSessionStore.updateSession(session.id, bumpUpdatedAt: false) { session in
             session.subagentsEnabled = isEnabled
         }
@@ -6996,7 +7009,7 @@ final class AppViewModel: NSObject {
     /// default (all effective agents); a non-nil set pins an explicit choice.
     func setAgentSelection(_ selection: Set<String>?, for sessionID: UUID) {
         piAgentSessionStore.updateSession(sessionID, bumpUpdatedAt: false) { session in
-            session.agentSelection = selection
+            session.agentSelection = session.isNoProject ? nil : selection
         }
         reconcileRunningSessionLaunchResourceFingerprints()
     }
@@ -9612,8 +9625,7 @@ final class AppViewModel: NSObject {
         if let path = scopedPath {
             catalogSkillRecords = skillCatalog(forProjectPath: path)
         } else {
-            var seen = Set<String>()
-            catalogSkillRecords = (globalSnapshot.skills + globalSnapshot.librarySkills).filter { seen.insert($0.id).inserted }
+            catalogSkillRecords = globalSnapshot.skills
         }
         let activeSkillNames = activeParentSkillNames(forProjectPath: scopedPath, useSelectedProjectFallback: false)
         let activeCollectionIDs = appSettings.defaultSkillCollectionIDs.union(scopedPath.map { projectPreference(for: $0).assignedSkillCollectionIDs } ?? [])
@@ -9664,7 +9676,7 @@ final class AppViewModel: NSObject {
         if let path = scopedPath {
             promptRecords = promptTemplateCatalog(forProjectPath: path)
         } else {
-            promptRecords = allVisiblePromptTemplateRecords
+            promptRecords = globalSnapshot.promptTemplates
         }
         let activePromptNames = activeParentPromptTemplateNames(forProjectPath: scopedPath, useSelectedProjectFallback: false)
         let disabledBundledPromptNames = appSettings.disabledBundledPromptNames

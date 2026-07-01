@@ -3715,8 +3715,8 @@ private struct SessionListContent: View, Equatable {
     let onToggleExpand: (String) -> Void
     /// Toggle a project group's disclosure collapse (header-only / expanded).
     let onToggleCollapse: (String) -> Void
-    /// Start a new session scoped to the given project path. No-op for the
-    /// catch-all "Other" group (it has no resolvable project).
+    /// Start a new session scoped to the given project/group id. Handles real
+    /// project groups and the dedicated General Chat group; no-op for "Other".
     let onCreateSessionForProject: (String) -> Void
     /// Arrow-key navigation (↑/↓), routed through the same view-model path as
     /// ⌘]/⌘[ so both follow the grouped list with auto-reveal. `nil` disables
@@ -3894,7 +3894,7 @@ private struct PiAgentSessionGroupHeader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(section.isCollapsed ? "Expand" : "Collapse")
 
-            if section.isProjectGroup {
+            if section.canCreateSession {
                 Button(action: onCreateSession) {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .semibold))
@@ -3905,8 +3905,8 @@ private struct PiAgentSessionGroupHeader: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 30, height: 30, alignment: .center)
-                .help("New session in \(section.title)")
-                .accessibilityLabel("New session in \(section.title)")
+                .help(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : "New session in \(section.title)")
+                .accessibilityLabel(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : "New session in \(section.title)")
             }
         }
         // Aligns the icon's leading edge with the session row title (row text
@@ -4045,7 +4045,9 @@ struct CodingAgentExpandedPanel: View {
                         else { viewModel.collapsedProjects.insert(projectID) }
                     },
                     onCreateSessionForProject: { projectPath in
-                        if let project = viewModel.projectByPath[projectPath] {
+                        if projectPath == PiAgentSessionGrouping.noProjectSectionID {
+                            viewModel.createNoProjectPiAgentDraft()
+                        } else if let project = viewModel.projectByPath[projectPath] {
                             viewModel.createPiAgentDraft(for: project)
                         }
                     },
@@ -4981,7 +4983,9 @@ struct PiAgentScreen: View {
                                 else { viewModel.collapsedProjects.insert(projectID) }
                             },
                             onCreateSessionForProject: { projectPath in
-                                if let project = viewModel.projectByPath[projectPath] {
+                                if projectPath == PiAgentSessionGrouping.noProjectSectionID {
+                                    viewModel.createNoProjectPiAgentDraft()
+                                } else if let project = viewModel.projectByPath[projectPath] {
                                     viewModel.createPiAgentDraft(for: project)
                                 }
                             },
@@ -5108,10 +5112,12 @@ struct PiAgentScreen: View {
             Divider()
 
             VStack(spacing: 12) {
-                // Shown for every draft, including subagents-off — the card
+                // Shown for project drafts, including subagents-off — the card
                 // renders dimmed with its switch so agents can be turned back
-                // on right here instead of from the Agents screen.
+                // on right here instead of from the Agents screen. General Chat
+                // never exposes Deck-agent delegation.
                 if let session = store.selectedSession,
+                   !session.isNoProject,
                    session.status == .draft,
                    store.activeLoopRun(for: session.id) == nil {
 #if DEBUG
@@ -6508,7 +6514,7 @@ struct PiAgentScreen: View {
                 inputMode: $inputMode,
                 isRunning: isRunning,
                 isDisabled: isCompacting,
-                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts.")),
+                placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm… Type / for skills and prompts." : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
                 canSend: !isCompacting && store.selectedSession != nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || slashSelection != nil),
                 canCreateSession: !isCompacting && store.selectedSession == nil,
                 createSessionProjects: piAgentNewSessionProjects,
@@ -7449,7 +7455,7 @@ private struct PiAgentComposerPanel: View {
                     inputMode: $inputMode,
                     isRunning: isRunning,
                     isDisabled: isCompacting,
-                    placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts.")),
+                    placeholder: !hasSelectedSession ? "Start a new Pi Agent session…" : (isCompacting ? "Compacting context…" : (isRunning ? "Steer the current turn…" : (store.selectedSession?.isNoProject == true ? "Ask Pi to inspect, explain, or brainstorm… Type / for skills and prompts." : "Ask Pi to implement, inspect, explain, or fix… Type / for skills, loops, and prompts."))),
                     canSend: !isCompacting && store.selectedSession != nil && activeLoopRun == nil && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composerImages.isEmpty || !composerFiles.isEmpty || !composerFolders.isEmpty || composerIssueAttachment != nil || slashSelection != nil),
                     canCreateSession: !isCompacting && store.selectedSession == nil,
                     createSessionProjects: piAgentNewSessionProjects,

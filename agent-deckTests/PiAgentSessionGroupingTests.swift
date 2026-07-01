@@ -255,6 +255,8 @@ final class PiAgentSessionGroupingTests: XCTestCase {
         XCTAssertEqual(sections[1].title, "General Chat")
         XCTAssertEqual(sections[1].fallbackSymbolName, "bubble.left.and.bubble.right")
         XCTAssertFalse(sections[1].isProjectGroup)
+        XCTAssertTrue(sections[1].canCreateSession)
+        XCTAssertFalse(sections[2].canCreateSession)
     }
 
     func testShowMoreRevealsAllAndReportsTotalCount() throws {

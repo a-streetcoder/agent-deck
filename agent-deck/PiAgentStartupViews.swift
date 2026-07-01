@@ -568,12 +568,15 @@ struct PiAgentSessionSubagentPickerCard: View {
     }
 
     var body: some View {
-        // 1:1 agent chats never delegate to other subagents — the user IS the
-        // supervisor, and the runner does not install the `managed_subagent`
-        // bridge for these sessions. The picker's job is done, so it collapses
-        // to a summary of the binding with an undo, instead of a list that
-        // would imply a capability the session doesn't have.
-        if session.isAgentBound {
+        // General Chat sessions never expose Deck-agent delegation.
+        if session.isNoProject {
+            EmptyView()
+        } else if session.isAgentBound {
+            // 1:1 agent chats never delegate to other subagents — the user IS the
+            // supervisor, and the runner does not install the `managed_subagent`
+            // bridge for these sessions. The picker's job is done, so it collapses
+            // to a summary of the binding with an undo, instead of a list that
+            // would imply a capability the session doesn't have.
             boundSummaryCard
                 .transition(.opacity.combined(with: .move(edge: .top)))
         } else {
