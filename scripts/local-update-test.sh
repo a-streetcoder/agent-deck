@@ -2,10 +2,13 @@
 # Build a local signed/notarized Agent Deck DMG, generate a local Sparkle
 # appcast for it, and serve both from localhost without publishing to GitHub.
 #
-# Required env:
+# Required env/local setup:
 #   DEVELOPER_ID_APPLICATION  Developer ID Application signing identity
+#                             Auto-detected from Keychain when omitted.
 #   NOTARY_PROFILE            xcrun notarytool keychain profile name
-#   SPARKLE_PRIVATE_KEY        Sparkle EdDSA private key (base64)
+#   SPARKLE_PRIVATE_KEY        Sparkle EdDSA private key (base64), or store it
+#                             in macOS Keychain under service:
+#                             agent-deck-sparkle-private-key
 #
 # Optional env:
 #   VERSION=<project MARKETING_VERSION>
@@ -13,6 +16,7 @@
 #   PORT=8765
 #   BUILD_DIR=build/local-update-test
 #   RELEASE_NOTES="..."
+#   KEYCHAIN_SPARKLE_SERVICE=agent-deck-sparkle-private-key
 #
 # Important: the app you use to check for updates must have SUFeedURL pointing
 # to the localhost feed printed by this script. Production-installed builds
@@ -30,12 +34,32 @@ BUILD_DIR="${BUILD_DIR:-build/local-update-test}"
 SERVE_DIR="$BUILD_DIR/serve"
 FEED_URL="http://${HOST}:${PORT}/appcast.xml"
 
+KEYCHAIN_SPARKLE_SERVICE="${KEYCHAIN_SPARKLE_SERVICE:-agent-deck-sparkle-private-key}"
+
+if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  DEVELOPER_ID_APPLICATION="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+fi
+
+if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+  SPARKLE_PRIVATE_KEY="$(security find-generic-password \
+    -a "${USER:-$(whoami)}" \
+    -s "$KEYCHAIN_SPARKLE_SERVICE" \
+    -w 2>/dev/null || true)"
+fi
+
 for var in DEVELOPER_ID_APPLICATION NOTARY_PROFILE SPARKLE_PRIVATE_KEY; do
   if [[ -z "${!var:-}" ]]; then
     echo "Set $var before running this script." >&2
+    if [[ "$var" == "SPARKLE_PRIVATE_KEY" ]]; then
+      echo "Tip: store it once in Keychain with:" >&2
+      echo "  security add-generic-password -a \"${USER:-$(whoami)}\" -s \"$KEYCHAIN_SPARKLE_SERVICE\" -w '<sparkle-private-key>' -U" >&2
+    fi
     exit 2
   fi
 done
+
+export DEVELOPER_ID_APPLICATION NOTARY_PROFILE SPARKLE_PRIVATE_KEY
 
 if ! command -v sign_update >/dev/null 2>&1; then
   echo "Sparkle's sign_update tool is not on PATH." >&2
