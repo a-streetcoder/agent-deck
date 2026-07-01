@@ -415,7 +415,7 @@ struct PiAgentSessionRow: View, Equatable {
                     .frame(width: 11, height: 11)
                 Text(subtitle)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.head)
                     .minimumScaleFactor(0.8)
             }
             .font(AppTheme.Font.footnote)
