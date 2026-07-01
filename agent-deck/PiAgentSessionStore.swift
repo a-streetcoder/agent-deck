@@ -250,7 +250,7 @@ final class PiAgentSessionStore {
     }
 
     @discardableResult
-    func createNoProjectCodingAgentSession(title: String = "Draft · No Project", model: String? = nil) -> PiAgentSessionRecord {
+    func createNoProjectCodingAgentSession(title: String = "Draft · General Chat", model: String? = nil) -> PiAgentSessionRecord {
         createSession(
             kind: .project,
             title: title,
@@ -2577,6 +2577,7 @@ final class PiAgentSessionStore {
             sessionPlansBySessionID[sessionID] = nil
             sessionPlanEventsBySessionID[sessionID] = nil
             processingActivityBySessionID[sessionID] = nil
+            deleteGeneralChatScratchFolders(for: sessionID)
             sessionsTouchedThisRun.remove(sessionID)
         }
         if let currentSelectedSessionID = selectedSessionID, existingIDs.contains(currentSelectedSessionID) {
@@ -3126,6 +3127,18 @@ final class PiAgentSessionStore {
         let url = subagentTranscriptURL(runID)
         saveQueue.async {
             try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func deleteGeneralChatScratchFolders(for sessionID: UUID) {
+        let urls = [
+            PiAgentSessionRecord.generalChatScratchRootURL.appendingPathComponent(sessionID.uuidString, isDirectory: true),
+            PiAgentSessionRecord.legacyNoProjectScratchRootURL.appendingPathComponent(sessionID.uuidString, isDirectory: true)
+        ]
+        saveQueue.async {
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 

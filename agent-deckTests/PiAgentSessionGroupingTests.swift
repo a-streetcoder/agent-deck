@@ -252,7 +252,8 @@ final class PiAgentSessionGroupingTests: XCTestCase {
             capPreviews: true, isWorking: { _ in false }, selectedSessionID: nil, now: now)
 
         XCTAssertEqual(sections.map(\.id), [deck.path, PiAgentSessionGrouping.noProjectSectionID, PiAgentSessionGrouping.otherSectionID])
-        XCTAssertEqual(sections[1].title, PiAgentSessionRecord.noProjectDisplayName)
+        XCTAssertEqual(sections[1].title, "General Chat")
+        XCTAssertEqual(sections[1].fallbackSymbolName, "bubble.left.and.bubble.right")
         XCTAssertFalse(sections[1].isProjectGroup)
     }
 

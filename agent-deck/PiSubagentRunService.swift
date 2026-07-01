@@ -1392,7 +1392,7 @@ private enum NativeSubagentError: LocalizedError {
         case let .disabledAgent(name):
             return "Agent \(name) is disabled."
         case .noProjectUnavailable:
-            return "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching a Deck agent."
+            return "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
         case let .worktreeFailed(message):
             return "Could not create Deck agent worktree: \(message)"
         case let .continuationUnavailable(message):

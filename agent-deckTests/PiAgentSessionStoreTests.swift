@@ -39,10 +39,10 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.selectedSession?.id, session.id)
     }
 
-    func testNoProjectCodingAgentSessionPersistsAsNoProject() async throws {
+    func testNoProjectCodingAgentSessionPersistsAsGeneralChat() async throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)
-        let session = firstStore.createNoProjectCodingAgentSession(title: "No Project")
+        let session = firstStore.createNoProjectCodingAgentSession(title: "General Chat")
         firstStore.flushForTesting()
 
         let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
@@ -51,8 +51,27 @@ final class PiAgentSessionStoreTests: XCTestCase {
         let reloaded = try XCTUnwrap(reloadedStore.sessions.first(where: { $0.id == session.id }))
         XCTAssertTrue(reloaded.isNoProject)
         XCTAssertNil(reloaded.projectPathForProjectFeatures)
-        XCTAssertEqual(reloaded.projectNameForDisplay, PiAgentSessionRecord.noProjectDisplayName)
+        XCTAssertEqual(reloaded.projectNameForDisplay, "General Chat")
+        XCTAssertEqual(reloaded.launchWorkingDirectory.path, PiAgentSessionRecord.generalChatScratchRootURL.appendingPathComponent(reloaded.id.uuidString, isDirectory: true).path)
         XCTAssertFalse(reloaded.subagentsEnabled)
+    }
+
+    func testDeletingGeneralChatSessionRemovesScratchFolders() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: fileURL)
+        let session = store.createNoProjectCodingAgentSession(title: "General Chat")
+        let currentURL = session.launchWorkingDirectory
+        let legacyURL = session.legacyNoProjectLaunchWorkingDirectory
+        try FileManager.default.createDirectory(at: currentURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyURL, withIntermediateDirectories: true)
+
+        store.deleteSession(session.id)
+
+        let removed = await PiTestSupport.waitUntilAsync {
+            !FileManager.default.fileExists(atPath: currentURL.path)
+                && !FileManager.default.fileExists(atPath: legacyURL.path)
+        }
+        XCTAssertTrue(removed)
     }
 
     func testLazyTranscriptLoadingReloadsEvictedTranscriptFromDisk() async throws {

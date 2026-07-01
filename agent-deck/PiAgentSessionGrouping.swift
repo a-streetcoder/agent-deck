@@ -12,7 +12,7 @@ import Foundation
 /// This module is intentionally Foundation-only (no SwiftUI/AppKit) so the
 /// preview rule is unit-testable in isolation.
 enum PiAgentSessionGrouping {
-    /// Identity of the explicit no-project group. These sessions are not
+    /// Identity of the explicit general-chat group. These sessions are not
     /// project orphans and must not be treated as a discovered-project bucket.
     static let noProjectSectionID = "agent-deck.session-group.no-project"
 
@@ -181,7 +181,7 @@ enum PiAgentSessionGrouping {
                 title: PiAgentSessionRecord.noProjectDisplayName,
                 subtitle: nil,
                 iconFileURL: nil,
-                fallbackSymbolName: "macwindow",
+                fallbackSymbolName: "bubble.left.and.bubble.right",
                 assetName: nil,
                 sessions: noProjectSessions,
                 isProjectGroup: false,

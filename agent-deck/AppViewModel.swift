@@ -2716,9 +2716,9 @@ final class AppViewModel: NSObject {
         guard let project = selectedDiscoveredProject else {
             selectedSidebarItem = .agent
             let title = initialInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n").first.map(String.init) ?? "No Project agent"
+                .split(separator: "\n").first.map(String.init) ?? "General Chat"
             let session = piAgentSessionStore.createNoProjectCodingAgentSession(
-                title: title.isEmpty ? "No Project agent" : String(title.prefix(80))
+                title: title.isEmpty ? "General Chat" : String(title.prefix(80))
             )
             revealSessionGroup(session)
             selectPiAgentSession(session.id)
@@ -3593,7 +3593,7 @@ final class AppViewModel: NSObject {
             return
         }
         guard !session.isNoProject, session.projectPathForProjectFeatures != nil else {
-            completion("Deck agents are unavailable for No Project sessions. Select a project-backed session before delegating.")
+            completion("Deck agents are unavailable for General Chat sessions. Select a project-backed session before delegating.")
             return
         }
         guard session.subagentsEnabled else {
@@ -3641,7 +3641,7 @@ final class AppViewModel: NSObject {
             return
         }
         guard !session.isNoProject, session.projectPathForProjectFeatures != nil else {
-            completion("Deck agents are unavailable for No Project sessions. Select a project-backed session before delegating.")
+            completion("Deck agents are unavailable for General Chat sessions. Select a project-backed session before delegating.")
             return
         }
         guard session.subagentsEnabled else {
@@ -3659,7 +3659,7 @@ final class AppViewModel: NSObject {
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agentName: String, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, allowDirectProjectWrites: Bool = false, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
         guard !parentSession.isNoProject, let projectPath = parentSession.projectPathForProjectFeatures else {
-            let message = "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching a Deck agent."
+            let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agentName, task: task, error: message)
             completion?(placeholder)
@@ -3711,7 +3711,7 @@ final class AppViewModel: NSObject {
     @discardableResult
     func launchLoop(session: PiAgentSessionRecord, draft: LoopDraft, stopExistingActive: Bool) async -> LoopRun? {
         guard session.projectPathForProjectFeatures != nil else {
-            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+            piAgentSessionStore.append(.init(sessionID: session.id, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
             return nil
         }
         prepareSessionForLoopLaunch(session: session, draft: draft)
@@ -3901,7 +3901,7 @@ final class AppViewModel: NSObject {
     @discardableResult
     private func runNativeSubagent(parentSession: PiAgentSessionRecord, agent: EffectiveAgentRecord, snapshot: ScanSnapshot, task: String, continueRunID: UUID? = nil, useWorktreeIsolation: Bool, expectedOutcome: PiSubagentExpectedOutcome = .reportOnly, requestedOutputPath: String? = nil, allowOverwrite: Bool = false, readFirstPaths: [String] = [], completion: ((PiSubagentRunRecord) -> Void)?) async -> PiSubagentRunRecord {
         guard !parentSession.isNoProject, parentSession.projectPathForProjectFeatures != nil else {
-            let message = "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching a Deck agent."
+            let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching a Deck agent."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
             let placeholder = PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: agent.name, task: task, error: message)
             completion?(placeholder)
@@ -3919,7 +3919,7 @@ final class AppViewModel: NSObject {
 
     private func runNativeParallel(parentSession: PiAgentSessionRecord, agentTasks: [(agentName: String, task: String)], concurrency: Int, useWorktreeIsolation: Bool, forcedExpectedOutcome: PiSubagentExpectedOutcome? = nil, loopID: UUID? = nil, completion: ((PiSubagentRunRecord) -> Void)?) async {
         guard !parentSession.isNoProject, parentSession.projectPathForProjectFeatures != nil else {
-            let message = "Deck agents are unavailable for No Project sessions. Select a project-backed session before launching Deck agents."
+            let message = "Deck agents are unavailable for General Chat sessions. Select a project-backed session before launching Deck agents."
             piAgentSessionStore.append(.init(sessionID: parentSession.id, role: .error, title: "Deck Agents Unavailable", text: message))
             completion?(PiSubagentRunRecord.failedPlaceholder(parentSessionID: parentSession.id, agentName: "Parallel", task: "Parallel Deck agent task(s)", error: message))
             return
@@ -7193,7 +7193,7 @@ final class AppViewModel: NSObject {
             return
         }
         piAgentSessionStore.updateSession(sessionID) { record in
-            guard record.status == .draft, record.piSessionFile == nil else { return }
+            guard record.status == .draft, record.piSessionFile == nil, !record.isNoProject else { return }
             record.kind = .agent
             record.agentName = agent.name
             if !record.isTitleUserEdited {
@@ -9605,6 +9605,7 @@ final class AppViewModel: NSObject {
     func slashUniverse(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> SlashUniverse {
         let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
         let scopedPath = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        let projectFeatureSlashEnabled = scopedPath != nil
 
         // Skills
         let catalogSkillRecords: [SkillRecord]
@@ -9687,20 +9688,22 @@ final class AppViewModel: NSObject {
         // Commands — active only (inactive commands are TypeScript handlers
         // that aren't loaded into the running Pi process, so we can't safely
         // expand them client-side).
-        let commands = PiInjectedCommandCatalog.all
-            .filter { PiInjectedCommandCatalog.isEnabled($0, settings: appSettings) }
-            .sorted { $0.slashName.localizedStandardCompare($1.slashName) == .orderedAscending }
-            .map { command in
-                SlashItem(
-                    id: "command:\(command.id)",
-                    kind: .command,
-                    displayName: command.title,
-                    description: command.description.isEmpty ? nil : command.description,
-                    scopeLabel: command.source == .builtIn ? "Built-in" : "Library",
-                    isActive: true,
-                    payload: .command(slashName: command.slashName, commandID: command.id)
-                )
-            }
+        let commands = projectFeatureSlashEnabled
+            ? PiInjectedCommandCatalog.all
+                .filter { PiInjectedCommandCatalog.isEnabled($0, settings: appSettings) }
+                .sorted { $0.slashName.localizedStandardCompare($1.slashName) == .orderedAscending }
+                .map { command in
+                    SlashItem(
+                        id: "command:\(command.id)",
+                        kind: .command,
+                        displayName: command.title,
+                        description: command.description.isEmpty ? nil : command.description,
+                        scopeLabel: command.source == .builtIn ? "Built-in" : "Library",
+                        isActive: true,
+                        payload: .command(slashName: command.slashName, commandID: command.id)
+                    )
+                }
+            : []
 
         let createLoop = SlashItem(
             id: "loop:create-new",
@@ -9725,7 +9728,7 @@ final class AppViewModel: NSObject {
                     payload: .loopDefinition(definition)
                 )
             }
-        let loops = scopedPath == nil ? [] : [createLoop] + savedLoops
+        let loops = projectFeatureSlashEnabled ? [createLoop] + savedLoops : []
 
         return SlashUniverse(skills: skills, prompts: prompts, commands: commands, loops: loops)
     }

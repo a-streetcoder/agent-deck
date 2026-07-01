@@ -313,7 +313,7 @@ struct PiAgentStartupResourcesPopover: View {
 
     private var agentItems: [PiStartupResourceItem] {
         guard !session.isNoProject else {
-            return [.init(title: "No Project session", detail: "Project-scoped Deck agents are not injected.", kind: .none)]
+            return [.init(title: "General Chat session", detail: "Project-scoped Deck agents are not injected.", kind: .none)]
         }
         guard session.subagentsEnabled else {
             return [.init(title: "This session started with Deck agents disabled", detail: "Re-enable Deck agents before creating a new session if you want agent discovery again.", kind: .none)]
@@ -337,7 +337,7 @@ struct PiAgentStartupResourcesPopover: View {
 
     private var memoryItems: [PiStartupResourceItem] {
         guard !session.isNoProject else {
-            return [.init(title: "No Project session", detail: "Project memory is not injected.", kind: .none)]
+            return [.init(title: "General Chat session", detail: "Project memory is not injected.", kind: .none)]
         }
         guard session.memoryEnabled else {
             return [.init(title: "This session started with Memory disabled", detail: "Enable Memory before starting a new session if you want recall and capture again.", kind: .none)]

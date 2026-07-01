@@ -6708,7 +6708,7 @@ struct PiAgentScreen: View {
         case .loopCreateNew:
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelection = nil
                 slashState = SlashSuggestionState()
@@ -6727,7 +6727,7 @@ struct PiAgentScreen: View {
         case .loopDefinition(let definition):
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelection = nil
                 slashState = SlashSuggestionState()
@@ -7753,7 +7753,7 @@ private struct PiAgentComposerPanel: View {
         case .loopCreateNew:
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelection = nil
                 slashState = SlashSuggestionState()
@@ -7772,7 +7772,7 @@ private struct PiAgentComposerPanel: View {
         case .loopDefinition(let definition):
             guard store.selectedSession?.projectPathForProjectFeatures != nil else {
                 if let sessionID = store.selectedSession?.id {
-                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for No Project sessions."))
+                    store.append(.init(sessionID: sessionID, role: .error, title: "Loop Unavailable", text: "Loops are not available for General Chat sessions."))
                 }
                 slashSelection = nil
                 slashState = SlashSuggestionState()

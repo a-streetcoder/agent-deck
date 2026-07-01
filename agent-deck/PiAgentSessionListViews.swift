@@ -66,8 +66,8 @@ struct PiAgentAddSessionMenuButton: View {
             tint: isEnabled ? AppTheme.brandAccent : AppTheme.mutedText,
             size: 30,
             help: projects.isEmpty
-                ? "New No Project Pi Agent session"
-                : "Choose a project or No Project for the new Pi Agent session",
+                ? "New General Chat Pi Agent session"
+                : "Choose a project or General Chat for the new Pi Agent session",
             action: primaryAction
         ) {
             Image(systemName: "plus")
@@ -336,14 +336,14 @@ private struct PiAgentProjectPickerPopover: View {
     let onSelectProject: (DiscoveredProject) -> Void
 
     var body: some View {
-        AppPopoverContainer(title: "New Session", subtitle: "Choose a project or start without one.") {
+        AppPopoverContainer(title: "New Session", subtitle: "Choose a project or start a general chat.") {
             AppProjectPickerPopoverList {
                 AppPopoverProjectRow(
                     imageURL: nil,
-                    symbolName: "macwindow",
+                    symbolName: "bubble.left.and.bubble.right",
                     assetName: nil,
                     title: PiAgentSessionRecord.noProjectDisplayName,
-                    path: "Pi runs in a safe scratch folder.",
+                    path: "Pi runs in an app-owned General Chats scratch folder.",
                     isCurrent: false
                 ) {
                     onSelectNoProject()
@@ -429,7 +429,7 @@ struct PiAgentSessionRow: View, Equatable {
 
             HStack(spacing: 6) {
                 if session.isNoProject {
-                    Image(systemName: "macwindow")
+                    Image(systemName: "bubble.left.and.bubble.right")
                         .font(AppTheme.Font.caption2.weight(.semibold))
                         .frame(width: 11, alignment: .center)
                 } else {

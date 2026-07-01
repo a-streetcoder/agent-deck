@@ -702,6 +702,9 @@ final class PiAgentRunnerService {
         }
 
         do {
+            if session.isNoProject {
+                migrateLegacyGeneralChatScratchFolderIfNeeded(for: session, targetURL: projectURL)
+            }
             try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
             let launchSettings = AppSettingsStore.shared.settings
             var extraArguments: [String] = PiAgentLaunchArgumentBuilder.noExtensionsArgument(settings: launchSettings)
@@ -719,8 +722,10 @@ final class PiAgentRunnerService {
             if let fastURL = try? PiNativeSubagentBridgeExtensions.openAIFastExtensionURL() {
                 extraArguments.append(contentsOf: ["--extension", fastURL.path])
             }
-            for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: AppSettingsStore.shared.settings) {
-                extraArguments.append(contentsOf: ["--extension", commandURL.path])
+            if !session.isNoProject {
+                for commandURL in PiInjectedCommandCatalog.extensionURLs(settings: AppSettingsStore.shared.settings) {
+                    extraArguments.append(contentsOf: ["--extension", commandURL.path])
+                }
             }
             let sessionID = session.id
             let clientRunID = UUID()
@@ -909,6 +914,16 @@ final class PiAgentRunnerService {
             mark(session.id, status: .failed, error: error.localizedDescription)
             store.append(.init(sessionID: session.id, role: .error, title: "Launch Failed", text: error.localizedDescription))
         }
+    }
+
+    private func migrateLegacyGeneralChatScratchFolderIfNeeded(for session: PiAgentSessionRecord, targetURL: URL) {
+        let legacyURL = session.legacyNoProjectLaunchWorkingDirectory
+        let fileManager = FileManager.default
+        guard legacyURL.standardizedFileURL.path != targetURL.standardizedFileURL.path,
+              fileManager.fileExists(atPath: legacyURL.path),
+              !fileManager.fileExists(atPath: targetURL.path) else { return }
+        try? fileManager.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fileManager.moveItem(at: legacyURL, to: targetURL)
     }
 
     private func launchConfiguration(for session: PiAgentSessionRecord) -> (provider: String?, model: String?, thinkingLevel: String?) {

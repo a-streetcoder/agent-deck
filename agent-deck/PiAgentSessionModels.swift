@@ -920,7 +920,19 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         return title
     }
 
-    static let noProjectDisplayName = "No Project"
+    static let noProjectDisplayName = "General Chat"
+
+    static var generalChatScratchRootURL: URL {
+        URL.applicationSupportDirectory
+            .appendingPathComponent(AppBrand.displayName, isDirectory: true)
+            .appendingPathComponent("General Chats", isDirectory: true)
+    }
+
+    static var legacyNoProjectScratchRootURL: URL {
+        URL.applicationSupportDirectory
+            .appendingPathComponent(AppBrand.displayName, isDirectory: true)
+            .appendingPathComponent("No Project Sessions", isDirectory: true)
+    }
 
     /// Only normal Coding Agent project chats may run without a discovered project.
     /// Persisted records keep `projectPath`/`projectName` as strings for backwards
@@ -943,10 +955,11 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var launchWorkingDirectory: URL {
         if let worktreePath { return URL(fileURLWithPath: worktreePath, isDirectory: true) }
         if let projectPathForProjectFeatures { return URL(fileURLWithPath: projectPathForProjectFeatures, isDirectory: true) }
-        let base = URL.applicationSupportDirectory
-            .appendingPathComponent(AppBrand.displayName, isDirectory: true)
-            .appendingPathComponent("No Project Sessions", isDirectory: true)
-        return base.appendingPathComponent(id.uuidString, isDirectory: true)
+        return Self.generalChatScratchRootURL.appendingPathComponent(id.uuidString, isDirectory: true)
+    }
+
+    var legacyNoProjectLaunchWorkingDirectory: URL {
+        Self.legacyNoProjectScratchRootURL.appendingPathComponent(id.uuidString, isDirectory: true)
     }
 
     /// True when this session is a 1:1 chat with a specific agent (`kind == .agent`
