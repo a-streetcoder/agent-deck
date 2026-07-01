@@ -344,7 +344,7 @@ private struct PiAgentProjectPickerPopover: View {
                     assetName: nil,
                     title: PiAgentSessionRecord.noProjectDisplayName,
                     path: "Pi runs in a safe scratch folder.",
-                    isCurrent: selectedProject == nil
+                    isCurrent: false
                 ) {
                     onSelectNoProject()
                 }
