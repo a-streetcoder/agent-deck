@@ -80,6 +80,27 @@ extension SlashItem {
         }
     }
 
+    /// Source text for automatic chat titles. Unlike `materialize`, this must
+    /// not include inlined skill/prompt bodies or command implementation text.
+    func titleGenerationSource(userText: String) -> String {
+        let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch payload {
+        case .command:
+            return trimmed
+        case .skill, .skillCollection:
+            return trimmed
+        case .prompt(_, let body):
+            let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == trimmedBody { return "" }
+            if trimmed.hasPrefix(trimmedBody) {
+                return String(trimmed.dropFirst(trimmedBody.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return trimmed
+        case .loopCreateNew, .loopDefinition:
+            return trimmed
+        }
+    }
+
     func matches(query lowercasedQuery: String) -> Bool {
         if lowercasedQuery.isEmpty { return true }
         if displayName.lowercased().contains(lowercasedQuery) { return true }

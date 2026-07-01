@@ -246,6 +246,8 @@ final class PiSessionTitleGenerationService {
     Requirements:
     - 3 to 7 words
     - Title Case
+    - Preserve GitHub prefixes like "Issue #123" or "PR #123" when the message starts with one
+    - Ignore slash commands, skill boilerplate, prompt boilerplate, and implementation text; title the user's goal
     - No quotes
     - Plain text only
     - No markdown formatting, bullets, code fences, heading markers, or emphasis
