@@ -206,8 +206,8 @@ struct MCPServersScreen: View {
             AppPage(entry.name, subtitle: transportLabel(entry)) {
                 VStack(alignment: .leading, spacing: 20) {
                     connectionCard(entry)
-                    toolsCard(entry)
                     projectAssignmentCard(entry)
+                    toolsCard(entry)
                     removeCard(entry)
                 }
             }
