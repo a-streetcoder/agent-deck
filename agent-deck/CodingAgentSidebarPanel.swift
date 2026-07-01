@@ -124,6 +124,7 @@ struct CodingAgentCollapsedPanel: View {
                     isAgentSelected: viewModel.selectedSidebarItem == .agent,
                     workingSessionIDs: workingRecentSessionIDs,
                     uiRequestSessionIDs: uiRequestRecentSessionIDs,
+                    activeLoopSessionIDs: activeLoopRecentSessionIDs,
                     projectByPath: viewModel.projectByPath,
                     bottomContentInset: recentListFadeHeight > 0 ? recentListFadeHeight + 2 : 4,
                     scrollRequestID: recentScrollRequest,
@@ -205,6 +206,13 @@ struct CodingAgentCollapsedPanel: View {
         })
     }
 
+    private var activeLoopRecentSessionIDs: Set<UUID> {
+        let recentIDs = Set(recentSessions.map(\.id))
+        return Set(store.loopRunsBySessionID.compactMap { sessionID, runs in
+            recentIDs.contains(sessionID) && runs.contains(where: \.isActive) ? sessionID : nil
+        })
+    }
+
     private func rebuildRecents() {
         var scoped = store.sessions
         if viewModel.showPiAgentAttentionOnly {
@@ -254,6 +262,7 @@ private struct CodingAgentRecentList: View, Equatable {
     let isAgentSelected: Bool
     let workingSessionIDs: Set<UUID>
     let uiRequestSessionIDs: Set<UUID>
+    let activeLoopSessionIDs: Set<UUID>
     let projectByPath: [String: DiscoveredProject]
     /// Past the panel's fade when one shows, so the last row can scroll clear
     /// of the gradient. Derived from the session count, so `==` already
@@ -274,6 +283,7 @@ private struct CodingAgentRecentList: View, Equatable {
             && lhs.isAgentSelected == rhs.isAgentSelected
             && lhs.workingSessionIDs == rhs.workingSessionIDs
             && lhs.uiRequestSessionIDs == rhs.uiRequestSessionIDs
+            && lhs.activeLoopSessionIDs == rhs.activeLoopSessionIDs
             && lhs.projectByPath == rhs.projectByPath
             // A pending scroll request must defeat the gate so the inner
             // AppList's onChange sees it (same trap as SessionListContent).
@@ -296,6 +306,7 @@ private struct CodingAgentRecentList: View, Equatable {
                 isSelected: isAgentSelected && session.id == selectedSessionID,
                 isRunning: workingSessionIDs.contains(session.id),
                 hasUIRequest: uiRequestSessionIDs.contains(session.id),
+                hasActiveLoop: activeLoopSessionIDs.contains(session.id),
                 onDelete: { onDelete(session.id) }
             )
             .equatable()
@@ -314,15 +325,16 @@ private struct CodingAgentRecentList: View, Equatable {
 }
 
 /// Compact one-line session row for the collapsed panel: project icon, title,
-/// and a live status slot (typing dots while running, bell when waiting; a hover
-/// swaps it for the delete affordance). Selection/hover chrome and the tap come
-/// from the enclosing `AppList` row.
+/// and a live status slot (spinner while a loop runs, typing dots while running,
+/// bell when waiting; a hover swaps it for the delete affordance). Selection/hover
+/// chrome and the tap come from the enclosing `AppList` row.
 struct CodingAgentRecentRow: View, Equatable {
     let session: PiAgentSessionRecord
     let project: DiscoveredProject?
     let isSelected: Bool
     let isRunning: Bool
     let hasUIRequest: Bool
+    let hasActiveLoop: Bool
     let onDelete: () -> Void
 
     /// Fixed so the collapsed panel can size its visible window exactly.
@@ -336,6 +348,7 @@ struct CodingAgentRecentRow: View, Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.isRunning == rhs.isRunning
             && lhs.hasUIRequest == rhs.hasUIRequest
+            && lhs.hasActiveLoop == rhs.hasActiveLoop
     }
 
     @State private var isHovering = false
@@ -348,7 +361,7 @@ struct CodingAgentRecentRow: View, Equatable {
                 size: 18,
                 assetName: iconAssetName
             )
-            .opacity(isSelected || hasUIRequest || isRunning || session.needsAttention ? 1 : 0.58)
+            .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
 
             Text(session.displayTitle)
                 .font(AppTheme.Font.footnote.weight(.medium))
@@ -357,7 +370,7 @@ struct CodingAgentRecentRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 // Same seen-inactive dimming as the expanded rows.
-                .opacity(isSelected || hasUIRequest || isRunning || session.needsAttention ? 1 : 0.58)
+                .opacity(isSelected || hasUIRequest || hasActiveLoop || isRunning || session.needsAttention ? 1 : 0.58)
 
             Spacer(minLength: 6)
 
@@ -400,6 +413,12 @@ struct CodingAgentRecentRow: View, Equatable {
                 .foregroundStyle(AppTheme.brandAccent)
                 .help("Pi Agent is waiting for your response")
                 .accessibilityLabel("Waiting for your response")
+        } else if hasActiveLoop {
+            AppSpinner()
+                .controlSize(.small)
+                .frame(width: 14, height: 14)
+                .help("Loop running")
+                .accessibilityLabel("Loop running")
         } else if isRunning {
             PiAgentTypingIndicator()
         } else if session.needsAttention {
