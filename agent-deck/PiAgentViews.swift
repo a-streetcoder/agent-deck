@@ -4822,7 +4822,7 @@ struct PiAgentScreen: View {
                         PiAgentAddSessionMenuButton(
                             projects: piAgentNewSessionProjects,
                             selectedProject: viewModel.selectedDiscoveredProject,
-                            action: { viewModel.createPiAgentDraftForSelectedProject() },
+                            action: { viewModel.createNoProjectPiAgentDraft() },
                             onSelectProject: { project in
                                 viewModel.createPiAgentDraft(for: project)
                             }

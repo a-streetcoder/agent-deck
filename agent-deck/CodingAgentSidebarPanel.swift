@@ -64,7 +64,7 @@ struct CodingAgentNewSessionControls: View {
         PiAgentAddSessionMenuButton(
             projects: orderedProjects,
             selectedProject: nil,
-            action: { viewModel.createPiAgentDraftForSelectedProject() },
+            action: { viewModel.createNoProjectPiAgentDraft() },
             onSelectProject: { viewModel.createPiAgentDraft(for: $0) }
         )
     }

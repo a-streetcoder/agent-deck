@@ -2679,13 +2679,17 @@ final class AppViewModel: NSObject {
 
     func createPiAgentDraftForSelectedProject() {
         guard let project = selectedDiscoveredProject else {
-            selectedSidebarItem = .agent
-            let session = piAgentSessionStore.createNoProjectCodingAgentSession()
-            uncollapseSessionGroup(session)
-            selectPiAgentSession(session.id)
+            createNoProjectPiAgentDraft()
             return
         }
         createPiAgentDraft(for: project)
+    }
+
+    func createNoProjectPiAgentDraft() {
+        selectedSidebarItem = .agent
+        let session = piAgentSessionStore.createNoProjectCodingAgentSession()
+        uncollapseSessionGroup(session)
+        selectPiAgentSession(session.id)
     }
 
     func createPiAgentDraft(for project: DiscoveredProject) {
