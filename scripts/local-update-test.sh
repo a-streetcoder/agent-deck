@@ -112,7 +112,17 @@ if [[ "$LOCAL_APPCAST" == "1" ]]; then
   PACKAGE_ENV+=(ALLOW_NON_PRODUCTION_FEED=1 SU_FEED_URL="$FEED_URL")
 fi
 
-DMG_PATH="$(env "${PACKAGE_ENV[@]}" bash scripts/package-dmg.sh | tail -n 1)"
+PACKAGE_LOG="$BUILD_DIR/package-dmg.log"
+set +e
+env "${PACKAGE_ENV[@]}" bash scripts/package-dmg.sh 2>&1 | tee "$PACKAGE_LOG"
+PACKAGE_STATUS=${PIPESTATUS[0]}
+set -e
+if [[ "$PACKAGE_STATUS" -ne 0 ]]; then
+  echo "" >&2
+  echo "Build failed. Full log: $PACKAGE_LOG" >&2
+  exit "$PACKAGE_STATUS"
+fi
+DMG_PATH="$(tail -n 1 "$PACKAGE_LOG")"
 
 if [[ ! -f "$DMG_PATH" ]]; then
   echo "Expected DMG at $DMG_PATH" >&2
