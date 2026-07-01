@@ -614,6 +614,14 @@ private struct MCPServerEditorSheet: View {
 
     private var isEditing: Bool { model.existingEntry != nil }
 
+    private var importCandidateIDs: Set<MCPForeignConfigScanner.Candidate.ID> {
+        Set(importCandidates.map(\.id))
+    }
+
+    private var importCandidateSummary: String {
+        "Showing \(importCandidates.count) importable MCP server\(importCandidates.count == 1 ? "" : "s") • \(selectedImportIDs.count) selected"
+    }
+
     private var canSave: Bool {
         if isPasting { return !MCPConfigParser.parse(pasteText).isEmpty }
         if isImportingServers { return !selectedImportIDs.isEmpty }
@@ -685,7 +693,7 @@ private struct MCPServerEditorSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 560, height: 620)
+        .frame(minWidth: 700, idealWidth: 820, maxWidth: 920, minHeight: 620, idealHeight: 720, maxHeight: 780)
         .background(AppTheme.windowBackground)
         .task(id: inputMode) {
             guard isImportingServers else { return }
@@ -786,6 +794,21 @@ private struct MCPServerEditorSheet: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if !importCandidates.isEmpty {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(importCandidateSummary)
+                            .font(.caption2)
+                            .foregroundStyle(AppTheme.mutedText)
+                        Spacer(minLength: 0)
+                        Button("Select All") { selectedImportIDs = importCandidateIDs }
+                            .appSmallSecondaryButton()
+                            .disabled(isScanningImports || importCandidateIDs.isSubset(of: selectedImportIDs))
+                        Button("Deselect All") { selectedImportIDs.removeAll() }
+                            .appSmallSecondaryButton()
+                            .disabled(isScanningImports || selectedImportIDs.isEmpty)
+                    }
+                }
+
                 if isScanningImports {
                     HStack(spacing: 8) {
                         AppSpinner().controlSize(.small)
@@ -815,6 +838,24 @@ private struct MCPServerEditorSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func sourceIcon(_ sourceName: String) -> some View {
+        let normalized = sourceName.lowercased()
+        if normalized.contains("claude") {
+            ProviderLogoImage(provider: "anthropic", size: 12)
+        } else if normalized.contains("codex") {
+            ProviderLogoImage(provider: "openai-codex", size: 12)
+        } else if normalized.contains("project") {
+            Image(systemName: "folder")
+                .font(.caption2.weight(.semibold))
+                .imageScale(.small)
+        } else {
+            Image(systemName: "doc.text")
+                .font(.caption2.weight(.semibold))
+                .imageScale(.small)
+        }
+    }
+
     private func importRow(_ candidate: MCPForeignConfigScanner.Candidate) -> some View {
         let isSelected = Binding(
             get: { selectedImportIDs.contains(candidate.id) },
@@ -841,11 +882,13 @@ private struct MCPServerEditorSheet: View {
                         .padding(.vertical, 2)
                         .background(AppTheme.contentFill, in: Capsule())
                 }
-                Text("\(candidate.sourceName) · \(candidate.sourcePath)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(AppTheme.mutedText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 4) {
+                    sourceIcon(candidate.sourceName)
+                    Text(candidate.sourceName)
+                        .font(.caption2.weight(.medium))
+                }
+                .foregroundStyle(AppTheme.mutedText)
+                .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -908,7 +951,7 @@ private struct MCPServerEditorSheet: View {
             MCPForeignConfigScanner().scan(excluding: names, projectRoot: projectRoot)
         }.value
         importCandidates = candidates
-        selectedImportIDs = Set(candidates.map(\.id))
+        selectedImportIDs.removeAll()
         isScanningImports = false
     }
 
