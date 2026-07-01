@@ -142,12 +142,26 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 2
 fi
 
+PLIST="$APP_PATH/Contents/Info.plist"
 EXPECTED_SU_FEED_URL="${SU_FEED_URL:-$DEFAULT_SU_FEED_URL}"
-ACTUAL_SU_FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$PLIST"
+if [[ -n "${BUILD_NUMBER:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLIST"
+fi
+TARGET_BUILD_DIR="$APP_PATH/Contents" \
+  INFOPLIST_PATH="Info.plist" \
+  SU_FEED_URL="$EXPECTED_SU_FEED_URL" \
+  bash "$SCRIPT_DIR/inject-sparkle-info.sh"
+codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$APP_PATH"
+
+ACTUAL_SU_FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$PLIST" 2>/dev/null || true)"
 if [[ "$ACTUAL_SU_FEED_URL" != "$EXPECTED_SU_FEED_URL" ]]; then
   echo "Expected SUFeedURL=$EXPECTED_SU_FEED_URL, found ${ACTUAL_SU_FEED_URL:-<missing>} in $APP_PATH." >&2
   exit 2
 fi
+codesign --verify --deep --strict "$APP_PATH"
 
 # Build the polished DMG via create-dmg. Window/icon coordinates match the
 # layout that scripts/dmg/generate-background.swift draws (app at x=180,
