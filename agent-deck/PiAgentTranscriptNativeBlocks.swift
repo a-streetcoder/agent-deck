@@ -1127,8 +1127,10 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
     private let labelField = NSTextField(labelWithString: "")
     private let outcomeField = NSTextField(labelWithString: "")
     private let timeLabel = NSTextField(labelWithString: "")
-    private let summaryField = NSTextField(wrappingLabelWithString: "")
-    private let detailsField = NSTextField(wrappingLabelWithString: "")
+    private let summaryMarkdown = NativeMarkdownTextContainer()
+    private let detailsMarkdown = NativeMarkdownTextContainer()
+    private let summaryApplier = MarkdownSourceApplier()
+    private let detailsApplier = MarkdownSourceApplier()
     private let headerRight = NSStackView()
     private let textStack = NSStackView()
 
@@ -1149,12 +1151,15 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
         timeLabel.font = NativeTranscriptFont.caption2()
         timeLabel.textColor = AppTheme.ns(AppTheme.mutedText)
 
-        summaryField.font = NativeTranscriptFont.callout()
-        summaryField.textColor = .labelColor
-        summaryField.maximumNumberOfLines = 0
-        detailsField.font = NativeTranscriptFont.caption()
-        detailsField.textColor = AppTheme.ns(AppTheme.mutedText)
-        detailsField.maximumNumberOfLines = 0
+        for markdown in [summaryMarkdown, detailsMarkdown] {
+            markdown.translatesAutoresizingMaskIntoConstraints = false
+            markdown.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            markdown.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            markdown.onHeightChange = { [weak self] _ in
+                self?.notifyContentHeightChanged()
+            }
+        }
+        detailsMarkdown.alphaValue = 0.72
 
         headerRight.translatesAutoresizingMaskIntoConstraints = false
         headerRight.orientation = .horizontal
@@ -1170,8 +1175,8 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
         textStack.spacing = 6
         textStack.addArrangedSubview(titleLabel)
         textStack.addArrangedSubview(outcomeField)
-        textStack.addArrangedSubview(summaryField)
-        textStack.addArrangedSubview(detailsField)
+        textStack.addArrangedSubview(summaryMarkdown)
+        textStack.addArrangedSubview(detailsMarkdown)
 
         cardContent.addSubview(iconView)
         cardContent.addSubview(textStack)
@@ -1200,9 +1205,9 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
         labelField.stringValue = payload.label
         outcomeField.stringValue = payload.outcomeText
         timeLabel.stringValue = payload.timeText
-        summaryField.attributedStringValue = Self.inlineMarkdown(payload.summaryText, font: NativeTranscriptFont.callout(), color: .labelColor)
-        detailsField.attributedStringValue = Self.inlineMarkdown(payload.detailsText, font: NativeTranscriptFont.caption(), color: AppTheme.ns(AppTheme.mutedText))
-        detailsField.isHidden = payload.detailsText.isEmpty
+        summaryApplier.apply(source: payload.summaryText, to: summaryMarkdown)
+        detailsApplier.apply(source: payload.detailsText, to: detailsMarkdown)
+        detailsMarkdown.isHidden = payload.detailsText.isEmpty
         applyCard(
             fill: payload.accent.withAlphaComponent(AppTheme.roleFillStrongOpacity),
             stroke: payload.accent.withAlphaComponent(AppTheme.roleStrokeOpacity),
@@ -1215,55 +1220,23 @@ final class PiAgentNativeLoopRecapCardView: PiAgentNativeCardRowView {
         )
     }
 
-    private static func inlineMarkdown(_ source: String, font: NSFont, color: NSColor) -> NSAttributedString {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 1
-        let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
-        guard !source.isEmpty,
-              let attributed = try? AttributedString(
-                markdown: source,
-                options: AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .inlineOnlyPreservingWhitespace,
-                    failurePolicy: .returnPartiallyParsedIfPossible
-                )
-              ) else {
-            return NSAttributedString(string: source, attributes: base)
-        }
-        let mutable = NSMutableAttributedString(attributedString: NSAttributedString(attributed))
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
-        mutable.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
-        mutable.enumerateAttribute(.font, in: fullRange) { value, range, _ in
-            guard let current = value as? NSFont else {
-                mutable.addAttribute(.font, value: font, range: range)
-                return
-            }
-            let traits = NSFontManager.shared.traits(of: current)
-            var replacement = font
-            if traits.contains(.boldFontMask) {
-                replacement = NSFont.systemFont(ofSize: font.pointSize, weight: .semibold)
-            }
-            if traits.contains(.italicFontMask) {
-                replacement = NSFontManager.shared.convert(replacement, toHaveTrait: .italicFontMask)
-            }
-            mutable.addAttribute(.font, value: replacement, range: range)
-        }
-        return mutable
+    override func prepareForReuseIfNeeded() {
+        super.prepareForReuseIfNeeded()
+        summaryApplier.cancel()
+        detailsApplier.cancel()
     }
 
     override func contentHeight(forInnerWidth innerWidth: CGFloat) -> CGFloat {
         let textWidth = max(40, innerWidth - NativeTranscriptFont.headerIconSize - 8 - 90)
         titleLabel.preferredMaxLayoutWidth = textWidth
         outcomeField.preferredMaxLayoutWidth = textWidth
-        summaryField.preferredMaxLayoutWidth = textWidth
-        detailsField.preferredMaxLayoutWidth = textWidth
         var height = ceil(titleLabel.intrinsicContentSize.height)
         height += 6 + ceil(outcomeField.intrinsicContentSize.height)
-        height += 6 + ceil(summaryField.intrinsicContentSize.height)
-        if !detailsField.isHidden {
-            height += 6 + ceil(detailsField.intrinsicContentSize.height)
+        height += 6 + summaryMarkdown.measureHeight(forWidth: textWidth)
+        if !detailsMarkdown.isHidden {
+            height += 6 + detailsMarkdown.measureHeight(forWidth: textWidth)
         }
-        return max(NativeTranscriptFont.headerIconSize, height)
+        return max(NativeTranscriptFont.headerIconSize, ceil(height))
     }
 }
 

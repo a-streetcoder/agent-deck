@@ -2287,16 +2287,6 @@ struct PiAgentLoopRecapTranscriptCard: View {
         NativeLoopRecapPayload.make(entry: entry, marker: marker)
     }
 
-    private func inlineMarkdown(_ source: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: source,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace,
-                failurePolicy: .returnPartiallyParsedIfPossible
-            )
-        )) ?? AttributedString(source)
-    }
-
     var body: some View {
         let payload = payload
         VStack(alignment: .leading, spacing: 7) {
@@ -2316,15 +2306,12 @@ struct PiAgentLoopRecapTranscriptCard: View {
             Text(payload.outcomeText)
                 .font(AppTheme.Font.caption.weight(.medium))
                 .foregroundStyle(AppTheme.mutedText)
-            Text(inlineMarkdown(payload.summaryText))
-                .font(AppTheme.Font.callout)
-                .foregroundStyle(.primary)
+            MarkdownTextView(source: payload.summaryText)
                 .fixedSize(horizontal: false, vertical: true)
             if !payload.detailsText.isEmpty {
-                Text(inlineMarkdown(payload.detailsText))
-                    .font(AppTheme.Font.caption)
-                    .foregroundStyle(AppTheme.mutedText)
+                MarkdownTextView(source: payload.detailsText)
                     .fixedSize(horizontal: false, vertical: true)
+                    .opacity(0.72)
             }
         }
         .padding(.horizontal, AppTheme.Chat.bubbleHPadding)
