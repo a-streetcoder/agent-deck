@@ -8,10 +8,12 @@ nonisolated struct PiScanner: @unchecked Sendable {
     private let fileManager = FileManager.default
     private let externalSkillPaths: Set<String>
     private let externalPromptPaths: Set<String>
+    private let skillCollectionNames: Set<String>
 
-    init(externalSkillPaths: Set<String> = [], externalPromptPaths: Set<String> = []) {
+    init(externalSkillPaths: Set<String> = [], externalPromptPaths: Set<String> = [], skillCollectionNames: Set<String> = []) {
         self.externalSkillPaths = externalSkillPaths
         self.externalPromptPaths = externalPromptPaths
+        self.skillCollectionNames = skillCollectionNames
     }
 
     func scan(projectRoot: URL?) -> ScanSnapshot {
@@ -806,7 +808,7 @@ nonisolated struct PiScanner: @unchecked Sendable {
         malformedWarnings: [DiagnosticWarning]
     ) -> [DiagnosticWarning] {
         var warnings: [DiagnosticWarning] = malformedWarnings
-        let skillNames = Set(skills.map(\.name))
+        let skillNames = Set(skills.map(\.name)).union(skillCollectionNames)
         let exaConfigured = envKeys.contains {
             $0.key == "EXA_API_KEY" && ($0.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
         }

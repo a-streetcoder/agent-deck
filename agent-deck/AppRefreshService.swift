@@ -31,11 +31,12 @@ nonisolated struct AppRefreshService: Sendable {
         preferencesByPath: [String: ProjectPreference],
         externalSkillPaths: Set<String>,
         externalPromptPaths: Set<String>,
+        skillCollectionNames: Set<String> = [],
         scanAllProjects: Bool = true,
         extraProjectPathsToScan: Set<String> = []
     ) -> AppRefreshSnapshot {
         let discovery = ProjectDiscovery()
-        let scanner = PiScanner(externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths)
+        let scanner = PiScanner(externalSkillPaths: externalSkillPaths, externalPromptPaths: externalPromptPaths, skillCollectionNames: skillCollectionNames)
         let discoveredProjects = discovery.discoverProjects(
             rootDirectoryURLs: rootURLs,
             additionalProjectPaths: Array(preferencesByPath.keys),

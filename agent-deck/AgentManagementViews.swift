@@ -102,6 +102,9 @@ struct AgentsScreen: View {
                         isAgentGlobal: { record in viewModel.agentIsEnabledGlobally(record) },
                         assignedAgentProjects: { record in viewModel.assignedProjects(for: record) },
                         skillVisibilityIssues: { viewModel.explicitSkillVisibilityIssues(for: $0) },
+                        skillCollections: viewModel.appSettings.skillCollections,
+                        skillsInCollection: { collection in viewModel.skillRecords(in: collection) },
+                        skillIsExcludedFromRuntime: { skill, collection in viewModel.skillIsExcludedFromRuntime(skill, in: collection) },
                         setAgentGlobal: { record, enabled in
                             if enabled { try viewModel.enableAgentGlobally(record) } else { try viewModel.disableAgentGlobally(record) }
                         },
@@ -149,6 +152,7 @@ struct AgentsScreen: View {
                 availableModels: viewModel.enabledAvailableModels,
                 availableTools: viewModel.availableToolNames(for: availableTarget),
                 availableSkills: viewModel.availableSkillNames(for: availableTarget),
+                availableSkillCollections: viewModel.availableSkillCollectionNames(for: availableTarget),
                 availableExtensions: viewModel.availableExtensionNames(for: availableTarget),
                 availableMcpServers: viewModel.availableMCPServerNames,
                 initialTab: presentation.initialTab,
@@ -1004,6 +1008,9 @@ private struct AgentDetailView: View {
     let isAgentGlobal: (AgentRecord) -> Bool
     let assignedAgentProjects: (AgentRecord) -> [DiscoveredProject]
     let skillVisibilityIssues: (EffectiveAgentRecord) -> [AgentSkillVisibilityIssue]
+    let skillCollections: [SkillCollectionRecord]
+    let skillsInCollection: (SkillCollectionRecord) -> [SkillRecord]
+    let skillIsExcludedFromRuntime: (SkillRecord, SkillCollectionRecord) -> Bool
     let setAgentGlobal: (AgentRecord, Bool) throws -> Void
     let setAgentForProject: (AgentRecord, DiscoveredProject, Bool) throws -> Void
     let moveAgentToLibrary: (AgentRecord) throws -> Void
@@ -1410,10 +1417,65 @@ private struct AgentDetailView: View {
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        iconList(agent.resolved.skills, systemImage: "sparkles", tint: .green)
+                        resolvedSkillList
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var resolvedSkillList: some View {
+        let collectionsByName = Dictionary(grouping: skillCollections, by: \.name).compactMapValues { $0.first }
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(agent.resolved.skills, id: \.self) { name in
+                if let collection = collectionsByName[name] {
+                    resolvedCollectionRow(collection)
+                } else {
+                    resolvedSkillRow(name)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func resolvedCollectionRow(_ collection: SkillCollectionRecord) -> some View {
+        let members = skillsInCollection(collection).filter { !skillIsExcludedFromRuntime($0, collection) }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "folder.badge.gearshape")
+                    .foregroundStyle(.purple)
+                    .frame(width: 18)
+                Text(collection.name)
+                    .textSelection(.enabled)
+                Text("\(members.count) skill\(members.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            if members.isEmpty {
+                Text("No active skills resolved from this collection.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.leading, 28)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(members, id: \.id) { skill in
+                        resolvedSkillRow(skill.name)
+                    }
+                }
+                .padding(.leading, 28)
+            }
+        }
+    }
+
+    private func resolvedSkillRow(_ name: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(.green)
+                .frame(width: 18)
+            Text(name)
+                .textSelection(.enabled)
         }
     }
 
@@ -1797,6 +1859,7 @@ private struct AgentEditSheet: View {
     let availableModels: [AvailableModel]
     let availableTools: [String]
     let availableSkills: [String]
+    let availableSkillCollections: [String]
     let availableExtensions: [String]
     let availableMcpServers: [String]
     let initialTab: AgentEditTab
@@ -1816,6 +1879,7 @@ private struct AgentEditSheet: View {
         availableModels: [AvailableModel],
         availableTools: [String],
         availableSkills: [String],
+        availableSkillCollections: [String],
         availableExtensions: [String],
         availableMcpServers: [String] = [],
         initialTab: AgentEditTab = .config,
@@ -1826,6 +1890,7 @@ private struct AgentEditSheet: View {
         self.availableModels = availableModels
         self.availableTools = availableTools
         self.availableSkills = availableSkills
+        self.availableSkillCollections = availableSkillCollections
         self.availableExtensions = availableExtensions
         self.availableMcpServers = availableMcpServers
         self.initialTab = initialTab
@@ -2219,11 +2284,17 @@ private struct AgentEditSheet: View {
                         }
 
                         configRow("Add Skill") {
-                            Menu("Choose Skill or Collection") {
+                            Menu("Choose Skill") {
                                 ForEach(selectableSkills, id: \.self) { skill in
-                                    Button(skill) {
-                                        addSkill(skill)
-                                    }
+                                    Button(skill) { addSkill(skill) }
+                                }
+                            }
+                        }
+
+                        configRow("Add Collection") {
+                            Menu("Choose Collection") {
+                                ForEach(selectableSkillCollections, id: \.self) { collection in
+                                    Button(collection) { addSkill(collection) }
                                 }
                             }
                         }
@@ -2474,6 +2545,10 @@ private struct AgentEditSheet: View {
 
     private var selectableSkills: [String] {
         availableSkills.filter { !(draft?.config.skills.contains($0) ?? false) }
+    }
+
+    private var selectableSkillCollections: [String] {
+        availableSkillCollections.filter { !(draft?.config.skills.contains($0) ?? false) }
     }
 
     private func optionalStringBinding(for keyPath: WritableKeyPath<AgentConfig, String?>) -> Binding<String> {

@@ -573,6 +573,7 @@ final class AppViewModel: NSObject {
         let rootURLs = configuredProjectsRootURLs
         let externalSkillPaths = appSettings.externalSkillPaths
         let externalPromptPaths = appSettings.externalPromptPaths
+        let skillCollectionNames = Set(appSettings.skillCollections.map(\.name))
         refreshRequestID += 1
         let requestID = refreshRequestID
         if !silentlyReconcile {
@@ -592,6 +593,7 @@ final class AppViewModel: NSObject {
                 preferencesByPath: preferencesByPath,
                 externalSkillPaths: externalSkillPaths,
                 externalPromptPaths: externalPromptPaths,
+                skillCollectionNames: skillCollectionNames,
                 scanAllProjects: shouldScanAllProjects,
                 extraProjectPathsToScan: extraProjectPathsToScan
             )
@@ -629,6 +631,7 @@ final class AppViewModel: NSObject {
             preferencesByPath: projectPreferencesStore.preferencesByPath,
             externalSkillPaths: appSettings.externalSkillPaths,
             externalPromptPaths: appSettings.externalPromptPaths,
+            skillCollectionNames: Set(appSettings.skillCollections.map(\.name)),
             scanAllProjects: scanAllProjects,
             extraProjectPathsToScan: extraProjectPathsToScan
         )
@@ -7535,9 +7538,12 @@ final class AppViewModel: NSObject {
 
     func availableSkillNames(for target: AgentEditingTarget) -> [String] {
         let snapshot = scopeSnapshot(for: target)
-        let skillNames = (snapshot.skills + snapshot.librarySkills).map(\.name)
-        let collectionNames = appSettings.skillCollections.map(\.name)
-        return Array(Set(skillNames + collectionNames))
+        return Array(Set((snapshot.skills + snapshot.librarySkills).map(\.name)))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func availableSkillCollectionNames(for target: AgentEditingTarget) -> [String] {
+        appSettings.skillCollections.map(\.name)
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
@@ -8024,6 +8030,7 @@ final class AppViewModel: NSObject {
         let preferencesByPath = projectPreferencesStore.preferencesByPath
         let externalSkillPaths = appSettings.externalSkillPaths
         let externalPromptPaths = appSettings.externalPromptPaths
+        let skillCollectionNames = Set(appSettings.skillCollections.map(\.name))
         refreshRequestID += 1
         let requestID = refreshRequestID
         refreshTask?.cancel()
@@ -8036,6 +8043,7 @@ final class AppViewModel: NSObject {
                 preferencesByPath: preferencesByPath,
                 externalSkillPaths: externalSkillPaths,
                 externalPromptPaths: externalPromptPaths,
+                skillCollectionNames: skillCollectionNames,
                 scanAllProjects: true
             )
             await MainActor.run {
@@ -8563,7 +8571,7 @@ final class AppViewModel: NSObject {
     }
 
     private func skillNamed(_ skillName: String, isRuntimeVisibleIn project: DiscoveredProject) -> Bool {
-        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths).scan(projectRoot: project.url)
+        let projectSnapshot = allProjectSnapshots[project.path] ?? PiScanner(externalSkillPaths: appSettings.externalSkillPaths, externalPromptPaths: appSettings.externalPromptPaths, skillCollectionNames: Set(appSettings.skillCollections.map(\.name))).scan(projectRoot: project.url)
         let matches = PiSkillLaunchResolver.catalog(from: projectSnapshot).filter { $0.name == skillName }
         return matches.count == 1
     }
@@ -10177,8 +10185,13 @@ final class AppViewModel: NSObject {
     }
 
     private func computeWarnings(for agent: EffectiveAgentRecord) -> [DiagnosticWarning] {
-        globalSnapshot.warnings.filter { warning in
-            warning.message.contains("Agent \(agent.name) ") || warning.message.contains("Agent \(agent.name)")
+        let collectionNames = Set(appSettings.skillCollections.map(\.name))
+        return globalSnapshot.warnings.filter { warning in
+            if warning.id.hasPrefix("skill:\(agent.name):") {
+                let missingName = String(warning.id.dropFirst("skill:\(agent.name):".count))
+                if collectionNames.contains(missingName) { return false }
+            }
+            return warning.message.contains("Agent \(agent.name) ") || warning.message.contains("Agent \(agent.name)")
         }
     }
 
