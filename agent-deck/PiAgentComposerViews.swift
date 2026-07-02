@@ -105,7 +105,11 @@ struct PiAgentComposerBox: View {
         guard let session = metricsSession else { return "" }
         return [
             session.id.uuidString,
-            session.totalTokens.map { "\($0)" } ?? "-",
+            session.inputTokens.map { "in:\($0)" } ?? "in:-",
+            session.outputTokens.map { "out:\($0)" } ?? "out:-",
+            session.cacheReadTokens.map { "cr:\($0)" } ?? "cr:-",
+            session.cacheWriteTokens.map { "cw:\($0)" } ?? "cw:-",
+            session.totalTokens.map { "total:\($0)" } ?? "total:-",
             session.cost.map { "\($0)" } ?? "-",
             "\(viewModel.piAgentSessionStore.subagentRunsRevision)"
         ].joined(separator: "|")
@@ -1618,39 +1622,108 @@ struct PiAgentRuntimeCostAggregate: Equatable {
         let id: UUID
         let label: String
         let model: String?
-        let tokens: Int
+        let totalTokens: Int?
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let cacheTokens: Int?
         let cost: Double?
         let isOrchestration: Bool
+
+        var hasTokenBreakdown: Bool {
+            inputTokens != nil || outputTokens != nil || cacheTokens != nil
+        }
+
+        var hasCompleteTokenBreakdown: Bool {
+            inputTokens != nil && outputTokens != nil
+        }
     }
 
-    var totalTokens: Int
+    var totalTokens: Int?
+    var inputTokens: Int?
+    var outputTokens: Int?
+    var cacheTokens: Int?
     var totalCost: Double?
     var sources: [Source]
     var hasSubagents: Bool
 
     static func build(session: PiAgentSessionRecord, runs: [PiSubagentRunRecord]) -> PiAgentRuntimeCostAggregate {
         var sources: [Source] = []
-        var totalTokens = 0
         var totalCost: Double?
         func addCost(_ c: Double?) { if let c { totalCost = (totalCost ?? 0) + c } }
 
-        let parentTokens = session.totalTokens ?? 0
-        sources.append(.init(id: session.id, label: "main chat", model: session.model, tokens: parentTokens, cost: session.cost, isOrchestration: true))
-        totalTokens += parentTokens
+        let parentCacheTokens = Self.cacheTokenTotal(read: session.cacheReadTokens, write: session.cacheWriteTokens)
+        let parentSource = Source(
+            id: session.id,
+            label: "main chat",
+            model: session.model,
+            totalTokens: Self.totalTokens(reported: session.totalTokens, input: session.inputTokens, output: session.outputTokens, cache: parentCacheTokens),
+            inputTokens: session.inputTokens,
+            outputTokens: session.outputTokens,
+            cacheTokens: parentCacheTokens,
+            cost: session.cost,
+            isOrchestration: true
+        )
+        sources.append(parentSource)
         addCost(session.cost)
 
         var subagentCount = 0
         for run in runs {
             let children: [PiSubagentChildRecord] = run.children ?? run.child.map { [$0] } ?? []
             for child in children {
-                let childTokens = child.totalTokens ?? 0
-                sources.append(.init(id: child.id, label: child.agentName, model: child.model, tokens: childTokens, cost: child.cost, isOrchestration: false))
-                totalTokens += childTokens
+                let childCacheTokens = Self.cacheTokenTotal(read: child.cacheReadTokens, write: child.cacheWriteTokens)
+                let childSource = Source(
+                    id: child.id,
+                    label: child.agentName,
+                    model: child.model,
+                    totalTokens: Self.totalTokens(reported: child.totalTokens, input: child.inputTokens, output: child.outputTokens, cache: childCacheTokens),
+                    inputTokens: child.inputTokens,
+                    outputTokens: child.outputTokens,
+                    cacheTokens: childCacheTokens,
+                    cost: child.cost,
+                    isOrchestration: false
+                )
+                sources.append(childSource)
                 addCost(child.cost)
                 subagentCount += 1
             }
         }
-        return .init(totalTokens: totalTokens, totalCost: totalCost, sources: sources, hasSubagents: subagentCount > 0)
+        let aggregateComponents = Self.aggregateComponentsIfComplete(sources)
+        return .init(
+            totalTokens: Self.aggregateTotalIfComplete(sources),
+            inputTokens: aggregateComponents?.input,
+            outputTokens: aggregateComponents?.output,
+            cacheTokens: aggregateComponents?.cache,
+            totalCost: totalCost,
+            sources: sources,
+            hasSubagents: subagentCount > 0
+        )
+    }
+
+    private static func cacheTokenTotal(read: Int?, write: Int?) -> Int? {
+        guard read != nil || write != nil else { return nil }
+        return (read ?? 0) + (write ?? 0)
+    }
+
+    private static func totalTokens(reported: Int?, input: Int?, output: Int?, cache: Int?) -> Int? {
+        if let reported { return reported }
+        guard let input, let output else { return nil }
+        return input + output + (cache ?? 0)
+    }
+
+    private static func aggregateTotalIfComplete(_ sources: [Source]) -> Int? {
+        guard sources.allSatisfy({ $0.totalTokens != nil }) else { return nil }
+        return sources.reduce(0) { $0 + ($1.totalTokens ?? 0) }
+    }
+
+    private static func aggregateComponentsIfComplete(_ sources: [Source]) -> (input: Int, output: Int, cache: Int?)? {
+        guard sources.allSatisfy(\.hasCompleteTokenBreakdown) else { return nil }
+        let hasAnyCache = sources.contains { $0.cacheTokens != nil }
+        guard !hasAnyCache || sources.allSatisfy({ $0.cacheTokens != nil }) else { return nil }
+        return (
+            input: sources.reduce(0) { $0 + ($1.inputTokens ?? 0) },
+            output: sources.reduce(0) { $0 + ($1.outputTokens ?? 0) },
+            cache: hasAnyCache ? sources.reduce(0) { $0 + ($1.cacheTokens ?? 0) } : nil
+        )
     }
 }
 
@@ -1692,16 +1765,22 @@ struct PiAgentRuntimeFooter: View {
     /// per-source breakdown — with no subagents that's just the main-chat line.
     @ViewBuilder
     private var aggregateChips: some View {
-        // Preserve the original "hide until there's a real count" behavior: the
-        // aggregate's totalTokens is always non-nil (parent defaults to 0), so only
-        // surface it once the parent has reported or a subagent contributed.
-        let hasTokens = session.totalTokens != nil || aggregate?.hasSubagents == true
-        let tokens: Int? = hasTokens ? (aggregate?.totalTokens ?? session.totalTokens) : nil
+        let display = footerTokenDisplay
+        let hasDisplayedTokens = display.input != nil || display.output != nil || display.cache != nil || display.total != nil
         let cost = aggregate?.totalCost ?? session.cost
-        let tappable = aggregate != nil && (tokens != nil || cost != nil)
+        let tappable = aggregate != nil && (hasDisplayedTokens || cost != nil)
         let chips = HStack(spacing: 7) {
-            if let tokens {
-                metric("\(compact(tokens)) tokens", icon: "tugriksign.circle")
+            if let inputTokens = display.input {
+                metric("\(compact(inputTokens)) in", icon: "arrow.down.circle")
+            }
+            if let outputTokens = display.output {
+                metric("\(compact(outputTokens)) out", icon: "arrow.up.circle")
+            }
+            if let cacheTokens = display.cache {
+                metric("\(compact(cacheTokens)) cache", icon: "externaldrive")
+            }
+            if let totalTokens = display.total {
+                metric("\(compact(totalTokens)) tokens", icon: "tugriksign.circle")
             }
             if let cost {
                 metric(String(format: "$%.2f", cost), icon: "dollarsign.circle")
@@ -1718,6 +1797,24 @@ struct PiAgentRuntimeFooter: View {
         } else {
             chips
         }
+    }
+
+    private var footerTokenDisplay: (input: Int?, output: Int?, cache: Int?, total: Int?) {
+        if let aggregate {
+            if aggregate.inputTokens != nil && aggregate.outputTokens != nil {
+                return (aggregate.inputTokens, aggregate.outputTokens, aggregate.cacheTokens, nil)
+            }
+            return (nil, nil, nil, aggregate.totalTokens)
+        }
+
+        let cacheTokens = Self.cacheTokenTotal(read: session.cacheReadTokens, write: session.cacheWriteTokens)
+        if session.inputTokens != nil && session.outputTokens != nil {
+            return (session.inputTokens, session.outputTokens, cacheTokens, nil)
+        }
+        if let totalTokens = session.totalTokens {
+            return (nil, nil, nil, totalTokens)
+        }
+        return (session.inputTokens, session.outputTokens, cacheTokens, nil)
     }
 
     private func metric(_ text: String, icon: String) -> some View {
@@ -1742,6 +1839,11 @@ struct PiAgentRuntimeFooter: View {
         }
         .buttonStyle(.plain)
         .help("Toggle \(text.split(separator: ":").first.map(String.init) ?? text)")
+    }
+
+    private static func cacheTokenTotal(read: Int?, write: Int?) -> Int? {
+        guard read != nil || write != nil else { return nil }
+        return (read ?? 0) + (write ?? 0)
     }
 
     private func compact(_ value: Int) -> String {
@@ -1779,9 +1881,7 @@ struct PiAgentCostBreakdownPopover: View {
                         Text("Total")
                             .font(AppTheme.Font.caption.weight(.bold))
                         Spacer(minLength: 8)
-                        Text(compact(aggregate.totalTokens))
-                            .font(AppTheme.Font.caption.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(AppTheme.mutedText)
+                        aggregateTokenSummary(aggregate)
                         Text(aggregate.totalCost.map { String(format: "$%.2f", $0) } ?? "—")
                             .font(AppTheme.Font.caption.monospacedDigit().weight(.bold))
                             .frame(width: 56, alignment: .trailing)
@@ -1808,15 +1908,51 @@ struct PiAgentCostBreakdownPopover: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(compact(source.tokens))
-                .font(AppTheme.Font.caption.monospacedDigit())
-                .foregroundStyle(AppTheme.mutedText)
+            rowTokenSummary(source)
             Text(source.cost.map { String(format: "$%.2f", $0) } ?? "—")
                 .font(AppTheme.Font.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(source.cost == nil ? AppTheme.mutedText : .primary)
                 .frame(width: 56, alignment: .trailing)
         }
         .padding(.vertical, 6)
+    }
+
+    private func aggregateTokenSummary(_ aggregate: PiAgentRuntimeCostAggregate) -> some View {
+        if aggregate.inputTokens != nil && aggregate.outputTokens != nil {
+            tokenSummary(input: aggregate.inputTokens, output: aggregate.outputTokens, cache: aggregate.cacheTokens, fallback: nil)
+        } else {
+            tokenSummary(input: nil, output: nil, cache: nil, fallback: aggregate.totalTokens)
+        }
+    }
+
+    private func rowTokenSummary(_ source: PiAgentRuntimeCostAggregate.Source) -> some View {
+        if source.hasCompleteTokenBreakdown {
+            tokenSummary(input: source.inputTokens, output: source.outputTokens, cache: source.cacheTokens, fallback: nil)
+        } else if let totalTokens = source.totalTokens {
+            tokenSummary(input: nil, output: nil, cache: nil, fallback: totalTokens)
+        } else {
+            tokenSummary(input: source.inputTokens, output: source.outputTokens, cache: source.cacheTokens, fallback: nil)
+        }
+    }
+
+    private func tokenSummary(input: Int?, output: Int?, cache: Int?, fallback: Int?) -> some View {
+        HStack(spacing: 6) {
+            if let input {
+                Text("\(compact(input)) in")
+            }
+            if let output {
+                Text("\(compact(output)) out")
+            }
+            if let cache {
+                Text("\(compact(cache)) cache")
+            }
+            if let fallback {
+                Text("\(compact(fallback)) tokens")
+            }
+        }
+        .font(AppTheme.Font.caption.monospacedDigit())
+        .foregroundStyle(AppTheme.mutedText)
+        .lineLimit(1)
     }
 
     private func compact(_ value: Int) -> String {
