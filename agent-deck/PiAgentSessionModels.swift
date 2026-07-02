@@ -300,6 +300,66 @@ enum PiSubagentExpectedOutcome: String, Codable, Hashable, CaseIterable, Identif
     }
 }
 
+struct PiAgentUsageCostBreakdown: Codable, Hashable {
+    var input: Double?
+    var output: Double?
+    var cacheRead: Double?
+    var cacheWrite: Double?
+    var total: Double?
+
+    var cache: Double? { Self.sumKnown([cacheRead, cacheWrite]) }
+    var resolvedTotal: Double? { total ?? Self.sumKnown([input, output, cacheRead, cacheWrite]) }
+
+    func adding(_ other: PiAgentUsageCostBreakdown) -> PiAgentUsageCostBreakdown {
+        PiAgentUsageCostBreakdown(
+            input: Self.sumKnown([input, other.input]),
+            output: Self.sumKnown([output, other.output]),
+            cacheRead: Self.sumKnown([cacheRead, other.cacheRead]),
+            cacheWrite: Self.sumKnown([cacheWrite, other.cacheWrite]),
+            total: Self.sumKnown([total, other.total])
+        )
+    }
+
+    static func from(_ value: JSONValue?) -> PiAgentUsageCostBreakdown? {
+        guard let value else { return nil }
+        if let total = value.flexibleNumber {
+            return .init(input: nil, output: nil, cacheRead: nil, cacheWrite: nil, total: total)
+        }
+        guard case let .object(object) = value else { return nil }
+        let breakdown = PiAgentUsageCostBreakdown(
+            input: firstNumber(in: object, keys: ["input", "inputCost"]),
+            output: firstNumber(in: object, keys: ["output", "outputCost"]),
+            cacheRead: firstNumber(in: object, keys: ["cacheRead", "cache_read", "cacheReadCost"]),
+            cacheWrite: firstNumber(in: object, keys: ["cacheWrite", "cache_write", "cacheWriteCost"]),
+            total: firstNumber(in: object, keys: ["total", "totalCost", "cost"])
+        )
+        return breakdown.hasAnyValue ? breakdown : nil
+    }
+
+    var hasAnyValue: Bool {
+        input != nil || output != nil || cacheRead != nil || cacheWrite != nil || total != nil
+    }
+
+    var hasCategories: Bool {
+        input != nil || output != nil || cacheRead != nil || cacheWrite != nil
+    }
+
+    static func sumKnown(_ values: [Double?]) -> Double? {
+        var result: Double?
+        for value in values {
+            if let value { result = (result ?? 0) + value }
+        }
+        return result
+    }
+
+    private static func firstNumber(in object: [String: JSONValue], keys: [String]) -> Double? {
+        for key in keys {
+            if let value = object[key]?.flexibleNumber { return value }
+        }
+        return nil
+    }
+}
+
 struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     var id: UUID
     var runID: UUID
@@ -323,6 +383,9 @@ struct PiSubagentChildRecord: Identifiable, Codable, Hashable {
     /// Runtime-computed cost for this subagent's own Pi session (set from the
     /// child's `get_session_stats` response, the same source as the parent's).
     var cost: Double? = nil
+    /// Optional per-category cost reported by Pi assistant usage or stats.
+    /// Nil means Pi did not report that category; zero means an explicit $0.00.
+    var costBreakdown: PiAgentUsageCostBreakdown? = nil
     var toolCount: Int?
     var durationMs: Int?
     var artifactDirectory: String?
@@ -877,6 +940,9 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var contextPercent: Double?
     var contextBreakdown: [PiAgentContextBreakdownItem]
     var cost: Double?
+    /// Optional per-category cost reported by Pi assistant usage or stats.
+    /// Nil means Pi did not report that category; zero means an explicit $0.00.
+    var costBreakdown: PiAgentUsageCostBreakdown?
     var finalSystemPrompt: String?
     var finalSystemPromptCapturedAt: Date?
     var pendingSteeringMessages: [String]
@@ -982,7 +1048,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
         case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath, sourceBranch
         case status, lastError, lastSummary, needsAttention, lastNotificationAt
-        case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
+        case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost, costBreakdown
         case finalSystemPrompt, finalSystemPromptCapturedAt
         case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, createdAt, updatedAt
         case forkedFromSessionID, forkedFromParentTitle, forkedFromUserMessageText, forkedFromTranscriptSnapshot
@@ -1027,6 +1093,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         contextPercent: Double?,
         contextBreakdown: [PiAgentContextBreakdownItem] = [],
         cost: Double?,
+        costBreakdown: PiAgentUsageCostBreakdown? = nil,
         finalSystemPrompt: String? = nil,
         finalSystemPromptCapturedAt: Date? = nil,
         pendingSteeringMessages: [String],
@@ -1086,6 +1153,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.contextPercent = contextPercent
         self.contextBreakdown = contextBreakdown
         self.cost = cost
+        self.costBreakdown = costBreakdown
         self.finalSystemPrompt = finalSystemPrompt
         self.finalSystemPromptCapturedAt = finalSystemPromptCapturedAt
         self.pendingSteeringMessages = pendingSteeringMessages
@@ -1149,6 +1217,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             contextPercent: try container.decodeIfPresent(Double.self, forKey: .contextPercent),
             contextBreakdown: try container.decodeIfPresent([PiAgentContextBreakdownItem].self, forKey: .contextBreakdown) ?? [],
             cost: try container.decodeIfPresent(Double.self, forKey: .cost),
+            costBreakdown: try container.decodeIfPresent(PiAgentUsageCostBreakdown.self, forKey: .costBreakdown),
             finalSystemPrompt: try container.decodeIfPresent(String.self, forKey: .finalSystemPrompt),
             finalSystemPromptCapturedAt: try container.decodeIfPresent(Date.self, forKey: .finalSystemPromptCapturedAt),
             pendingSteeringMessages: try container.decodeIfPresent([String].self, forKey: .pendingSteeringMessages) ?? [],
@@ -1497,6 +1566,12 @@ nonisolated enum JSONValue: Codable, Hashable, Sendable {
 
     var numberValue: Double? {
         if case let .number(value) = self { return value }
+        return nil
+    }
+
+    var flexibleNumber: Double? {
+        if let numberValue { return numberValue }
+        if case let .string(value) = self { return Double(value) }
         return nil
     }
 

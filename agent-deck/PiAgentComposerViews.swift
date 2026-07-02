@@ -111,8 +111,17 @@ struct PiAgentComposerBox: View {
             session.cacheWriteTokens.map { "cw:\($0)" } ?? "cw:-",
             session.totalTokens.map { "total:\($0)" } ?? "total:-",
             session.cost.map { "\($0)" } ?? "-",
+            Self.costKey(session.costBreakdown),
             "\(viewModel.piAgentSessionStore.subagentRunsRevision)"
         ].joined(separator: "|")
+    }
+
+    private static func costKey(_ costBreakdown: PiAgentUsageCostBreakdown?) -> String {
+        guard let costBreakdown else { return "costBreakdown:-" }
+        let values: [Double?] = [costBreakdown.input, costBreakdown.output, costBreakdown.cacheRead, costBreakdown.cacheWrite, costBreakdown.total]
+        return values
+            .map { value in value.map { String($0) } ?? "-" }
+            .joined(separator: ",")
     }
 
     private func recomputeCostAggregate() {
@@ -1626,6 +1635,9 @@ struct PiAgentRuntimeCostAggregate: Equatable {
         let inputTokens: Int?
         let outputTokens: Int?
         let cacheTokens: Int?
+        let inputCost: Double?
+        let outputCost: Double?
+        let cacheCost: Double?
         let cost: Double?
         let isOrchestration: Bool
 
@@ -1642,14 +1654,26 @@ struct PiAgentRuntimeCostAggregate: Equatable {
     var inputTokens: Int?
     var outputTokens: Int?
     var cacheTokens: Int?
+    var inputCost: Double?
+    var outputCost: Double?
+    var cacheCost: Double?
     var totalCost: Double?
     var sources: [Source]
     var hasSubagents: Bool
 
     static func build(session: PiAgentSessionRecord, runs: [PiSubagentRunRecord]) -> PiAgentRuntimeCostAggregate {
         var sources: [Source] = []
+        var inputCost: Double?
+        var outputCost: Double?
+        var cacheCost: Double?
         var totalCost: Double?
-        func addCost(_ c: Double?) { if let c { totalCost = (totalCost ?? 0) + c } }
+        func addKnown(_ value: Double?, to total: inout Double?) { if let value { total = (total ?? 0) + value } }
+        func addCosts(_ breakdown: PiAgentUsageCostBreakdown?, total: Double?) {
+            addKnown(breakdown?.input, to: &inputCost)
+            addKnown(breakdown?.output, to: &outputCost)
+            addKnown(breakdown?.cache, to: &cacheCost)
+            addKnown(total ?? breakdown?.resolvedTotal, to: &totalCost)
+        }
 
         let parentCacheTokens = Self.cacheTokenTotal(read: session.cacheReadTokens, write: session.cacheWriteTokens)
         let parentSource = Source(
@@ -1660,11 +1684,14 @@ struct PiAgentRuntimeCostAggregate: Equatable {
             inputTokens: session.inputTokens,
             outputTokens: session.outputTokens,
             cacheTokens: parentCacheTokens,
-            cost: session.cost,
+            inputCost: session.costBreakdown?.input,
+            outputCost: session.costBreakdown?.output,
+            cacheCost: session.costBreakdown?.cache,
+            cost: session.cost ?? session.costBreakdown?.resolvedTotal,
             isOrchestration: true
         )
         sources.append(parentSource)
-        addCost(session.cost)
+        addCosts(session.costBreakdown, total: session.cost)
 
         var subagentCount = 0
         for run in runs {
@@ -1679,11 +1706,14 @@ struct PiAgentRuntimeCostAggregate: Equatable {
                     inputTokens: child.inputTokens,
                     outputTokens: child.outputTokens,
                     cacheTokens: childCacheTokens,
-                    cost: child.cost,
+                    inputCost: child.costBreakdown?.input,
+                    outputCost: child.costBreakdown?.output,
+                    cacheCost: child.costBreakdown?.cache,
+                    cost: child.cost ?? child.costBreakdown?.resolvedTotal,
                     isOrchestration: false
                 )
                 sources.append(childSource)
-                addCost(child.cost)
+                addCosts(child.costBreakdown, total: child.cost)
                 subagentCount += 1
             }
         }
@@ -1693,6 +1723,9 @@ struct PiAgentRuntimeCostAggregate: Equatable {
             inputTokens: aggregateComponents?.input,
             outputTokens: aggregateComponents?.output,
             cacheTokens: aggregateComponents?.cache,
+            inputCost: inputCost,
+            outputCost: outputCost,
+            cacheCost: cacheCost,
             totalCost: totalCost,
             sources: sources,
             hasSubagents: subagentCount > 0
@@ -1767,7 +1800,7 @@ struct PiAgentRuntimeFooter: View {
     private var aggregateChips: some View {
         let display = footerTokenDisplay
         let hasDisplayedTokens = display.input != nil || display.output != nil || display.cache != nil || display.total != nil
-        let cost = aggregate?.totalCost ?? session.cost
+        let cost = aggregate?.totalCost ?? session.cost ?? session.costBreakdown?.resolvedTotal
         let tappable = aggregate != nil && (hasDisplayedTokens || cost != nil)
         let chips = HStack(spacing: 7) {
             if let inputTokens = display.input {
@@ -1858,107 +1891,271 @@ struct PiAgentRuntimeFooter: View {
 /// shows just the main-chat line. Sources whose cost wasn't reported show `—`
 /// and are excluded from the total.
 struct PiAgentCostBreakdownPopover: View {
+    private struct CategoryMetric: Hashable {
+        let title: String
+        let tokens: Int?
+        let cost: Double?
+    }
+
+    private struct DisplaySource: Identifiable {
+        let id: String
+        let label: String
+        let model: String?
+        let totalTokens: Int?
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let cacheTokens: Int?
+        let inputCost: Double?
+        let outputCost: Double?
+        let cacheCost: Double?
+        let cost: Double?
+
+        var hasTokenBreakdown: Bool {
+            inputTokens != nil || outputTokens != nil || cacheTokens != nil
+        }
+    }
+
     let aggregate: PiAgentRuntimeCostAggregate
+
+    private var displaySources: [DisplaySource] {
+        var rows: [DisplaySource] = []
+        rows.append(contentsOf: aggregate.sources.filter(\.isOrchestration).map(displaySource))
+
+        var groupedSubagents: [String: [PiAgentRuntimeCostAggregate.Source]] = [:]
+        var orderedSubagentKeys: [String] = []
+        for source in aggregate.sources where !source.isOrchestration {
+            let key = "\(source.label)\u{1F}\(source.model ?? "")"
+            if groupedSubagents[key] == nil { orderedSubagentKeys.append(key) }
+            groupedSubagents[key, default: []].append(source)
+        }
+        rows.append(contentsOf: orderedSubagentKeys.compactMap { key in
+            groupedSubagents[key].map(mergedDisplaySource)
+        })
+        return rows
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             AppPopoverHeader(title: "Token cost")
             Divider()
 
-            VStack(spacing: 0) {
-                ForEach(Array(aggregate.sources.enumerated()), id: \.element.id) { index, source in
-                    if index > 0 { Divider().opacity(0.4) }
-                    row(for: source)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    ForEach(Array(displaySources.enumerated()), id: \.element.id) { index, source in
+                        if index > 0 { Divider().opacity(0.55) }
+                        row(for: source)
+                    }
                 }
+                .padding(.horizontal, AppTheme.Popover.footerHInset)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, AppTheme.Popover.footerHInset)
-            .padding(.vertical, 6)
+            .frame(maxHeight: 320)
 
             // A single main-chat source makes the total redundant with its row.
-            if aggregate.sources.count > 1 {
+            if displaySources.count > 1 {
                 AppPopoverFooter {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         Text("Total")
                             .font(AppTheme.Font.caption.weight(.bold))
                         Spacer(minLength: 8)
-                        aggregateTokenSummary(aggregate)
-                        Text(aggregate.totalCost.map { String(format: "$%.2f", $0) } ?? "—")
-                            .font(AppTheme.Font.caption.monospacedDigit().weight(.bold))
-                            .frame(width: 56, alignment: .trailing)
+                        rowTotalTokensText(aggregate.totalTokens)
+                        rowTotalCostText(aggregate.totalCost)
                     }
                 }
             }
         }
-        .frame(width: AppTheme.Popover.standardWidth)
+        .frame(width: AppTheme.Popover.wideWidth)
         .foregroundStyle(.primary)
     }
 
-    private func row(for source: PiAgentRuntimeCostAggregate.Source) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(source.label)
-                    .font(AppTheme.Font.callout)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if let model = source.model, !model.isEmpty {
-                    Text(model)
-                        .font(AppTheme.Font.caption2.monospaced())
-                        .foregroundStyle(AppTheme.mutedText)
+    private func displaySource(_ source: PiAgentRuntimeCostAggregate.Source) -> DisplaySource {
+        DisplaySource(
+            id: source.id.uuidString,
+            label: source.label,
+            model: source.model,
+            totalTokens: source.totalTokens,
+            inputTokens: source.inputTokens,
+            outputTokens: source.outputTokens,
+            cacheTokens: source.cacheTokens,
+            inputCost: source.inputCost,
+            outputCost: source.outputCost,
+            cacheCost: source.cacheCost,
+            cost: source.cost
+        )
+    }
+
+    private func mergedDisplaySource(_ sources: [PiAgentRuntimeCostAggregate.Source]) -> DisplaySource {
+        let first = sources[0]
+        return DisplaySource(
+            id: "subagent:\(first.label):\(first.model ?? "")",
+            label: first.label,
+            model: first.model,
+            totalTokens: sumKnown(sources.map(\.totalTokens)),
+            inputTokens: sumKnown(sources.map(\.inputTokens)),
+            outputTokens: sumKnown(sources.map(\.outputTokens)),
+            cacheTokens: sumKnown(sources.map(\.cacheTokens)),
+            inputCost: sumKnown(sources.map(\.inputCost)),
+            outputCost: sumKnown(sources.map(\.outputCost)),
+            cacheCost: sumKnown(sources.map(\.cacheCost)),
+            cost: sumKnown(sources.map(\.cost))
+        )
+    }
+
+    private func sumKnown(_ values: [Int?]) -> Int? {
+        let known = values.compactMap { $0 }
+        guard !known.isEmpty else { return nil }
+        return known.reduce(0, +)
+    }
+
+    private func sumKnown(_ values: [Double?]) -> Double? {
+        let known = values.compactMap { $0 }
+        guard !known.isEmpty else { return nil }
+        return known.reduce(0, +)
+    }
+
+    private func row(for source: DisplaySource) -> some View {
+        let metrics = categoryMetrics(for: source)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(source.label)
+                        .font(AppTheme.Font.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
+                    if let model = source.model, !model.isEmpty {
+                        Text(model)
+                            .font(AppTheme.Font.caption2.monospaced())
+                            .foregroundStyle(AppTheme.mutedText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
+                Spacer(minLength: 10)
+                rowTotalTokensText(source.totalTokens)
+                rowTotalCostText(source.cost)
             }
-            Spacer(minLength: 8)
-            rowTokenSummary(source)
-            Text(source.cost.map { String(format: "$%.2f", $0) } ?? "—")
-                .font(AppTheme.Font.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(source.cost == nil ? AppTheme.mutedText : .primary)
-                .frame(width: 56, alignment: .trailing)
+
+            if !metrics.isEmpty {
+                metricTable(metrics)
+            }
         }
+        .padding(.vertical, 8)
+    }
+
+    private func metricTable(_ metrics: [CategoryMetric]) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Category")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Tokens")
+                    .frame(width: 112, alignment: .trailing)
+                Text("Cost")
+                    .frame(width: 88, alignment: .trailing)
+            }
+            .font(AppTheme.Font.caption2.weight(.semibold))
+            .foregroundStyle(AppTheme.mutedText)
+            .padding(.horizontal, 10)
+            .padding(.top, 7)
+            .padding(.bottom, 5)
+
+            Divider().opacity(0.45)
+
+            ForEach(Array(metrics.enumerated()), id: \.element) { index, metric in
+                metricLine(metric)
+                if index < metrics.count - 1 { Divider().opacity(0.35) }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.Chat.codeCornerRadius, style: .continuous)
+                .fill(AppTheme.contentSubtleFill.opacity(0.22))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Chat.codeCornerRadius, style: .continuous)
+                .stroke(AppTheme.hairlineStroke.opacity(0.8), lineWidth: 1)
+        )
+    }
+
+    private func metricLine(_ metric: CategoryMetric) -> some View {
+        HStack(spacing: 10) {
+            Text(metric.title)
+                .font(AppTheme.Font.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(tokenString(metric.tokens))
+                .font(AppTheme.Font.caption.monospacedDigit())
+                .foregroundStyle(metric.tokens == nil ? AppTheme.mutedText : .primary)
+                .frame(width: 112, alignment: .trailing)
+            Text(categoryCostString(metric.cost))
+                .font(AppTheme.Font.caption.monospacedDigit())
+                .foregroundStyle(metric.cost == nil ? AppTheme.mutedText : .primary)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
     }
 
-    private func aggregateTokenSummary(_ aggregate: PiAgentRuntimeCostAggregate) -> some View {
-        if aggregate.inputTokens != nil && aggregate.outputTokens != nil {
-            tokenSummary(input: aggregate.inputTokens, output: aggregate.outputTokens, cache: aggregate.cacheTokens, fallback: nil)
-        } else {
-            tokenSummary(input: nil, output: nil, cache: nil, fallback: aggregate.totalTokens)
+    private func categoryMetrics(for source: DisplaySource) -> [CategoryMetric] {
+        let hasCategoryData = source.hasTokenBreakdown || source.inputCost != nil || source.outputCost != nil || source.cacheCost != nil
+        if hasCategoryData {
+            var metrics = [
+                CategoryMetric(title: "Input", tokens: source.inputTokens, cost: source.inputCost),
+                CategoryMetric(title: "Output", tokens: source.outputTokens, cost: source.outputCost)
+            ]
+            if source.cacheTokens != nil || source.cacheCost != nil {
+                metrics.append(CategoryMetric(title: "Cache", tokens: source.cacheTokens, cost: source.cacheCost))
+            }
+            return metrics
         }
+
+        if source.totalTokens != nil || source.cost != nil {
+            return [CategoryMetric(title: "Tokens", tokens: source.totalTokens, cost: source.cost)]
+        }
+        return []
     }
 
-    private func rowTokenSummary(_ source: PiAgentRuntimeCostAggregate.Source) -> some View {
-        if source.hasCompleteTokenBreakdown {
-            tokenSummary(input: source.inputTokens, output: source.outputTokens, cache: source.cacheTokens, fallback: nil)
-        } else if let totalTokens = source.totalTokens {
-            tokenSummary(input: nil, output: nil, cache: nil, fallback: totalTokens)
-        } else {
-            tokenSummary(input: source.inputTokens, output: source.outputTokens, cache: source.cacheTokens, fallback: nil)
-        }
+    private func rowTotalTokensText(_ tokens: Int?) -> some View {
+        Text(tokens.map { "\(compactTokenCount($0)) tokens" } ?? "— tokens")
+            .font(AppTheme.Font.callout.monospacedDigit().weight(.semibold))
+            .foregroundStyle(tokens == nil ? AppTheme.mutedText : .primary)
+            .frame(width: 132, alignment: .trailing)
     }
 
-    private func tokenSummary(input: Int?, output: Int?, cache: Int?, fallback: Int?) -> some View {
-        HStack(spacing: 6) {
-            if let input {
-                Text("\(compact(input)) in")
-            }
-            if let output {
-                Text("\(compact(output)) out")
-            }
-            if let cache {
-                Text("\(compact(cache)) cache")
-            }
-            if let fallback {
-                Text("\(compact(fallback)) tokens")
-            }
-        }
-        .font(AppTheme.Font.caption.monospacedDigit())
-        .foregroundStyle(AppTheme.mutedText)
-        .lineLimit(1)
+    private func rowTotalCostText(_ cost: Double?) -> some View {
+        Text(cost.map { String(format: "$%.2f", $0) } ?? "—")
+            .font(AppTheme.Font.callout.monospacedDigit().weight(.semibold))
+            .foregroundStyle(cost == nil ? AppTheme.mutedText : .primary)
+            .frame(width: 78, alignment: .trailing)
     }
 
-    private func compact(_ value: Int) -> String {
-        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
-        if value >= 1_000 { return "\(value / 1_000)k" }
-        return "\(value)"
+
+    private func tokenString(_ tokens: Int?) -> String {
+        tokens.map(compactTokenCount) ?? "—"
+    }
+
+    private func compactTokenCount(_ value: Int) -> String {
+        let absoluteValue = abs(value)
+        let sign = value < 0 ? "-" : ""
+        let units: [(threshold: Int, divisor: Double, suffix: String)] = [
+            (1_000_000_000, 1_000_000_000, "B"),
+            (1_000_000, 1_000_000, "M"),
+            (1_000, 1_000, "k")
+        ]
+        guard let unit = units.first(where: { absoluteValue >= $0.threshold }) else {
+            return value.formatted()
+        }
+
+        let scaled = Double(absoluteValue) / unit.divisor
+        let roundedToTenth = (scaled * 10).rounded() / 10
+        if roundedToTenth.rounded() == roundedToTenth {
+            return "\(sign)\(Int(roundedToTenth))\(unit.suffix)"
+        }
+        return "\(sign)\(String(format: "%.1f", roundedToTenth))\(unit.suffix)"
+    }
+
+    private func categoryCostString(_ cost: Double?) -> String {
+        cost.map { String(format: "$%.4f", $0) } ?? "—"
     }
 }
 

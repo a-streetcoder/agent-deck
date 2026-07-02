@@ -669,9 +669,15 @@ final class PiSubagentRunService {
                 run.summary = text
                 run.child?.summary = text
                 if let usage = message["usage"] {
-                    run.child?.inputTokens = usage["input"]?.numberValue.map(Int.init)
-                    run.child?.outputTokens = usage["output"]?.numberValue.map(Int.init)
-                    run.child?.totalTokens = usage["totalTokens"]?.numberValue.map(Int.init) ?? usage["total"]?.numberValue.map(Int.init)
+                    if let v = usage["input"]?.flexibleNumber { run.child?.inputTokens = Int(v) }
+                    if let v = usage["output"]?.flexibleNumber { run.child?.outputTokens = Int(v) }
+                    if let v = usage["cacheRead"]?.flexibleNumber { run.child?.cacheReadTokens = Int(v) }
+                    if let v = usage["cacheWrite"]?.flexibleNumber { run.child?.cacheWriteTokens = Int(v) }
+                    if let v = usage["totalTokens"]?.flexibleNumber ?? usage["total"]?.flexibleNumber { run.child?.totalTokens = Int(v) }
+                    if let costBreakdown = PiAgentUsageCostBreakdown.from(usage["cost"]) {
+                        run.child?.costBreakdown = costBreakdown
+                        run.child?.cost = costBreakdown.resolvedTotal
+                    }
                 }
             }
             if let outputURL = outputURL(for: runID, parentSessionID: parentSessionID) {
@@ -711,12 +717,15 @@ final class PiSubagentRunService {
     private func applySubagentStats(_ data: JSONValue, runID: UUID, parentSessionID: UUID) {
         store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
             guard var child = run.child else { return }
-            if let v = data["tokens"]?["input"]?.numberValue { child.inputTokens = Int(v) }
-            if let v = data["tokens"]?["output"]?.numberValue { child.outputTokens = Int(v) }
-            if let v = data["tokens"]?["cacheRead"]?.numberValue { child.cacheReadTokens = Int(v) }
-            if let v = data["tokens"]?["cacheWrite"]?.numberValue { child.cacheWriteTokens = Int(v) }
-            if let v = data["tokens"]?["total"]?.numberValue { child.totalTokens = Int(v) }
-            if let v = data["cost"]?.numberValue { child.cost = v }
+            if let v = data["tokens"]?["input"]?.flexibleNumber { child.inputTokens = Int(v) }
+            if let v = data["tokens"]?["output"]?.flexibleNumber { child.outputTokens = Int(v) }
+            if let v = data["tokens"]?["cacheRead"]?.flexibleNumber { child.cacheReadTokens = Int(v) }
+            if let v = data["tokens"]?["cacheWrite"]?.flexibleNumber { child.cacheWriteTokens = Int(v) }
+            if let v = data["tokens"]?["total"]?.flexibleNumber { child.totalTokens = Int(v) }
+            if let costBreakdown = PiAgentUsageCostBreakdown.from(data["cost"]) {
+                child.costBreakdown = costBreakdown.hasCategories ? costBreakdown : child.costBreakdown
+                child.cost = costBreakdown.resolvedTotal
+            }
             if let v = data["contextUsage"]?["tokens"]?.numberValue { child.contextTokens = Int(v) }
             run.child = child
         }

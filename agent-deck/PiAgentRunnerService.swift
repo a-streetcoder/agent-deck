@@ -1453,14 +1453,17 @@ final class PiAgentRunnerService {
         if event.command == "get_session_stats", let data = event.data {
             store.updateSession(sessionID) { record in
                 record.lastSummary = data.compactDescription
-                record.inputTokens = data["tokens"]?["input"]?.numberValue.map(Int.init)
-                record.outputTokens = data["tokens"]?["output"]?.numberValue.map(Int.init)
-                record.cacheReadTokens = data["tokens"]?["cacheRead"]?.numberValue.map(Int.init)
-                record.cacheWriteTokens = data["tokens"]?["cacheWrite"]?.numberValue.map(Int.init)
-                record.totalTokens = data["tokens"]?["total"]?.numberValue.map(Int.init)
-                record.toolCalls = data["toolCalls"]?.numberValue.map(Int.init)
-                record.toolResults = data["toolResults"]?.numberValue.map(Int.init)
-                record.cost = data["cost"]?.numberValue
+                record.inputTokens = data["tokens"]?["input"]?.flexibleNumber.map(Int.init)
+                record.outputTokens = data["tokens"]?["output"]?.flexibleNumber.map(Int.init)
+                record.cacheReadTokens = data["tokens"]?["cacheRead"]?.flexibleNumber.map(Int.init)
+                record.cacheWriteTokens = data["tokens"]?["cacheWrite"]?.flexibleNumber.map(Int.init)
+                record.totalTokens = data["tokens"]?["total"]?.flexibleNumber.map(Int.init)
+                record.toolCalls = data["toolCalls"]?.flexibleNumber.map(Int.init)
+                record.toolResults = data["toolResults"]?.flexibleNumber.map(Int.init)
+                if let costBreakdown = PiAgentUsageCostBreakdown.from(data["cost"]) {
+                    record.costBreakdown = costBreakdown.hasCategories ? costBreakdown : record.costBreakdown
+                    record.cost = costBreakdown.resolvedTotal
+                }
                 if let contextUsage = data["contextUsage"] {
                     record.contextTokens = contextUsage["tokens"]?.numberValue.map(Int.init)
                     record.contextWindow = contextUsage["contextWindow"]?.numberValue.map(Int.init)
@@ -1800,6 +1803,7 @@ final class PiAgentRunnerService {
         let text = extractText(from: message)
         let role = message["role"]?.stringValue ?? "assistant"
         if role == "assistant" {
+            applyAssistantUsage(message["usage"], sessionID: sessionID)
             streamFlushTasksBySessionID[sessionID]?.cancel()
             streamFlushTasksBySessionID[sessionID] = nil
             let assistantEntryID = assistantEntryIDsBySessionID[sessionID] ?? UUID()
@@ -1879,6 +1883,21 @@ final class PiAgentRunnerService {
             // follow-up model turn. `agent_end` is the authoritative completion signal.
         } else if !text.isEmpty {
             store.append(.init(sessionID: sessionID, role: .raw, title: role, text: text, rawJSON: rawLine))
+        }
+    }
+
+    private func applyAssistantUsage(_ usage: JSONValue?, sessionID: UUID) {
+        guard let usage else { return }
+        store.updateSession(sessionID) { record in
+            if let v = usage["input"]?.flexibleNumber { record.inputTokens = Int(v) }
+            if let v = usage["output"]?.flexibleNumber { record.outputTokens = Int(v) }
+            if let v = usage["cacheRead"]?.flexibleNumber { record.cacheReadTokens = Int(v) }
+            if let v = usage["cacheWrite"]?.flexibleNumber { record.cacheWriteTokens = Int(v) }
+            if let v = usage["totalTokens"]?.flexibleNumber ?? usage["total"]?.flexibleNumber { record.totalTokens = Int(v) }
+            if let costBreakdown = PiAgentUsageCostBreakdown.from(usage["cost"]) {
+                record.costBreakdown = record.costBreakdown?.adding(costBreakdown) ?? costBreakdown
+                record.cost = record.costBreakdown?.resolvedTotal ?? costBreakdown.resolvedTotal
+            }
         }
     }
 

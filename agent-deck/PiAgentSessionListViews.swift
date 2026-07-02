@@ -364,7 +364,7 @@ private struct PiAgentProjectPickerPopover: View {
                     symbolName: "hammer",
                     assetName: nil,
                     title: PiAgentSessionRecord.agentDeckBuilderDisplayName,
-                    path: "Build agents, skills, prompts, loops, and MCP setups with bundled guidance.",
+                    path: "Agents, skills, loops, MCP...",
                     isCurrent: false
                 ) {
                     onSelectAgentDeckBuilder()
