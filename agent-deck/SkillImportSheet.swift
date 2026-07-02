@@ -3,15 +3,19 @@ import SwiftUI
 
 /// The "Import Skills" sheet.
 ///
-/// Two source modes feed one shared candidate list:
+/// Three source modes feed one shared candidate list:
 /// - **Local Folder** — recursively scans a chosen folder for `SKILL.md` roots
 ///   and registers the selected roots in place (files are not moved).
+/// - **Claude / Codex** — scans well-known Claude, Codex, and generic agent
+///   skill folders globally and under known projects, then registers selected
+///   roots in place (files are not moved).
 /// - **Git / skills.sh** — resolves a GitHub / skills.sh URL, clones the repo
 ///   blobless + sparse into app-managed storage, and sparse-checks-out only the
 ///   selected skills (and the reference files nested inside them).
 struct SkillImportSheet: View {
     enum Mode: String, CaseIterable, Identifiable {
         case localFolder
+        case claudeCodex
         case gitRepository
 
         var id: String { rawValue }
@@ -19,6 +23,7 @@ struct SkillImportSheet: View {
         var label: String {
             switch self {
             case .localFolder: return "Local Folder"
+            case .claudeCodex: return "Claude / Codex"
             case .gitRepository: return "Git / skills.sh"
             }
         }
@@ -48,6 +53,7 @@ struct SkillImportSheet: View {
     /// SKILL.md paths already in the catalog, captured once on appear so the
     /// per-render hide check stays a pure Set lookup. See `displayCandidates`.
     @State private var catalogedSkillFilePaths: Set<String> = []
+    @State private var catalogedSkillNames: Set<String> = []
     /// Per-row AI-summary state. Keyed by `DisplayCandidate.id` so it survives
     /// search/filter changes but resets when the source mode changes.
     @State private var summariesByID: [String: SummaryState] = [:]
@@ -71,6 +77,12 @@ struct SkillImportSheet: View {
     @State private var localScanProgress: ExternalSkillDiscovery.Progress?
     @State private var localScanTask: Task<Void, Never>?
 
+    // Claude / Codex mode.
+    @State private var claudeCodexCandidates: [KnownSkillCandidate] = []
+    @State private var isScanningClaudeCodex = false
+    @State private var claudeCodexScanProgress = ""
+    @State private var claudeCodexScanTask: Task<Void, Never>?
+
     // Git repository mode.
     @State private var gitURLInput = ""
     @State private var isFetchingRemote = false
@@ -89,6 +101,7 @@ struct SkillImportSheet: View {
         .frame(width: 760, height: 740)
         .task {
             catalogedSkillFilePaths = viewModel.catalogedSkillFilePaths
+            catalogedSkillNames = Set(viewModel.allVisibleSkillRecords.map { Self.normalizedSkillName($0.name) })
             let importable = updateCandidateCaches()
             scheduleFilterUpdate(immediate: true, candidates: importable)
         }
@@ -102,10 +115,17 @@ struct SkillImportSheet: View {
             summariesByID = [:]
             let importable = updateCandidateCaches()
             scheduleFilterUpdate(immediate: true, candidates: importable)
+            if mode == .claudeCodex, claudeCodexCandidates.isEmpty {
+                startClaudeCodexScan()
+            }
         }
         .onChange(of: searchText) { _, _ in scheduleFilterUpdate() }
         .onChange(of: selectedIDs) { _, _ in updateCollectionDefaultsForCurrentSelection() }
         .onChange(of: localCandidates) { _, _ in
+            let importable = updateCandidateCaches()
+            scheduleFilterUpdate(immediate: true, candidates: importable)
+        }
+        .onChange(of: claudeCodexCandidates) { _, _ in
             let importable = updateCandidateCaches()
             scheduleFilterUpdate(immediate: true, candidates: importable)
         }
@@ -119,6 +139,7 @@ struct SkillImportSheet: View {
         }
         .onDisappear {
             localScanTask?.cancel()
+            claudeCodexScanTask?.cancel()
             remoteFetchTask?.cancel()
             searchDebounceTask?.cancel()
         }
@@ -131,7 +152,7 @@ struct SkillImportSheet: View {
             Text("Import Skills")
                 .font(.headline)
                 .fontWidth(.expanded)
-            Text("Add skills from a local folder or a GitHub / skills.sh repository.")
+            Text("Add skills from a local folder, Claude / Codex folders, or a GitHub / skills.sh repository.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -149,9 +170,10 @@ struct SkillImportSheet: View {
                 .appSegmentedPicker()
                 .labelsHidden()
 
-                AppCard(title: mode == .localFolder ? "Source Folder" : "Repository") {
+                AppCard(title: sourceCardTitle) {
                     switch mode {
                     case .localFolder: localSourceCard
+                    case .claudeCodex: claudeCodexSourceCard
                     case .gitRepository: gitSourceCard
                     }
                 }
@@ -196,6 +218,14 @@ struct SkillImportSheet: View {
         .padding(16)
     }
 
+    private var sourceCardTitle: String {
+        switch mode {
+        case .localFolder: return "Source Folder"
+        case .claudeCodex: return "Known Skill Folders"
+        case .gitRepository: return "Repository"
+        }
+    }
+
     // MARK: - Local source card
 
     private var localSourceCard: some View {
@@ -208,6 +238,43 @@ struct SkillImportSheet: View {
                 DispatchQueue.main.async { chooseLocalFolder() }
             }
         }
+    }
+
+    // MARK: - Claude / Codex source card
+
+    private var claudeCodexSourceCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Scans ~/.claude/skills, ~/.codex/skills, ~/.agents/skills, and matching .claude/.codex/.agents skill folders under known projects.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+
+            HStack(spacing: 8) {
+                sourceBadge(provider: "anthropic", label: "Claude")
+                sourceBadge(provider: "openai-codex", label: "Codex")
+                Label("Global / Project", systemImage: "folder.badge.gearshape")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(AppTheme.contentSubtleFill, in: Capsule())
+                Spacer()
+                Button(claudeCodexCandidates.isEmpty ? "Scan" : "Rescan") { startClaudeCodexScan() }
+                    .appSecondaryButton()
+                    .disabled(isBusy)
+            }
+        }
+    }
+
+    private func sourceBadge(provider: String, label: String) -> some View {
+        HStack(spacing: 5) {
+            ProviderLogoImage(provider: provider, size: 12)
+            Text(label)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(AppTheme.mutedText)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(AppTheme.contentSubtleFill, in: Capsule())
     }
 
     // MARK: - Git source card
@@ -287,6 +354,8 @@ struct SkillImportSheet: View {
         switch mode {
         case .localFolder:
             return "Select skill roots to add to the catalog. Files stay in place and are passed to Pi by path."
+        case .claudeCodex:
+            return "Select discovered Claude, Codex, or generic agent skills to add by path. Files stay in place."
         case .gitRepository:
             return "Select skills to sparse-check-out. Reference files inside each skill folder are synced with it."
         }
@@ -300,6 +369,14 @@ struct SkillImportSheet: View {
                 localScanningView
             } else if localSourceURL == nil {
                 localPlaceholderView
+            } else {
+                candidateListView
+            }
+        case .claudeCodex:
+            if isScanningClaudeCodex {
+                claudeCodexScanningView
+            } else if claudeCodexCandidates.isEmpty {
+                claudeCodexPlaceholderView
             } else {
                 candidateListView
             }
@@ -332,6 +409,16 @@ struct SkillImportSheet: View {
         .frame(maxWidth: .infinity, minHeight: 280)
     }
 
+    private var claudeCodexScanningView: some View {
+        VStack(spacing: 12) {
+            AppSpinner().controlSize(.regular)
+            Text(claudeCodexScanProgress.isEmpty ? "Scanning known skill folders…" : claudeCodexScanProgress)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .frame(maxWidth: .infinity, minHeight: 280)
+    }
+
     private var remoteFetchingView: some View {
         VStack(spacing: 12) {
             AppSpinner().controlSize(.regular)
@@ -360,6 +447,18 @@ struct SkillImportSheet: View {
                 .font(.system(size: 30))
                 .foregroundStyle(AppTheme.mutedText)
             Text("Choose a folder above to scan it for skills.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .frame(maxWidth: .infinity, minHeight: 280)
+    }
+
+    private var claudeCodexPlaceholderView: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "tray")
+                .font(.system(size: 30))
+                .foregroundStyle(AppTheme.mutedText)
+            Text("Choose Scan to find Claude, Codex, and generic agent skills in known folders.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -487,6 +586,12 @@ struct SkillImportSheet: View {
             }
             let data = try Data(contentsOf: URL(fileURLWithPath: match.skillFilePath))
             return String(decoding: data, as: UTF8.self)
+        case .claudeCodex:
+            guard let match = claudeCodexCandidates.first(where: { $0.external.sourceRootPath == candidate.id }) else {
+                throw SkillSummaryError.skillNotFound
+            }
+            let data = try Data(contentsOf: URL(fileURLWithPath: match.external.skillFilePath))
+            return String(decoding: data, as: UTF8.self)
         case .gitRepository:
             guard let remoteContext,
                   let match = remoteContext.candidates.first(where: { $0.id == candidate.id }) else {
@@ -516,6 +621,22 @@ struct SkillImportSheet: View {
         let detailValue: String
         let badge: String?
         let alreadyImported: Bool
+        let sourceProvider: String?
+        let sourceSystemImage: String?
+        let sourceLabel: String?
+    }
+
+    private struct KnownSkillCandidate: Identifiable, Hashable {
+        let external: ExternalSkillCandidate
+        let source: KnownSkillSource
+        var id: String { external.sourceRootPath }
+    }
+
+    private struct KnownSkillSource: Hashable {
+        let root: URL
+        let label: String
+        let provider: String?
+        let systemImage: String
     }
 
     private func makeDisplayCandidates() -> [DisplayCandidate] {
@@ -530,7 +651,26 @@ struct SkillImportSheet: View {
                     detailLabel: "Path",
                     detailValue: candidate.sourceRootPath,
                     badge: nil,
-                    alreadyImported: catalogedSkillFilePaths.contains(skillPath)
+                    alreadyImported: catalogedSkillFilePaths.contains(skillPath),
+                    sourceProvider: nil,
+                    sourceSystemImage: nil,
+                    sourceLabel: nil
+                )
+            }
+        case .claudeCodex:
+            return filteredKnownSkillCandidates(claudeCodexCandidates).map { candidate in
+                let skillPath = URL(fileURLWithPath: candidate.external.skillFilePath).standardizedFileURL.path
+                return DisplayCandidate(
+                    id: candidate.external.sourceRootPath,
+                    name: candidate.external.name,
+                    description: candidate.external.description,
+                    detailLabel: "Path",
+                    detailValue: candidate.external.sourceRootPath,
+                    badge: nil,
+                    alreadyImported: catalogedSkillFilePaths.contains(skillPath),
+                    sourceProvider: candidate.source.provider,
+                    sourceSystemImage: candidate.source.provider == nil ? candidate.source.systemImage : nil,
+                    sourceLabel: candidate.source.label
                 )
             }
         case .gitRepository:
@@ -545,10 +685,39 @@ struct SkillImportSheet: View {
                     badge: candidate.referenceFileCount > 0
                         ? "\(candidate.referenceFileCount) reference file\(candidate.referenceFileCount == 1 ? "" : "s")"
                         : nil,
-                    alreadyImported: remoteContext.alreadySyncedDirectories.contains(candidate.repoRelativeDirectory)
+                    alreadyImported: remoteContext.alreadySyncedDirectories.contains(candidate.repoRelativeDirectory),
+                    sourceProvider: nil,
+                    sourceSystemImage: nil,
+                    sourceLabel: nil
                 )
             }
         }
+    }
+
+    private func filteredKnownSkillCandidates(_ candidates: [KnownSkillCandidate]) -> [KnownSkillCandidate] {
+        let existingPaths = Set(viewModel.appSettings.externalSkillPaths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        let duplicateNames = Set(
+            Dictionary(grouping: candidates, by: { Self.normalizedSkillName($0.external.name) })
+                .filter { !$0.key.isEmpty && $0.value.count > 1 }
+                .keys
+        )
+
+        return candidates.filter { candidate in
+            let skillPath = URL(fileURLWithPath: candidate.external.skillFilePath).standardizedFileURL.path
+            let rootPath = URL(fileURLWithPath: candidate.external.sourceRootPath).standardizedFileURL.path
+            let normalizedName = Self.normalizedSkillName(candidate.external.name)
+            return !catalogedSkillFilePaths.contains(skillPath)
+                && !existingPaths.contains(rootPath)
+                && !catalogedSkillNames.contains(normalizedName)
+                && !duplicateNames.contains(normalizedName)
+        }
+    }
+
+    private static func normalizedSkillName(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     @MainActor
@@ -660,6 +829,8 @@ struct SkillImportSheet: View {
         case .localFolder:
             let name = localSourceURL?.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return name.isEmpty ? "Imported Skills" : name
+        case .claudeCodex:
+            return "Claude / Codex Skills"
         case .gitRepository:
             let name = remoteContext?.source.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return name.isEmpty ? "Imported Skills" : name
@@ -667,7 +838,7 @@ struct SkillImportSheet: View {
     }
 
     private var isBusy: Bool {
-        isScanningLocal || isFetchingRemote || isImporting
+        isScanningLocal || isScanningClaudeCodex || isFetchingRemote || isImporting
     }
 
     private var canImport: Bool {
@@ -734,6 +905,75 @@ struct SkillImportSheet: View {
             return
         }
         // Pre-select only skills that are not already in the catalog.
+        selectedIDs = Set(importable.map(\.id))
+        updateCollectionDefaultsForCurrentSelection()
+    }
+
+    // MARK: - Claude / Codex actions
+
+    private func startClaudeCodexScan() {
+        claudeCodexScanTask?.cancel()
+        importErrorMessage = nil
+        searchText = ""
+        claudeCodexCandidates = []
+        selectedIDs = []
+        resetCollectionOptions()
+        isScanningClaudeCodex = true
+        claudeCodexScanProgress = "Scanning known skill folders…"
+        let sources = knownSkillSources()
+
+        claudeCodexScanTask = Task {
+            var discovered: [KnownSkillCandidate] = []
+            var seenRootPaths = Set<String>()
+
+            for (index, source) in sources.enumerated() {
+                if Task.isCancelled { break }
+                claudeCodexScanProgress = "Scanning \(source.label)… \(index + 1)/\(sources.count)"
+                let candidates = await ExternalSkillDiscovery.discover(root: source.root)
+                for candidate in candidates {
+                    let rootPath = URL(fileURLWithPath: candidate.sourceRootPath).standardizedFileURL.path
+                    guard seenRootPaths.insert(rootPath).inserted else { continue }
+                    discovered.append(KnownSkillCandidate(external: candidate, source: source))
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+            applyClaudeCodexCandidates(discovered.sorted { lhs, rhs in
+                let nameOrder = lhs.external.name.localizedCaseInsensitiveCompare(rhs.external.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.external.sourceRootPath < rhs.external.sourceRootPath
+            })
+        }
+    }
+
+    private func knownSkillSources() -> [KnownSkillSource] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var sources: [KnownSkillSource] = [
+            KnownSkillSource(root: home.appendingPathComponent(".claude/skills", isDirectory: true), label: "Claude · Global", provider: "anthropic", systemImage: "globe"),
+            KnownSkillSource(root: home.appendingPathComponent(".codex/skills", isDirectory: true), label: "Codex · Global", provider: "openai-codex", systemImage: "globe"),
+            KnownSkillSource(root: home.appendingPathComponent(".agents/skills", isDirectory: true), label: "Agents · Global", provider: nil, systemImage: "globe")
+        ]
+
+        for project in viewModel.discoveredProjects.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".claude/skills", isDirectory: true), label: "Claude · \(project.name)", provider: "anthropic", systemImage: "folder"))
+            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".codex/skills", isDirectory: true), label: "Codex · \(project.name)", provider: "openai-codex", systemImage: "folder"))
+            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".agents/skills", isDirectory: true), label: "Agents · \(project.name)", provider: nil, systemImage: "folder"))
+        }
+        return sources
+    }
+
+    private func applyClaudeCodexCandidates(_ candidates: [KnownSkillCandidate]) {
+        isScanningClaudeCodex = false
+        claudeCodexScanProgress = ""
+        claudeCodexCandidates = candidates
+        let importable = updateCandidateCaches()
+        scheduleFilterUpdate(immediate: true, candidates: importable)
+
+        guard !candidates.isEmpty else {
+            selectedIDs = []
+            importErrorMessage = "No Claude, Codex, or generic agent skills with a SKILL.md were found in known folders."
+            return
+        }
         selectedIDs = Set(importable.map(\.id))
         updateCollectionDefaultsForCurrentSelection()
     }
@@ -826,6 +1066,21 @@ struct SkillImportSheet: View {
                 importErrorMessage = error.localizedDescription
             }
 
+        case .claudeCodex:
+            let selected = filteredKnownSkillCandidates(claudeCodexCandidates)
+                .map(\.external)
+                .filter { selectedIDs.contains($0.sourceRootPath) }
+            guard !selected.isEmpty else { return }
+            do {
+                let result = try viewModel.importExternalSkills(
+                    selected,
+                    collectionName: importAsCollection ? trimmedCollectionName : nil
+                )
+                finish(result)
+            } catch {
+                importErrorMessage = error.localizedDescription
+            }
+
         case .gitRepository:
             guard let context = remoteContext else { return }
             let selected = context.candidates.filter { selectedIDs.contains($0.id) }
@@ -861,6 +1116,7 @@ struct SkillImportSheet: View {
 
     private func cancelAndDismiss() {
         localScanTask?.cancel()
+        claudeCodexScanTask?.cancel()
         remoteFetchTask?.cancel()
         if let remoteContext {
             viewModel.discardDiscoveryClone(remoteContext)
@@ -894,6 +1150,8 @@ struct SkillImportSheet: View {
                                     .background(.secondary.opacity(0.12), in: Capsule())
                             }
                         }
+
+                        sourceBlock
 
                         if let description = candidate.description {
                             VStack(alignment: .leading, spacing: 2) {
@@ -932,6 +1190,24 @@ struct SkillImportSheet: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovered = hovering
+            }
+        }
+
+        @ViewBuilder
+        private var sourceBlock: some View {
+            if let sourceLabel = candidate.sourceLabel {
+                HStack(spacing: 5) {
+                    if let provider = candidate.sourceProvider {
+                        ProviderLogoImage(provider: provider, size: 12)
+                    } else if let systemImage = candidate.sourceSystemImage {
+                        Image(systemName: systemImage)
+                            .font(.caption2.weight(.semibold))
+                            .imageScale(.small)
+                    }
+                    Text(sourceLabel)
+                }
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(AppTheme.mutedText)
             }
         }
 
