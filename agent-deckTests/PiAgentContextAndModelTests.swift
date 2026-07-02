@@ -211,6 +211,8 @@ final class PiProviderCatalogServiceTests: XCTestCase {
         XCTAssertTrue(providers.contains("neuralwatt"))
         XCTAssertTrue(providers.contains("openrouter"))
         XCTAssertTrue(providers.contains("anthropic"))
+        XCTAssertTrue(providers.contains("zai"))
+        XCTAssertTrue(providers.contains("opencode-go"))
         XCTAssertEqual(providers.filter { $0 == "neuralwatt" }.count, 1)
     }
 }

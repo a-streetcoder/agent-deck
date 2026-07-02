@@ -17,7 +17,11 @@ struct PiProviderCatalogService: Sendable {
     static let knownProviderFallbacks = [
         "anthropic", "openai-codex", "github-copilot",
         "openai", "google", "openrouter", "groq", "xai", "deepseek",
-        "mistral", "cerebras", "together", "fireworks", "nvidia", "huggingface"
+        "mistral", "cerebras", "together", "fireworks", "nvidia", "huggingface",
+        "amazon-bedrock", "azure-openai-responses", "cloudflare-ai-gateway",
+        "cloudflare-workers-ai", "kimi-coding", "minimax", "moonshotai",
+        "opencode", "opencode-go", "vercel-ai-gateway", "zai", "zai-coding-cn",
+        "xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp"
     ]
 
     init(commandRunner: CommandRunning = CommandRunner(), piResolver: PiExecutableResolver = PiExecutableResolver()) {
@@ -28,8 +32,8 @@ struct PiProviderCatalogService: Sendable {
     func loadConnectableProviders() async -> [String] {
         let piPath = piResolver.resolve()?.path ?? "pi"
 
-        // Walk up from the real pi binary to pi-ai's models.js (same technique
-        // as PiModelDiscoveryService), then call getProviders().
+        // Walk up from the real pi binary to pi-ai's compat.js (same technique
+        // as PiModelDiscoveryService), then call the static-catalog getProviders().
         let script = #"""
         import { existsSync, realpathSync, readFileSync } from 'node:fs';
         import { dirname, resolve, join } from 'node:path';
@@ -42,8 +46,8 @@ struct PiProviderCatalogService: Sendable {
             const realPath = realpathSync(piPath);
             let dir = dirname(realPath);
             for (let i = 0; i < 10; i++) {
-              const earendil = resolve(dir, 'node_modules/@earendil-works/pi-ai/dist/models.js');
-              const mario    = resolve(dir, 'node_modules/@mariozechner/pi-ai/dist/models.js');
+              const earendil = resolve(dir, 'node_modules/@earendil-works/pi-ai/dist/compat.js');
+              const mario    = resolve(dir, 'node_modules/@mariozechner/pi-ai/dist/compat.js');
               if (existsSync(earendil)) { candidates.push(earendil); break; }
               if (existsSync(mario))    { candidates.push(mario);    break; }
               const parent = dirname(dir);
@@ -53,23 +57,31 @@ struct PiProviderCatalogService: Sendable {
           } catch {}
         }
         candidates.push(
-          '/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/models.js',
-          '/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/models.js',
+          '/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/compat.js',
+          '/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/compat.js',
         );
 
         const modulePath = candidates.find((p) => existsSync(p));
-        if (!modulePath) throw new Error('Could not locate pi-ai models.js');
+        if (!modulePath) throw new Error('Could not locate pi-ai compat.js');
         const models = await import(modulePath);
         const builtInProviders = typeof models.getProviders === 'function' ? models.getProviders() : [];
 
-        // Surface custom providers from ~/.pi/agent/models.json so they can be
-        // added through the Add Provider picker like built-ins.
+        // Surface custom providers from ~/.pi/agent/models.json and already-signed-in
+        // providers from auth.json so the picker stays aligned with PI's runtime state.
         let customProviders = [];
+        let authProviders = [];
         try {
           const modelsJsonPath = join(homedir(), '.pi/agent/models.json');
           if (existsSync(modelsJsonPath)) {
             const modelsJson = JSON.parse(readFileSync(modelsJsonPath, 'utf8'));
             customProviders = Object.keys(modelsJson.providers || {});
+          }
+        } catch {}
+        try {
+          const authJsonPath = join(homedir(), '.pi/agent/auth.json');
+          if (existsSync(authJsonPath)) {
+            const authJson = JSON.parse(readFileSync(authJsonPath, 'utf8'));
+            authProviders = Object.keys(authJson || {});
           }
         } catch {}
 
@@ -78,7 +90,7 @@ struct PiProviderCatalogService: Sendable {
         // and have the sync seed the file. Keep in sync with NeuralWattProviderSpec.providerID.
         const bundledProviders = ['neuralwatt'];
 
-        const providers = Array.from(new Set([...builtInProviders, ...customProviders, ...bundledProviders]));
+        const providers = Array.from(new Set([...builtInProviders, ...customProviders, ...authProviders, ...bundledProviders]));
         process.stdout.write(JSON.stringify(providers));
         """#
 
