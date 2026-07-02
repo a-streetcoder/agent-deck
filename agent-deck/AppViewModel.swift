@@ -5734,12 +5734,21 @@ final class AppViewModel: NSObject {
     /// Launch-time cleanup: drop drafts that were created but never sent a
     /// message (no Pi session file). Composer text is not persisted across
     /// relaunches, so these records are empty shells — without this they
-    /// accumulate one per abandoned "new session". Routed through the normal
+    /// accumulate one per abandoned "new session". Preserve draft records that
+    /// already carry transcript, subagent, or loop activity (loop-launched
+    /// sessions may not have a Pi session file). Routed through the normal
     /// delete path so any eagerly provisioned worktrees are reclaimed too.
     private func pruneNeverStartedDraftSessions() {
         let staleIDs = Set(
             piAgentSessionStore.sessions
-                .filter { $0.status == .draft && $0.piSessionFile == nil }
+                .filter { session in
+                    guard session.status == .draft, session.piSessionFile == nil else { return false }
+                    let transcript = piAgentSessionStore.transcript(for: session.id)
+                    let hasActivity = !transcript.isEmpty
+                        || !(piAgentSessionStore.subagentRunsBySessionID[session.id] ?? []).isEmpty
+                        || !(piAgentSessionStore.loopRunsBySessionID[session.id] ?? []).isEmpty
+                    return !hasActivity
+                }
                 .map(\.id)
         )
         guard !staleIDs.isEmpty else { return }
