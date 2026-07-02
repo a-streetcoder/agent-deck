@@ -783,6 +783,7 @@ final class AppViewModel: NSObject {
             let livePromptIDs = Set((globalSnapshot.promptTemplates + globalSnapshot.libraryPromptTemplates).map(\.id))
             pendingDeletedPromptIDs.formIntersection(livePromptIDs)
         }
+        pruneStaleOptionalResourceAssignments()
 
         let currentAgentID = selectedAgentID
         let currentSkillID = selectedSkillID
@@ -974,6 +975,48 @@ final class AppViewModel: NSObject {
         let modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
         let size = values.fileSize ?? -1
         return "\(url.path)#\(values.isDirectory == true ? "dir" : "file")#\(size)#\(modified)"
+    }
+
+    /// Remove optional skill/prompt assignments whose catalog records vanished
+    /// outside Agent Deck. Required dependencies (agents, loop roles, agent
+    /// frontmatter skills/MCP) are intentionally left alone.
+    private func pruneStaleOptionalResourceAssignments() {
+        let availableSkillNames = Set((globalSnapshot.skills + globalSnapshot.librarySkills).map(\.name))
+        let availablePromptNames = Set((globalSnapshot.promptTemplates + globalSnapshot.libraryPromptTemplates).map { PiPromptTemplateLaunchResolver.normalizedNames([$0.name]).first ?? $0.name })
+        var settingsChanged = false
+        var projectAssignmentsChanged = false
+
+        for name in appSettings.defaultSkillNames where !availableSkillNames.contains(name) {
+            settingsChanged = appSettingsController.setDefaultSkill(name, enabled: false) || settingsChanged
+        }
+        for name in appSettings.defaultPromptTemplateNames {
+            let normalized = PiPromptTemplateLaunchResolver.normalizedNames([name]).first ?? name
+            if !availablePromptNames.contains(normalized) {
+                settingsChanged = appSettingsController.setDefaultPromptTemplate(name, enabled: false) || settingsChanged
+            }
+        }
+
+        for (projectPath, preference) in projectPreferencesStore.preferencesByPath {
+            for name in preference.assignedSkillNames where !availableSkillNames.contains(name) {
+                projectPreferencesStore.setAssignedSkill(name, assigned: false, for: projectPath)
+                projectAssignmentsChanged = true
+            }
+            for name in preference.assignedPromptTemplateNames {
+                let normalized = PiPromptTemplateLaunchResolver.normalizedNames([name]).first ?? name
+                if !availablePromptNames.contains(normalized) {
+                    projectPreferencesStore.setAssignedPromptTemplate(name, assigned: false, for: projectPath)
+                    projectAssignmentsChanged = true
+                }
+            }
+        }
+
+        if settingsChanged {
+            appSettings = appSettingsController.settings
+        }
+        if projectAssignmentsChanged {
+            projectPreferencesByPath = projectPreferencesStore.preferencesByPath
+            projectPreferencesRevision &+= 1
+        }
     }
 
     /// Re-derive snapshot-scoped state from the already-cached raw snapshots
@@ -9266,7 +9309,7 @@ final class AppViewModel: NSObject {
     private func parentPromptTemplateArguments(for projectURL: URL) throws -> [String] {
         let projectPath = projectURL.standardizedFileURL.path
         let names = Array(appSettings.defaultPromptTemplateNames.union(projectPreference(for: projectPath).assignedPromptTemplateNames))
-        return try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: names, catalog: promptTemplateCatalog(forProjectPath: projectPath))
+        return try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: names, catalog: promptTemplateCatalog(forProjectPath: projectPath), missingPromptPolicy: .skip)
     }
 
     private func promptTemplateCatalog(forProjectPath projectPath: String) -> [PromptTemplateRecord] {
@@ -9483,10 +9526,13 @@ final class AppViewModel: NSObject {
     func activeParentPromptTemplateNames(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> Set<String> {
         var names = appSettings.defaultPromptTemplateNames
         let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
-        if let path = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
-            names.formUnion(projectPreference(for: path).assignedPromptTemplateNames)
+        let scopedPath = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        if let scopedPath {
+            names.formUnion(projectPreference(for: scopedPath).assignedPromptTemplateNames)
         }
-        return names
+        let catalog = scopedPath.map { promptTemplateCatalog(forProjectPath: $0) } ?? allVisiblePromptTemplateRecords
+        let availablePromptNames = Set(catalog.map(\.name))
+        return Set(names.filter { availablePromptNames.contains($0) })
     }
 
     /// The resolved `PromptTemplateRecord`s actually available to the parent

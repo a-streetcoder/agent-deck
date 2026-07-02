@@ -140,6 +140,33 @@ final class PiSkillVisibilitySmokeTests: XCTestCase {
         XCTAssertEqual(args, ["--prompt-template", "/tmp/review-prompt.md"])
     }
 
+    func testParentLaunchSkipsMissingAssignedPromptsWhenRequested() throws {
+        let prompt = PromptTemplateRecord(
+            id: "catalog:available-prompt",
+            name: "available-prompt",
+            description: "Available prompt",
+            argumentHint: nil,
+            source: ScopeID(kind: .global, path: "/tmp/available-prompt.md"),
+            filePath: "/tmp/available-prompt.md",
+            body: "Use available prompt.",
+            discoveryKind: .standardDirectory,
+            packageName: nil
+        )
+
+        let args = try PiPromptTemplateLaunchResolver.promptTemplateArguments(
+            for: ["available-prompt", "deleted-prompt"],
+            catalog: [prompt],
+            missingPromptPolicy: .skip
+        )
+        XCTAssertEqual(args, ["--prompt-template", "/tmp/available-prompt.md"])
+    }
+
+    func testPromptLaunchStillFailsMissingAssignedPromptsByDefault() throws {
+        XCTAssertThrowsError(try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: ["deleted-prompt"], catalog: [])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("deleted-prompt"))
+        }
+    }
+
     func testNativeSubagentPassesExplicitSkillUsingNativeSkillFlag() async throws {
         let fakePi = try PiTestSupport.makeFakePiExecutable()
         let oldPiPath = getenv("AGENT_DECK_PI_PATH").map { String(cString: $0) }
