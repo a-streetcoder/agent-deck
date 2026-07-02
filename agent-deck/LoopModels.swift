@@ -162,6 +162,7 @@ nonisolated struct LoopHumanApprovalConfig: Codable, Equatable, Hashable, Sendab
 nonisolated enum LoopCheckerResult: String, Codable, CaseIterable, Identifiable, Sendable {
     case approve
     case reject
+    case continueLoop = "continue"
     case askHuman
     case fail
 
@@ -171,6 +172,7 @@ nonisolated enum LoopCheckerResult: String, Codable, CaseIterable, Identifiable,
         switch self {
         case .approve: return "Approve"
         case .reject: return "Reject"
+        case .continueLoop: return "Continue"
         case .askHuman: return "Ask human"
         case .fail: return "Fail"
         }
@@ -761,7 +763,11 @@ enum LoopRunRecapCodec {
                 lines.append("Final checker result: \(checkerResult.displayName)")
             }
             if run.stopReason == .maxIterationsReached {
-                lines.append("Maker + Checker used all configured iterations without approval; treat this as goal not fully met, not an agent error.")
+                if run.iterations.last?.checkerResult == .continueLoop {
+                    lines.append("Maker + Checker used all configured iterations while continuing accepted work; treat this as iteration budget exhausted, not a rejection.")
+                } else {
+                    lines.append("Maker + Checker used all configured iterations without approval; treat this as goal not fully met, not an agent error.")
+                }
             } else if run.iterations.last?.checkerResult == .reject {
                 lines.append("Maker + Checker ended on a rejection.")
             }

@@ -399,12 +399,43 @@ final class LoopExecutionStoreTests: XCTestCase {
         XCTAssertEqual(run.iterations.flatMap { $0.timeline.map(\.step) }, [.makerAct, .checkerReview, .makerAct, .checkerReview])
         XCTAssertTrue(observedTasks[0].task.contains("implementing one maker pass"))
         XCTAssertTrue(observedTasks[1].task.contains("Agent Deck parses your first line"))
-        XCTAssertTrue(observedTasks[1].task.contains("APPROVE, REJECT, ASK_HUMAN, or FAIL"))
+        XCTAssertTrue(observedTasks[1].task.contains("APPROVE, CONTINUE, REJECT, ASK_HUMAN, or FAIL"))
         XCTAssertTrue(observedTasks[1].task.contains("concise Markdown recap/rationale with concrete evidence"))
         XCTAssertTrue(run.iterations[0].summary.contains("Checker outcome: Reject"))
         XCTAssertTrue(run.iterations[0].summary.contains("Missing required evidence"))
         XCTAssertFalse(run.iterations[0].summary.contains("REJECT\n"))
         XCTAssertTrue(observedTasks[2].task.contains("Previous checker review to address"))
+        XCTAssertTrue(responses.isEmpty)
+    }
+
+    func testMakerCheckerLoopContinueUsesIterationsWithoutRejectionSemantics() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = try makeSession(store: store)
+        var responses = ["Maker pass", "CONTINUE\nAccepted first improvement; continue with the next high-impact target.", "Maker continued", "CONTINUE\nAccepted second improvement; no more iteration budget."]
+        let draft = LoopDraft(
+            goal: "Simplify safely",
+            structure: .makerChecker,
+            writeTarget: .artifactMarkdown,
+            maxIterations: 2,
+            validationCommand: "/usr/bin/true",
+            makerChecker: LoopMakerCheckerConfig(makerName: "Builder", checkerName: "Reviewer", checkerRubric: "continue")
+        )
+
+        let maybeRun = await store.launchMakerCheckerLoop(session: session, draft: draft) { _, role, task, _, _, _ in
+            let summary = responses.removeFirst()
+            return Self.fakeRun(parentSessionID: session.id, agentName: role, task: task, status: .completed, summary: summary)
+        }
+        let run = try XCTUnwrap(maybeRun)
+
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.stopReason, .maxIterationsReached)
+        XCTAssertEqual(run.displayStatusName, "Completed")
+        XCTAssertEqual(run.iterations.map(\.checkerResult), [.continueLoop, .continueLoop])
+        let progress = try progressText(for: run)
+        XCTAssertTrue(progress.contains("checker accepted and continued"))
+        XCTAssertFalse(progress.contains("checker continue —"))
+        XCTAssertFalse(LoopRunRecapCodec.finalText(for: run).contains("Goal not met"))
+        XCTAssertTrue(LoopRunRecapCodec.finalText(for: run).contains("Final checker result: Continue"))
         XCTAssertTrue(responses.isEmpty)
     }
 

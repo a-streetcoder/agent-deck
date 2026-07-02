@@ -1314,7 +1314,7 @@ final class PiAgentSessionStore {
             switch checkerResult {
             case .approve:
                 run.status = .completed; run.endedAt = ended; run.stopReason = .success; upsertLoopRun(run); return run
-            case .reject:
+            case .reject, .continueLoop:
                 upsertLoopRun(run); continue
             case .askHuman:
                 run.status = .stopped; run.endedAt = ended; run.stopReason = .humanInputRequired; upsertLoopRun(run); return run
@@ -1598,7 +1598,7 @@ final class PiAgentSessionStore {
                     run.stopReason = .success
                     upsertLoopRun(run)
                     return run
-                case .reject:
+                case .reject, .continueLoop:
                     upsertLoopRun(run)
                     continue
                 case .askHuman:
@@ -1845,7 +1845,7 @@ final class PiAgentSessionStore {
             "You are reviewing one completed loop iteration. Review only; do not edit project files.",
             "Review criteria: \(run.makerChecker.checkerRubric)",
             "Maker summary:\n\(makerSummary)",
-            "Agent Deck parses your first line to decide the next step. Start your final response with exactly one decision line: APPROVE, REJECT, ASK_HUMAN, or FAIL. Then provide a concise Markdown recap/rationale with concrete evidence: what changed, whether it meets the rubric, remaining risks, and the next action."
+            "Agent Deck parses your first line to decide the next step. Start your final response with exactly one decision line: APPROVE, CONTINUE, REJECT, ASK_HUMAN, or FAIL. Use CONTINUE when the iteration is accepted but more loop work remains. Then provide a concise Markdown recap/rationale with concrete evidence: what changed, whether it meets the rubric, remaining risks, and the next action."
         ]).joined(separator: "\n\n")
     }
 
@@ -1872,7 +1872,7 @@ final class PiAgentSessionStore {
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: " ", with: "_")
-        if ["approve", "reject", "ask_human", "fail"].contains(decision) {
+        if ["approve", "continue", "reject", "ask_human", "fail"].contains(decision) {
             lines.removeFirst()
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1885,6 +1885,7 @@ final class PiAgentSessionStore {
         let normalizedDecisionLine = firstLine.lowercased().replacingOccurrences(of: "-", with: "_")
         if normalizedDecisionLine.contains("ask_human") || normalizedDecisionLine.contains("ask human") { return .askHuman }
         if normalizedDecisionLine.contains("fail") { return .fail }
+        if normalizedDecisionLine.contains("continue") { return .continueLoop }
         if normalizedDecisionLine.contains("reject") { return .reject }
         if normalizedDecisionLine.contains("approve") { return .approve }
         return deterministicCheckerResult(rubric: fallbackRubric, validationResult: nil, iterationIndex: 1)
@@ -1894,6 +1895,7 @@ final class PiAgentSessionStore {
         let normalized = rubric.lowercased().replacingOccurrences(of: "-", with: " ")
         if normalized.contains("ask human") || normalized.contains("askhuman") { return .askHuman }
         if normalized.contains("fail") { return .fail }
+        if normalized.contains("continue") { return .continueLoop }
         if normalized.contains("reject once") { return iterationIndex == 1 ? .reject : .approve }
         if normalized.contains("reject") && !normalized.contains("approve") { return .reject }
         if normalized.contains("approve") { return .approve }
@@ -2123,6 +2125,9 @@ final class PiAgentSessionStore {
             if iteration.checkerResult == .approve {
                 lines.append("- Round \(iteration.index): checker approved.")
             }
+            if iteration.checkerResult == .continueLoop {
+                lines.append("- Round \(iteration.index): checker accepted and continued — \(boundedSummary(iteration.summary))")
+            }
             if iteration.validationResult?.didPass == true {
                 lines.append("- Round \(iteration.index): validation passed.")
             }
@@ -2136,7 +2141,7 @@ final class PiAgentSessionStore {
     private func loopProgressDidNotWorkLines(for run: LoopRun) -> [String] {
         var lines: [String] = []
         for iteration in run.iterations.suffix(Self.loopProgressRoundNoteLimit) {
-            if let checkerResult = iteration.checkerResult, checkerResult != .approve {
+            if let checkerResult = iteration.checkerResult, checkerResult != .approve, checkerResult != .continueLoop {
                 lines.append("- Round \(iteration.index): checker \(checkerResult.displayName.lowercased()) — \(boundedSummary(iteration.summary))")
             }
             if let validation = iteration.validationResult, !validation.didPass {
@@ -2187,6 +2192,9 @@ final class PiAgentSessionStore {
         if run.isActive {
             if let last = run.iterations.last, last.checkerResult == .reject {
                 return "- Address the latest checker rejection with the smallest targeted change and cite fresh evidence."
+            }
+            if let last = run.iterations.last, last.checkerResult == .continueLoop {
+                return "- Continue from the accepted checker handoff and choose the next highest-impact safe target."
             }
             if run.iterations.last?.validationResult?.didPass == false {
                 return "- Fix the latest validation failure first, then rerun the configured validation."

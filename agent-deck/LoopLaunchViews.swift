@@ -553,7 +553,7 @@ struct LoopLaunchSheet: View {
                     } content: {
                         AppTextField(
                             text: $draft.makerChecker.checkerRubric,
-                            placeholder: "approve, reject once, ask human, or fail",
+                            placeholder: "approve, continue, reject once, ask human, or fail",
                             axis: .vertical
                         )
                         .lineLimit(2...4)
