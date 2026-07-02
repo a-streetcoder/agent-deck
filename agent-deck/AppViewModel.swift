@@ -9266,7 +9266,7 @@ final class AppViewModel: NSObject {
     private func parentPromptTemplateArguments(for projectURL: URL) throws -> [String] {
         let projectPath = projectURL.standardizedFileURL.path
         let names = Array(appSettings.defaultPromptTemplateNames.union(projectPreference(for: projectPath).assignedPromptTemplateNames))
-        return try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: names, catalog: promptTemplateCatalog(forProjectPath: projectPath))
+        return try PiPromptTemplateLaunchResolver.promptTemplateArguments(for: names, catalog: promptTemplateCatalog(forProjectPath: projectPath), missingPromptPolicy: .skip)
     }
 
     private func promptTemplateCatalog(forProjectPath projectPath: String) -> [PromptTemplateRecord] {
@@ -9483,10 +9483,13 @@ final class AppViewModel: NSObject {
     func activeParentPromptTemplateNames(forProjectPath projectPath: String?, useSelectedProjectFallback: Bool = true) -> Set<String> {
         var names = appSettings.defaultPromptTemplateNames
         let fallback = useSelectedProjectFallback ? selectedProjectPath : nil
-        if let path = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
-            names.formUnion(projectPreference(for: path).assignedPromptTemplateNames)
+        let scopedPath = (projectPath ?? fallback)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        if let scopedPath {
+            names.formUnion(projectPreference(for: scopedPath).assignedPromptTemplateNames)
         }
-        return names
+        let catalog = scopedPath.map { promptTemplateCatalog(forProjectPath: $0) } ?? allVisiblePromptTemplateRecords
+        let availablePromptNames = Set(catalog.map(\.name))
+        return Set(names.filter { availablePromptNames.contains($0) })
     }
 
     /// The resolved `PromptTemplateRecord`s actually available to the parent

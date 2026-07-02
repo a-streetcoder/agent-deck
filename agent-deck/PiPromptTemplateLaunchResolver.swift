@@ -25,8 +25,17 @@ nonisolated enum PiPromptTemplateLaunchResolver {
         var id: String { name }
     }
 
-    static func promptTemplateArguments(for names: some Sequence<String>, catalog: [PromptTemplateRecord]) throws -> [String] {
-        let resolved = try resolve(names: normalizedNames(names), catalog: catalog)
+    enum MissingPromptPolicy {
+        case fail
+        case skip
+    }
+
+    static func promptTemplateArguments(
+        for names: some Sequence<String>,
+        catalog: [PromptTemplateRecord],
+        missingPromptPolicy: MissingPromptPolicy = .fail
+    ) throws -> [String] {
+        let resolved = try resolve(names: normalizedNames(names), catalog: catalog, missingPromptPolicy: missingPromptPolicy)
         return resolved.flatMap { ["--prompt-template", $0.filePath] }
     }
 
@@ -45,11 +54,18 @@ nonisolated enum PiPromptTemplateLaunchResolver {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private static func resolve(names: [String], catalog: [PromptTemplateRecord]) throws -> [PromptTemplateRecord] {
+    private static func resolve(names: [String], catalog: [PromptTemplateRecord], missingPromptPolicy: MissingPromptPolicy) throws -> [PromptTemplateRecord] {
         let grouped = Dictionary(grouping: unique(catalog), by: { normalizedName($0.name) })
-        return try names.map { name in
+        return try names.compactMap { name in
             let matches = grouped[name] ?? []
-            if matches.isEmpty { throw MissingPromptError(name: name) }
+            if matches.isEmpty {
+                switch missingPromptPolicy {
+                case .fail:
+                    throw MissingPromptError(name: name)
+                case .skip:
+                    return nil
+                }
+            }
             if matches.count > 1 { throw DuplicatePromptError(name: name, paths: matches.map(\.filePath).sorted()) }
             return matches[0]
         }
