@@ -565,7 +565,9 @@ struct SkillsScreen: View {
         }
 
         let global = managed.filter { viewModel.skillIsEnabledGlobally($0) }
-        let catalog = managed.filter { !viewModel.skillIsEnabledGlobally($0) && (collectionCountBySkillID[$0.id] ?? 0) == 0 }
+        let unassigned = managed.filter { !viewModel.skillIsEnabledGlobally($0) && (collectionCountBySkillID[$0.id] ?? 0) == 0 }
+        let builtin = unassigned.filter { $0.source.kind == .builtin }
+        let catalog = unassigned.filter { $0.source.kind != .builtin }
         mark(global, inactive: false)
         if !collections.isEmpty {
             let filteredCollections: [SkillCollectionRecord]
@@ -594,12 +596,21 @@ struct SkillsScreen: View {
             items: global.map { .skill($0) },
             emptyMessage: "No default skills."
         ))
+        if !builtin.isEmpty {
+            for item in builtin { inactiveByID[item.id] = !isAssignedSomewhere(item) }
+            sections.append(AppListSection(
+                id: "builtin",
+                title: "Built-in Skills",
+                info: "Agent Deck skills bundled with the app. They are available out of the box but are not injected until made Default, assigned to a project runtime, or assigned to a Deck agent.",
+                items: builtin.map { .skill($0) }
+            ))
+        }
         if !catalog.isEmpty {
             for item in catalog { inactiveByID[item.id] = !isAssignedSomewhere(item) }
             sections.append(AppListSection(
                 id: "catalog",
                 title: "Catalog",
-                info: "Available skills. They are not injected until made Default, assigned to a project runtime, or assigned to a Deck agent.",
+                info: "Available user and imported skills. They are not injected until made Default, assigned to a project runtime, or assigned to a Deck agent.",
                 items: catalog.map { .skill($0) }
             ))
         }
