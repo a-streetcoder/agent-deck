@@ -1449,9 +1449,6 @@ private struct AgentDetailView: View {
                     .frame(width: 18)
                 Text(collection.name)
                     .textSelection(.enabled)
-                Text("\(members.count) skill\(members.count == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
             }
             if members.isEmpty {
                 Text("No active skills resolved from this collection.")
