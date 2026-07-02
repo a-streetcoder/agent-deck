@@ -1353,6 +1353,7 @@ struct NativeLoopRunPayload {
         let hasAppliedMarker = run.artifactDirectoryPath.map { FileManager.default.fileExists(atPath: URL(fileURLWithPath: $0).appendingPathComponent("worktree.applied").path) } ?? false
         let hasDiscardedMarker = run.artifactDirectoryPath.map { FileManager.default.fileExists(atPath: URL(fileURLWithPath: $0).appendingPathComponent("worktree.discarded").path) } ?? false
         let worktreeAlreadyHandled = run.worktreeState == .applied || run.worktreeState == .discarded || hasAppliedMarker || hasDiscardedMarker
+        let canRevealWorktree = run.writeTarget == .newWorktree && hasWorktree && !worktreeAlreadyHandled
         let canOperateOnWorktree = run.writeTarget == .newWorktree && !run.isActive && hasWorktree && !worktreeAlreadyHandled
         let canResolveHumanApproval = run.structure == .humanApproval && run.status == .stopped && run.stopReason == .humanInputRequired
         return NativeLoopRunPayload(
@@ -1360,8 +1361,8 @@ struct NativeLoopRunPayload {
             statusText: statusText,
             detailText: details,
             isActive: run.isActive,
-            canRevealArtifacts: run.artifactDirectoryPath != nil,
-            canRevealWorktree: run.writeTarget == .newWorktree && hasWorktree && !worktreeAlreadyHandled,
+            canRevealArtifacts: run.artifactDirectoryPath != nil && !canRevealWorktree,
+            canRevealWorktree: canRevealWorktree,
             canApplyWorktree: canOperateOnWorktree,
             canDiscardWorktree: canOperateOnWorktree,
             canApproveHumanApproval: canResolveHumanApproval,
@@ -1528,6 +1529,7 @@ final class PiAgentNativeLoopRunCardView: NSView, PiAgentNativeRowContent {
         retryButton.isEnabled = payload.canRetry && payload.onRetry != nil
         saveButton.isHidden = !payload.canSave
         saveButton.isEnabled = payload.canSave && payload.onSave != nil
+        revealButton.isHidden = !payload.canRevealArtifacts
         revealButton.isEnabled = payload.canRevealArtifacts && payload.onRevealArtifacts != nil
         revealWorktreeButton.isHidden = !payload.canRevealWorktree
         revealWorktreeButton.isEnabled = payload.canRevealWorktree && payload.onRevealWorktree != nil

@@ -7495,9 +7495,11 @@ private struct PiAgentComposerPanel: View {
         }
         .animation(.easeOut(duration: 0.12), value: hasComposerSuggestions)
         .sheet(item: $loopDetailsRun) { run in
+            let canRevealWorktree = canRevealLoopWorktree(run)
             PiAgentLoopDetailsSheet(
                 run: run,
-                onRevealArtifacts: revealArtifactsAction(for: run)
+                revealActionTitle: canRevealWorktree ? "Reveal Worktree" : "Reveal Artifacts",
+                onRevealAction: canRevealWorktree ? revealWorktreeAction(for: run) : revealArtifactsAction(for: run)
             )
         }
         .sheet(isPresented: $isLoopLaunchSheetPresented) {
@@ -7591,6 +7593,17 @@ private struct PiAgentComposerPanel: View {
                 URL(fileURLWithPath: path).appendingPathComponent("worktree", isDirectory: true)
             ])
         }
+    }
+
+    private func canRevealLoopWorktree(_ run: LoopRun) -> Bool {
+        guard run.writeTarget == .newWorktree,
+              let path = run.artifactDirectoryPath else { return false }
+        let artifactDirectoryURL = URL(fileURLWithPath: path)
+        let hasWorktree = FileManager.default.fileExists(atPath: artifactDirectoryURL.appendingPathComponent("worktree", isDirectory: true).path)
+        let hasAppliedMarker = FileManager.default.fileExists(atPath: artifactDirectoryURL.appendingPathComponent("worktree.applied").path)
+        let hasDiscardedMarker = FileManager.default.fileExists(atPath: artifactDirectoryURL.appendingPathComponent("worktree.discarded").path)
+        let worktreeAlreadyHandled = run.worktreeState == .applied || run.worktreeState == .discarded || hasAppliedMarker || hasDiscardedMarker
+        return hasWorktree && !worktreeAlreadyHandled
     }
 
     private func saveLoopAction(for run: LoopRun) -> () -> Void {

@@ -148,7 +148,7 @@ struct PiAgentLoopControlBar: View {
 
     private var canRetry: Bool { !run.isActive && run.status == .failed && !run.presentsGoalNotMetOutcome }
     private var canSave: Bool { !run.isActive }
-    private var canRevealArtifacts: Bool { run.artifactDirectoryPath != nil }
+    private var canRevealArtifacts: Bool { run.artifactDirectoryPath != nil && !canRevealWorktree }
 
     private var canRevealWorktree: Bool {
         run.writeTarget == .newWorktree && hasWorktree && !worktreeAlreadyHandled
@@ -200,7 +200,8 @@ struct PiAgentLoopControlBar: View {
 
 struct PiAgentLoopDetailsSheet: View {
     let run: LoopRun
-    let onRevealArtifacts: (() -> Void)?
+    let revealActionTitle: String?
+    let onRevealAction: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -251,8 +252,8 @@ struct PiAgentLoopDetailsSheet: View {
             }
 
             HStack {
-                if let onRevealArtifacts {
-                    Button("Reveal Artifacts", action: onRevealArtifacts)
+                if let revealActionTitle, let onRevealAction {
+                    Button(revealActionTitle, action: onRevealAction)
                 }
                 Spacer()
             }
