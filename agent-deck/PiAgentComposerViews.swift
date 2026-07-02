@@ -1804,10 +1804,10 @@ struct PiAgentRuntimeFooter: View {
         let tappable = aggregate != nil && (hasDisplayedTokens || cost != nil)
         let chips = HStack(spacing: 7) {
             if let inputTokens = display.input {
-                metric("\(compact(inputTokens)) in", icon: "arrow.down.circle")
+                metric("\(compact(inputTokens)) in", icon: "arrow.down.left.circle")
             }
             if let outputTokens = display.output {
-                metric("\(compact(outputTokens)) out", icon: "arrow.up.circle")
+                metric("\(compact(outputTokens)) out", icon: "arrow.up.right.circle")
             }
             if let cacheTokens = display.cache {
                 metric("\(compact(cacheTokens)) cache", icon: "externaldrive")
@@ -1938,6 +1938,8 @@ struct PiAgentCostBreakdownPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             AppPopoverHeader(title: "Token cost")
             Divider()
+            categoryColumnHeader
+            Divider().opacity(0.45)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
@@ -2043,24 +2045,23 @@ struct PiAgentCostBreakdownPopover: View {
         .padding(.vertical, 8)
     }
 
+    private var categoryColumnHeader: some View {
+        HStack(spacing: 10) {
+            Text("Category")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Tokens")
+                .frame(width: 112, alignment: .trailing)
+            Text("Cost")
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(AppTheme.Font.caption2.weight(.semibold))
+        .foregroundStyle(AppTheme.mutedText)
+        .padding(.horizontal, AppTheme.Popover.footerHInset + 10)
+        .padding(.vertical, 7)
+    }
+
     private func metricTable(_ metrics: [CategoryMetric]) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Text("Category")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Tokens")
-                    .frame(width: 112, alignment: .trailing)
-                Text("Cost")
-                    .frame(width: 88, alignment: .trailing)
-            }
-            .font(AppTheme.Font.caption2.weight(.semibold))
-            .foregroundStyle(AppTheme.mutedText)
-            .padding(.horizontal, 10)
-            .padding(.top, 7)
-            .padding(.bottom, 5)
-
-            Divider().opacity(0.45)
-
             ForEach(Array(metrics.enumerated()), id: \.element) { index, metric in
                 metricLine(metric)
                 if index < metrics.count - 1 { Divider().opacity(0.35) }
