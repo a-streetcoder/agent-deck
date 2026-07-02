@@ -6,8 +6,8 @@ import SwiftUI
 /// Three source modes feed one shared candidate list:
 /// - **Local Folder** — recursively scans a chosen folder for `SKILL.md` roots
 ///   and registers the selected roots in place (files are not moved).
-/// - **Claude / Codex** — scans well-known Claude, Codex, and generic agent
-///   skill folders globally and under known projects, then registers selected
+/// - **Claude / Codex** — scans well-known Claude and Codex skill folders
+///   globally and under known projects, then registers selected
 ///   roots in place (files are not moved).
 /// - **Git / skills.sh** — resolves a GitHub / skills.sh URL, clones the repo
 ///   blobless + sparse into app-managed storage, and sparse-checks-out only the
@@ -244,7 +244,7 @@ struct SkillImportSheet: View {
 
     private var claudeCodexSourceCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Scans ~/.claude/skills, ~/.codex/skills, ~/.agents/skills, and matching .claude/.codex/.agents skill folders under known projects.")
+            Text("Scans ~/.claude/skills, ~/.codex/skills, and matching .claude/.codex skill folders under known projects.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
 
@@ -355,7 +355,7 @@ struct SkillImportSheet: View {
         case .localFolder:
             return "Select skill roots to add to the catalog. Files stay in place and are passed to Pi by path."
         case .claudeCodex:
-            return "Select discovered Claude, Codex, or generic agent skills to add by path. Files stay in place."
+            return "Select discovered Claude or Codex skills to add by path. Files stay in place."
         case .gitRepository:
             return "Select skills to sparse-check-out. Reference files inside each skill folder are synced with it."
         }
@@ -458,7 +458,7 @@ struct SkillImportSheet: View {
             Image(systemName: "tray")
                 .font(.system(size: 30))
                 .foregroundStyle(AppTheme.mutedText)
-            Text("Choose Scan to find Claude, Codex, and generic agent skills in known folders.")
+            Text("Choose Scan to find Claude and Codex skills in known folders.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.mutedText)
         }
@@ -622,7 +622,6 @@ struct SkillImportSheet: View {
         let badge: String?
         let alreadyImported: Bool
         let sourceProvider: String?
-        let sourceSystemImage: String?
         let sourceLabel: String?
     }
 
@@ -635,8 +634,7 @@ struct SkillImportSheet: View {
     private struct KnownSkillSource: Hashable {
         let root: URL
         let label: String
-        let provider: String?
-        let systemImage: String
+        let provider: String
     }
 
     private func makeDisplayCandidates() -> [DisplayCandidate] {
@@ -653,7 +651,6 @@ struct SkillImportSheet: View {
                     badge: nil,
                     alreadyImported: catalogedSkillFilePaths.contains(skillPath),
                     sourceProvider: nil,
-                    sourceSystemImage: nil,
                     sourceLabel: nil
                 )
             }
@@ -669,7 +666,6 @@ struct SkillImportSheet: View {
                     badge: nil,
                     alreadyImported: catalogedSkillFilePaths.contains(skillPath),
                     sourceProvider: candidate.source.provider,
-                    sourceSystemImage: candidate.source.provider == nil ? candidate.source.systemImage : nil,
                     sourceLabel: candidate.source.label
                 )
             }
@@ -687,7 +683,6 @@ struct SkillImportSheet: View {
                         : nil,
                     alreadyImported: remoteContext.alreadySyncedDirectories.contains(candidate.repoRelativeDirectory),
                     sourceProvider: nil,
-                    sourceSystemImage: nil,
                     sourceLabel: nil
                 )
             }
@@ -949,15 +944,13 @@ struct SkillImportSheet: View {
     private func knownSkillSources() -> [KnownSkillSource] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var sources: [KnownSkillSource] = [
-            KnownSkillSource(root: home.appendingPathComponent(".claude/skills", isDirectory: true), label: "Claude · Global", provider: "anthropic", systemImage: "globe"),
-            KnownSkillSource(root: home.appendingPathComponent(".codex/skills", isDirectory: true), label: "Codex · Global", provider: "openai-codex", systemImage: "globe"),
-            KnownSkillSource(root: home.appendingPathComponent(".agents/skills", isDirectory: true), label: "Agents · Global", provider: nil, systemImage: "globe")
+            KnownSkillSource(root: home.appendingPathComponent(".claude/skills", isDirectory: true), label: "Claude · Global", provider: "anthropic"),
+            KnownSkillSource(root: home.appendingPathComponent(".codex/skills", isDirectory: true), label: "Codex · Global", provider: "openai-codex")
         ]
 
         for project in viewModel.discoveredProjects.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
-            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".claude/skills", isDirectory: true), label: "Claude · \(project.name)", provider: "anthropic", systemImage: "folder"))
-            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".codex/skills", isDirectory: true), label: "Codex · \(project.name)", provider: "openai-codex", systemImage: "folder"))
-            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".agents/skills", isDirectory: true), label: "Agents · \(project.name)", provider: nil, systemImage: "folder"))
+            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".claude/skills", isDirectory: true), label: "Claude · \(project.name)", provider: "anthropic"))
+            sources.append(KnownSkillSource(root: project.url.appendingPathComponent(".codex/skills", isDirectory: true), label: "Codex · \(project.name)", provider: "openai-codex"))
         }
         return sources
     }
@@ -971,7 +964,7 @@ struct SkillImportSheet: View {
 
         guard !candidates.isEmpty else {
             selectedIDs = []
-            importErrorMessage = "No Claude, Codex, or generic agent skills with a SKILL.md were found in known folders."
+            importErrorMessage = "No Claude or Codex skills with a SKILL.md were found in known folders."
             return
         }
         selectedIDs = Set(importable.map(\.id))
@@ -1199,10 +1192,6 @@ struct SkillImportSheet: View {
                 HStack(spacing: 5) {
                     if let provider = candidate.sourceProvider {
                         ProviderLogoImage(provider: provider, size: 12)
-                    } else if let systemImage = candidate.sourceSystemImage {
-                        Image(systemName: systemImage)
-                            .font(.caption2.weight(.semibold))
-                            .imageScale(.small)
                     }
                     Text(sourceLabel)
                 }
