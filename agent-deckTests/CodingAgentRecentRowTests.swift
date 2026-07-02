@@ -15,6 +15,7 @@ final class CodingAgentRecentRowTests: XCTestCase {
             isSelected: false,
             isRunning: false,
             hasUIRequest: false,
+            hasActiveLoop: false,
             onDelete: {}
         )
 
@@ -35,6 +36,7 @@ final class CodingAgentRecentRowTests: XCTestCase {
             isSelected: false,
             isRunning: false,
             hasUIRequest: false,
+            hasActiveLoop: false,
             onDelete: {}
         )
 

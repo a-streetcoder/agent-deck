@@ -171,6 +171,24 @@ final class TranscriptScrollProfiler {
         return r
     }
 
+    /// Lightweight phase timing for sub-steps inside a measured body/apply call.
+    /// Kept separate from `measureBody` so perf tests that count SwiftUI body
+    /// entries do not see nested implementation phases as additional body calls.
+    static func measurePhase<T>(_ label: String, _ body: () -> T) -> T {
+#if DEBUG
+        guard isEnabled else { return body() }
+        let t = CACurrentMediaTime()
+        let r = body()
+        let dt = (CACurrentMediaTime() - t) * 1000
+        if dt > 4 || (verboseTrace && dt > 0.5) {
+            logger.info("phase \(label, privacy: .public) \(dt, format: .fixed(precision: 1))ms")
+        }
+        return r
+#else
+        return body()
+#endif
+    }
+
     // MARK: Per-gesture accumulator
     private struct Window {
         var startTime: CFTimeInterval

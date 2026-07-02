@@ -3185,65 +3185,35 @@ final class PiAgentSessionStore {
         }
     }
 
-    private func makePersistedStateSnapshot() -> (sequence: Int, state: PersistedState) {
+    private func makePersistenceSnapshot() -> PersistenceSnapshot {
         saveSequence &+= 1
-        let persisted = PersistedState(
+        return PersistenceSnapshot(
+            sequence: saveSequence,
+            usesStateIndex: lazyTranscriptLoadingEnabled,
             sessions: sessions,
-            transcripts: transcriptsBySessionID.map { PersistedTranscript(sessionID: $0.key, entries: $0.value) },
+            transcriptsBySessionID: transcriptsBySessionID,
             selectedSessionID: selectedSessionID,
-            subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
-            subagentTranscripts: subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
-            supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
-            sessionPlans: Array(sessionPlansBySessionID.values),
-            sessionPlanEvents: Array(sessionPlanEventsBySessionID.values.joined())
+            subagentRunsBySessionID: subagentRunsBySessionID,
+            subagentTranscriptsByRunID: subagentTranscriptsByRunID,
+            supervisorRequestsBySessionID: supervisorRequestsBySessionID,
+            sessionPlansBySessionID: sessionPlansBySessionID,
+            sessionPlanEventsBySessionID: sessionPlanEventsBySessionID,
+            persistedTranscriptSessionIDs: persistedTranscriptSessionIDs,
+            persistedSubagentTranscriptRunIDs: persistedSubagentTranscriptRunIDs
         )
-        return (saveSequence, persisted)
-    }
-
-    private func makePersistedStateIndexSnapshot() -> (sequence: Int, state: PersistedStateIndex) {
-        saveSequence &+= 1
-        let persisted = PersistedStateIndex(
-            sessions: sessions,
-            selectedSessionID: selectedSessionID,
-            subagentRuns: subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
-            supervisorRequests: supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
-            sessionPlans: Array(sessionPlansBySessionID.values),
-            sessionPlanEvents: Array(sessionPlanEventsBySessionID.values.joined())
-        )
-        return (saveSequence, persisted)
     }
 
     private func saveNowAsync() {
         let fileURL = fileURL
         let transcriptManifestURL = transcriptManifestURL
-        let manifest = makeTranscriptManifestSnapshot()
-        let usesStateIndex = lazyTranscriptLoadingEnabled
-        let sequence: Int
-        let persistedState: PersistedState?
-        let persistedIndex: PersistedStateIndex?
-        if usesStateIndex {
-            let snapshot = makePersistedStateIndexSnapshot()
-            sequence = snapshot.sequence
-            persistedState = nil
-            persistedIndex = snapshot.state
-        } else {
-            let snapshot = makePersistedStateSnapshot()
-            sequence = snapshot.sequence
-            persistedState = snapshot.state
-            persistedIndex = nil
-        }
-        saveQueue.async { [weak self, fileURL, transcriptManifestURL, manifest, persistedState, persistedIndex, sequence] in
+        let snapshot = makePersistenceSnapshot()
+        saveQueue.async { [weak self, fileURL, transcriptManifestURL, snapshot] in
             do {
-                try Self.writeTranscriptManifest(manifest, to: transcriptManifestURL)
-                if let persistedIndex {
-                    try Self.write(persistedIndex, to: fileURL)
-                } else if let persistedState {
-                    try Self.write(persistedState, to: fileURL)
-                }
+                try Self.write(snapshot, to: fileURL, transcriptManifestURL: transcriptManifestURL)
             } catch {
                 let message = "Could not save Pi Agent sessions: \(error.localizedDescription)"
                 Task { @MainActor [weak self] in
-                    guard let self, self.saveSequence == sequence else { return }
+                    guard let self, self.saveSequence == snapshot.sequence else { return }
                     self.lastError = message
                 }
             }
@@ -3253,35 +3223,27 @@ final class PiAgentSessionStore {
     private func saveNow() {
         let fileURL = fileURL
         let transcriptManifestURL = transcriptManifestURL
-        let manifest = makeTranscriptManifestSnapshot()
-        let persistedState: PersistedState?
-        let persistedIndex: PersistedStateIndex?
-        if lazyTranscriptLoadingEnabled {
-            persistedState = nil
-            persistedIndex = makePersistedStateIndexSnapshot().state
-        } else {
-            persistedState = makePersistedStateSnapshot().state
-            persistedIndex = nil
-        }
+        let snapshot = makePersistenceSnapshot()
         do {
             try saveQueue.sync {
-                try Self.writeTranscriptManifest(manifest, to: transcriptManifestURL)
-                if let persistedIndex {
-                    try Self.write(persistedIndex, to: fileURL)
-                } else if let persistedState {
-                    try Self.write(persistedState, to: fileURL)
-                }
+                try Self.write(snapshot, to: fileURL, transcriptManifestURL: transcriptManifestURL)
             }
         } catch {
             lastError = "Could not save Pi Agent sessions: \(error.localizedDescription)"
         }
     }
 
-    private func makeTranscriptManifestSnapshot() -> TranscriptManifest {
-        TranscriptManifest(
-            parentSessionIDs: Array(persistedTranscriptSessionIDs),
-            subagentRunIDs: Array(persistedSubagentTranscriptRunIDs)
+    private nonisolated static func write(_ snapshot: PersistenceSnapshot, to fileURL: URL, transcriptManifestURL: URL) throws {
+        let manifest = TranscriptManifest(
+            parentSessionIDs: Array(snapshot.persistedTranscriptSessionIDs),
+            subagentRunIDs: Array(snapshot.persistedSubagentTranscriptRunIDs)
         )
+        try writeTranscriptManifest(manifest, to: transcriptManifestURL)
+        if snapshot.usesStateIndex {
+            try write(PersistedStateIndex(snapshot: snapshot), to: fileURL)
+        } else {
+            try write(PersistedState(snapshot: snapshot), to: fileURL)
+        }
     }
 
     private nonisolated static func write(_ persisted: PersistedState, to fileURL: URL) throws {
@@ -3320,6 +3282,21 @@ final class PiAgentSessionStore {
     }
 }
 
+private nonisolated struct PersistenceSnapshot: Sendable {
+    var sequence: Int
+    var usesStateIndex: Bool
+    var sessions: [PiAgentSessionRecord]
+    var transcriptsBySessionID: [UUID: [PiAgentTranscriptEntry]]
+    var selectedSessionID: UUID?
+    var subagentRunsBySessionID: [UUID: [PiSubagentRunRecord]]
+    var subagentTranscriptsByRunID: [UUID: [PiAgentTranscriptEntry]]
+    var supervisorRequestsBySessionID: [UUID: [PiSubagentSupervisorRequest]]
+    var sessionPlansBySessionID: [UUID: PiSessionPlanRecord]
+    var sessionPlanEventsBySessionID: [UUID: [PiSessionPlanEventRecord]]
+    var persistedTranscriptSessionIDs: Set<UUID>
+    var persistedSubagentTranscriptRunIDs: Set<UUID>
+}
+
 private nonisolated struct PersistedState: Codable, Sendable {
     var sessions: [PiAgentSessionRecord]
     var transcripts: [PersistedTranscript]
@@ -3329,6 +3306,39 @@ private nonisolated struct PersistedState: Codable, Sendable {
     var supervisorRequests: [PersistedSupervisorRequests]?
     var sessionPlans: [PiSessionPlanRecord]?
     var sessionPlanEvents: [PiSessionPlanEventRecord]?
+
+    init(
+        sessions: [PiAgentSessionRecord],
+        transcripts: [PersistedTranscript],
+        selectedSessionID: UUID?,
+        subagentRuns: [PersistedSubagentRuns]?,
+        subagentTranscripts: [PersistedSubagentTranscript]?,
+        supervisorRequests: [PersistedSupervisorRequests]?,
+        sessionPlans: [PiSessionPlanRecord]?,
+        sessionPlanEvents: [PiSessionPlanEventRecord]?
+    ) {
+        self.sessions = sessions
+        self.transcripts = transcripts
+        self.selectedSessionID = selectedSessionID
+        self.subagentRuns = subagentRuns
+        self.subagentTranscripts = subagentTranscripts
+        self.supervisorRequests = supervisorRequests
+        self.sessionPlans = sessionPlans
+        self.sessionPlanEvents = sessionPlanEvents
+    }
+
+    init(snapshot: PersistenceSnapshot) {
+        self.init(
+            sessions: snapshot.sessions,
+            transcripts: snapshot.transcriptsBySessionID.map { PersistedTranscript(sessionID: $0.key, entries: $0.value) },
+            selectedSessionID: snapshot.selectedSessionID,
+            subagentRuns: snapshot.subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
+            subagentTranscripts: snapshot.subagentTranscriptsByRunID.map { PersistedSubagentTranscript(runID: $0.key, entries: $0.value) },
+            supervisorRequests: snapshot.supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
+            sessionPlans: Array(snapshot.sessionPlansBySessionID.values),
+            sessionPlanEvents: Array(snapshot.sessionPlanEventsBySessionID.values.joined())
+        )
+    }
 }
 
 private nonisolated struct PersistedStateIndex: Codable, Sendable {
@@ -3338,6 +3348,33 @@ private nonisolated struct PersistedStateIndex: Codable, Sendable {
     var supervisorRequests: [PersistedSupervisorRequests]?
     var sessionPlans: [PiSessionPlanRecord]?
     var sessionPlanEvents: [PiSessionPlanEventRecord]?
+
+    init(
+        sessions: [PiAgentSessionRecord],
+        selectedSessionID: UUID?,
+        subagentRuns: [PersistedSubagentRuns]?,
+        supervisorRequests: [PersistedSupervisorRequests]?,
+        sessionPlans: [PiSessionPlanRecord]?,
+        sessionPlanEvents: [PiSessionPlanEventRecord]?
+    ) {
+        self.sessions = sessions
+        self.selectedSessionID = selectedSessionID
+        self.subagentRuns = subagentRuns
+        self.supervisorRequests = supervisorRequests
+        self.sessionPlans = sessionPlans
+        self.sessionPlanEvents = sessionPlanEvents
+    }
+
+    init(snapshot: PersistenceSnapshot) {
+        self.init(
+            sessions: snapshot.sessions,
+            selectedSessionID: snapshot.selectedSessionID,
+            subagentRuns: snapshot.subagentRunsBySessionID.map { PersistedSubagentRuns(sessionID: $0.key, runs: $0.value) },
+            supervisorRequests: snapshot.supervisorRequestsBySessionID.map { PersistedSupervisorRequests(sessionID: $0.key, requests: $0.value) },
+            sessionPlans: Array(snapshot.sessionPlansBySessionID.values),
+            sessionPlanEvents: Array(snapshot.sessionPlanEventsBySessionID.values.joined())
+        )
+    }
 }
 
 private nonisolated struct PersistedTranscript: Codable, Sendable {

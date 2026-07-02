@@ -1095,11 +1095,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         TranscriptScrollProfiler.measureBody("updateNSView") {
             let coordinator = context.coordinator
-            coordinator.onPinnedToBottomChange = onPinnedToBottomChange
-            coordinator.onBenchAdvanceSession = onBenchAdvanceSession
-            coordinator.benchSessionCount = benchSessionCount
-            coordinator.onScrollingChange = onScrollingChange
-            coordinator.updateColumnWidthIfNeeded()
+            TranscriptScrollProfiler.measurePhase("updateNSView.prep") {
+                coordinator.onPinnedToBottomChange = onPinnedToBottomChange
+                coordinator.onBenchAdvanceSession = onBenchAdvanceSession
+                coordinator.benchSessionCount = benchSessionCount
+                coordinator.onScrollingChange = onScrollingChange
+                coordinator.updateColumnWidthIfNeeded()
+            }
             coordinator.isInsideNSViewUpdate = true
             defer { coordinator.isInsideNSViewUpdate = false }
             coordinator.apply(
@@ -2016,13 +2018,25 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             let streamingUpdate = lastStreamingRevision != streamingRevision
             let explicitScroll = lastAutoScrollTurnRevision != autoScrollTurnRevision || lastBottomScrollRequest != bottomScrollRequest
 
-            let nextIDs = items.map(\.id)
-            let idsChanged = nextIDs != orderedIDs
-            // True iff some row's content revision moved (mirrors the `changedIDs`
-            // test below). Catches updates that don't bump renderRevision/
-            // streamingRevision — e.g. skill/visibility/subagent context folded
-            // into per-item revisions during itemsBuild.
-            let revisionChanged = items.contains { contentRevisionByID[$0.id] != $0.contentRevision }
+            let prep = TranscriptScrollProfiler.measurePhase("apply.prep") {
+                var nextIDs: [String] = []
+                nextIDs.reserveCapacity(items.count)
+                var revisionChanged = false
+                for item in items {
+                    nextIDs.append(item.id)
+                    // True iff some row's content revision moved (mirrors the
+                    // `changedIDs` test below). Catches updates that don't bump
+                    // renderRevision/streamingRevision — e.g. skill/visibility/
+                    // subagent context folded into per-item revisions during itemsBuild.
+                    if contentRevisionByID[item.id] != item.contentRevision {
+                        revisionChanged = true
+                    }
+                }
+                return (nextIDs: nextIDs, idsChanged: nextIDs != orderedIDs, revisionChanged: revisionChanged)
+            }
+            let nextIDs = prep.nextIDs
+            let idsChanged = prep.idsChanged
+            let revisionChanged = prep.revisionChanged
 
             // SwiftUI re-runs updateNSView on every screen-body re-evaluation,
             // including ones driven by unrelated state (e.g. sidebar selection).
@@ -2049,8 +2063,13 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
 #endif
 
             self.items = items
-            itemByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-            let nextRevisions = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.contentRevision) })
+            let dictionaries = TranscriptScrollProfiler.measurePhase("apply.dictionaries") {
+                let nextItemsByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+                let nextRevisions = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.contentRevision) })
+                return (itemByID: nextItemsByID, revisions: nextRevisions)
+            }
+            itemByID = dictionaries.itemByID
+            let nextRevisions = dictionaries.revisions
 
 #if DEBUG
             // Names what woke a real apply(). An idle session should never reach
@@ -2533,10 +2552,15 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         }
 
         private func applySnapshot(ids: [String], completion: @escaping () -> Void) {
-            var snapshot = NSDiffableDataSourceSnapshot<PiAgentTranscriptTableSection, String>()
-            snapshot.appendSections([.main])
-            snapshot.appendItems(ids, toSection: .main)
-            dataSource?.apply(snapshot, animatingDifferences: false, completion: completion)
+            let snapshot = TranscriptScrollProfiler.measurePhase("apply.snapshotBuild") {
+                var snapshot = NSDiffableDataSourceSnapshot<PiAgentTranscriptTableSection, String>()
+                snapshot.appendSections([.main])
+                snapshot.appendItems(ids, toSection: .main)
+                return snapshot
+            }
+            TranscriptScrollProfiler.measurePhase("apply.snapshotSubmit") {
+                dataSource?.apply(snapshot, animatingDifferences: false, completion: completion)
+            }
         }
 
         func updateColumnWidthIfNeeded() {

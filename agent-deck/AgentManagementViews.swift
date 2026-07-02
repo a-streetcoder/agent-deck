@@ -663,7 +663,21 @@ private struct AgentLibraryPane: View {
         // Resource catalog is always global — Agents/Skills/Prompts views are
         // decoupled from `selectedProjectPath`. Project assignment is managed in
         // each agent's detail card (All Projects + per-project toggles), like MCP.
-        let global = globalCustomAgents
+        // Hoist the search/filter result once for this layout pass; the section
+        // builders below used to re-run it for each section.
+        let agents = filteredAgents
+        let global = agents.filter { !isCatalogOnly($0) && $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
+        let catalog = agents.filter(isCatalogOnly)
+        let library = preferredAgentsByName(agents.filter { agent in
+            if agent.winningRecord?.source.kind == .library { return true }
+            return agent.resolutionKind == .library
+        }) { records in
+            records.first { $0.resolutionKind == .library }
+            ?? records.first { $0.projectCustom == nil }
+            ?? records.first
+        }
+        let builtin = agents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
+
         for item in global {
             inactiveByID[item.id] = isCatalogOnly(item)
             if !viewModel.warnings(for: item).isEmpty
@@ -679,8 +693,8 @@ private struct AgentLibraryPane: View {
             emptyMessage: "No global custom agents."
         ))
 
-        if !catalogAgents.isEmpty {
-            for item in catalogAgents {
+        if !catalog.isEmpty {
+            for item in catalog {
                 inactiveByID[item.id] = !agentIsAssignedSomewhere(item)
                 if !viewModel.warnings(for: item).isEmpty
                     || !viewModel.explicitSkillVisibilityIssues(for: item).isEmpty {
@@ -690,53 +704,33 @@ private struct AgentLibraryPane: View {
             sections.append(AppListSection(
                 id: "catalog",
                 title: "Catalog Agents",
-                items: catalogAgents
+                items: catalog
             ))
         }
 
-        if !libraryAgents.isEmpty {
-            mark(libraryAgents, inactive: false)
+        if !library.isEmpty {
+            mark(library, inactive: false)
             sections.append(AppListSection(
                 id: "library",
                 title: "Library Agents",
-                items: libraryAgents
+                items: library
             ))
         }
 
-        mark(builtinAgents, inactive: false)
+        mark(builtin, inactive: false)
         sections.append(AppListSection(
             id: "builtin",
             title: "Builtin Agents",
             info: "Builtins are bundled with \(AppBrand.displayName) and customized through settings overrides or replacement files.",
-            items: builtinAgents,
+            items: builtin,
             emptyMessage: "No builtin agents discovered."
         ))
 
         return (sections, inactiveByID, warningIDs)
     }
 
-    private var globalCustomAgents: [EffectiveAgentRecord] {
-        filteredAgents.filter { !isCatalogOnly($0) && $0.globalCustom != nil && $0.globalCustom?.source.kind != .library }
-    }
-
-    private var catalogAgents: [EffectiveAgentRecord] {
-        filteredAgents.filter(isCatalogOnly)
-    }
-
     private func isCatalogOnly(_ agent: EffectiveAgentRecord) -> Bool {
         agent.id.hasPrefix("catalog::")
-    }
-
-    private var libraryAgents: [EffectiveAgentRecord] {
-        let candidates = filteredAgents.filter { agent in
-            if agent.winningRecord?.source.kind == .library { return true }
-            return agent.resolutionKind == .library
-        }
-        return preferredAgentsByName(candidates) { records in
-            records.first { $0.resolutionKind == .library }
-            ?? records.first { $0.projectCustom == nil }
-            ?? records.first
-        }
     }
 
     private func preferredAgentsByName(_ agents: [EffectiveAgentRecord], prefer: ([EffectiveAgentRecord]) -> EffectiveAgentRecord?) -> [EffectiveAgentRecord] {
@@ -748,16 +742,11 @@ private struct AgentLibraryPane: View {
         Set(viewModel.globalCatalogSnapshot.libraryAgents.map(\.name))
     }
 
-    private var builtinAgents: [EffectiveAgentRecord] {
-        filteredAgents.filter { $0.builtin != nil && $0.globalCustom == nil && $0.projectCustom == nil }
-    }
-
     private var filteredAgents: [EffectiveAgentRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return viewModel.filteredAgents }
         return viewModel.filteredAgents.filter { agent in
-            [agent.name, agent.resolved.description, agent.resolutionKind.rawValue, agent.sourcePath ?? "", agent.resolved.systemPrompt]
-                .contains { $0.lowercased().contains(query) }
+            viewModel.cachedAgentSearchHaystackByID[agent.id]?.contains(query) ?? false
         }
     }
 

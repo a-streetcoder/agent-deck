@@ -78,7 +78,9 @@ final class AppViewModel: NSObject {
     /// Skills whose deletion file I/O has finished but for which a fresh
     /// snapshot has not yet landed. Filtered out of `allVisibleSkillRecords`
     /// so the row disappears instantly. Pruned in `applyRefreshSnapshot`.
-    private(set) var pendingDeletedSkillIDs: Set<String> = []
+    private(set) var pendingDeletedSkillIDs: Set<String> = [] {
+        didSet { rebuildVisibleSkillRecordCachesIfNeeded() }
+    }
     /// Prompt templates whose deletion file I/O has finished but for which a
     /// fresh snapshot has not yet landed. Filtered out of
     /// `allVisiblePromptTemplateRecords`. Pruned in `applyRefreshSnapshot`.
@@ -132,7 +134,7 @@ final class AppViewModel: NSObject {
         didSet { clearAgentUniverseCache() }
     }
     var availableModels: [AvailableModel] = [] {
-        didSet { rebuildAutomationModelCaches() }
+        didSet { rebuildModelCaches() }
     }
     var modelsLastUpdatedAt: Date?
     // Manual invalidation token for Pi runtime defaults — bumped by
@@ -151,6 +153,7 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var cachedPiRuntimeSettingsObject: [String: Any]?
     @ObservationIgnored private var cachedPiRuntimeSettingsModificationDate: Date?
     @ObservationIgnored private var lastPiRuntimeSettingsStatCheck: Date?
+    @ObservationIgnored private var cachedPiRuntimeDefaults: (settingsModificationDate: Date?, provider: String?, model: String?, thinkingLevel: String?)?
     var githubConnectionState: GitHubConnectionState = .checking
     var githubIssueStateFilter: GitHubIssueStateFilter = .open
     /// Server-side `state_reason` qualifier; only applied when the state filter
@@ -205,7 +208,7 @@ final class AppViewModel: NSObject {
 
     var appSettings: AppSettings = AppSettings() {
         didSet {
-            rebuildAutomationModelCaches()
+            rebuildModelCaches()
             rebuildExternalSkillPathCache()
         }
     }
@@ -227,9 +230,18 @@ final class AppViewModel: NSObject {
     // queries Apple's Foundation Models availability API, and the Pi Agent
     // toolbar reads `automationAvailableModels` on every `ContentView.body`
     // eval (i.e. once per streaming token). The result only changes at real
-    // boundaries — see `rebuildAutomationModelCaches()`.
+    // boundaries — see `rebuildModelCaches()`.
     private(set) var cachedFoundationAutomationModel: AvailableModel?
+    private(set) var cachedEnabledAvailableModels: [AvailableModel] = []
+    private(set) var cachedAvailableModelByIdentifier: [String: AvailableModel] = [:]
+    private(set) var cachedEnabledAvailableModelByIdentifier: [String: AvailableModel] = [:]
+    private(set) var cachedEnabledAvailableModelByModel: [String: AvailableModel] = [:]
+    private(set) var cachedDisplayModels: [AvailableModel] = []
+    private(set) var cachedGroupedDisplayModels: [(provider: String, models: [AvailableModel])] = []
     private(set) var cachedAutomationAvailableModels: [AvailableModel] = []
+    private(set) var cachedAutomationAvailableModelByIdentifier: [String: AvailableModel] = [:]
+    @ObservationIgnored private var modelCacheRevision: Int = 0
+    @ObservationIgnored private var cachedDefaultPiAgentModelLookup: (provider: String?, model: String?, modelRevision: Int, result: AvailableModel?)?
     // Agent-list caches — the `allDisplayAgents` chain (a 4-source merge + sort)
     // and per-agent warnings were recomputed on every `AgentsScreen` /
     // `ContentView` body evaluation. Rebuilt inside `rebuildWarningCaches()`,
@@ -246,6 +258,21 @@ final class AppViewModel: NSObject {
     // array every body eval just to detect changes.
     private(set) var displayAgentsRevision: Int = 0
     private(set) var cachedAgentWarningsByID: [EffectiveAgentRecord.ID: [DiagnosticWarning]] = [:]
+    /// Lowercased search haystacks for `AgentLibraryPane`. Built from the exact
+    /// fields the pane searches (name, description, resolution kind, source
+    /// path, system prompt) when display-agent caches rebuild, so typing in the
+    /// search field doesn't lowercase large prompts on every filter pass.
+    private(set) var cachedAgentSearchHaystackByID: [EffectiveAgentRecord.ID: String] = [:]
+    /// Cached global skill catalog for the Skills view. Rebuilt from
+    /// `globalSnapshot` + pending-delete state and exposed through
+    /// `visibleSkillRecordsRevision` so views can observe an Int instead of
+    /// comparing full skill records (including bodies) on every refresh.
+    private(set) var cachedAllVisibleSkillRecords: [SkillRecord] = []
+    private(set) var visibleSkillRecordsRevision: Int = 0
+    /// Lowercased base skill search haystacks (name, description, scope, path,
+    /// body). Repository labels are still appended by `SkillsScreen` because
+    /// they are derived while resolving repository membership there.
+    private(set) var cachedSkillSearchHaystackByID: [SkillRecord.ID: String] = [:]
     // Per-skill list metadata (assigned / has-warnings). Same rebuild +
     // invalidation as the agent caches above — never per `SkillsScreen` body.
     private(set) var cachedSkillMetadataByID: [SkillRecord.ID: SkillListMetadata] = [:]
@@ -254,9 +281,7 @@ final class AppViewModel: NSObject {
     // `skillWarnings` with four string-contains checks per render. Empty
     // entry for any skill without warnings (cache-hit is authoritative).
     private(set) var cachedWarningsBySkillID: [SkillRecord.ID: [DiagnosticWarning]] = [:]
-    var enabledAvailableModels: [AvailableModel] {
-        availableModels.filter { isModelAvailable($0) }
-    }
+    var enabledAvailableModels: [AvailableModel] { cachedEnabledAvailableModels }
 
     var foundationAutomationModel: AvailableModel? { cachedFoundationAutomationModel }
 
@@ -314,7 +339,10 @@ final class AppViewModel: NSObject {
     @ObservationIgnored private var mcpConfiguredServerNames: Set<String> = []
     @ObservationIgnored private var mcpLastRefreshKey: String?
     private var globalSnapshot: ScanSnapshot = .empty {
-        didSet { clearAgentUniverseCache() }
+        didSet {
+            clearAgentUniverseCache()
+            rebuildVisibleSkillRecordCachesIfNeeded()
+        }
     }
     /// Always-global resource catalog snapshot, independent of `selectedProjectPath`.
     /// The Agents/Skills/Prompts management views read this so their listing is
@@ -5624,16 +5652,27 @@ final class AppViewModel: NSObject {
         let defaults = readPiRuntimeDefaults()
         let provider = defaults.provider
         let model = defaults.model
-        let candidateModels = enabledAvailableModels
+        if let cached = cachedDefaultPiAgentModelLookup,
+           cached.provider == provider,
+           cached.model == model,
+           cached.modelRevision == modelCacheRevision {
+            return cached.result
+        }
+
+        let result: AvailableModel?
         if let provider, let model {
-            return candidateModels.first { $0.provider == provider && $0.model == model }
-                ?? candidateModels.first { $0.model == model }
-                ?? candidateModels.first
+            result = cachedEnabledAvailableModelByIdentifier["\(provider)/\(model)"]
+                ?? cachedEnabledAvailableModelByModel[model]
+                ?? cachedEnabledAvailableModels.first
+        } else if let model {
+            result = cachedEnabledAvailableModelByIdentifier[model]
+                ?? cachedEnabledAvailableModelByModel[model]
+                ?? cachedEnabledAvailableModels.first
+        } else {
+            result = cachedEnabledAvailableModels.first
         }
-        if let model {
-            return candidateModels.first { $0.identifier == model || $0.model == model } ?? candidateModels.first
-        }
-        return candidateModels.first
+        cachedDefaultPiAgentModelLookup = (provider, model, modelCacheRevision, result)
+        return result
     }
 
     func defaultPiAgentThinkingLevel(for levels: [String]) -> String {
@@ -5650,7 +5689,16 @@ final class AppViewModel: NSObject {
     }
 
     private func readPiRuntimeDefaults() -> (provider: String?, model: String?, thinkingLevel: String?) {
-        guard let object = piRuntimeSettingsObject() else { return (nil, nil, nil) }
+        guard let object = piRuntimeSettingsObject() else {
+            cachedPiRuntimeDefaults = (cachedPiRuntimeSettingsModificationDate, nil, nil, nil)
+            return (nil, nil, nil)
+        }
+        let settingsModificationDate = cachedPiRuntimeSettingsModificationDate
+        if let cached = cachedPiRuntimeDefaults,
+           cached.settingsModificationDate == settingsModificationDate {
+            return (cached.provider, cached.model, cached.thinkingLevel)
+        }
+
         let provider = nonEmptyPiSetting(object["defaultProvider"])
         var model = nonEmptyPiSetting(object["defaultModel"])
         var parsedProvider = provider
@@ -5665,6 +5713,8 @@ final class AppViewModel: NSObject {
         let thinking = (rawThinking ?? "medium") == "none"
             ? "off"
             : rawThinking
+        cachedPiRuntimeDefaults = (settingsModificationDate, parsedProvider, model, thinking)
+        cachedDefaultPiAgentModelLookup = nil
         return (parsedProvider, model, thinking)
     }
 
@@ -5685,6 +5735,8 @@ final class AppViewModel: NSObject {
             try data.write(to: url, options: .atomic)
             cachedPiRuntimeSettingsObject = object
             cachedPiRuntimeSettingsModificationDate = piRuntimeSettingsModificationDate(force: true)
+            cachedPiRuntimeDefaults = nil
+            cachedDefaultPiAgentModelLookup = nil
             lastPiRuntimeSettingsStatCheck = Date()
             return true
         } catch {
@@ -5698,6 +5750,8 @@ final class AppViewModel: NSObject {
         guard let modificationDate else {
             cachedPiRuntimeSettingsObject = nil
             cachedPiRuntimeSettingsModificationDate = nil
+            cachedPiRuntimeDefaults = nil
+            cachedDefaultPiAgentModelLookup = nil
             return nil
         }
         if cachedPiRuntimeSettingsModificationDate == modificationDate {
@@ -5707,10 +5761,14 @@ final class AppViewModel: NSObject {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             cachedPiRuntimeSettingsObject = nil
             cachedPiRuntimeSettingsModificationDate = modificationDate
+            cachedPiRuntimeDefaults = nil
+            cachedDefaultPiAgentModelLookup = nil
             return nil
         }
         cachedPiRuntimeSettingsObject = object
         cachedPiRuntimeSettingsModificationDate = modificationDate
+        cachedPiRuntimeDefaults = nil
+        cachedDefaultPiAgentModelLookup = nil
         return object
     }
 
@@ -5737,8 +5795,7 @@ final class AppViewModel: NSObject {
     }
 
     private func piAgentModelOptions() -> [PiAgentModelOption] {
-        return enabledAvailableModels
-            .filter { !appSettings.disabledModelIdentifiers.contains($0.identifier) }
+        return cachedEnabledAvailableModels
             .map { model in
                 PiAgentModelOption(
                     provider: model.provider,
@@ -5755,7 +5812,7 @@ final class AppViewModel: NSObject {
 
     private func supportedPiAgentThinkingLevels(session: PiAgentSessionRecord, provider: String?, modelID: String?) -> [String] {
         if let provider, let modelID {
-            if let cached = enabledAvailableModels.first(where: { $0.provider == provider && $0.model == modelID }) {
+            if let cached = cachedEnabledAvailableModelByIdentifier["\(provider)/\(modelID)"] {
                 if !cached.supportedThinkingLevels.isEmpty { return cached.supportedThinkingLevels }
                 return cached.supportsThinking ? [] : ["off"]
             }
@@ -7006,7 +7063,7 @@ final class AppViewModel: NSObject {
             guard let self else { return }
             // Re-sample Foundation Model availability — it may have changed
             // (model finished downloading) while the app was inactive.
-            self.rebuildAutomationModelCaches()
+            self.rebuildModelCaches()
             self.startAutoRefresh()
             self.refreshIfWatchedFilesChanged()
             self.acknowledgeVisibleSelectedPiAgentSession()
@@ -7159,6 +7216,37 @@ final class AppViewModel: NSObject {
         for agent in projectAssignedLibraryAgentsForAggregateView { byID[agent.id] = agent }
         return Array(byID.values)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func agentSearchHaystack(for agent: EffectiveAgentRecord) -> String {
+        [agent.name, agent.resolved.description, agent.resolutionKind.rawValue, agent.sourcePath ?? "", agent.resolved.systemPrompt]
+            .joined(separator: "\n")
+            .lowercased()
+    }
+
+    private func skillSearchHaystack(for skill: SkillRecord) -> String {
+        [skill.name, skill.description ?? "", skill.source.kind.rawValue, skill.filePath, skill.body]
+            .joined(separator: "\n")
+            .lowercased()
+    }
+
+    private func computeAllVisibleSkillRecords() -> [SkillRecord] {
+        let records = deduplicateByID(globalSnapshot.skills + globalSnapshot.librarySkills)
+            .sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.source.kind.rawValue < rhs.source.kind.rawValue
+            }
+        guard !pendingDeletedSkillIDs.isEmpty else { return records }
+        return records.filter { !pendingDeletedSkillIDs.contains($0.id) }
+    }
+
+    private func rebuildVisibleSkillRecordCachesIfNeeded() {
+        let records = computeAllVisibleSkillRecords()
+        guard records != cachedAllVisibleSkillRecords else { return }
+        cachedAllVisibleSkillRecords = records
+        cachedSkillSearchHaystackByID = Dictionary(uniqueKeysWithValues: records.map { ($0.id, skillSearchHaystack(for: $0)) })
+        visibleSkillRecordsRevision &+= 1
     }
 
     var filteredAgents: [EffectiveAgentRecord] {
@@ -7491,14 +7579,9 @@ final class AppViewModel: NSObject {
     var allVisibleSkillRecords: [SkillRecord] {
         // Global resource catalog — independent of `selectedProjectPath` so the
         // Skills view stays global even when a project is selected for Issues.
-        let records = deduplicateByID(globalSnapshot.skills + globalSnapshot.librarySkills)
-            .sorted { lhs, rhs in
-                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-                return lhs.source.kind.rawValue < rhs.source.kind.rawValue
-            }
-        guard !pendingDeletedSkillIDs.isEmpty else { return records }
-        return records.filter { !pendingDeletedSkillIDs.contains($0.id) }
+        // Cached and revisioned to avoid sorting/comparing skill bodies in view
+        // observation paths.
+        cachedAllVisibleSkillRecords
     }
 
     /// Standardized `SKILL.md` paths of every skill currently in the catalog
@@ -8609,20 +8692,63 @@ final class AppViewModel: NSObject {
         refresh(includeModels: false, scanAllProjects: true)
     }
 
-    /// Recomputes the cached automation-model lookup. Called only at real
-    /// boundaries — app launch / activation, a model-list reload, a settings
-    /// change — never per `ContentView.body` eval. Mirrors `rebuildWarningCaches`.
-    /// Triggered by the `didSet` on `availableModels` and `appSettings`, which
-    /// also covers app launch (init assigns `appSettings`).
-    private func rebuildAutomationModelCaches() {
+    /// Recomputes cached model lists/lookups. Called only at real boundaries —
+    /// app launch / activation, a model-list reload, or a settings change —
+    /// never per view body evaluation.
+    private func rebuildModelCaches() {
         let foundation = FoundationModelAutomationService.availableModel()
-        var models = enabledAvailableModels
-        if let foundation,
-           !models.contains(where: { $0.identifier == foundation.identifier }) {
-            models.insert(foundation, at: 0)
+        let disabledProviders = appSettings.disabledProviders
+        let disabledIdentifiers = appSettings.disabledModelIdentifiers
+
+        var allByIdentifier: [String: AvailableModel] = [:]
+        for model in availableModels where allByIdentifier[model.identifier] == nil {
+            allByIdentifier[model.identifier] = model
         }
+        if let foundation, allByIdentifier[foundation.identifier] == nil {
+            allByIdentifier[foundation.identifier] = foundation
+        }
+
+        let enabled = availableModels.filter { model in
+            !disabledProviders.contains(model.provider) && !disabledIdentifiers.contains(model.identifier)
+        }
+        var enabledByIdentifier: [String: AvailableModel] = [:]
+        var enabledByModel: [String: AvailableModel] = [:]
+        for model in enabled {
+            if enabledByIdentifier[model.identifier] == nil { enabledByIdentifier[model.identifier] = model }
+            if enabledByModel[model.model] == nil { enabledByModel[model.model] = model }
+        }
+
+        var displayModels = availableModels
+        if let foundation,
+           !displayModels.contains(where: { $0.identifier == foundation.identifier }) {
+            displayModels.insert(foundation, at: 0)
+        }
+
+        var automationModels = enabled
+        if let foundation,
+           !automationModels.contains(where: { $0.identifier == foundation.identifier }) {
+            automationModels.insert(foundation, at: 0)
+        }
+
         cachedFoundationAutomationModel = foundation
-        cachedAutomationAvailableModels = models
+        cachedEnabledAvailableModels = enabled
+        cachedAvailableModelByIdentifier = allByIdentifier
+        cachedEnabledAvailableModelByIdentifier = enabledByIdentifier
+        cachedEnabledAvailableModelByModel = enabledByModel
+        cachedDisplayModels = displayModels
+        cachedGroupedDisplayModels = Dictionary(grouping: displayModels, by: \.provider)
+            .map { provider, models in
+                (provider, models.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending })
+            }
+            .sorted { lhs, rhs in
+                if lhs.provider == FoundationModelAutomationService.provider { return true }
+                if rhs.provider == FoundationModelAutomationService.provider { return false }
+                return lhs.provider.localizedCaseInsensitiveCompare(rhs.provider) == .orderedAscending
+            }
+        cachedAutomationAvailableModels = automationModels
+        cachedAutomationAvailableModelByIdentifier = Dictionary(uniqueKeysWithValues: automationModels.map { ($0.identifier, $0) })
+        modelCacheRevision &+= 1
+        cachedDefaultPiAgentModelLookup = nil
     }
 
     private func rebuildExternalSkillPathCache() {
@@ -8636,7 +8762,9 @@ final class AppViewModel: NSObject {
         // read `filteredAgents`, which derives from `allDisplayAgents`.
         cachedAllDisplayAgents = computeAllDisplayAgents()
         cachedDisplayAgentByID = Dictionary(uniqueKeysWithValues: cachedAllDisplayAgents.map { ($0.id, $0) })
+        cachedAgentSearchHaystackByID = Dictionary(uniqueKeysWithValues: cachedAllDisplayAgents.map { ($0.id, agentSearchHaystack(for: $0)) })
         displayAgentsRevision &+= 1
+        rebuildVisibleSkillRecordCachesIfNeeded()
 
         let skillWarnings = buildSkillWarnings()
         let promptWarnings = buildPromptWarnings()

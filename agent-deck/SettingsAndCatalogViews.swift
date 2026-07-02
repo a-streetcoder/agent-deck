@@ -110,7 +110,7 @@ struct ModelsScreen: View {
             SidebarExpandBenchScrollProbe(trigger: sidebarExpandBenchModelsScrollRequest)
                 .frame(width: 0, height: 0)
 #endif
-            if displayModels.isEmpty {
+            if viewModel.cachedDisplayModels.isEmpty {
                 AppCard(title: "Catalog") {
                     Text("No models loaded yet. Use the toolbar Refresh action to query Pi.")
                         .foregroundStyle(AppTheme.mutedText)
@@ -124,7 +124,7 @@ struct ModelsScreen: View {
                         agentModelsSection
                         automationModelsSection
                     }
-                    ForEach(groupedModels, id: \.provider) { group in
+                    ForEach(viewModel.cachedGroupedDisplayModels, id: \.provider) { group in
                         providerSection(group)
                     }
                 }
@@ -207,7 +207,7 @@ struct ModelsScreen: View {
         let draft = agentDrafts[agent.id]
         let selectedModel: AvailableModel? = {
             guard let identifier = draft?.config.model else { return nil }
-            return viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+            return viewModel.cachedEnabledAvailableModelByIdentifier[identifier]
         }()
         let thinkingModel = selectedModel ?? viewModel.defaultPiAgentModel()
 
@@ -236,7 +236,7 @@ struct ModelsScreen: View {
 
             HStack(spacing: AppTheme.contentSpacing) {
                 modelPickerWithCapabilityGlyphs(
-                    models: viewModel.enabledAvailableModels,
+                    models: viewModel.cachedEnabledAvailableModels,
                     selectedIdentifier: draft?.config.model,
                     allowsDefault: true,
                     nilLabel: "Pi default model",
@@ -274,7 +274,7 @@ struct ModelsScreen: View {
         draft.config.model = modelIdentifier
         // Clamp thinking to the newly selected model's supported levels.
         if let identifier = modelIdentifier,
-           let model = viewModel.enabledAvailableModels.first(where: { $0.identifier == identifier }) {
+           let model = viewModel.cachedEnabledAvailableModelByIdentifier[identifier] {
             let levels = model.supportedThinkingLevels
             let current = draft.config.thinking ?? "off"
             if !levels.contains(current) {
@@ -486,7 +486,7 @@ struct ModelsScreen: View {
 
     @ViewBuilder
     private func automationModelRow(_ item: AutomationModelItem) -> some View {
-        let selectedModel = item.models.first { $0.identifier == item.selectedIdentifier }
+        let selectedModel = item.selectedIdentifier.flatMap { viewModel.cachedAutomationAvailableModelByIdentifier[$0] }
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -654,7 +654,7 @@ struct ModelsScreen: View {
                 VStack(alignment: .leading, spacing: 5) {
                     AgentModelColumnHeader("Model")
                     modelPickerWithCapabilityGlyphs(
-                        models: viewModel.enabledAvailableModels,
+                        models: viewModel.cachedEnabledAvailableModels,
                         selectedIdentifier: selectedDefaultModel?.identifier,
                         allowsDefault: false,
                         nilLabel: "Select model",
@@ -699,10 +699,10 @@ struct ModelsScreen: View {
     private var defaultModelBinding: Binding<String> {
         Binding(
             get: {
-                viewModel.defaultPiAgentModel()?.identifier ?? viewModel.enabledAvailableModels.first?.identifier ?? ""
+                viewModel.defaultPiAgentModel()?.identifier ?? viewModel.cachedEnabledAvailableModels.first?.identifier ?? ""
             },
             set: { identifier in
-                let model = viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+                let model = viewModel.cachedEnabledAvailableModelByIdentifier[identifier]
                 viewModel.setDefaultPiAgentModel(model)
                 guard let model else { return }
                 let normalizedThinking = viewModel.defaultPiAgentThinkingLevel(for: model.supportedThinkingLevels)
@@ -728,7 +728,7 @@ struct ModelsScreen: View {
 
     private var selectedDefaultModel: AvailableModel? {
         let identifier = defaultModelBinding.wrappedValue
-        return viewModel.enabledAvailableModels.first { $0.identifier == identifier }
+        return viewModel.cachedEnabledAvailableModelByIdentifier[identifier]
     }
 
     private func modelRow(_ model: AvailableModel) -> some View {
@@ -842,26 +842,6 @@ struct ModelsScreen: View {
         .animation(.snappy(duration: 0.18), value: isFastEnabled)
     }
 
-    private var displayModels: [AvailableModel] {
-        var models = viewModel.availableModels
-        if let foundationModel = viewModel.foundationAutomationModel,
-           !models.contains(where: { $0.identifier == foundationModel.identifier }) {
-            models.insert(foundationModel, at: 0)
-        }
-        return models
-    }
-
-    private var groupedModels: [(provider: String, models: [AvailableModel])] {
-        Dictionary(grouping: displayModels, by: \.provider)
-            .map { provider, models in
-                (provider, models.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending })
-            }
-            .sorted { lhs, rhs in
-                if lhs.provider == FoundationModelAutomationService.provider { return true }
-                if rhs.provider == FoundationModelAutomationService.provider { return false }
-                return lhs.provider.localizedCaseInsensitiveCompare(rhs.provider) == .orderedAscending
-            }
-    }
 }
 
 struct SubagentsScreen: View {

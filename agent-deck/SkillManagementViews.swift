@@ -265,7 +265,7 @@ struct SkillsScreen: View {
             cachedLayout = recomputeLayout()
             scheduleSelectionSynchronization()
         }
-        .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in
+        .onChange(of: viewModel.visibleSkillRecordsRevision) { _, _ in
             cachedLayout = recomputeLayout()
             scheduleSelectionSynchronization()
         }
@@ -516,11 +516,11 @@ struct SkillsScreen: View {
                 }
                 if count > 0 { collectionCountBySkillID[skill.id] = count }
             }
-            for collection in collections {
+            for (index, collection) in collections.enumerated() {
+                let rootPaths = collectionRootPathSets[index]
                 collectionMembersByID[collection.id] = preferred.filter { skill in
                     let rootPath = skillRootPath(for: skill)
                     let filePath = URL(fileURLWithPath: skill.filePath).standardizedFileURL.path
-                    let rootPaths = Set(collection.skillRootPaths)
                     if rootPaths.contains(rootPath) || rootPaths.contains(filePath) { return true }
                     return collection.skillNames.contains(skill.name) && nameCounts[skill.name] == 1
                 }
@@ -533,17 +533,11 @@ struct SkillsScreen: View {
             managed = preferred
         } else {
             managed = preferred.filter { skill in
-                let repository = repositoryBySkillID[skill.id]
-                return [
-                    skill.name,
-                    skill.description ?? "",
-                    skill.source.kind.rawValue,
-                    skill.filePath,
-                    skill.body,
-                    repository?.displayName ?? "",
-                    repository.map { "\($0.owner)/\($0.repo)" } ?? ""
-                ]
-                .contains { $0.lowercased().contains(query) }
+                let baseMatches = viewModel.cachedSkillSearchHaystackByID[skill.id]?.contains(query) ?? false
+                if baseMatches { return true }
+                guard let repository = repositoryBySkillID[skill.id] else { return false }
+                return repository.displayName.lowercased().contains(query)
+                    || "\(repository.owner)/\(repository.repo)".lowercased().contains(query)
             }
         }
 
@@ -2704,7 +2698,7 @@ private struct SkillCollectionEditorSheet: View {
         .onChange(of: skillSearchText) { _, _ in
             refreshFilteredCatalogSkills()
         }
-        .onChange(of: viewModel.allVisibleSkillRecords) { _, _ in
+        .onChange(of: viewModel.visibleSkillRecordsRevision) { _, _ in
             refreshCollectionEditorCaches()
             reloadSelectedCollectionIfNeeded()
         }
