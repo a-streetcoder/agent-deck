@@ -449,7 +449,11 @@ struct PiAgentSessionRow: View, Equatable {
             }
 
             HStack(spacing: 6) {
-                if session.isNoProject {
+                if session.isAgentDeckBuilderSession {
+                    Image(systemName: "hammer")
+                        .font(AppTheme.Font.caption2.weight(.semibold))
+                        .frame(width: 11, alignment: .center)
+                } else if session.isNoProject {
                     Image(systemName: "bubble.left.and.bubble.right")
                         .font(AppTheme.Font.caption2.weight(.semibold))
                         .frame(width: 11, alignment: .center)

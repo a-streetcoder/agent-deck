@@ -3010,6 +3010,7 @@ final class AppViewModel: NSObject {
     }
 
     private func sessionGroupID(for session: PiAgentSessionRecord) -> String {
+        if session.isAgentDeckBuilderSession { return PiAgentSessionGrouping.agentDeckBuilderSectionID }
         if session.isNoProject { return PiAgentSessionGrouping.noProjectSectionID }
         return projectByPath[session.projectPath] != nil
             ? session.projectPath

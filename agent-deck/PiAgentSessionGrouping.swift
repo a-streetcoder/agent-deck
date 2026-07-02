@@ -15,6 +15,7 @@ enum PiAgentSessionGrouping {
     /// Identity of the explicit general-chat group. These sessions are not
     /// project orphans and must not be treated as a discovered-project bucket.
     static let noProjectSectionID = "agent-deck.session-group.no-project"
+    static let agentDeckBuilderSectionID = "agent-deck.session-group.agent-deck-builder"
 
     /// Identity of the trailing catch-all group that holds sessions whose
     /// `projectPath` no longer resolves to a discovered project.
@@ -136,9 +137,12 @@ enum PiAgentSessionGrouping {
     ) -> [PiAgentSessionListSection] {
         var byPath: [String: [PiAgentSessionRecord]] = [:]
         var noProjectSessions: [PiAgentSessionRecord] = []
+        var agentDeckBuilderSessions: [PiAgentSessionRecord] = []
         var orphans: [PiAgentSessionRecord] = []
         for session in sessions {
-            if session.isNoProject {
+            if session.isAgentDeckBuilderSession {
+                agentDeckBuilderSessions.append(session)
+            } else if session.isNoProject {
                 noProjectSessions.append(session)
             } else if projectByPath[session.projectPath] != nil {
                 byPath[session.projectPath, default: []].append(session)
@@ -148,7 +152,7 @@ enum PiAgentSessionGrouping {
         }
 
         var projectSections: [PiAgentSessionListSection] = []
-        projectSections.reserveCapacity(byPath.count + (noProjectSessions.isEmpty ? 0 : 1) + (orphans.isEmpty ? 0 : 1))
+        projectSections.reserveCapacity(byPath.count + (noProjectSessions.isEmpty ? 0 : 1) + (agentDeckBuilderSessions.isEmpty ? 0 : 1) + (orphans.isEmpty ? 0 : 1))
 
         for (path, projectSessions) in byPath {
             let project = projectByPath[path]!
@@ -187,6 +191,28 @@ enum PiAgentSessionGrouping {
                 isProjectGroup: false,
                 isShowMoreRequested: expandedProjectIDs.contains(noProjectSectionID),
                 isCollapsed: collapsedProjectIDs.contains(noProjectSectionID),
+                capPreviews: capPreviews,
+                isWorking: isWorking,
+                selectedSessionID: selectedSessionID,
+                now: now,
+                options: options,
+                exactSort: exactSort,
+                touchedThisRunSessionIDs: touchedThisRunSessionIDs
+            ))
+        }
+
+        if !agentDeckBuilderSessions.isEmpty {
+            projectSections.append(makeSection(
+                id: agentDeckBuilderSectionID,
+                title: PiAgentSessionRecord.agentDeckBuilderDisplayName,
+                subtitle: nil,
+                iconFileURL: nil,
+                fallbackSymbolName: "hammer",
+                assetName: nil,
+                sessions: agentDeckBuilderSessions,
+                isProjectGroup: false,
+                isShowMoreRequested: expandedProjectIDs.contains(agentDeckBuilderSectionID),
+                isCollapsed: collapsedProjectIDs.contains(agentDeckBuilderSectionID),
                 capPreviews: capPreviews,
                 isWorking: isWorking,
                 selectedSessionID: selectedSessionID,
@@ -397,14 +423,14 @@ struct PiAgentSessionListSection: Equatable, Identifiable {
     let isCollapsed: Bool
     /// Total sessions belonging to this group (rendered + hidden).
     let totalCount: Int
-    /// True for real discovered projects; false for General Chat and the
+    /// True for real discovered projects; false for no-project utility groups and the
     /// catch-all "Other" group.
     let isProjectGroup: Bool
 
     /// The header's "new session" affordance renders for real projects and
-    /// for the dedicated General Chat group, but never for orphaned "Other".
+    /// no-project utility groups, but never for orphaned "Other".
     var canCreateSession: Bool {
-        isProjectGroup || id == PiAgentSessionGrouping.noProjectSectionID
+        isProjectGroup || id == PiAgentSessionGrouping.noProjectSectionID || id == PiAgentSessionGrouping.agentDeckBuilderSectionID
     }
 
     /// Returns a copy of this section with `items` replaced. Used by the

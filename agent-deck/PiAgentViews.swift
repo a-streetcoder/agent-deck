@@ -3905,8 +3905,8 @@ private struct PiAgentSessionGroupHeader: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 30, height: 30, alignment: .center)
-                .help(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : "New session in \(section.title)")
-                .accessibilityLabel(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : "New session in \(section.title)")
+                .help(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : (section.id == PiAgentSessionGrouping.agentDeckBuilderSectionID ? "New Agent Deck Builder" : "New session in \(section.title)"))
+                .accessibilityLabel(section.id == PiAgentSessionGrouping.noProjectSectionID ? "New General Chat" : (section.id == PiAgentSessionGrouping.agentDeckBuilderSectionID ? "New Agent Deck Builder" : "New session in \(section.title)"))
             }
         }
         // Aligns the icon's leading edge with the session row title (row text
@@ -4047,6 +4047,8 @@ struct CodingAgentExpandedPanel: View {
                     onCreateSessionForProject: { projectPath in
                         if projectPath == PiAgentSessionGrouping.noProjectSectionID {
                             viewModel.createNoProjectPiAgentDraft()
+                        } else if projectPath == PiAgentSessionGrouping.agentDeckBuilderSectionID {
+                            viewModel.createAgentDeckBuilderDraft()
                         } else if let project = viewModel.projectByPath[projectPath] {
                             viewModel.createPiAgentDraft(for: project)
                         }
@@ -4987,6 +4989,8 @@ struct PiAgentScreen: View {
                             onCreateSessionForProject: { projectPath in
                                 if projectPath == PiAgentSessionGrouping.noProjectSectionID {
                                     viewModel.createNoProjectPiAgentDraft()
+                                } else if projectPath == PiAgentSessionGrouping.agentDeckBuilderSectionID {
+                                    viewModel.createAgentDeckBuilderDraft()
                                 } else if let project = viewModel.projectByPath[projectPath] {
                                     viewModel.createPiAgentDraft(for: project)
                                 }
