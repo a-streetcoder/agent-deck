@@ -792,10 +792,10 @@ final class AppViewModel: NSObject {
         pruneStaleOptionalResourceAssignments()
 
         let currentAgentID = selectedAgentID
+        let previousSelectedAgentName = currentAgentID.flatMap { cachedDisplayAgentByID[$0]?.name }
         let currentSkillID = selectedSkillID
         let currentCommandItemID = selectedCommandItemID
 
-        selectedAgentID = filteredAgents.contains(where: { $0.id == currentAgentID }) ? currentAgentID : filteredAgents.first?.id
         selectedSkillID = allVisibleSkillRecords.contains(where: { $0.id == currentSkillID }) ? currentSkillID : allVisibleSkillRecords.first?.id
         let availablePromptIDs = Set(allVisiblePromptTemplateRecords.map(\.id))
         if availablePromptIDs.contains(currentCommandItemID ?? "") {
@@ -804,14 +804,8 @@ final class AppViewModel: NSObject {
             selectedCommandItemID = allVisiblePromptTemplateRecords.first?.id
         }
 
-        // After a rename, restore the selection onto the renamed record now
+        // After a rename, restore skill selection onto the renamed record now
         // that the fresh snapshot exposes its new id.
-        if let name = pendingSelectAgentName {
-            if let id = filteredAgents.first(where: { $0.name == name })?.id {
-                selectedAgentID = id
-            }
-            pendingSelectAgentName = nil
-        }
         if let name = pendingSelectSkillName {
             if let id = allVisibleSkillRecords.first(where: { $0.name == name })?.id {
                 selectedSkillID = id
@@ -841,6 +835,15 @@ final class AppViewModel: NSObject {
         }
 
         rebuildWarningCaches()
+        reconcileSelectedAgentAfterDisplayCacheRebuild(previousID: currentAgentID, previousName: previousSelectedAgentName)
+        // Agent display records are cache-backed; perform pending name restore
+        // after `rebuildWarningCaches()` so the lookup sees the fresh IDs.
+        if let name = pendingSelectAgentName {
+            if let id = filteredAgents.first(where: { $0.name == name })?.id {
+                selectedAgentID = id
+            }
+            pendingSelectAgentName = nil
+        }
         self.reconcileRunningSessionLaunchResourceFingerprints()
         hasCompletedInitialRefresh = true
     }
@@ -1031,11 +1034,10 @@ final class AppViewModel: NSObject {
     /// the agent-catalog fields it copies through. This replaces a full
     /// `refresh()` (which re-walks the filesystem) for assignment toggles.
     private func reconcileSnapshotsFromPreferences() {
-        // Capture the selected agent's name before rebuilding the display
-        // cache, because the agent's EffectiveAgentRecord.id can change when
-        // it moves between catalog-only and effective (e.g. project
-        // assignment toggle). After the rebuild we restore the selection by
-        // name so the detail pane does not tear down and lose its @State.
+        // Capture the selected agent before rebuilding the display cache,
+        // because its EffectiveAgentRecord.id can change when it moves between
+        // catalog-only and effective (e.g. global/project assignment toggle).
+        let previousSelectedAgentID = selectedAgentID
         let previousSelectedAgentName = selectedAgent?.name
         let catalogProjectSnapshots = Array(allProjectSnapshots.values)
         globalSnapshot = scopedAgentSnapshot(
@@ -1058,17 +1060,27 @@ final class AppViewModel: NSObject {
             snapshot = makeAggregateSnapshot()
         }
         rebuildWarningCaches()
-        // Restore selection when the old EffectiveAgentRecord.id disappeared
-        // from the rebuilt cache (e.g. catalog → effective after project
-        // assignment). Falls back to name-based lookup so the detail pane
-        // stays on the same logical agent.
-        if let previousID = selectedAgentID,
-           let name = previousSelectedAgentName,
-           cachedDisplayAgentByID[previousID] == nil,
-           let newID = cachedAllDisplayAgents.first(where: { $0.name == name })?.id {
-            selectedAgentID = newID
-        }
+        reconcileSelectedAgentAfterDisplayCacheRebuild(previousID: previousSelectedAgentID, previousName: previousSelectedAgentName)
         reconcileRunningSessionLaunchResourceFingerprints()
+    }
+
+    private func reconcileSelectedAgentAfterDisplayCacheRebuild(previousID: EffectiveAgentRecord.ID?, previousName: String?) {
+        if let previousID, filteredAgents.contains(where: { $0.id == previousID }) {
+            selectedAgentID = previousID
+            return
+        }
+        if let previousName, let remappedID = filteredAgents.first(where: { $0.name == previousName })?.id {
+            selectedAgentID = remappedID
+            return
+        }
+        // If there was a real selection before the rebuild and the same logical
+        // agent is temporarily unresolved, do not select an unrelated first row.
+        // The list mirror will keep its local highlight until the next snapshot
+        // either remaps the agent or the selection is intentionally cleared.
+        if previousID != nil || previousName != nil {
+            return
+        }
+        selectedAgentID = filteredAgents.first?.id
     }
 
     /// Patch the in-memory effective-agent skill list so snapshot-derived
@@ -8777,19 +8789,19 @@ final class AppViewModel: NSObject {
     func enableAgentGlobally(_ agent: AgentRecord) throws {
         guard appSettingsController.setDefaultAgent(agent.name, enabled: true) else { return }
         appSettings = appSettingsController.settings
-        // Assignment toggles already update their visible state from
-        // `appSettings`; the refresh is only reconciliation. Keep it silent so
-        // the Agents list does not dim/spinner-blink for a small checkbox edit.
-        refresh(includeModels: false, silentlyReconcile: true)
+        // Global assignment only mutates app settings. Reconcile the already-
+        // loaded snapshots in memory so the row can move sections without a
+        // refresh window that drops selection onto another agent.
+        reconcileSnapshotsFromPreferences()
     }
 
     func disableAgentGlobally(_ agent: AgentRecord) throws {
         guard appSettingsController.setDefaultAgent(agent.name, enabled: false) else { return }
         appSettings = appSettingsController.settings
-        // Assignment toggles already update their visible state from
-        // `appSettings`; the refresh is only reconciliation. Keep it silent so
-        // the Agents list does not dim/spinner-blink for a small checkbox edit.
-        refresh(includeModels: false, silentlyReconcile: true)
+        // Global assignment only mutates app settings. Reconcile the already-
+        // loaded snapshots in memory so the row can move sections without a
+        // refresh window that drops selection onto another agent.
+        reconcileSnapshotsFromPreferences()
     }
 
     func moveAgentToLibrary(_ agent: AgentRecord) throws {

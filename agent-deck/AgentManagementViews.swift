@@ -775,22 +775,33 @@ private struct AgentLibraryPane: View {
     }
 
     private func synchronizeSelectionFromViewModel() {
+        func setLocalSelection(_ id: EffectiveAgentRecord.ID?) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selectedAgentID = id
+            }
+        }
+
         guard let vmID = viewModel.selectedAgentID else {
             ensureSelection()
             return
         }
         if filteredAgents.contains(where: { $0.id == vmID }) {
-            selectedAgentID = vmID
+            setLocalSelection(vmID)
             return
         }
         // Selected agent hidden by search/filter or rebuilt under a new id —
         // keep the user's selection by name when possible.
         if let name = viewModel.selectedAgent?.name,
            let preferred = filteredAgents.first(where: { $0.name == name }) {
-            selectedAgentID = preferred.id
+            setLocalSelection(preferred.id)
             return
         }
-        ensureSelection()
+        // The view model still has a selection, but this filtered/layout
+        // snapshot cannot resolve it yet. Do not select the first visible row:
+        // that writes an unrelated agent back to the VM and causes the detail
+        // pane blink the user sees during catalog ↔ global moves.
     }
 
     private func ensureSelection() {
