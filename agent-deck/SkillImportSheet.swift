@@ -32,9 +32,16 @@ struct SkillImportSheet: View {
 
     // Shared candidate list state.
     @State private var searchText = ""
+    /// Cached candidate projections so scrolling/body evaluation does not
+    /// rebuild display/importable lists or selection ID sets.
+    @State private var displayCandidates: [DisplayCandidate] = []
+    @State private var importableCandidates: [DisplayCandidate] = []
+    @State private var importableCandidateIDs: Set<String> = []
+    @State private var hiddenAlreadyImportedCount = 0
     /// Debounced, cached filter results so heavy search scoring does not run
     /// on every body evaluation.
     @State private var filteredCandidates: [DisplayCandidate] = []
+    @State private var visibleImportableIDs: Set<String> = []
     @State private var selectedIDs: Set<String> = []
     @State private var importErrorMessage: String?
     @State private var isImporting = false
@@ -44,9 +51,6 @@ struct SkillImportSheet: View {
     /// Per-row AI-summary state. Keyed by `DisplayCandidate.id` so it survives
     /// search/filter changes but resets when the source mode changes.
     @State private var summariesByID: [String: SummaryState] = [:]
-    /// Per-row hover state is stored in a dictionary so hover only invalidates
-    /// the affected row, not the whole list.
-    @State private var hoveredCandidateIDs: Set<String> = []
     @State private var importAsCollection = false
     @State private var collectionName = ""
     @State private var didManuallySetImportAsCollection = false
@@ -83,21 +87,36 @@ struct SkillImportSheet: View {
             footer
         }
         .frame(width: 760, height: 740)
-        .task { catalogedSkillFilePaths = viewModel.catalogedSkillFilePaths }
+        .task {
+            catalogedSkillFilePaths = viewModel.catalogedSkillFilePaths
+            let importable = updateCandidateCaches()
+            scheduleFilterUpdate(immediate: true, candidates: importable)
+        }
         .onChange(of: mode) { _, _ in
             importErrorMessage = nil
             searchText = ""
             filteredCandidates = []
+            visibleImportableIDs = []
             selectedIDs = []
             resetCollectionOptions()
             summariesByID = [:]
-            hoveredCandidateIDs.removeAll()
+            let importable = updateCandidateCaches()
+            scheduleFilterUpdate(immediate: true, candidates: importable)
         }
         .onChange(of: searchText) { _, _ in scheduleFilterUpdate() }
         .onChange(of: selectedIDs) { _, _ in updateCollectionDefaultsForCurrentSelection() }
-        .onChange(of: localCandidates) { _, _ in scheduleFilterUpdate(immediate: true) }
-        .onChange(of: remoteContext) { _, _ in scheduleFilterUpdate(immediate: true) }
-        .onAppear { scheduleFilterUpdate(immediate: true) }
+        .onChange(of: localCandidates) { _, _ in
+            let importable = updateCandidateCaches()
+            scheduleFilterUpdate(immediate: true, candidates: importable)
+        }
+        .onChange(of: remoteContext) { _, _ in
+            let importable = updateCandidateCaches()
+            scheduleFilterUpdate(immediate: true, candidates: importable)
+        }
+        .onAppear {
+            let importable = updateCandidateCaches()
+            scheduleFilterUpdate(immediate: true, candidates: importable)
+        }
         .onDisappear {
             localScanTask?.cancel()
             remoteFetchTask?.cancel()
@@ -381,6 +400,7 @@ struct SkillImportSheet: View {
 
             collectionOptionsView
 
+            let lastCandidateID = filteredCandidates.last?.id
             LazyVStack(alignment: .leading, spacing: 0) {
                 if filteredCandidates.isEmpty {
                     Text(isSearchActive
@@ -390,7 +410,7 @@ struct SkillImportSheet: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .frame(maxWidth: .infinity, minHeight: 120)
                 }
-                ForEach(Array(filteredCandidates.enumerated()), id: \.element.id) { index, candidate in
+                ForEach(filteredCandidates) { candidate in
                     CandidateRow(
                         candidate: candidate,
                         isSelected: Binding(
@@ -401,15 +421,10 @@ struct SkillImportSheet: View {
                             }
                         ),
                         summaryState: summariesByID[candidate.id],
-                        isHovered: hoveredCandidateIDs.contains(candidate.id),
-                        onHover: { hovering in
-                            if hovering { hoveredCandidateIDs.insert(candidate.id) }
-                            else { hoveredCandidateIDs.remove(candidate.id) }
-                        },
                         onRequestSummary: { Task { await requestSummary(for: candidate) } },
                         canGenerateSummary: viewModel.skillDescriptionGenerationModel() != nil
                     )
-                    if index < filteredCandidates.count - 1 {
+                    if candidate.id != lastCandidateID {
                         Divider()
                     }
                 }
@@ -421,17 +436,18 @@ struct SkillImportSheet: View {
     /// when the search text changes, and immediately when the source data
     /// changes (local/remote candidates arriving).
     @MainActor
-    private func scheduleFilterUpdate(immediate: Bool = false) {
+    private func scheduleFilterUpdate(immediate: Bool = false, candidates: [DisplayCandidate]? = nil) {
         searchDebounceTask?.cancel()
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let delay: Duration = immediate || query.isEmpty ? .milliseconds(0) : .milliseconds(80)
-        let candidates = importableCandidates
+        let candidates = candidates ?? importableCandidates
         searchDebounceTask = Task {
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             let result = Self.filteredImportableCandidates(from: candidates, query: query)
             guard !Task.isCancelled else { return }
             filteredCandidates = result
+            visibleImportableIDs = Set(result.map(\.id))
         }
     }
 
@@ -502,7 +518,7 @@ struct SkillImportSheet: View {
         let alreadyImported: Bool
     }
 
-    private var displayCandidates: [DisplayCandidate] {
+    private func makeDisplayCandidates() -> [DisplayCandidate] {
         switch mode {
         case .localFolder:
             return localCandidates.map { candidate in
@@ -535,16 +551,17 @@ struct SkillImportSheet: View {
         }
     }
 
-    private var importableCandidates: [DisplayCandidate] {
-        displayCandidates.filter { !$0.alreadyImported }
-    }
-
-    private var hiddenAlreadyImportedCount: Int {
-        displayCandidates.count - importableCandidates.count
-    }
-
-    private var visibleImportableIDs: Set<String> {
-        Set(filteredCandidates.map(\.id))
+    @MainActor
+    private func updateCandidateCaches() -> [DisplayCandidate] {
+        let display = makeDisplayCandidates()
+        let importable = display.filter { !$0.alreadyImported }
+        displayCandidates = display
+        importableCandidates = importable
+        let importableIDs = Set(importable.map(\.id))
+        importableCandidateIDs = importableIDs
+        hiddenAlreadyImportedCount = display.count - importable.count
+        visibleImportableIDs = Set(filteredCandidates.map(\.id)).intersection(importableIDs)
+        return importable
     }
 
     private var allVisibleImportableSelected: Bool {
@@ -635,7 +652,7 @@ struct SkillImportSheet: View {
     }
 
     private var selectedImportableCount: Int {
-        selectedIDs.intersection(Set(importableCandidates.map(\.id))).count
+        selectedIDs.intersection(importableCandidateIDs).count
     }
 
     private var suggestedCollectionName: String {
@@ -708,6 +725,8 @@ struct SkillImportSheet: View {
         isScanningLocal = false
         localScanProgress = nil
         localCandidates = candidates
+        let importable = updateCandidateCaches()
+        scheduleFilterUpdate(immediate: true, candidates: importable)
 
         guard !candidates.isEmpty else {
             selectedIDs = []
@@ -715,7 +734,7 @@ struct SkillImportSheet: View {
             return
         }
         // Pre-select only skills that are not already in the catalog.
-        selectedIDs = Set(importableCandidates.map(\.id))
+        selectedIDs = Set(importable.map(\.id))
         updateCollectionDefaultsForCurrentSelection()
     }
 
@@ -751,6 +770,8 @@ struct SkillImportSheet: View {
                 }
                 isFetchingRemote = false
                 remoteContext = context
+                let importable = updateCandidateCaches()
+                scheduleFilterUpdate(immediate: true, candidates: importable)
                 if context.candidates.isEmpty {
                     importErrorMessage = "No skills with a SKILL.md were found in \(context.source.displayName)."
                 } else {
@@ -853,10 +874,9 @@ struct SkillImportSheet: View {
         let candidate: DisplayCandidate
         @Binding var isSelected: Bool
         let summaryState: SummaryState?
-        let isHovered: Bool
-        let onHover: (Bool) -> Void
         let onRequestSummary: () -> Void
         let canGenerateSummary: Bool
+        @State private var isHovered = false
 
         var body: some View {
             HStack(alignment: .top, spacing: 8) {
@@ -911,7 +931,7 @@ struct SkillImportSheet: View {
             }
             .contentShape(Rectangle())
             .onHover { hovering in
-                onHover(hovering)
+                isHovered = hovering
             }
         }
 
@@ -972,7 +992,6 @@ struct SkillImportSheet: View {
             }
             .disabled(summaryState == .loading)
             .opacity(isVisible ? 1 : 0)
-            .animation(.easeInOut(duration: 0.15), value: isVisible)
         }
 
         private var magicButtonHelpText: String {
