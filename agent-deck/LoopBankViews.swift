@@ -358,13 +358,19 @@ struct LoopBankScreen: View {
                 .labelsHidden()
             }
             detailRow("Max iterations", info: "A hard safety limit. Set 0 for no iteration limit so the loop continues until it reaches its goal or another stop condition.") {
+                let hasIterationLimit = editorDraft.maxIterations > 0
                 HStack(spacing: 8) {
                     LoopNumericStepper(value: $editorDraft.maxIterations, range: 0...LoopDraft.maximumMaxIterations)
-                    Button(editorDraft.maxIterations == 0 ? "No limit" : "Set no limit") {
-                        editorDraft.maxIterations = 0
+                        .disabled(!hasIterationLimit)
+                        .opacity(hasIterationLimit ? 1 : 0.45)
+                    Button(hasIterationLimit ? "No limit" : "Set limit") {
+                        if hasIterationLimit {
+                            editorDraft.maxIterations = 0
+                        } else {
+                            editorDraft.maxIterations = min(max(LoopDraft.defaultMaxIterations, 1), LoopDraft.maximumMaxIterations)
+                        }
                     }
-                    .buttonStyle(.link)
-                    .font(AppTheme.Font.caption)
+                    .appSmallSecondaryButton()
                 }
             }
             detailEditor("Goal template", text: $editorDraft.goalTemplate, minHeight: 120, info: "The reusable instruction the loop runs against. Be explicit about the desired outcome, constraints, and what counts as done.")
