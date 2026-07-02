@@ -8777,13 +8777,19 @@ final class AppViewModel: NSObject {
     func enableAgentGlobally(_ agent: AgentRecord) throws {
         guard appSettingsController.setDefaultAgent(agent.name, enabled: true) else { return }
         appSettings = appSettingsController.settings
-        refresh(includeModels: false)
+        // Assignment toggles already update their visible state from
+        // `appSettings`; the refresh is only reconciliation. Keep it silent so
+        // the Agents list does not dim/spinner-blink for a small checkbox edit.
+        refresh(includeModels: false, silentlyReconcile: true)
     }
 
     func disableAgentGlobally(_ agent: AgentRecord) throws {
         guard appSettingsController.setDefaultAgent(agent.name, enabled: false) else { return }
         appSettings = appSettingsController.settings
-        refresh(includeModels: false)
+        // Assignment toggles already update their visible state from
+        // `appSettings`; the refresh is only reconciliation. Keep it silent so
+        // the Agents list does not dim/spinner-blink for a small checkbox edit.
+        refresh(includeModels: false, silentlyReconcile: true)
     }
 
     func moveAgentToLibrary(_ agent: AgentRecord) throws {

@@ -594,7 +594,11 @@ private struct AgentLibraryPane: View {
         }
         .onChange(of: viewModel.selectedAgentID) { _, _ in scheduleSelectionSynchronization() }
         .onChange(of: viewModel.displayAgentsRevision) { _, _ in
-            cachedLayout = recomputeLayout()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                cachedLayout = recomputeLayout()
+            }
             scheduleSelectionSynchronization()
         }
         .onChange(of: searchText) { _, _ in
