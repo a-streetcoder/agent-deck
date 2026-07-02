@@ -304,11 +304,16 @@ struct LoopLaunchSheet: View {
                             HStack(spacing: 8) {
                                 Text("Max iterations")
                                     .font(AppTheme.Font.body)
-                                LoopNumericStepper(value: $draft.maxIterations, range: 1...20)
+                                LoopNumericStepper(value: $draft.maxIterations, range: 0...LoopDraft.maximumMaxIterations)
+                                Button(draft.maxIterations == 0 ? "No limit" : "Set no limit") {
+                                    draft.maxIterations = 0
+                                }
+                                .buttonStyle(.link)
+                                .font(AppTheme.Font.caption)
 
                                 LoopInlineInfoButton(
                                     title: "Max iterations",
-                                    message: "A hard safety limit for repeated work. The loop stops once it reaches this count even if the goal still needs follow-up."
+                                    message: "A hard safety limit for repeated work. Set 0 for no iteration limit so the loop continues until it reaches its goal or another stop condition."
                                 )
                             }
                         }

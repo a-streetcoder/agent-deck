@@ -156,7 +156,7 @@ nonisolated final class LoopDefinitionStore: @unchecked Sendable {
             launchContextScope: launchContextScope,
             structure: structure,
             writeTarget: writeTarget,
-            maxIterations: max(1, maxIterations),
+            maxIterations: max(0, maxIterations),
             validationCommand: validationCommand,
             makerChecker: makerChecker,
             pipeline: pipeline,

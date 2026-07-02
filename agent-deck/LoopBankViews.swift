@@ -320,7 +320,7 @@ struct LoopBankScreen: View {
             readOnlyMarkdownFieldRow("Description", value: definition.description, placeholder: "No description")
             readOnlyFieldRow("Structure", value: definition.structure.displayName)
             readOnlyFieldRow("Write target", value: definition.writeTarget.displayName)
-            readOnlyFieldRow("Max iterations", value: "\(definition.maxIterations)")
+            readOnlyFieldRow("Max iterations", value: definition.maxIterations > 0 ? "\(definition.maxIterations)" : "No limit")
             readOnlyMarkdownFieldRow("Goal template", value: definition.goalTemplate, placeholder: "No goal template")
             if let launchContext = definition.launchContext, !launchContext.isEmpty {
                 readOnlyMarkdownFieldRow("Launch context", value: launchContext)
@@ -357,8 +357,15 @@ struct LoopBankScreen: View {
                 }
                 .labelsHidden()
             }
-            detailRow("Max iterations", info: "A hard safety limit. The loop stops after this many passes even if the goal still needs follow-up.") {
-                LoopNumericStepper(value: $editorDraft.maxIterations, range: 1...20)
+            detailRow("Max iterations", info: "A hard safety limit. Set 0 for no iteration limit so the loop continues until it reaches its goal or another stop condition.") {
+                HStack(spacing: 8) {
+                    LoopNumericStepper(value: $editorDraft.maxIterations, range: 0...LoopDraft.maximumMaxIterations)
+                    Button(editorDraft.maxIterations == 0 ? "No limit" : "Set no limit") {
+                        editorDraft.maxIterations = 0
+                    }
+                    .buttonStyle(.link)
+                    .font(AppTheme.Font.caption)
+                }
             }
             detailEditor("Goal template", text: $editorDraft.goalTemplate, minHeight: 120, info: "The reusable instruction the loop runs against. Be explicit about the desired outcome, constraints, and what counts as done.")
             detailEditor("Launch context (optional)", text: $editorDraft.launchContext, minHeight: 84, infoRows: loopLaunchContextInfoRows)

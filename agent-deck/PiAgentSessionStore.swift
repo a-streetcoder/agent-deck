@@ -942,7 +942,7 @@ final class PiAgentSessionStore {
         } catch { run.status = .failed; run.endedAt = Date(); run.stopReason = .toolFailed; run.iterations.append(LoopIteration(index: 0, summary: error.localizedDescription)); upsertLoopRun(run); return run }
 
         let agentName = run.makerChecker.makerName
-        for iterationIndex in 1...run.maxIterations {
+        for iterationIndex in 1...run.effectiveIterationLimit {
             if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let started = Date()
             run.currentIteration = iterationIndex
@@ -1020,7 +1020,7 @@ final class PiAgentSessionStore {
         }
 
         let validationCommand = run.validationCommand
-        for iterationIndex in 1...run.maxIterations {
+        for iterationIndex in 1...run.effectiveIterationLimit {
             let iterationStartedAt = Date()
             run.currentIteration = iterationIndex
             upsertLoopRun(run)
@@ -1155,7 +1155,7 @@ final class PiAgentSessionStore {
             run.status = .failed; run.endedAt = Date(); run.stopReason = error.stopReason; run.iterations.append(LoopIteration(index: 0, summary: error.localizedDescription)); upsertLoopRun(run); return run
         } catch { run.status = .failed; run.endedAt = Date(); run.stopReason = .toolFailed; run.iterations.append(LoopIteration(index: 0, summary: error.localizedDescription)); upsertLoopRun(run); return run }
 
-        for iterationIndex in 1...run.maxIterations {
+        for iterationIndex in 1...run.effectiveIterationLimit {
             if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let started = Date()
             run.currentIteration = iterationIndex
@@ -1200,7 +1200,7 @@ final class PiAgentSessionStore {
             run.status = .failed; run.endedAt = Date(); run.stopReason = error.stopReason; run.iterations.append(LoopIteration(index: 0, summary: error.localizedDescription)); upsertLoopRun(run); return run
         } catch { run.status = .failed; run.endedAt = Date(); run.stopReason = .toolFailed; run.iterations.append(LoopIteration(index: 0, summary: error.localizedDescription)); upsertLoopRun(run); return run }
 
-        for iterationIndex in 1...run.maxIterations {
+        for iterationIndex in 1...run.effectiveIterationLimit {
             if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
             let started = Date()
             run.currentIteration = iterationIndex
@@ -1260,7 +1260,7 @@ final class PiAgentSessionStore {
             upsertLoopRun(run); return run
         }
 
-        let maxLoopIterations = run.maxIterations
+        let maxLoopIterations = run.effectiveIterationLimit
         var priorReview = ""
         for iterationIndex in 1...maxLoopIterations {
             if let stoppedRun = stoppedLoopRun(run) { return stoppedRun }
@@ -1404,7 +1404,7 @@ final class PiAgentSessionStore {
         }
 
         let validationCommand = run.validationCommand
-        let maxLoopIterations = run.maxIterations
+        let maxLoopIterations = run.effectiveIterationLimit
         for iterationIndex in 1...maxLoopIterations {
             let iterationStartedAt = Date()
             var artifacts: [LoopArtifact] = []
@@ -1661,7 +1661,7 @@ final class PiAgentSessionStore {
         var lines = [
             "Agent Deck is running this loop. Agent Deck controls iteration count, retries, stopping, artifacts, and validation. Do not run your own open-ended loop; complete only this assigned step.",
             "Loop goal: \(run.goal)",
-            "Iteration: \(iterationIndex) of \(run.maxIterations)",
+            "\(run.iterationProgressText(iterationIndex))",
             "Write target: \(run.writeTarget.displayName)"
         ]
         if let launchContext = launchContextForPrompt(run: run, iterationIndex: iterationIndex) {

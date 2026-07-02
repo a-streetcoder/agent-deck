@@ -233,6 +233,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
     var humanApproval: LoopHumanApprovalConfig
 
     static let defaultMaxIterations = 3
+    static let maximumMaxIterations = 100
 
     init(
         goal: String = "",
@@ -253,7 +254,7 @@ nonisolated struct LoopDraft: Codable, Equatable, Sendable {
         self.launchContextScope = launchContextScope
         self.structure = structure
         self.writeTarget = writeTarget
-        self.maxIterations = max(1, maxIterations)
+        self.maxIterations = max(0, maxIterations)
         self.validationCommand = validationCommand
         self.makerChecker = makerChecker
         self.pipeline = pipeline
@@ -360,7 +361,7 @@ nonisolated struct LoopDefinition: Identifiable, Codable, Equatable, Hashable, S
         self.launchContextScope = launchContextScope
         self.structure = structure
         self.writeTarget = writeTarget
-        self.maxIterations = max(1, maxIterations)
+        self.maxIterations = max(0, maxIterations)
         self.validationCommand = validationCommand
         self.makerChecker = makerChecker
         self.pipeline = pipeline
@@ -563,7 +564,7 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
         self.status = .running
         self.writeTarget = draft.writeTarget
         self.currentIteration = 0
-        self.maxIterations = max(1, draft.maxIterations)
+        self.maxIterations = max(0, draft.maxIterations)
         self.validationCommand = draft.validationCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         self.makerChecker = draft.makerChecker
         self.pipeline = draft.pipeline
@@ -625,8 +626,16 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
         presentsGoalNotMetOutcome ? "Goal not met" : status.displayName
     }
 
+    var hasIterationLimit: Bool {
+        maxIterations > 0
+    }
+
     var effectiveIterationLimit: Int {
-        maxIterations
+        hasIterationLimit ? maxIterations : Int.max
+    }
+
+    var iterationLimitDisplayText: String {
+        hasIterationLimit ? String(maxIterations) : "No limit"
     }
 
     var iterationProgressText: String {
@@ -634,7 +643,7 @@ nonisolated struct LoopRun: Identifiable, Codable, Equatable, Sendable {
     }
 
     func iterationProgressText(_ iteration: Int) -> String {
-        "Iteration \(iteration)/\(maxIterations)"
+        hasIterationLimit ? "Iteration \(iteration)/\(maxIterations)" : "Iteration \(iteration) · No limit"
     }
 }
 
@@ -679,7 +688,7 @@ enum LoopIterationSeparatorCodec {
             sessionID: run.sessionID,
             role: .status,
             title: title,
-            text: "Iteration \(iterationIndex) of \(run.maxIterations) — \(run.structure.displayName)",
+            text: "\(run.iterationProgressText(iterationIndex)) — \(run.structure.displayName)",
             rawJSON: LoopRunRecapCodec.rawJSON(for: marker),
             timestamp: timestamp
         )
@@ -749,7 +758,7 @@ enum LoopRunRecapCodec {
     }
 
     static func finalText(for run: LoopRun, progressMarkdown: String? = nil) -> String {
-        let iterationLine = "Iterations: \(run.iterations.count)/\(run.maxIterations)"
+        let iterationLine = run.hasIterationLimit ? "Iterations: \(run.iterations.count)/\(run.maxIterations)" : "Iterations: \(run.iterations.count) · No limit"
         var lines: [String] = [
             "∞ Loop final recap — \(run.displayStatusName)",
             "Structure: \(run.structure.displayName)",
