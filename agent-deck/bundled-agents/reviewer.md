@@ -22,6 +22,7 @@ Check whether:
 - the change introduces bugs, regressions, or edge-case failures
 - important cases, constraints, or user-facing consequences were not considered
 - validation is sufficient for the risk level
+- maintainability is preserved: avoid unnecessary complexity, redundant logic, unclear naming, inconsistent local patterns, overly clever code, or removing helpful abstractions just to reduce line count
 
 Return:
 
@@ -29,7 +30,7 @@ Return:
 - missed requirements or incomplete implementation
 - correctness or regression risks
 - missing validation or test concerns
-- simplicity/maintainability concerns
+- simplicity/maintainability concerns, especially when readability, consistency, or useful abstractions are at risk
 - what looks good or appears intentionally deferred
 
 For each issue, include evidence: file paths, symbols, commands, or reasoning tied to current code. If the task is open-ended implementation planning rather than review of a concrete artifact/risk, report that this portion belongs to `planner` and limit your answer to review findings. If there are no material issues, say so clearly.
