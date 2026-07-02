@@ -258,7 +258,22 @@ final class PiAgentSessionStore {
             projectName: PiAgentSessionRecord.noProjectDisplayName,
             repository: nil,
             model: model,
-            subagentsEnabled: false
+            subagentsEnabled: false,
+            noProjectMode: .general
+        )
+    }
+
+    @discardableResult
+    func createAgentDeckBuilderSession(title: String = "Draft · Agent Deck Builder", model: String? = nil) -> PiAgentSessionRecord {
+        createSession(
+            kind: .project,
+            title: title,
+            projectPath: "",
+            projectName: PiAgentSessionRecord.agentDeckBuilderDisplayName,
+            repository: nil,
+            model: model,
+            subagentsEnabled: false,
+            noProjectMode: .agentDeckBuilder
         )
     }
 
@@ -282,7 +297,7 @@ final class PiAgentSessionStore {
     }
 
     @discardableResult
-    private func createSession(kind: PiAgentSessionKind, title: String, projectPath: String, projectName: String, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil, subagentsEnabled: Bool) -> PiAgentSessionRecord {
+    private func createSession(kind: PiAgentSessionKind, title: String, projectPath: String, projectName: String, repository: String?, issueNumber: Int? = nil, issueURL: URL? = nil, model: String? = nil, worktreePath: String? = nil, branchName: String? = nil, sourceBranch: String? = nil, agentName: String? = nil, subagentsEnabled: Bool, noProjectMode: PiAgentNoProjectMode? = nil) -> PiAgentSessionRecord {
         let now = Date()
         let record = PiAgentSessionRecord(
             id: UUID(),
@@ -327,6 +342,7 @@ final class PiAgentSessionStore {
             subagentsEnabled: subagentsEnabled,
             injectedExtensions: nil,
             agentName: agentName,
+            noProjectMode: noProjectMode,
             createdAt: now,
             updatedAt: now
         )

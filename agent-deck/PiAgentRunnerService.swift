@@ -165,6 +165,7 @@ final class PiAgentRunnerService {
     var mcpCatalogProvider: ((PiAgentSessionRecord) async -> String?)?
     var onMCPBridgeRequest: ((UUID, PiMCPBridgeRequest, @escaping (String) -> Void) -> Void)?
     var parentSkillArgumentsProvider: ((URL) throws -> [String])?
+    var agentDeckBuilderSkillArgumentsProvider: (() throws -> [String])?
     var parentPromptTemplateArgumentsProvider: ((URL) throws -> [String])?
     /// Returns the Agent Deck memory append *prompt texts* (policy + recall) for a
     /// parent session — not flag pairs. APPEND_SYSTEM.md preservation is applied once
@@ -746,6 +747,12 @@ final class PiAgentRunnerService {
             // active one, so their assigned servers are connected even when the
             // active-project snapshot wouldn't cover them.
             let mcpCatalog: String? = session.isNoProject ? nil : await mcpCatalogProvider?(session)
+            if session.isAgentDeckBuilderSession {
+                extraArguments.append(contentsOf: [
+                    "--system-prompt", AgentDeckBuilderPrompt.text,
+                    "--append-system-prompt", ""
+                ])
+            }
             if let boundAgent {
                 // 1:1 agent chat: launch Pi with the agent's raw system prompt,
                 // its tool allowlist (minus `contact_supervisor` — there's no
@@ -802,6 +809,10 @@ final class PiAgentRunnerService {
             if let boundAgent {
                 if let boundAgentSkillArgumentsProvider {
                     extraArguments.append(contentsOf: try boundAgentSkillArgumentsProvider(boundAgent))
+                }
+            } else if session.isAgentDeckBuilderSession {
+                if let agentDeckBuilderSkillArgumentsProvider {
+                    extraArguments.append(contentsOf: try agentDeckBuilderSkillArgumentsProvider())
                 }
             } else if !session.isNoProject,
                       let parentSkillArgumentsProvider {

@@ -448,6 +448,9 @@ final class AppViewModel: NSObject {
         piAgentRunner.parentSkillArgumentsProvider = { [weak self] projectURL in
             try self?.parentSkillArguments(for: projectURL) ?? []
         }
+        piAgentRunner.agentDeckBuilderSkillArgumentsProvider = { [weak self] in
+            self?.agentDeckBuilderSkillArguments() ?? []
+        }
         piAgentRunner.parentPromptTemplateArgumentsProvider = { [weak self] projectURL in
             try self?.parentPromptTemplateArguments(for: projectURL) ?? []
         }
@@ -2732,6 +2735,13 @@ final class AppViewModel: NSObject {
     func createNoProjectPiAgentDraft() {
         selectedSidebarItem = .agent
         let session = piAgentSessionStore.createNoProjectCodingAgentSession()
+        uncollapseSessionGroup(session)
+        selectPiAgentSession(session.id)
+    }
+
+    func createAgentDeckBuilderDraft() {
+        selectedSidebarItem = .agent
+        let session = piAgentSessionStore.createAgentDeckBuilderSession()
         uncollapseSessionGroup(session)
         selectPiAgentSession(session.id)
     }
@@ -9304,6 +9314,13 @@ final class AppViewModel: NSObject {
             catalog: skillCatalog(forProjectPath: projectPath)
         )
         return try PiSkillLaunchResolver.skillArguments(for: names, catalog: skillCatalog(forProjectPath: projectPath), missingSkillPolicy: .skip)
+    }
+
+    private func agentDeckBuilderSkillArguments() -> [String] {
+        globalCatalogSnapshot.skills
+            .filter { $0.source.kind == .builtin }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .flatMap { ["--skill", $0.filePath] }
     }
 
     private func parentPromptTemplateArguments(for projectURL: URL) throws -> [String] {

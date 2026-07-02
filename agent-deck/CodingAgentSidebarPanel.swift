@@ -65,6 +65,7 @@ struct CodingAgentNewSessionControls: View {
             projects: orderedProjects,
             selectedProject: nil,
             action: { viewModel.createNoProjectPiAgentDraft() },
+            onSelectAgentDeckBuilder: { viewModel.createAgentDeckBuilderDraft() },
             onSelectProject: { viewModel.createPiAgentDraft(for: $0) }
         )
     }
@@ -398,7 +399,7 @@ struct CodingAgentRecentRow: View, Equatable {
     }
 
     var iconSymbolName: String {
-        session.isNoProject ? "bubble.left.and.bubble.right" : (project?.fallbackSymbolName ?? "folder")
+        session.isAgentDeckBuilderSession ? "hammer" : (session.isNoProject ? "bubble.left.and.bubble.right" : (project?.fallbackSymbolName ?? "folder"))
     }
 
     var iconAssetName: String? {

@@ -4919,6 +4919,7 @@ struct PiAgentScreen: View {
                             projects: piAgentNewSessionProjects,
                             selectedProject: viewModel.selectedDiscoveredProject,
                             action: { viewModel.createNoProjectPiAgentDraft() },
+                            onSelectAgentDeckBuilder: { viewModel.createAgentDeckBuilderDraft() },
                             onSelectProject: { project in
                                 viewModel.createPiAgentDraft(for: project)
                             }

@@ -56,6 +56,7 @@ struct PiAgentAddSessionMenuButton: View {
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
     let action: () -> Void
+    let onSelectAgentDeckBuilder: () -> Void
     let onSelectProject: (DiscoveredProject) -> Void
     @Environment(\.isEnabled) private var isEnabled
     @State private var isPresented = false
@@ -80,6 +81,10 @@ struct PiAgentAddSessionMenuButton: View {
                 onSelectNoProject: {
                     isPresented = false
                     action()
+                },
+                onSelectAgentDeckBuilder: {
+                    isPresented = false
+                    onSelectAgentDeckBuilder()
                 },
                 onSelectProject: { project in
                     isPresented = false
@@ -183,6 +188,10 @@ struct PiAgentNewSessionSplitButton: View {
                     onSelectNoProject: {
                         isProjectPickerPresented = false
                         onNewSession()
+                    },
+                    onSelectAgentDeckBuilder: {
+                        isProjectPickerPresented = false
+                        viewModel.createAgentDeckBuilderDraft()
                     },
                     onSelectProject: { project in
                         isProjectPickerPresented = false
@@ -333,6 +342,7 @@ private struct PiAgentProjectPickerPopover: View {
     let projects: [DiscoveredProject]
     let selectedProject: DiscoveredProject?
     let onSelectNoProject: () -> Void
+    let onSelectAgentDeckBuilder: () -> Void
     let onSelectProject: (DiscoveredProject) -> Void
 
     var body: some View {
@@ -347,6 +357,17 @@ private struct PiAgentProjectPickerPopover: View {
                     isCurrent: false
                 ) {
                     onSelectNoProject()
+                }
+
+                AppPopoverProjectRow(
+                    imageURL: nil,
+                    symbolName: "hammer",
+                    assetName: nil,
+                    title: PiAgentSessionRecord.agentDeckBuilderDisplayName,
+                    path: "Build agents, skills, prompts, loops, and MCP setups with bundled guidance.",
+                    isCurrent: false
+                ) {
+                    onSelectAgentDeckBuilder()
                 }
 
                 ForEach(projects) { project in
@@ -671,7 +692,7 @@ struct PiAgentSessionRow: View, Equatable {
     }
 
     private var subtitle: String {
-        if session.isNoProject { return PiAgentSessionRecord.noProjectDisplayName }
+        if session.isNoProject { return session.projectNameForDisplay }
         if let repository = session.repository {
             return repository
         }

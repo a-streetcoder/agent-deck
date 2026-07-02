@@ -834,6 +834,11 @@ struct PiAgentContextEstimateBuilder {
 
 }
 
+enum PiAgentNoProjectMode: String, Codable, Hashable {
+    case general
+    case agentDeckBuilder
+}
+
 struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     let id: UUID
     var kind: PiAgentSessionKind
@@ -885,6 +890,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var agentSelection: Set<String>?
     var injectedExtensions: [String]?
     var agentName: String?
+    var noProjectMode: PiAgentNoProjectMode?
     var isCompacting: Bool
     var isTitleUserEdited: Bool
     var forkedFromSessionID: UUID?
@@ -921,6 +927,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     }
 
     static let noProjectDisplayName = "General Chat"
+    static let agentDeckBuilderDisplayName = "Agent Deck Builder"
 
     static var generalChatScratchRootURL: URL {
         URL.applicationSupportDirectory
@@ -938,6 +945,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     /// Persisted records keep `projectPath`/`projectName` as strings for backwards
     /// compatibility; an empty path is the no-project sentinel.
     var isNoProject: Bool { kind == .project && projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var effectiveNoProjectMode: PiAgentNoProjectMode { noProjectMode ?? .general }
+    var isAgentDeckBuilderSession: Bool { isNoProject && effectiveNoProjectMode == .agentDeckBuilder }
 
     var projectPathForProjectFeatures: String? {
         let trimmed = projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -945,7 +954,8 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     }
 
     var projectNameForDisplay: String {
-        isNoProject ? Self.noProjectDisplayName : projectName
+        guard isNoProject else { return projectName }
+        return isAgentDeckBuilderSession ? Self.agentDeckBuilderDisplayName : Self.noProjectDisplayName
     }
 
     /// The working tree the agent and toolbar actions operate in. Falls back to the
@@ -974,7 +984,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         case status, lastError, lastSummary, needsAttention, lastNotificationAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost
         case finalSystemPrompt, finalSystemPromptCapturedAt
-        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, injectedExtensions, agentName, isCompacting, isTitleUserEdited, createdAt, updatedAt
+        case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, createdAt, updatedAt
         case forkedFromSessionID, forkedFromParentTitle, forkedFromUserMessageText, forkedFromTranscriptSnapshot
         case recalledMemoryPrompt, recalledMemoryIDs, memoryRecallCompleted
     }
@@ -1026,6 +1036,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         agentSelection: Set<String>? = nil,
         injectedExtensions: [String]? = nil,
         agentName: String? = nil,
+        noProjectMode: PiAgentNoProjectMode? = nil,
         isCompacting: Bool = false,
         isTitleUserEdited: Bool = false,
         forkedFromSessionID: UUID? = nil,
@@ -1084,6 +1095,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.agentSelection = agentSelection
         self.injectedExtensions = injectedExtensions
         self.agentName = agentName
+        self.noProjectMode = noProjectMode
         self.isCompacting = isCompacting
         self.isTitleUserEdited = isTitleUserEdited
         self.forkedFromSessionID = forkedFromSessionID
@@ -1146,6 +1158,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             agentSelection: try container.decodeIfPresent(Set<String>.self, forKey: .agentSelection),
             injectedExtensions: try container.decodeIfPresent([String].self, forKey: .injectedExtensions),
             agentName: try container.decodeIfPresent(String.self, forKey: .agentName),
+            noProjectMode: try container.decodeIfPresent(PiAgentNoProjectMode.self, forKey: .noProjectMode),
             isCompacting: try container.decodeIfPresent(Bool.self, forKey: .isCompacting) ?? false,
             isTitleUserEdited: try container.decodeIfPresent(Bool.self, forKey: .isTitleUserEdited) ?? false,
             forkedFromSessionID: try container.decodeIfPresent(UUID.self, forKey: .forkedFromSessionID),
