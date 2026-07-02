@@ -876,9 +876,10 @@ private struct PiAgentIssuePickerPopover: View {
                     .foregroundStyle(AppTheme.mutedText)
                     .frame(width: 400, alignment: .leading)
             } else {
+                let visibleItems = items.prefix(20)
                 ScrollView(showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(items.prefix(20)) { item in
+                        ForEach(visibleItems) { item in
                             ZStack(alignment: .topTrailing) {
                                 GitHubIssueListRow(
                                     item: item,
@@ -2362,8 +2363,9 @@ struct PiAgentModelPicker: View {
                 Divider()
 
                 ScrollView(showsIndicators: false) {
+                    let groups = groupedModelOptions
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(groupedModelOptions, id: \.provider) { group in
+                        ForEach(groups, id: \.provider) { group in
                             // Provider sections use the resources-popover header
                             // treatment: label over a hairline, clear air between
                             // groups so the list doesn't read as one long run.

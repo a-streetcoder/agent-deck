@@ -109,7 +109,8 @@ struct PiAgentCommandSuggestions: View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    ForEach(items.indices, id: \.self) { index in
+                        let item = items[index]
                         if index == 0 || items[index - 1].kind != item.kind {
                             sectionHeader(for: item.kind)
                         }
@@ -254,6 +255,7 @@ struct PiAgentSlashSuggestions: View {
         // Compute once per render. Both row highlight and hover handlers need
         // this; computing it per-row would be O(N²) on every redraw.
         let selectableIndices = rows.enumerated().compactMap { $0.element.isSelectable ? $0.offset : nil }
+        let selectableIndexByAbsoluteIndex = Dictionary(uniqueKeysWithValues: selectableIndices.enumerated().map { ($0.element, $0.offset) })
         let highlightedAbsoluteIndex: Int? = selectableIndices.indices.contains(highlightedSelectableIndex)
             ? selectableIndices[highlightedSelectableIndex]
             : nil
@@ -263,12 +265,13 @@ struct PiAgentSlashSuggestions: View {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { absoluteIndex, row in
+                        ForEach(rows.indices, id: \.self) { absoluteIndex in
+                            let row = rows[absoluteIndex]
                             renderRow(
                                 row,
                                 absoluteIndex: absoluteIndex,
                                 highlightedAbsoluteIndex: highlightedAbsoluteIndex,
-                                selectableIndices: selectableIndices
+                                selectableIndexByAbsoluteIndex: selectableIndexByAbsoluteIndex
                             )
                             .id(row.id)
                         }
@@ -340,7 +343,7 @@ struct PiAgentSlashSuggestions: View {
         _ row: SlashSuggestionRow,
         absoluteIndex: Int,
         highlightedAbsoluteIndex: Int?,
-        selectableIndices: [Int]
+        selectableIndexByAbsoluteIndex: [Int: Int]
     ) -> some View {
         switch row.kind {
         case .header(let label):
@@ -354,14 +357,14 @@ struct PiAgentSlashSuggestions: View {
                 kind: kind,
                 row: row,
                 highlighted: highlightedAbsoluteIndex == absoluteIndex,
-                selectableIndex: selectableIndices.firstIndex(of: absoluteIndex)
+                selectableIndex: selectableIndexByAbsoluteIndex[absoluteIndex]
             )
         case .item(let item):
             itemRow(
                 item: item,
                 row: row,
                 highlighted: highlightedAbsoluteIndex == absoluteIndex,
-                selectableIndex: selectableIndices.firstIndex(of: absoluteIndex)
+                selectableIndex: selectableIndexByAbsoluteIndex[absoluteIndex]
             )
         }
     }

@@ -2861,7 +2861,8 @@ private struct SkillCollectionEditorSheet: View {
                                         .frame(maxWidth: .infinity, minHeight: 120)
                                 }
 
-                                ForEach(Array(filteredSkills.enumerated()), id: \.element.id) { index, skill in
+                                ForEach(filteredSkills.indices, id: \.self) { index in
+                                    let skill = filteredSkills[index]
                                     Toggle(isOn: Binding(
                                         get: { selectedSkillIDs.contains(skill.id) },
                                         set: { enabled in

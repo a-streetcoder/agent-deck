@@ -125,6 +125,7 @@ struct LoopBankScreen: View {
     @State private var selectedEditTab: LoopEditTab = .definition
     @State private var isCreatingNewLoop = false
     @State private var isDiscardNewLoopDraftAlertPresented = false
+    @State private var cachedListSections: [AppListSection<LoopDefinition>] = []
 
     private var availableLoopAgents: [EffectiveAgentRecord] {
         viewModel.allDisplayAgents
@@ -140,6 +141,7 @@ struct LoopBankScreen: View {
         }
         .onAppear {
             viewModel.reloadLoopDefinitions()
+            refreshListSections()
             if let pendingDraft = viewModel.pendingNewLoopEditorDraft {
                 isCreatingNewLoop = true
                 editorDraft = pendingDraft
@@ -164,12 +166,19 @@ struct LoopBankScreen: View {
             }
         }
         .onChange(of: viewModel.loopDefinitions) { _, definitions in
+            refreshListSections()
             if viewModel.selectedLoopDefinitionID == nil, let first = definitions.first, !isCreatingNewLoop, viewModel.pendingNewLoopEditorDraft == nil {
                 viewModel.selectedLoopDefinitionID = first.id
             }
             if viewModel.selectedLoopDefinition != nil, !isCreatingNewLoop {
                 resetEditor(to: viewModel.selectedLoopDefinition)
             }
+        }
+        .onChange(of: viewModel.selectedProjectPath) { _, _ in
+            refreshListSections()
+        }
+        .onChange(of: searchText) { _, _ in
+            refreshListSections()
         }
         .onChange(of: viewModel.newLoopRequestID) { _, _ in
             createNewLoop()
@@ -213,7 +222,7 @@ struct LoopBankScreen: View {
 
     private var loopListPane: some View {
         AppList(
-            sections: listSections,
+            sections: cachedListSections,
             selection: .single(Binding(
                 get: { viewModel.selectedLoopDefinitionID },
                 set: { selectLoopDefinition($0) }
@@ -861,7 +870,11 @@ struct LoopBankScreen: View {
         return "Read-only details · edit in the sheet"
     }
 
-    private var listSections: [AppListSection<LoopDefinition>] {
+    private func refreshListSections() {
+        cachedListSections = buildListSections()
+    }
+
+    private func buildListSections() -> [AppListSection<LoopDefinition>] {
         let selectedProjectPath = viewModel.selectedProjectPath
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let definitions = viewModel.loopDefinitions
@@ -878,17 +891,30 @@ struct LoopBankScreen: View {
                 ].contains { $0.lowercased().contains(query) }
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let current = definitions.filter { definition in
-            guard let selectedProjectPath else { return false }
-            return definition.source == .user && definition.availability == .projectPaths && definition.projectPaths.contains(selectedProjectPath)
-        }
+
+        var current: [LoopDefinition] = []
+        var currentIDs = Set<LoopDefinition.ID>()
         let defaults = definitions.filter { $0.source == .user && $0.availability == .allProjects }
-        let catalog = definitions.filter { definition in
-            definition.source == .user
-                && definition.availability == .projectPaths
-                && (definition.projectPaths.isEmpty || !current.contains(definition))
+        var catalog: [LoopDefinition] = []
+        var builtins: [LoopDefinition] = []
+
+        for definition in definitions {
+            if definition.source == .builtin {
+                builtins.append(definition)
+            } else if definition.source == .user,
+                      definition.availability == .projectPaths,
+                      let selectedProjectPath,
+                      definition.projectPaths.contains(selectedProjectPath) {
+                current.append(definition)
+                currentIDs.insert(definition.id)
+            }
         }
-        let builtins = definitions.filter { $0.source == .builtin }
+
+        for definition in definitions where definition.source == .user && definition.availability == .projectPaths {
+            if definition.projectPaths.isEmpty || !currentIDs.contains(definition.id) {
+                catalog.append(definition)
+            }
+        }
 
         return [
             AppListSection(

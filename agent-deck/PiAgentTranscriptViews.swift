@@ -2076,6 +2076,8 @@ struct PiAgentWebActivitySummaryView: View {
     @State private var expandedRows: Set<UUID> = []
 
     var body: some View {
+        let rows = displayRows
+        let hiddenUpdateCount = max(0, activities.count - rows.count)
         VStack(alignment: .leading, spacing: AppTheme.Chat.childSpacing) {
             HStack(spacing: 8) {
                 Image(systemName: "globe")
@@ -2091,7 +2093,7 @@ struct PiAgentWebActivitySummaryView: View {
             }
 
             VStack(alignment: .leading, spacing: AppTheme.Chat.childSpacing) {
-                ForEach(displayRows) { row in
+                ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Image(systemName: row.icon)
@@ -2143,8 +2145,8 @@ struct PiAgentWebActivitySummaryView: View {
                         }
                     }
                 }
-                if hiddenCount > 0 {
-                    Text("\(hiddenCount) older web update\(hiddenCount == 1 ? "" : "s") hidden")
+                if hiddenUpdateCount > 0 {
+                    Text("\(hiddenUpdateCount) older web update\(hiddenUpdateCount == 1 ? "" : "s") hidden")
                         .font(AppTheme.Font.caption2)
                         .foregroundStyle(AppTheme.mutedText)
                 }
@@ -2172,10 +2174,6 @@ struct PiAgentWebActivitySummaryView: View {
 
     private var displayRows: [Row] {
         activities.map(Row.init(activity:)).prefix(4).map { $0 }
-    }
-
-    private var hiddenCount: Int {
-        max(0, activities.count - displayRows.count)
     }
 
     private var title: String {

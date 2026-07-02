@@ -409,8 +409,8 @@ struct PiAgentStartupResourcesPopover: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        resourceChip(item, showsDetail: showsDetails)
+                    ForEach(items.indices, id: \.self) { index in
+                        resourceChip(items[index], showsDetail: showsDetails)
                         if index < items.count - 1 {
                             Divider()
                         }
@@ -1149,6 +1149,7 @@ private struct PiAgentPickerLaunchControls: View {
             AppPopoverHeader(title: "Model")
             Divider()
             ScrollView(showsIndicators: false) {
+                let groups = groupedModels
                 LazyVStack(alignment: .leading, spacing: 12) {
                     Button {
                         onSelectModel(nil)
@@ -1157,7 +1158,7 @@ private struct PiAgentPickerLaunchControls: View {
                         popoverRow(label: "Pi default", isSelected: selectedModelIdentifier == nil)
                     }
                     .buttonStyle(.plain)
-                    ForEach(groupedModels, id: \.provider) { group in
+                    ForEach(groups, id: \.provider) { group in
                         VStack(alignment: .leading, spacing: 4) {
                             ProviderLabel(provider: group.provider, logoSize: 13, spacing: 5)
                                 .font(AppTheme.Font.caption.weight(.bold))
@@ -1439,14 +1440,15 @@ struct PiAgentAddAgentsSheet: View {
 
     @ViewBuilder
     private var list: some View {
+        let filteredAgents = filtered
         if addable.isEmpty {
             emptyState("Every available agent is already in the session.")
-        } else if filtered.isEmpty {
+        } else if filteredAgents.isEmpty {
             emptyState("No agents match “\(query.trimmingCharacters(in: .whitespacesAndNewlines))”.")
         } else {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 4) {
-                    ForEach(filtered, id: \.name) { agent in
+                    ForEach(filteredAgents, id: \.name) { agent in
                         row(agent)
                     }
                 }

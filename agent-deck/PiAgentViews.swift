@@ -6467,10 +6467,19 @@ struct PiAgentScreen: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let isCompacting = store.selectedSession?.isCompacting == true
         let hasSelectedSession = store.selectedSession != nil
+        let suggestionTrigger = composerSuggestionTrigger
+        let isFileTrigger: Bool = { if case .file = suggestionTrigger { return true }; return false }()
+        let isSlashTrigger: Bool = { if case .slash = suggestionTrigger { return true }; return false }()
+        let fileItems = ComposerSuggestionItem.build(commands: [], skills: [], files: fileSuggestions)
+        let showsFileSuggestions = !composerSuggestionsDismissed && isFileTrigger && !fileSuggestionResults.isEmpty
+        let slashRows = (!composerSuggestionsDismissed && isSlashTrigger)
+            ? SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
+            : []
+        let showsSlashSuggestions = !slashRows.isEmpty
         VStack(spacing: 6) {
-            if hasFileSuggestions {
+            if showsFileSuggestions {
                 PiAgentCommandSuggestions(
-                    items: composerSuggestionItems,
+                    items: fileItems,
                     selectedIndex: composerSuggestionIndex,
                     scrollTick: composerSuggestionScrollTick,
                     onSelect: { item in insertComposerSuggestion(item.insertion) },
@@ -6481,10 +6490,9 @@ struct PiAgentScreen: View {
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
-            } else if hasSlashSuggestions {
-                let rows = slashSuggestionRows
+            } else if showsSlashSuggestions {
                 PiAgentSlashSuggestions(
-                    rows: rows,
+                    rows: slashRows,
                     highlightedSelectableIndex: slashState.highlightedIndex,
                     scrollTick: slashState.scrollTick,
                     title: slashPanelTitle,
@@ -6497,9 +6505,9 @@ struct PiAgentScreen: View {
                     onBack: slashCanGoBack ? { popSlashScreen() } : nil
                 )
 #if DEBUG
-                .onAppear { SlashDebugLog.panelRender(rows: rows, phase: "appear", query: slashQueryString, universe: slashUniverse) }
-                .onChange(of: rows.count) { _, _ in SlashDebugLog.panelRender(rows: rows, phase: "rowsChanged", query: slashQueryString, universe: slashUniverse) }
-                .onChange(of: slashQueryString) { _, _ in SlashDebugLog.panelRender(rows: slashSuggestionRows, phase: "queryChanged", query: slashQueryString, universe: slashUniverse) }
+                .onAppear { SlashDebugLog.panelRender(rows: slashRows, phase: "appear", query: slashQueryString, universe: slashUniverse) }
+                .onChange(of: slashRows.count) { _, _ in SlashDebugLog.panelRender(rows: slashRows, phase: "rowsChanged", query: slashQueryString, universe: slashUniverse) }
+                .onChange(of: slashQueryString) { _, _ in SlashDebugLog.panelRender(rows: slashRows, phase: "queryChanged", query: slashQueryString, universe: slashUniverse) }
 #endif
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
             }
@@ -6536,7 +6544,7 @@ struct PiAgentScreen: View {
                 suggestionKeyBridge: composerSuggestionKeyBridge
             )
         }
-        .animation(.easeOut(duration: 0.12), value: hasComposerSuggestions)
+        .animation(.easeOut(duration: 0.12), value: showsFileSuggestions || showsSlashSuggestions)
         .onChange(of: composerText) { oldText, newText in
 #if DEBUG
             SlashDebugLog.textChange(oldText: oldText, newText: newText)
@@ -7404,12 +7412,21 @@ private struct PiAgentComposerPanel: View {
         let isRunning = store.selectedSession?.status.isActive == true
         let isCompacting = store.selectedSession?.isCompacting == true
         let hasSelectedSession = store.selectedSession != nil
+        let suggestionTrigger = composerSuggestionTrigger
+        let isFileTrigger: Bool = { if case .file = suggestionTrigger { return true }; return false }()
+        let isSlashTrigger: Bool = { if case .slash = suggestionTrigger { return true }; return false }()
+        let fileItems = ComposerSuggestionItem.build(commands: [], skills: [], files: fileSuggestions)
+        let showsFileSuggestions = !composerSuggestionsDismissed && isFileTrigger && !fileSuggestionResults.isEmpty
+        let slashRows = (!composerSuggestionsDismissed && isSlashTrigger)
+            ? SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
+            : []
+        let showsSlashSuggestions = !slashRows.isEmpty
 
         VStack(spacing: 6) {
             if activeLoopRun == nil {
-                if hasFileSuggestions {
+                if showsFileSuggestions {
                     PiAgentCommandSuggestions(
-                        items: composerSuggestionItems,
+                        items: fileItems,
                         selectedIndex: composerSuggestionIndex,
                         scrollTick: composerSuggestionScrollTick,
                         onSelect: { item in insertComposerSuggestion(item.insertion) },
@@ -7420,10 +7437,9 @@ private struct PiAgentComposerPanel: View {
                         }
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
-                } else if hasSlashSuggestions {
-                    let rows = slashSuggestionRows
+                } else if showsSlashSuggestions {
                     PiAgentSlashSuggestions(
-                        rows: rows,
+                        rows: slashRows,
                         highlightedSelectableIndex: slashState.highlightedIndex,
                         scrollTick: slashState.scrollTick,
                         title: slashPanelTitle,
@@ -7436,9 +7452,9 @@ private struct PiAgentComposerPanel: View {
                         onBack: slashCanGoBack ? { popSlashScreen() } : nil
                     )
 #if DEBUG
-                    .onAppear { SlashDebugLog.panelRender(rows: rows, phase: "appear", query: slashQueryString, universe: slashUniverse) }
-                    .onChange(of: rows.count) { _, _ in SlashDebugLog.panelRender(rows: rows, phase: "rowsChanged", query: slashQueryString, universe: slashUniverse) }
-                    .onChange(of: slashQueryString) { _, _ in SlashDebugLog.panelRender(rows: slashSuggestionRows, phase: "queryChanged", query: slashQueryString, universe: slashUniverse) }
+                    .onAppear { SlashDebugLog.panelRender(rows: slashRows, phase: "appear", query: slashQueryString, universe: slashUniverse) }
+                    .onChange(of: slashRows.count) { _, _ in SlashDebugLog.panelRender(rows: slashRows, phase: "rowsChanged", query: slashQueryString, universe: slashUniverse) }
+                    .onChange(of: slashQueryString) { _, _ in SlashDebugLog.panelRender(rows: slashRows, phase: "queryChanged", query: slashQueryString, universe: slashUniverse) }
 #endif
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
                 }
@@ -7493,7 +7509,7 @@ private struct PiAgentComposerPanel: View {
                 )
             }
         }
-        .animation(.easeOut(duration: 0.12), value: hasComposerSuggestions)
+        .animation(.easeOut(duration: 0.12), value: showsFileSuggestions || showsSlashSuggestions)
         .sheet(item: $loopDetailsRun) { run in
             let canRevealWorktree = canRevealLoopWorktree(run)
             PiAgentLoopDetailsSheet(
