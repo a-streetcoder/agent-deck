@@ -466,6 +466,11 @@ struct ProjectsScreen: View {
         cachedVisibleProjects = matched
     }
 
+    private func shouldShowGitHubBadge(for project: DiscoveredProject) -> Bool {
+        guard let remote = project.gitHubRemote else { return false }
+        return remote.isGitHubDotCom && !remote.owner.isEmpty && !remote.repo.isEmpty
+    }
+
     @ViewBuilder
     private func projectRow(_ project: DiscoveredProject) -> some View {
         let preference = viewModel.projectPreference(for: project.path)
@@ -490,7 +495,7 @@ struct ProjectsScreen: View {
                         .fontWidth(.expanded)
                         .lineLimit(1)
 
-                    if project.isGitHubRepository {
+                    if shouldShowGitHubBadge(for: project) {
                         Image("github")
                             .resizable()
                             .renderingMode(.template)
