@@ -741,19 +741,33 @@ struct PiAgentSessionSubagentPickerCard: View {
     private func expandedContent(_ data: Resolved) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Divider().padding(.vertical, 10)
-            delegationPolicySelector
-                .padding(.bottom, 10)
             agentList(data)
+            delegationPolicySelector
+                .padding(.top, 8)
         }
     }
 
     private var delegationPolicySelector: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                Label("Delegation", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Self.accent)
-                Spacer(minLength: 8)
+            Divider()
+
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Delegation")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(compactDelegationPolicyDescription)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(height: 28, alignment: .topLeading)
+                        .transaction { transaction in
+                            transaction.animation = nil
+                        }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 Picker("Delegation policy", selection: delegationPolicyBinding) {
                     ForEach(NativeSubagentDelegationPolicy.allCases) { policy in
                         Text(policy.displayName).tag(policy)
@@ -761,30 +775,32 @@ struct PiAgentSessionSubagentPickerCard: View {
                 }
                 .appSegmentedPicker()
                 .labelsHidden()
-                .frame(width: 250)
+                .frame(width: 220)
+                .controlSize(.small)
             }
-
-            Text(viewModel.appSettings.nativeSubagentDelegationPolicy.settingsDescription)
-                .font(.caption)
-                .foregroundStyle(AppTheme.mutedText)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.Chat.subCardCornerRadius, style: .continuous)
-                .fill(Self.accent.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.Chat.subCardCornerRadius, style: .continuous)
-                .stroke(Self.accent.opacity(0.14), lineWidth: 1)
-        )
+        .padding(.top, 8)
+    }
+
+    private var compactDelegationPolicyDescription: String {
+        switch viewModel.appSettings.nativeSubagentDelegationPolicy {
+        case .light:
+            return "Parent handles simple work directly; delegates when a Deck agent clearly helps."
+        case .balanced:
+            return "Delegates substantive specialist work by default; keeps trivial tasks in the parent."
+        case .strict:
+            return "Delegates any substantive work when a matching Deck agent exists."
+        }
     }
 
     private var delegationPolicyBinding: Binding<NativeSubagentDelegationPolicy> {
         Binding(
             get: { viewModel.appSettings.nativeSubagentDelegationPolicy },
-            set: { viewModel.setNativeSubagentDelegationPolicy($0) }
+            set: { policy in
+                withAnimation(nil) {
+                    viewModel.setNativeSubagentDelegationPolicy(policy)
+                }
+            }
         )
     }
 
