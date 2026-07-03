@@ -42,6 +42,8 @@ export interface SessionMeta {
   cwd: string;
   createdAt: string;
   projectId?: string;
+  /** Set when the session is backed by a named agent (injected system prompt). */
+  agentName?: string;
   title?: string;
   piSessionFile?: string;
 }

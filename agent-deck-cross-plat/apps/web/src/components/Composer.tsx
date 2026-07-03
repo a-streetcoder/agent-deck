@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { useAppStore } from "../state/store.ts";
-import { sendAbort, sendPrompt } from "../state/wsBridge.ts";
+import { useAgents } from "../state/useAgents.ts";
+import { sendAbort, sendPrompt, switchToAgent } from "../state/wsBridge.ts";
 
 export function Composer() {
   const [draft, setDraft] = useState("");
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const connection = useAppStore((state) => state.connection);
+  const currentAgentName = useAppStore((state) => state.currentAgentName);
+  const agents = useAgents();
   const running = agentStatus === "running";
+  const pickableAgents = agents.filter((agent) => !agent.shadowed);
 
   const submit = (): void => {
     const message = draft.trim();
@@ -17,6 +21,26 @@ export function Composer() {
 
   return (
     <div className="border-t border-border-subtle bg-surface-elevated px-6 py-4">
+      <div className="mb-2 flex items-center gap-2">
+        <label className="text-xs text-text-muted" htmlFor="agent-picker">
+          Agent
+        </label>
+        <select
+          id="agent-picker"
+          data-testid="agent-picker"
+          className="rounded-md border border-border-strong bg-surface px-2 py-1 text-sm text-text-primary outline-none focus:border-accent"
+          value={currentAgentName ?? ""}
+          disabled={running}
+          onChange={(event) => void switchToAgent(event.target.value || null)}
+        >
+          <option value="">Pi Agent (default)</option>
+          {pickableAgents.map((agent) => (
+            <option key={agent.filePath} value={agent.name}>
+              {agent.name} ({agent.scope})
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="flex items-end gap-3">
         <textarea
           data-testid="composer-input"

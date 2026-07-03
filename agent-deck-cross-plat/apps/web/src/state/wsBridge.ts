@@ -98,16 +98,24 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function findOrCreateSession(projectId: string | null): Promise<SessionMeta> {
+async function findOrCreateSession(
+  projectId: string | null,
+  agentName: string | null,
+): Promise<SessionMeta> {
   const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
   const { sessions } = await fetchJson<{ sessions: SessionMeta[] }>(`/sessions${query}`);
-  const scoped = projectId ? sessions : sessions.filter((s) => !s.projectId);
+  const scoped = (projectId ? sessions : sessions.filter((s) => !s.projectId)).filter(
+    (s) => (s.agentName ?? null) === agentName,
+  );
   const existing = scoped.at(-1);
   if (existing) return existing;
   const { session } = await fetchJson<{ session: SessionMeta }>("/sessions", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(projectId ? { projectId } : {}),
+    body: JSON.stringify({
+      ...(projectId ? { projectId } : {}),
+      ...(agentName ? { agentName } : {}),
+    }),
   });
   return session;
 }
@@ -117,19 +125,29 @@ export async function refreshProjects(): Promise<void> {
   useAppStore.getState().setProjects(projects);
 }
 
-export async function switchToProject(projectId: string | null): Promise<void> {
+async function activateSession(projectId: string | null, agentName: string | null): Promise<void> {
   const store = useAppStore.getState();
   try {
     store.setError(null);
     store.setCurrentProject(projectId);
+    store.setCurrentAgent(agentName);
     store.resetTranscript();
     store.setSession(null);
-    const session = await findOrCreateSession(projectId);
+    const session = await findOrCreateSession(projectId, agentName);
     useAppStore.getState().setSession(session);
     connect(session.id);
   } catch (error) {
     useAppStore.getState().setError(String(error));
   }
+}
+
+export async function switchToProject(projectId: string | null): Promise<void> {
+  // Changing project resets to the default "Pi Agent" session.
+  await activateSession(projectId, null);
+}
+
+export async function switchToAgent(agentName: string | null): Promise<void> {
+  await activateSession(useAppStore.getState().currentProjectId, agentName);
 }
 
 export async function addProject(path: string): Promise<void> {

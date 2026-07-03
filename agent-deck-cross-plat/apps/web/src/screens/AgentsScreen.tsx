@@ -1,25 +1,11 @@
-import { useEffect, useState } from "react";
-import {
-  agentMatchesFilter,
-  AGENT_FILTERS,
-  type AgentFilter,
-  type AgentInfo,
-} from "@agent-deck/domain";
-import { useAppStore } from "../state/store.ts";
+import { useState } from "react";
+import { agentMatchesFilter, AGENT_FILTERS, type AgentFilter } from "@agent-deck/domain";
+import { useAgents } from "../state/useAgents.ts";
 import { ScopeChip } from "../components/ScopeChip.tsx";
 
 export function AgentsScreen() {
-  const currentProjectId = useAppStore((state) => state.currentProjectId);
-  const resourcesVersion = useAppStore((state) => state.resourcesVersion);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const agents = useAgents();
   const [filter, setFilter] = useState<AgentFilter>("all");
-
-  useEffect(() => {
-    const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
-    void fetch(`/resources/agents${query}`)
-      .then((response) => response.json())
-      .then((data: { agents: AgentInfo[] }) => setAgents(data.agents));
-  }, [currentProjectId, resourcesVersion]);
 
   const visible = agents.filter((agent) => agentMatchesFilter(agent, filter));
 

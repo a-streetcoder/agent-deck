@@ -18,7 +18,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
 import { ProjectIndex, SessionIndex } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
-import { SessionManager, type ManagedSession } from "./SessionManager.ts";
+import { SessionManager, type LaunchPlan, type ManagedSession } from "./SessionManager.ts";
 
 const createProjectBody = z.object({
   path: z.string(),
@@ -28,6 +28,8 @@ const createProjectBody = z.object({
 const createSessionBody = z.object({
   cwd: z.string().optional(),
   projectId: z.string().optional(),
+  /** Launch an agent-backed session: inject this agent's system prompt/tools/skills. */
+  agentName: z.string().optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
   extensions: z.array(z.string()).optional(),
@@ -35,6 +37,9 @@ const createSessionBody = z.object({
   /** Extra env for the pi subprocess (tests use this for a hermetic HOME). */
   env: z.record(z.string()).optional(),
 });
+
+/** Tools only bridge extensions provide — stripped until those bridges are ported (M2). */
+const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "managed_subagent", "ask_user"]);
 
 /**
  * Session defaults from the server environment. The e2e harness (and any dev
@@ -162,17 +167,50 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       if (!project) return reply.status(404).send({ error: "unknown project" });
       cwd = project.path;
     }
+
+    const provider = body.provider ?? defaults.provider;
+    const model = body.model ?? defaults.model;
+    const extensions = body.extensions ?? defaults.extensions;
+
+    let plan: LaunchPlan = {
+      kind: "parent",
+      provider,
+      model,
+      extensions,
+      skills: body.skills,
+    };
+
+    if (body.agentName) {
+      // Agent-backed session: the picked agent's body becomes the system
+      // prompt; frontmatter tools/skills/model apply per the launch contract.
+      const roots = rootsFor(body.projectId);
+      const agent = scanAgents(roots).find((a) => a.name === body.agentName && !a.shadowed);
+      if (!agent) return reply.status(404).send({ error: `unknown agent: ${body.agentName}` });
+      const skillsByName = new Map(scanSkills(roots).map((s) => [s.name, s]));
+      const agentSkillPaths = (agent.skills ?? [])
+        .map((name) => skillsByName.get(name)?.baseDir)
+        .filter((p): p is string => Boolean(p));
+      const effectiveTools = agent.tools?.filter((tool) => !BRIDGE_ONLY_TOOLS.has(tool));
+      const agentModel = agent.model
+        ? `${agent.model}${agent.thinking ? `:${agent.thinking}` : ""}`
+        : model;
+      plan = {
+        kind: "agent",
+        systemPrompt: { mode: agent.systemPromptMode, text: agent.body },
+        tools: effectiveTools,
+        extensions: [...(extensions ?? []), ...(agent.extensions ?? [])],
+        skills: agentSkillPaths,
+        provider,
+        model: agentModel,
+      };
+    }
+
     const session = sessions.create({
       cwd,
       projectId: body.projectId,
+      agentName: body.agentName,
       env: { ...defaults.env, ...body.env },
-      plan: {
-        kind: "parent",
-        provider: body.provider ?? defaults.provider,
-        model: body.model ?? defaults.model,
-        extensions: body.extensions ?? defaults.extensions,
-        skills: body.skills,
-      },
+      plan,
     });
     index.upsert(session.meta);
     return reply.status(201).send({ session: session.meta });

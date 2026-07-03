@@ -18,6 +18,8 @@ export interface AppState {
   projects: ProjectMeta[];
   /** null = the server's default cwd ("Default" workspace). */
   currentProjectId: string | null;
+  /** null = the default "Pi Agent" session; a name = agent-backed session. */
+  currentAgentName: string | null;
   session: SessionMeta | null;
   transcript: TranscriptState;
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
@@ -28,6 +30,7 @@ export interface AppState {
   bumpResourcesVersion(): void;
   setProjects(projects: ProjectMeta[]): void;
   setCurrentProject(projectId: string | null): void;
+  setCurrentAgent(agentName: string | null): void;
   setSession(session: SessionMeta | null): void;
   setSnapshot(state: TranscriptState, seq: number): void;
   setTranscript(state: TranscriptState, seq: number): void;
@@ -41,6 +44,7 @@ export const useAppStore = create<AppState>((set) => ({
   resourcesVersion: 0,
   projects: [],
   currentProjectId: null,
+  currentAgentName: null,
   session: null,
   transcript: emptyTranscript(),
   lastSeq: 0,
@@ -50,6 +54,7 @@ export const useAppStore = create<AppState>((set) => ({
   bumpResourcesVersion: () => set((state) => ({ resourcesVersion: state.resourcesVersion + 1 })),
   setProjects: (projects) => set({ projects }),
   setCurrentProject: (currentProjectId) => set({ currentProjectId }),
+  setCurrentAgent: (currentAgentName) => set({ currentAgentName }),
   setSession: (session) => set({ session }),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),
   setTranscript: (transcript, lastSeq) => set({ transcript, lastSeq }),
