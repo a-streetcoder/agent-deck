@@ -6,11 +6,16 @@ import {
   type AgentInfo,
 } from "@agent-deck/domain";
 import { useAgents } from "../state/useAgents.ts";
+import { useAppStore } from "../state/store.ts";
+import { updateProject } from "../state/wsBridge.ts";
 import { AgentEditor } from "../components/AgentEditor.tsx";
 import { ScopeChip } from "../components/ScopeChip.tsx";
 
 export function AgentsScreen() {
   const agents = useAgents();
+  const projects = useAppStore((state) => state.projects);
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const currentProject = projects.find((p) => p.id === currentProjectId);
   const [filter, setFilter] = useState<AgentFilter>("all");
   const [editing, setEditing] = useState<AgentInfo | null | "new">(null);
 
@@ -79,6 +84,35 @@ export function AgentsScreen() {
                 </span>
               ) : null}
               {agent.shadowed ? <span className="text-xs text-text-muted">shadowed</span> : null}
+              <div className="flex-1" />
+              {currentProject && !agent.shadowed ? (
+                <button
+                  data-testid={`default-agent-${agent.name}`}
+                  className="rounded-capsule px-2 py-0.5 text-xs"
+                  style={
+                    currentProject.defaultAgentName === agent.name
+                      ? {
+                          color: "var(--color-brand-accent)",
+                          border: "1px solid var(--color-brand-accent)",
+                        }
+                      : {
+                          color: "var(--color-text-muted)",
+                          border: "1px solid var(--color-border-strong)",
+                        }
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void updateProject(currentProject.id, {
+                      defaultAgentName:
+                        currentProject.defaultAgentName === agent.name ? null : agent.name,
+                    });
+                  }}
+                >
+                  {currentProject.defaultAgentName === agent.name
+                    ? "★ project default"
+                    : "make default"}
+                </button>
+              ) : null}
             </div>
             {agent.description ? (
               <div className="mt-1 text-sm text-text-secondary">{agent.description}</div>

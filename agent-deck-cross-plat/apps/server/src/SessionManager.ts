@@ -116,6 +116,10 @@ export class ManagedSession {
     this.pi.respondToUiRequest(response as Parameters<PiSession["respondToUiRequest"]>[0]);
   }
 
+  async getCommands(): Promise<Awaited<ReturnType<PiSession["getCommands"]>>> {
+    return await this.pi.getCommands();
+  }
+
   /** Subscribe to process exit; returns an unsubscribe. Fires immediately if already exited. */
   onExit(listener: (exit: PiProcessExit) => void): () => void {
     if (this.exit) {

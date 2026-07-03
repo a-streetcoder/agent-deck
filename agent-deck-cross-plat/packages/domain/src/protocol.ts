@@ -35,6 +35,10 @@ export interface ProjectMeta {
   path: string;
   name: string;
   createdAt: string;
+  /** Skill names injected (as --skill paths) into this project's parent sessions. */
+  assignedSkills?: string[];
+  /** Agent preselected when switching to this project. */
+  defaultAgentName?: string;
 }
 
 export interface SessionMeta {

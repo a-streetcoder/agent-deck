@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SkillInfo } from "@agent-deck/domain";
 import { useAppStore } from "../state/store.ts";
+import { updateProject } from "../state/wsBridge.ts";
 import { ScopeChip } from "../components/ScopeChip.tsx";
 
 const inputClass =
@@ -121,6 +122,8 @@ function SkillEditor({ draft, onClose }: { draft: SkillDraft; onClose: () => voi
 export function SkillsScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
+  const projects = useAppStore((state) => state.projects);
+  const currentProject = projects.find((p) => p.id === currentProjectId);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [editing, setEditing] = useState<SkillDraft | null>(null);
 
@@ -166,6 +169,28 @@ export function SkillsScreen() {
             <div className="flex items-center gap-2">
               <span className="font-medium text-text-primary">{skill.name}</span>
               <ScopeChip scope={skill.scope} />
+              <div className="flex-1" />
+              {currentProject ? (
+                <label
+                  className="flex items-center gap-1.5 text-xs text-text-muted"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`assign-skill-${skill.name}`}
+                    checked={(currentProject.assignedSkills ?? []).includes(skill.name)}
+                    onChange={(event) => {
+                      const assigned = new Set(currentProject.assignedSkills ?? []);
+                      if (event.target.checked) assigned.add(skill.name);
+                      else assigned.delete(skill.name);
+                      void updateProject(currentProject.id, {
+                        assignedSkills: [...assigned],
+                      });
+                    }}
+                  />
+                  assigned to {currentProject.name}
+                </label>
+              ) : null}
             </div>
             <div className="mt-1 text-sm text-text-secondary">{skill.description}</div>
           </div>

@@ -149,8 +149,45 @@ async function activateSession(projectId: string | null, agentName: string | nul
 }
 
 export async function switchToProject(projectId: string | null): Promise<void> {
-  // Changing project resets to the default "Pi Agent" session.
-  await activateSession(projectId, null);
+  // Changing project activates its default agent (or the plain Pi Agent).
+  const project = projectId
+    ? useAppStore.getState().projects.find((p) => p.id === projectId)
+    : undefined;
+  await activateSession(projectId, project?.defaultAgentName ?? null);
+}
+
+export async function updateProject(
+  projectId: string,
+  patch: { assignedSkills?: string[]; defaultAgentName?: string | null },
+): Promise<void> {
+  const store = useAppStore.getState();
+  // Optimistic: controlled inputs (assignment checkboxes) must flip
+  // immediately; refreshProjects reconciles (or rolls back on error).
+  store.setProjects(
+    store.projects.map((project) =>
+      project.id === projectId
+        ? {
+            ...project,
+            ...(patch.assignedSkills !== undefined ? { assignedSkills: patch.assignedSkills } : {}),
+            ...(patch.defaultAgentName !== undefined
+              ? { defaultAgentName: patch.defaultAgentName ?? undefined }
+              : {}),
+          }
+        : project,
+    ),
+  );
+  try {
+    const response = await fetch(`/projects/${encodeURIComponent(projectId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) throw new Error(await response.text());
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+  } finally {
+    await refreshProjects();
+  }
 }
 
 export async function switchToAgent(agentName: string | null): Promise<void> {

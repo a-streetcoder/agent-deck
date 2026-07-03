@@ -36,6 +36,11 @@ const createProjectBody = z.object({
   name: z.string().optional(),
 });
 
+const patchProjectBody = z.object({
+  assignedSkills: z.array(z.string()).optional(),
+  defaultAgentName: z.string().nullable().optional(),
+});
+
 const createSessionBody = z.object({
   cwd: z.string().optional(),
   projectId: z.string().optional(),
@@ -244,6 +249,34 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return reply.status(201).send({ project });
   });
 
+  fastify.patch("/projects/:id", async (request, reply) => {
+    const parsed = patchProjectBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { id } = request.params as { id: string };
+    const project = projects.find((p) => p.id === id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    const next: ProjectMeta = { ...project };
+    if (parsed.data.assignedSkills !== undefined) next.assignedSkills = parsed.data.assignedSkills;
+    if (parsed.data.defaultAgentName !== undefined) {
+      next.defaultAgentName = parsed.data.defaultAgentName ?? undefined;
+    }
+    projects.upsert(next);
+    return { project: next };
+  });
+
+  // Session slash commands (skills/prompts pi actually loaded) — also how
+  // tests verify that assigned --skill flags landed inside pi.
+  fastify.get("/sessions/:id/commands", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const session = sessions.get(id);
+    if (!session) return reply.status(404).send({ error: "unknown session" });
+    try {
+      return { commands: await session.getCommands() };
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+  });
+
   fastify.get("/sessions", async (request) => {
     const { projectId } = request.query as { projectId?: string };
     const all = sessions.list();
@@ -268,16 +301,28 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const model = body.model ?? defaults.model;
     const extensions = body.extensions ?? defaults.extensions;
 
-    // CONTRACT GAP (pi-rpc-launch-flags.md §1): full parent launches also load
-    // the Agent Deck bridge/audit/web extensions, preserve the active
-    // APPEND_SYSTEM.md, and pass Default+Project skill/prompt assignments.
-    // Assignments land in slice 10; bridge extensions are M2.
+    // Project skill assignments become explicit --skill paths on parent
+    // sessions (pi-rpc-launch-flags.md §1). Applied at session creation; an
+    // already-running session keeps its flags until relaunched.
+    // CONTRACT GAP: bridge/audit/web extensions and APPEND_SYSTEM.md
+    // preservation are still missing here (M2).
+    let assignedSkillPaths: string[] | undefined;
+    if (body.projectId) {
+      const project = projects.find((p) => p.id === body.projectId);
+      if (project?.assignedSkills?.length) {
+        const skillsByName = new Map(scanSkills(rootsFor(body.projectId)).map((s) => [s.name, s]));
+        assignedSkillPaths = project.assignedSkills
+          .map((name) => skillsByName.get(name)?.baseDir)
+          .filter((p): p is string => Boolean(p));
+      }
+    }
+
     let plan: LaunchPlan = {
       kind: "parent",
       provider,
       model,
       extensions,
-      skills: body.skills,
+      skills: body.skills ?? assignedSkillPaths,
     };
 
     if (body.agentName) {
