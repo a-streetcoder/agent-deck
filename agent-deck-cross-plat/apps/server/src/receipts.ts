@@ -3,7 +3,7 @@
  * tests await named milestones instead of polling the DOM or sleeping.
  */
 
-export type ReceiptName = "first_delta" | "assistant_final" | "idle" | "session_created";
+export type ReceiptName = "first_delta" | "assistant_final" | "idle" | "session_created" | "title";
 
 interface Waiter {
   name: ReceiptName;

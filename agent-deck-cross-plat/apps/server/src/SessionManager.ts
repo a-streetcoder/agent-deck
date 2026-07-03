@@ -14,6 +14,7 @@ import {
   resolvePiBinary,
   type AgentSessionPlan,
   type LaunchPlan,
+  type ModelSelection,
   type PiProcessExit,
 } from "@agent-deck/pi-host";
 export type { AgentSessionPlan, LaunchPlan };
@@ -29,6 +30,21 @@ export interface CreateSessionOptions {
   env?: Record<string, string | undefined>;
 }
 
+const TITLE_SYSTEM_PROMPT =
+  "You generate a session title. Reply with ONLY a short title (max 8 words) " +
+  "summarizing the user's message. No quotes, no punctuation at the end.";
+
+const TITLE_TIMEOUT_MS = 20_000;
+
+function normalizeTitle(raw: string): string {
+  const firstLine =
+    raw
+      .split("\n", 1)[0]
+      ?.trim()
+      .replace(/^["'"']|["'"']$/g, "") ?? "";
+  return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+}
+
 /**
  * One live chat session: a PiSession whose events flow through the ingest
  * pipeline into (a) the authoritative in-memory transcript and (b) the ordered
@@ -40,6 +56,7 @@ export class ManagedSession {
   private readonly ingest: IngestState = createIngestState();
   private transcript: TranscriptState = emptyTranscript();
   private sawFirstDelta = false;
+  private titleStarted = false;
   exit: PiProcessExit | null = null;
 
   constructor(
@@ -47,6 +64,11 @@ export class ManagedSession {
     private readonly pi: PiSession,
     private readonly receipts: ReceiptBus,
     private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
+    /** Provider/model/extensions + env for the isolated title-helper launch. */
+    private readonly helperContext?: ModelSelection & {
+      extensions?: string[];
+      env?: Record<string, string | undefined>;
+    },
   ) {
     pi.on("event", (piEvent) => {
       for (const domainEvent of ingestPiEvent(this.ingest, piEvent)) {
@@ -62,6 +84,7 @@ export class ManagedSession {
         if (domainEvent.type === "agent_status" && domainEvent.status === "idle") {
           receipts.emit("idle", meta.id);
           this.captureSessionFile();
+          void this.generateTitle();
         }
       }
     });
@@ -86,6 +109,75 @@ export class ManagedSession {
       .catch(() => {
         // Exited or unresponsive — nothing to record.
       });
+  }
+
+  /**
+   * Isolated title-helper launch (pi-rpc-launch-flags.md §3): no session, no
+   * tools, no resources; sends only the first user message.
+   */
+  private async generateTitle(): Promise<void> {
+    if (this.titleStarted || this.meta.title) return;
+    const firstUser = this.transcript.cells.find((cell) => cell.kind === "user");
+    if (!firstUser || firstUser.kind !== "user" || !firstUser.text.trim()) return;
+    this.titleStarted = true;
+
+    const helper = new PiSession({
+      binPath: resolvePiBinary().path,
+      args: buildLaunchArgs({
+        kind: "helper",
+        systemPrompt: TITLE_SYSTEM_PROMPT,
+        provider: this.helperContext?.provider,
+        model: this.helperContext?.model,
+        extensions: this.helperContext?.extensions,
+      }),
+      cwd: this.meta.cwd,
+      env: this.helperContext?.env,
+      requestTimeoutMs: TITLE_TIMEOUT_MS,
+    });
+    try {
+      const idle = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("title helper timeout")), TITLE_TIMEOUT_MS);
+        timer.unref();
+        helper.on("event", (event) => {
+          if ((event as { type: string }).type === "agent_end") {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        helper.on("exit", () => reject(new Error("title helper exited")));
+      });
+      // Mark handled up front: a startup exit must never become an unhandled
+      // rejection while we're still awaiting prompt().
+      idle.catch(() => {});
+      helper.start();
+      await helper.prompt(firstUser.text.slice(0, 2000));
+      await idle;
+      const { text } = await helper.request({ type: "get_last_assistant_text" });
+      const title = text ? normalizeTitle(text) : "";
+      if (title) {
+        this.meta.title = title;
+        this.onMetaChange(this.meta);
+        this.receipts.emit("title", this.meta.id);
+      }
+    } catch {
+      this.titleStarted = false; // retry on a later idle
+    } finally {
+      await helper.stop();
+    }
+  }
+
+  /** Rebuild the transcript from pi's canonical history (resume path). */
+  async seedFromHistory(): Promise<void> {
+    const { messages } = await this.pi.getMessages();
+    for (const message of messages) {
+      for (const domainEvent of ingestPiEvent(this.ingest, {
+        type: "message_end",
+        message,
+      } as Parameters<typeof ingestPiEvent>[1])) {
+        this.transcript = reduceTranscript(this.transcript, domainEvent);
+        this.bus.append(domainEvent);
+      }
+    }
   }
 
   snapshot(): { seq: number; state: TranscriptState } {
@@ -114,6 +206,15 @@ export class ManagedSession {
 
   respondToUiRequest(response: Record<string, unknown>): void {
     this.pi.respondToUiRequest(response as Parameters<PiSession["respondToUiRequest"]>[0]);
+    // The card is answered from the transcript's point of view immediately.
+    if (typeof response.id === "string") {
+      const domainEvent = {
+        type: "question_answered",
+        cellId: `question-${response.id}`,
+      } as const;
+      this.transcript = reduceTranscript(this.transcript, domainEvent);
+      this.bus.append(domainEvent);
+    }
   }
 
   async getCommands(): Promise<Awaited<ReturnType<PiSession["getCommands"]>>> {
@@ -144,24 +245,55 @@ export class SessionManager {
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
-    const id = randomUUID();
     const meta: SessionMeta = {
-      id,
+      id: randomUUID(),
       cwd: options.cwd,
       createdAt: new Date().toISOString(),
       projectId: options.projectId,
       agentName: options.agentName,
     };
+    return this.launch(meta, options.plan, options.env);
+  }
+
+  /**
+   * Relaunch a persisted session against its pi session file and rebuild the
+   * transcript from pi's canonical history before any live events.
+   */
+  async resume(
+    meta: SessionMeta,
+    plan: LaunchPlan,
+    env?: Record<string, string | undefined>,
+  ): Promise<ManagedSession> {
+    const revived: SessionMeta = { ...meta, endedAt: undefined };
+    const session = this.launch(revived, plan, env);
+    await session.seedFromHistory();
+    this.onMetaChange(revived);
+    return session;
+  }
+
+  private launch(
+    meta: SessionMeta,
+    plan: LaunchPlan,
+    env?: Record<string, string | undefined>,
+  ): ManagedSession {
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
-      args: buildLaunchArgs(options.plan),
-      cwd: options.cwd,
-      env: options.env,
+      args: buildLaunchArgs(plan),
+      cwd: meta.cwd,
+      env,
     });
-    const session = new ManagedSession(meta, pi, this.receipts, this.onMetaChange);
-    this.sessions.set(id, session);
+    const helperContext = {
+      provider: plan.provider,
+      model: plan.model,
+      // Custom providers register via extensions — the helper needs them too.
+      extensions: "extensions" in plan ? plan.extensions : undefined,
+      env,
+    };
+    const session = new ManagedSession(meta, pi, this.receipts, this.onMetaChange, helperContext);
+    this.sessions.set(meta.id, session);
     pi.start();
-    this.receipts.emit("session_created", id);
+    this.receipts.emit("session_created", meta.id);
+    this.onMetaChange(meta);
     return session;
   }
 

@@ -21,6 +21,8 @@ export interface AppState {
   /** null = the default "Pi Agent" session; a name = agent-backed session. */
   currentAgentName: string | null;
   session: SessionMeta | null;
+  /** All known sessions (live + persisted), for the sidebar chat list. */
+  sessions: SessionMeta[];
   transcript: TranscriptState;
   /** Last seq applied — sent on resubscribe so the server replays the gap. */
   lastSeq: number;
@@ -32,6 +34,8 @@ export interface AppState {
   setCurrentProject(projectId: string | null): void;
   setCurrentAgent(agentName: string | null): void;
   setSession(session: SessionMeta | null): void;
+  setSessions(sessions: SessionMeta[]): void;
+  upsertSessionMeta(session: SessionMeta): void;
   setSnapshot(state: TranscriptState, seq: number): void;
   setTranscript(state: TranscriptState, seq: number): void;
   resetTranscript(): void;
@@ -46,6 +50,7 @@ export const useAppStore = create<AppState>((set) => ({
   currentProjectId: null,
   currentAgentName: null,
   session: null,
+  sessions: [],
   transcript: emptyTranscript(),
   lastSeq: 0,
   error: null,
@@ -56,6 +61,14 @@ export const useAppStore = create<AppState>((set) => ({
   setCurrentProject: (currentProjectId) => set({ currentProjectId }),
   setCurrentAgent: (currentAgentName) => set({ currentAgentName }),
   setSession: (session) => set({ session }),
+  setSessions: (sessions) => set({ sessions }),
+  upsertSessionMeta: (session) =>
+    set((state) => ({
+      sessions: state.sessions.some((s) => s.id === session.id)
+        ? state.sessions.map((s) => (s.id === session.id ? session : s))
+        : [...state.sessions, session],
+      session: state.session?.id === session.id ? session : state.session,
+    })),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),
   setTranscript: (transcript, lastSeq) => set({ transcript, lastSeq }),
   resetTranscript: () => set({ transcript: emptyTranscript(), lastSeq: 0 }),

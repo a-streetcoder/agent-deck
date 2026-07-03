@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAppStore } from "../state/store.ts";
-import { addProject, switchToProject } from "../state/wsBridge.ts";
+import { addProject, newChat, switchToProject, switchToSession } from "../state/wsBridge.ts";
 
 const VIEWS = [
   { id: "chat", label: "Pi Agent" },
@@ -11,10 +11,16 @@ const VIEWS = [
 export function Sidebar() {
   const projects = useAppStore((state) => state.projects);
   const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const currentSession = useAppStore((state) => state.session);
+  const sessions = useAppStore((state) => state.sessions);
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
   const [draftPath, setDraftPath] = useState("");
   const [adding, setAdding] = useState(false);
+
+  const projectSessions = sessions
+    .filter((s) => (s.projectId ?? null) === currentProjectId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const submit = async (): Promise<void> => {
     const path = draftPath.trim();
@@ -48,6 +54,42 @@ export function Sidebar() {
             onClick={() => setView(item.id)}
           >
             {item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="flex items-center justify-between px-4 pb-2 pt-4">
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+          Chats
+        </span>
+        <button
+          data-testid="new-chat"
+          className="rounded-capsule px-2 text-sm text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
+          title="New chat"
+          onClick={() => {
+            setView("chat");
+            void newChat();
+          }}
+        >
+          +
+        </button>
+      </div>
+      <nav className="max-h-48 space-y-1 overflow-y-auto px-2" data-testid="chat-list">
+        {projectSessions.map((s) => (
+          <button
+            key={s.id}
+            className={itemClass(view === "chat" && currentSession?.id === s.id)}
+            data-testid={`chat-${s.id}`}
+            title={s.agentName ? `agent: ${s.agentName}` : undefined}
+            onClick={() => {
+              setView("chat");
+              void switchToSession(s);
+            }}
+          >
+            <span data-testid="chat-title">{s.title ?? "New chat"}</span>
+            {s.agentName ? (
+              <span className="ml-1 text-xs text-text-muted">({s.agentName})</span>
+            ) : null}
+            {s.endedAt ? <span className="ml-1 text-xs text-text-muted">·ended</span> : null}
           </button>
         ))}
       </nav>

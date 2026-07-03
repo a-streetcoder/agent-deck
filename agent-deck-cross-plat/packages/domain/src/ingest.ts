@@ -34,10 +34,12 @@ export interface IngestState {
     cellId: string;
     blocks: Map<number, { kind: BlockKind; text: string }>;
   };
+  /** toolCallIds with a live tool_execution_start cell (merge, don't recreate). */
+  seenToolCalls: Set<string>;
 }
 
 export function createIngestState(): IngestState {
-  return { counter: 0 };
+  return { counter: 0, seenToolCalls: new Set() };
 }
 
 function coinId(state: IngestState, prefix: string): string {
@@ -163,11 +165,39 @@ export function ingestPiEvent(state: IngestState, event: PiInboundEvent): Domain
           },
         ];
       }
-      // toolResult messages are covered by tool_execution_end.
+      if (message.role === "toolResult") {
+        // Live sessions already have a cell from tool_execution_start — merge.
+        // When rebuilding from get_messages (resume) the cell doesn't exist yet.
+        if (state.seenToolCalls.has(message.toolCallId)) {
+          return [
+            {
+              type: "tool_end",
+              cellId: `tool-${message.toolCallId}`,
+              status: message.isError ? "error" : "done",
+              result: userText(message.content),
+            },
+          ];
+        }
+        return [
+          {
+            type: "cell_final",
+            cell: {
+              kind: "tool",
+              id: `tool-${message.toolCallId}`,
+              toolCallId: message.toolCallId,
+              toolName: message.toolName,
+              args: undefined,
+              status: message.isError ? "error" : "done",
+              result: userText(message.content),
+            },
+          },
+        ];
+      }
       return [];
     }
 
     case "tool_execution_start": {
+      state.seenToolCalls.add(event.toolCallId);
       const cell: ToolCell = {
         kind: "tool",
         id: `tool-${event.toolCallId}`,
@@ -196,9 +226,36 @@ export function ingestPiEvent(state: IngestState, event: PiInboundEvent): Domain
         },
       ];
 
+    case "extension_ui_request": {
+      // Only requests that await an answer become cards; fire-and-forget
+      // methods (notify, widgets, …) are not questions.
+      if (!["select", "confirm", "input", "editor"].includes(event.method)) return [];
+      // The union has many variants; extract the display fields structurally.
+      const request = event as {
+        id: string;
+        method: string;
+        title?: string;
+        message?: string;
+        options?: string[];
+        placeholder?: string;
+      };
+      const cell: TranscriptCell = {
+        kind: "question",
+        id: `question-${request.id}`,
+        requestId: request.id,
+        method: request.method,
+        title: request.title ?? request.method,
+        message: request.message,
+        options: request.options,
+        placeholder: request.placeholder,
+        answered: false,
+      };
+      return [{ type: "cell_open", cell }];
+    }
+
     default:
-      // turn_start/turn_end, extension_ui_request, queue/compaction/retry events:
-      // handled in later slices; cell_final self-healing keeps the transcript sound.
+      // turn_start/turn_end, queue/compaction/retry events: handled in later
+      // slices; cell_final self-healing keeps the transcript sound.
       return [];
   }
 }

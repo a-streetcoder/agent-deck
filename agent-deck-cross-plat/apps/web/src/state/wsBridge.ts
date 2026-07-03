@@ -56,6 +56,9 @@ function handleMessage(message: ServerMessage): void {
     case "resources_changed":
       store.bumpResourcesVersion();
       break;
+    case "session_meta":
+      store.upsertSessionMeta(message.session);
+      break;
     case "hello_ok":
       break;
   }
@@ -125,6 +128,11 @@ export async function refreshProjects(): Promise<void> {
   useAppStore.getState().setProjects(projects);
 }
 
+export async function refreshSessions(): Promise<void> {
+  const { sessions } = await fetchJson<{ sessions: SessionMeta[] }>("/sessions");
+  useAppStore.getState().setSessions(sessions);
+}
+
 let activationToken = 0;
 
 async function activateSession(projectId: string | null, agentName: string | null): Promise<void> {
@@ -142,9 +150,72 @@ async function activateSession(projectId: string | null, agentName: string | nul
     if (token !== activationToken) return;
     useAppStore.getState().setSession(session);
     connect(session.id);
+    await refreshSessions();
   } catch (error) {
     if (token !== activationToken) return;
     useAppStore.getState().setError(String(error));
+  }
+}
+
+/** Open a specific chat, resuming its pi session if it has ended. */
+export async function switchToSession(target: SessionMeta): Promise<void> {
+  const token = ++activationToken;
+  const store = useAppStore.getState();
+  try {
+    store.setError(null);
+    store.setCurrentProject(target.projectId ?? null);
+    store.setCurrentAgent(target.agentName ?? null);
+    store.resetTranscript();
+    store.setSession(null);
+    const { session } = await fetchJson<{ session: SessionMeta }>(
+      `/sessions/${encodeURIComponent(target.id)}/resume`,
+      { method: "POST" },
+    );
+    if (token !== activationToken) return;
+    useAppStore.getState().setSession(session);
+    connect(session.id);
+    await refreshSessions();
+  } catch (error) {
+    if (token !== activationToken) return;
+    useAppStore.getState().setError(String(error));
+  }
+}
+
+/** Start a brand-new chat for the current project + agent. */
+export async function newChat(): Promise<void> {
+  const token = ++activationToken;
+  const store = useAppStore.getState();
+  const { currentProjectId, currentAgentName } = store;
+  try {
+    store.setError(null);
+    store.resetTranscript();
+    store.setSession(null);
+    const { session } = await fetchJson<{ session: SessionMeta }>("/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...(currentProjectId ? { projectId: currentProjectId } : {}),
+        ...(currentAgentName ? { agentName: currentAgentName } : {}),
+      }),
+    });
+    if (token !== activationToken) return;
+    useAppStore.getState().setSession(session);
+    connect(session.id);
+    await refreshSessions();
+  } catch (error) {
+    if (token !== activationToken) return;
+    useAppStore.getState().setError(String(error));
+  }
+}
+
+/** Answer a question card. */
+export function sendUiResponse(requestId: string, response: Record<string, unknown>): void {
+  if (currentSessionId) {
+    send({
+      type: "ui_response",
+      sessionId: currentSessionId,
+      response: { type: "extension_ui_response", id: requestId, ...response },
+    });
   }
 }
 

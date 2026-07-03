@@ -64,6 +64,11 @@ export interface AgentSessionPlan extends ModelSelection {
 export interface HelperPlan extends ModelSelection {
   kind: "helper";
   systemPrompt: string;
+  /**
+   * Provider-registration extensions ONLY (e.g. a custom-provider shim).
+   * Helpers stay otherwise resource-free per the launch contract.
+   */
+  extensions?: string[];
 }
 
 export type LaunchPlan = ParentSessionPlan | AgentSessionPlan | HelperPlan;
@@ -134,6 +139,7 @@ export function buildLaunchArgs(plan: LaunchPlan): string[] {
     }
     case "helper": {
       args.push("--no-session", "--no-tools", "--no-context-files");
+      args.push(...repeated("--extension", plan.extensions));
       args.push("--system-prompt", plan.systemPrompt);
       args.push("--append-system-prompt", "");
       if (plan.provider) args.push("--provider", plan.provider);

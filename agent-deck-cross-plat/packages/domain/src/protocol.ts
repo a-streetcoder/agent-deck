@@ -60,5 +60,6 @@ export type ServerMessage =
   | { type: "event"; sessionId: string; seq: number; event: DomainEvent }
   | { type: "snapshot"; sessionId: string; seq: number; state: TranscriptState }
   | { type: "session_exit"; sessionId: string; code: number | null; signal: string | null }
+  | { type: "session_meta"; session: SessionMeta }
   | { type: "resources_changed" }
   | { type: "error"; message: string; sessionId?: string };

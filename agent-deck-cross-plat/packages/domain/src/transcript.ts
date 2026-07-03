@@ -39,7 +39,20 @@ export interface ToolCell {
   result?: unknown;
 }
 
-export type TranscriptCell = UserCell | AssistantCell | ToolCell;
+/** An extension_ui_request awaiting (or after) the user's answer. */
+export interface QuestionCell {
+  kind: "question";
+  id: string;
+  requestId: string;
+  method: string;
+  title: string;
+  message?: string;
+  options?: string[];
+  placeholder?: string;
+  answered: boolean;
+}
+
+export type TranscriptCell = UserCell | AssistantCell | ToolCell | QuestionCell;
 
 export type AgentStatus = "idle" | "running";
 
@@ -55,6 +68,7 @@ export type DomainEvent =
   | { type: "block_end"; cellId: string; contentIndex: number; content: string }
   | { type: "tool_update"; cellId: string; partialResult: unknown }
   | { type: "tool_end"; cellId: string; status: "done" | "error"; result: unknown }
+  | { type: "question_answered"; cellId: string }
   | { type: "cell_final"; cell: TranscriptCell }
   | { type: "agent_status"; status: AgentStatus };
 
@@ -146,6 +160,14 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
       const next = state.cells.slice();
       // Merge, don't replace: tool_execution_end carries no args.
       next[index] = { ...cell, status: event.status, result: event.result };
+      return { ...state, cells: next };
+    }
+    case "question_answered": {
+      const index = state.cells.findIndex((c) => c.id === event.cellId);
+      const cell = index === -1 ? undefined : state.cells[index];
+      if (!cell || cell.kind !== "question") return state;
+      const next = state.cells.slice();
+      next[index] = { ...cell, answered: true };
       return { ...state, cells: next };
     }
   }

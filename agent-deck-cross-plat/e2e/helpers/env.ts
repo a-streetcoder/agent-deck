@@ -29,6 +29,8 @@ export interface E2eHarness {
 export async function startHarness(options?: {
   reply?: (message: string) => string;
   chunkDelayMs?: number;
+  /** Extra pi extensions loaded into every UI-created session. */
+  extraExtensions?: string[];
 }): Promise<E2eHarness> {
   if (!existsSync(path.join(WEB_DIST, "index.html"))) {
     execSync("pnpm --filter @agent-deck/web build", { cwd: WORKSPACE_ROOT, stdio: "inherit" });
@@ -43,7 +45,10 @@ export async function startHarness(options?: {
   process.env.AGENT_DECK_TEST = "1";
   process.env.AGENT_DECK_DEFAULT_PROVIDER = MOCK_PROVIDER_ID;
   process.env.AGENT_DECK_DEFAULT_MODEL = MOCK_MODEL_ID;
-  process.env.AGENT_DECK_DEFAULT_EXTENSIONS = writeMockProviderExtension(mock.baseUrl);
+  process.env.AGENT_DECK_DEFAULT_EXTENSIONS = [
+    writeMockProviderExtension(mock.baseUrl),
+    ...(options?.extraExtensions ?? []),
+  ].join(path.delimiter);
   process.env.AGENT_DECK_PI_ENV = JSON.stringify({
     HOME: tmpHome,
     USERPROFILE: tmpHome,

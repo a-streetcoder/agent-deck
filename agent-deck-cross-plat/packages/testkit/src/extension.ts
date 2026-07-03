@@ -10,6 +10,29 @@ export const MOCK_MODEL_ID = "mock-model";
  * given baseUrl. Loaded explicitly with --extension (still honored under
  * --no-extensions per the launch-flag contract).
  */
+/**
+ * Extension registering an /ask-test command that raises a real
+ * extension_ui_request (confirm) — drives question-card e2e through pi itself.
+ */
+export function writeQuestionCommandExtension(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-deck-ask-ext-"));
+  const file = path.join(dir, "ask-test.ts");
+  writeFileSync(
+    file,
+    `export default function (pi) {
+  pi.registerCommand("ask-test", {
+    description: "Ask a test question",
+    handler: async (_args, ctx) => {
+      const ok = await ctx.ui.confirm("Test question", "Proceed with the mission?");
+      ctx.ui.notify(ok ? "mission confirmed" : "mission declined", "info");
+    },
+  });
+}
+`,
+  );
+  return file;
+}
+
 export function writeMockProviderExtension(baseUrl: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), "agent-deck-mock-ext-"));
   const file = path.join(dir, "mock-provider.ts");

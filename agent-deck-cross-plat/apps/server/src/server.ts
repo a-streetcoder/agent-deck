@@ -145,7 +145,11 @@ export interface StartServerOptions {
 export async function startServer(options: StartServerOptions = {}): Promise<AgentDeckServer> {
   const receipts = new ReceiptBus(process.env.AGENT_DECK_TEST === "1");
   const index = new SessionIndex(options.dataDir);
-  const sessions = new SessionManager(receipts, (meta) => index.upsert(meta));
+  const sessions = new SessionManager(receipts, (meta) => {
+    index.upsert(meta);
+    // `broadcast` is initialized during startServer, before any meta changes.
+    broadcast({ type: "session_meta", session: meta });
+  });
   const projects = new ProjectIndex(options.dataDir);
   const fastify = Fastify({ logger: false });
 
@@ -279,8 +283,44 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   fastify.get("/sessions", async (request) => {
     const { projectId } = request.query as { projectId?: string };
-    const all = sessions.list();
+    // Live sessions win over persisted index entries (same id).
+    const live = sessions.list();
+    const liveIds = new Set(live.map((s) => s.id));
+    const all = [...index.list().filter((s) => !liveIds.has(s.id)), ...live].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
     return { sessions: projectId ? all.filter((s) => s.projectId === projectId) : all };
+  });
+
+  // Reopen a session: live ones are returned as-is; ended ones are relaunched
+  // against their pi session file with the transcript rebuilt from pi's
+  // canonical history (never from our own logs).
+  fastify.post("/sessions/:id/resume", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const live = sessions.get(id);
+    if (live?.isRunning) return { session: live.meta };
+    const meta = live?.meta ?? index.find((s) => s.id === id);
+    if (!meta) return reply.status(404).send({ error: "unknown session" });
+    if (!meta.piSessionFile) {
+      return reply.status(409).send({ error: "session has no pi session file to resume" });
+    }
+    const defaults = envDefaults();
+    try {
+      const session = await sessions.resume(
+        meta,
+        {
+          kind: "parent",
+          resumeSessionPath: meta.piSessionFile,
+          provider: defaults.provider,
+          model: defaults.model,
+          extensions: defaults.extensions,
+        },
+        defaults.env,
+      );
+      return { session: session.meta };
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
   });
 
   fastify.post("/sessions", async (request, reply) => {
