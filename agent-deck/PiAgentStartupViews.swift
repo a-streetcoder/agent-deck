@@ -741,8 +741,51 @@ struct PiAgentSessionSubagentPickerCard: View {
     private func expandedContent(_ data: Resolved) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Divider().padding(.vertical, 10)
+            delegationPolicySelector
+                .padding(.bottom, 10)
             agentList(data)
         }
+    }
+
+    private var delegationPolicySelector: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Label("Delegation", systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Self.accent)
+                Spacer(minLength: 8)
+                Picker("Delegation policy", selection: delegationPolicyBinding) {
+                    ForEach(NativeSubagentDelegationPolicy.allCases) { policy in
+                        Text(policy.displayName).tag(policy)
+                    }
+                }
+                .appSegmentedPicker()
+                .labelsHidden()
+                .frame(width: 250)
+            }
+
+            Text(viewModel.appSettings.nativeSubagentDelegationPolicy.settingsDescription)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.Chat.subCardCornerRadius, style: .continuous)
+                .fill(Self.accent.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Chat.subCardCornerRadius, style: .continuous)
+                .stroke(Self.accent.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private var delegationPolicyBinding: Binding<NativeSubagentDelegationPolicy> {
+        Binding(
+            get: { viewModel.appSettings.nativeSubagentDelegationPolicy },
+            set: { viewModel.setNativeSubagentDelegationPolicy($0) }
+        )
     }
 
     private func agentList(_ data: Resolved) -> some View {
