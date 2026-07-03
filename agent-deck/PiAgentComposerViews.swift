@@ -1804,10 +1804,10 @@ struct PiAgentRuntimeFooter: View {
         let tappable = aggregate != nil && (hasDisplayedTokens || cost != nil)
         let chips = HStack(spacing: 7) {
             if let inputTokens = display.input {
-                metric("\(compact(inputTokens)) in", icon: "arrow.down.left.circle")
+                metric("\(compact(inputTokens)) in", icon: "arrow.up.circle")
             }
             if let outputTokens = display.output {
-                metric("\(compact(outputTokens)) out", icon: "arrow.up.right.circle")
+                metric("\(compact(outputTokens)) out", icon: "arrow.down.circle")
             }
             if let cacheTokens = display.cache {
                 metric("\(compact(cacheTokens)) cache", icon: "externaldrive")
@@ -1917,6 +1917,10 @@ struct PiAgentCostBreakdownPopover: View {
 
     let aggregate: PiAgentRuntimeCostAggregate
 
+    private static let tokenColumnWidth: CGFloat = 132
+    private static let costColumnWidth: CGFloat = 78
+    private static let columnSpacing: CGFloat = 10
+
     private var displaySources: [DisplaySource] {
         var rows: [DisplaySource] = []
         rows.append(contentsOf: aggregate.sources.filter(\.isOrchestration).map(displaySource))
@@ -1936,10 +1940,8 @@ struct PiAgentCostBreakdownPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AppPopoverHeader(title: "Token cost")
+            costPopoverHeader
             Divider()
-            categoryColumnHeader
-            Divider().opacity(0.45)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
@@ -1956,10 +1958,10 @@ struct PiAgentCostBreakdownPopover: View {
             // A single main-chat source makes the total redundant with its row.
             if displaySources.count > 1 {
                 AppPopoverFooter {
-                    HStack(spacing: 10) {
+                    HStack(spacing: Self.columnSpacing) {
                         Text("Total")
                             .font(AppTheme.Font.caption.weight(.bold))
-                        Spacer(minLength: 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         rowTotalTokensText(aggregate.totalTokens)
                         rowTotalCostText(aggregate.totalCost)
                     }
@@ -2019,7 +2021,7 @@ struct PiAgentCostBreakdownPopover: View {
         let metrics = categoryMetrics(for: source)
 
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .center, spacing: Self.columnSpacing) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(source.label)
                         .font(AppTheme.Font.callout.weight(.semibold))
@@ -2033,7 +2035,7 @@ struct PiAgentCostBreakdownPopover: View {
                             .truncationMode(.middle)
                     }
                 }
-                Spacer(minLength: 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 rowTotalTokensText(source.totalTokens)
                 rowTotalCostText(source.cost)
             }
@@ -2045,19 +2047,22 @@ struct PiAgentCostBreakdownPopover: View {
         .padding(.vertical, 8)
     }
 
-    private var categoryColumnHeader: some View {
-        HStack(spacing: 10) {
-            Text("Category")
+    private var costPopoverHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Self.columnSpacing) {
+            Text("Token cost")
+                .font(AppTheme.Popover.titleFont)
+                .foregroundStyle(Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("Tokens")
-                .frame(width: 112, alignment: .trailing)
+                .frame(width: Self.tokenColumnWidth, alignment: .trailing)
             Text("Cost")
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: Self.costColumnWidth, alignment: .trailing)
         }
         .font(AppTheme.Font.caption2.weight(.semibold))
         .foregroundStyle(AppTheme.mutedText)
-        .padding(.horizontal, AppTheme.Popover.footerHInset + 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, AppTheme.Popover.headerHInset)
+        .padding(.top, AppTheme.Popover.headerTopInset)
+        .padding(.bottom, AppTheme.Popover.headerBottomInset)
     }
 
     private func metricTable(_ metrics: [CategoryMetric]) -> some View {
@@ -2078,22 +2083,22 @@ struct PiAgentCostBreakdownPopover: View {
     }
 
     private func metricLine(_ metric: CategoryMetric) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Self.columnSpacing) {
             Text(metric.title)
                 .font(AppTheme.Font.caption)
                 .foregroundStyle(AppTheme.mutedText)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
             Text(tokenString(metric.tokens))
                 .font(AppTheme.Font.caption.monospacedDigit())
                 .foregroundStyle(metric.tokens == nil ? AppTheme.mutedText : .primary)
-                .frame(width: 112, alignment: .trailing)
+                .frame(width: Self.tokenColumnWidth, alignment: .trailing)
             Text(categoryCostString(metric.cost))
                 .font(AppTheme.Font.caption.monospacedDigit())
                 .foregroundStyle(metric.cost == nil ? AppTheme.mutedText : .primary)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: Self.costColumnWidth, alignment: .trailing)
         }
         .lineLimit(1)
-        .padding(.horizontal, 10)
         .padding(.vertical, 6)
     }
 
@@ -2120,14 +2125,14 @@ struct PiAgentCostBreakdownPopover: View {
         Text(tokens.map { "\(compactTokenCount($0)) tokens" } ?? "— tokens")
             .font(AppTheme.Font.callout.monospacedDigit().weight(.semibold))
             .foregroundStyle(tokens == nil ? AppTheme.mutedText : .primary)
-            .frame(width: 132, alignment: .trailing)
+            .frame(width: Self.tokenColumnWidth, alignment: .trailing)
     }
 
     private func rowTotalCostText(_ cost: Double?) -> some View {
         Text(cost.map { String(format: "$%.2f", $0) } ?? "—")
             .font(AppTheme.Font.callout.monospacedDigit().weight(.semibold))
             .foregroundStyle(cost == nil ? AppTheme.mutedText : .primary)
-            .frame(width: 78, alignment: .trailing)
+            .frame(width: Self.costColumnWidth, alignment: .trailing)
     }
 
 
@@ -2156,7 +2161,7 @@ struct PiAgentCostBreakdownPopover: View {
     }
 
     private func categoryCostString(_ cost: Double?) -> String {
-        cost.map { String(format: "$%.4f", $0) } ?? "—"
+        cost.map { String(format: "$%.2f", $0) } ?? "—"
     }
 }
 

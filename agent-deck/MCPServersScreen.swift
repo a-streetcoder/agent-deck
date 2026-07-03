@@ -114,7 +114,7 @@ struct MCPServersScreen: View {
             sections.append(AppListSection(
                 id: "catalog",
                 title: "Catalog",
-                info: "Configured servers. Dimmed only when not enabled for All Projects and not assigned to any project.",
+                info: "Configured servers. Dimmed until they are connected or their tools are loaded.",
                 items: catalogServers
             ))
         }
@@ -139,7 +139,7 @@ struct MCPServersScreen: View {
             subtitle: transportLabel(entry),
             iconName: serverIcon(entry),
             iconColor: serverColor(entry),
-            isInactive: !serverIsAssignedSomewhere(entry),
+            isInactive: !serverIsReady(entry),
             canEdit: viewModel.mcpServerIsEditable(entry),
             status: { rowStatus(entry) },
             onEdit: { editorModel = .edit(entry) }
@@ -406,9 +406,21 @@ struct MCPServersScreen: View {
         }
     }
 
-    private func serverIsAssignedSomewhere(_ entry: MCPServerEntry) -> Bool {
-        viewModel.isMcpServerEnabledForAllProjects(entry.name)
-            || viewModel.enabledProjects.contains { viewModel.mcpServer(entry.name, isEnabledFor: $0) }
+    private func serverIsReady(_ entry: MCPServerEntry) -> Bool {
+        let hasReadyStatus: Bool
+        switch statusByServer[entry.name] {
+        case .ok, .probing:
+            hasReadyStatus = true
+        case .failed, nil:
+            hasReadyStatus = false
+        }
+
+        switch entry.config.resolvedTransport {
+        case .stdio:
+            return hasReadyStatus
+        case .http, .sse:
+            return hasReadyStatus || (connectedByServer[entry.name] ?? false)
+        }
     }
 
     private func serverIcon(_ entry: MCPServerEntry) -> String {
@@ -490,7 +502,7 @@ struct MCPServersScreen: View {
 }
 
 /// MCP server catalog row. Mirrors the Agents/Skills/Prompts list density and
-/// inactive treatment: dim only when the server is not assigned anywhere.
+/// inactive treatment: dim only when the server is not ready or connected.
 private struct MCPServerListRowView<Status: View>: View {
     let entry: MCPServerEntry
     let subtitle: String
