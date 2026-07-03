@@ -1,6 +1,8 @@
 import { Composer } from "./components/Composer.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Transcript } from "./components/Transcript.tsx";
+import { AgentsScreen } from "./screens/AgentsScreen.tsx";
+import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { useAppStore } from "./state/store.ts";
 
 export function App() {
@@ -8,6 +10,7 @@ export function App() {
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const session = useAppStore((state) => state.session);
   const error = useAppStore((state) => state.error);
+  const view = useAppStore((state) => state.view);
 
   const statusLabel =
     connection !== "open" ? connection : agentStatus === "running" ? "responding" : "idle";
@@ -55,8 +58,16 @@ export function App() {
             {error}
           </div>
         ) : null}
-        <Transcript />
-        <Composer />
+        {view === "chat" ? (
+          <>
+            <Transcript />
+            <Composer />
+          </>
+        ) : view === "agents" ? (
+          <AgentsScreen />
+        ) : (
+          <SkillsScreen />
+        )}
       </div>
     </div>
   );

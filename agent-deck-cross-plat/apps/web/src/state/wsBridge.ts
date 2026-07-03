@@ -53,6 +53,9 @@ function handleMessage(message: ServerMessage): void {
       if (message.sessionId !== currentSessionId) return;
       store.setError(`pi exited (code ${message.code ?? "?"})`);
       break;
+    case "resources_changed":
+      store.bumpResourcesVersion();
+      break;
     case "hello_ok":
       break;
   }

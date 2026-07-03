@@ -2,9 +2,17 @@ import { useState } from "react";
 import { useAppStore } from "../state/store.ts";
 import { addProject, switchToProject } from "../state/wsBridge.ts";
 
+const VIEWS = [
+  { id: "chat", label: "Pi Agent" },
+  { id: "agents", label: "Agents" },
+  { id: "skills", label: "Skills" },
+] as const;
+
 export function Sidebar() {
   const projects = useAppStore((state) => state.projects);
   const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const view = useAppStore((state) => state.view);
+  const setView = useAppStore((state) => state.setView);
   const [draftPath, setDraftPath] = useState("");
   const [adding, setAdding] = useState(false);
 
@@ -28,6 +36,21 @@ export function Sidebar() {
       className="flex w-60 shrink-0 flex-col border-r border-border-subtle bg-surface-elevated"
       data-testid="sidebar"
     >
+      <div className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
+        Workspace
+      </div>
+      <nav className="space-y-1 px-2 pb-2">
+        {VIEWS.map((item) => (
+          <button
+            key={item.id}
+            className={itemClass(view === item.id)}
+            data-testid={`nav-${item.id}`}
+            onClick={() => setView(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
       <div className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
         Projects
       </div>

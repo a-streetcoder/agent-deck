@@ -1,0 +1,102 @@
+/**
+ * Resource model shared by server and UI: agents and skills with the scope /
+ * shadowing / filter semantics ported from the native app (SidebarModels.swift).
+ *
+ * Scope priority for same-name shadowing: project > global > library > builtin.
+ */
+
+export type ResourceScope = "builtin" | "global" | "library" | "project";
+
+const SCOPE_PRIORITY: Record<ResourceScope, number> = {
+  project: 3,
+  global: 2,
+  library: 1,
+  builtin: 0,
+};
+
+export interface AgentInfo {
+  name: string;
+  description?: string;
+  whenToUse?: string;
+  model?: string;
+  thinking?: string;
+  systemPromptMode: "replace" | "append";
+  tools?: string[];
+  skills?: string[];
+  extensions?: string[];
+  scope: ResourceScope;
+  filePath: string;
+  /** Markdown body = the agent system prompt. */
+  body: string;
+  /** A higher-priority scope defines the same name. */
+  shadowed: boolean;
+  /** Effective agent that hides a builtin of the same name. */
+  replacesBuiltin: boolean;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  scope: ResourceScope;
+  filePath: string;
+  baseDir: string;
+  disableModelInvocation: boolean;
+}
+
+export type AgentFilter =
+  | "all"
+  | "builtin"
+  | "global"
+  | "library"
+  | "project"
+  | "replaced"
+  | "custom";
+
+export const AGENT_FILTERS: AgentFilter[] = [
+  "all",
+  "builtin",
+  "global",
+  "library",
+  "project",
+  "replaced",
+  "custom",
+];
+
+export function agentMatchesFilter(agent: AgentInfo, filter: AgentFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "builtin":
+    case "global":
+    case "library":
+    case "project":
+      return agent.scope === filter;
+    case "replaced":
+      return agent.replacesBuiltin || (agent.scope === "builtin" && agent.shadowed);
+    case "custom":
+      return agent.scope !== "builtin";
+  }
+}
+
+/** Compute shadowing flags across all scanned agents (pure; stable order). */
+export function applyShadowing(
+  agents: Omit<AgentInfo, "shadowed" | "replacesBuiltin">[],
+): AgentInfo[] {
+  const best = new Map<string, number>();
+  const hasBuiltin = new Set<string>();
+  for (const agent of agents) {
+    const priority = SCOPE_PRIORITY[agent.scope];
+    if (agent.scope === "builtin") hasBuiltin.add(agent.name);
+    const current = best.get(agent.name);
+    if (current === undefined || priority > current) best.set(agent.name, priority);
+  }
+  return agents.map((agent) => {
+    const priority = SCOPE_PRIORITY[agent.scope];
+    const shadowed = best.get(agent.name)! > priority;
+    return {
+      ...agent,
+      shadowed,
+      replacesBuiltin: !shadowed && agent.scope !== "builtin" && hasBuiltin.has(agent.name),
+    };
+  });
+}

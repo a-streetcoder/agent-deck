@@ -8,8 +8,13 @@ import { create } from "zustand";
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
+export type AppView = "chat" | "agents" | "skills";
+
 export interface AppState {
   connection: ConnectionStatus;
+  view: AppView;
+  /** Bumped by resources_changed pushes; resource screens refetch on change. */
+  resourcesVersion: number;
   projects: ProjectMeta[];
   /** null = the server's default cwd ("Default" workspace). */
   currentProjectId: string | null;
@@ -19,6 +24,8 @@ export interface AppState {
   lastSeq: number;
   error: string | null;
   setConnection(connection: ConnectionStatus): void;
+  setView(view: AppView): void;
+  bumpResourcesVersion(): void;
   setProjects(projects: ProjectMeta[]): void;
   setCurrentProject(projectId: string | null): void;
   setSession(session: SessionMeta | null): void;
@@ -30,6 +37,8 @@ export interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   connection: "connecting",
+  view: "chat",
+  resourcesVersion: 0,
   projects: [],
   currentProjectId: null,
   session: null,
@@ -37,6 +46,8 @@ export const useAppStore = create<AppState>((set) => ({
   lastSeq: 0,
   error: null,
   setConnection: (connection) => set({ connection }),
+  setView: (view) => set({ view }),
+  bumpResourcesVersion: () => set((state) => ({ resourcesVersion: state.resourcesVersion + 1 })),
   setProjects: (projects) => set({ projects }),
   setCurrentProject: (currentProjectId) => set({ currentProjectId }),
   setSession: (session) => set({ session }),

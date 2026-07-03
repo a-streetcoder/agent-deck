@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
+import { homedir } from "node:os";
 import nodePath from "node:path";
+import { clientMessageSchema, type ProjectMeta, type ServerMessage } from "@agent-deck/domain";
 import {
-  clientMessageSchema,
-  type ProjectMeta,
-  type ServerMessage,
-} from "@agent-deck/domain";
+  ensureDirs,
+  projectWatchDirs,
+  scanAgents,
+  scanSkills,
+  watchResources,
+  type ResourceRoots,
+} from "@agent-deck/resources";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -92,6 +97,27 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   fastify.get("/health", async () => ({ ok: true }));
 
+  // Resource scanning. `home` follows the pi subprocess HOME override (set via
+  // AGENT_DECK_PI_ENV in tests) so the scanner and pi see the same catalogs.
+  const resourceHome = (): string => {
+    const piEnv = envDefaults().env;
+    return piEnv?.HOME ?? homedir();
+  };
+  const rootsFor = (projectId?: string): ResourceRoots => ({
+    home: resourceHome(),
+    projectPath: projectId ? projects.find((p) => p.id === projectId)?.path : undefined,
+  });
+
+  fastify.get("/resources/agents", async (request) => {
+    const { projectId } = request.query as { projectId?: string };
+    return { agents: scanAgents(rootsFor(projectId)) };
+  });
+
+  fastify.get("/resources/skills", async (request) => {
+    const { projectId } = request.query as { projectId?: string };
+    return { skills: scanSkills(rootsFor(projectId)) };
+  });
+
   fastify.get("/projects", async () => ({ projects: projects.list() }));
 
   fastify.post("/projects", async (request, reply) => {
@@ -113,6 +139,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       createdAt: new Date().toISOString(),
     };
     projects.upsert(project);
+    watchProject(project.path);
     return reply.status(201).send({ project });
   });
 
@@ -153,10 +180,28 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   // WebSocket: live domain-event push + session commands.
   const wss = new WebSocketServer({ noServer: true });
+  const clients = new Set<WebSocket>();
 
   const send = (socket: WebSocket, message: ServerMessage): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
   };
+
+  const broadcast = (message: ServerMessage): void => {
+    for (const client of clients) send(client, message);
+  };
+
+  // One coarse watcher: global catalogs at boot, project dirs added as
+  // projects register. Any change → resources_changed → clients re-fetch.
+  const resourceWatcher = watchResources({ home: resourceHome() }, () =>
+    broadcast({ type: "resources_changed" }),
+  );
+  const watchedProjects = new Set<string>();
+  const watchProject = (projectPath: string): void => {
+    if (watchedProjects.has(projectPath)) return;
+    watchedProjects.add(projectPath);
+    resourceWatcher.add(ensureDirs(projectWatchDirs(projectPath)));
+  };
+  for (const project of projects.list()) watchProject(project.path);
 
   const subscribe = (socket: WebSocket, session: ManagedSession, lastSeq?: number): void => {
     const unsubscribe = session.bus.subscribe(({ seq, event }) => {
@@ -178,6 +223,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   };
 
   wss.on("connection", (socket: WebSocket) => {
+    clients.add(socket);
+    socket.on("close", () => clients.delete(socket));
     socket.on("message", (raw: Buffer) => {
       void (async () => {
         let message;
@@ -258,6 +305,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     sessions,
     receipts,
     close: async () => {
+      await resourceWatcher.close();
       await sessions.stopAll();
       wss.close();
       await fastify.close();
