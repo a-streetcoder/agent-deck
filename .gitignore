@@ -43,3 +43,6 @@ scripts/release.sh
 
 # Local-only loop planning docs
 /docs/loop-plan/
+
+# Abandoned port attempt #1 (Tauri/Rust), kept as local reference only
+archive/

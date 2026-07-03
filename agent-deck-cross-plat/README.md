@@ -2,8 +2,8 @@
 
 Cross-platform (macOS / Windows / Linux) port of Agent Deck: a Node/TypeScript core that
 hosts [`pi`](https://github.com/earendil-works/pi) subprocesses (`pi --mode rpc`, JSONL over
-stdio) and serves a React web UI over WebSocket. Attempt #2 — see `../agent-deck-cross/` for
-the abandoned Tauri/Rust attempt (kept as reference only).
+stdio) and serves a React web UI over WebSocket. Attempt #2 — see `../archive/agent-deck-cross/`
+for the abandoned Tauri/Rust attempt (kept as untracked local reference only).
 
 ## Architecture
 
