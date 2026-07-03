@@ -59,9 +59,10 @@ test("an ended session resumes with its transcript rebuilt from pi's history", a
   await expect.poll(() => liveSession.meta.piSessionFile !== undefined).toBe(true);
   await liveSession.stop();
 
-  // The chat list marks it ended; clicking it resumes and rebuilds.
-  const chatButton = page.getByTestId(`chat-${liveSession.meta.id}`);
-  await expect(chatButton).toContainText("ended");
+  // Both panel layers stay mounted (native two-layer animation), so scope to
+  // the collapsed list. Clicking an ended session resumes and rebuilds it.
+  const chatButton = page.getByTestId("chat-list").getByTestId(`chat-${liveSession.meta.id}`);
+  await expect(chatButton).toBeVisible();
   await chatButton.click();
   await expect(page.getByTestId("user-cell").last()).toContainText("remember the number 42", {
     timeout: 30_000,

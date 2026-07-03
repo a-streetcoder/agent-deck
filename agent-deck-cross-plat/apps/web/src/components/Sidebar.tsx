@@ -1,26 +1,37 @@
 import { useState } from "react";
-import { useAppStore } from "../state/store.ts";
-import { addProject, newChat, switchToProject, switchToSession } from "../state/wsBridge.ts";
+import { Folder, Plus, Send, WandSparkles } from "lucide-react";
+import { cn } from "@/lib/cn";
+import { useAppStore, type AppView } from "../state/store.ts";
+import { addProject, switchToProject } from "../state/wsBridge.ts";
+import {
+  PANEL_FADE,
+  PANEL_MOVE,
+  SessionsCollapsedCard,
+  SessionsExpandedOverlay,
+} from "./SessionsPanel.tsx";
 
-const VIEWS = [
-  { id: "chat", label: "Pi Agent" },
-  { id: "agents", label: "Agents" },
-  { id: "skills", label: "Skills" },
-] as const;
+/**
+ * Native sidebar structure (SidebarViews.swift): pixel-font brand title bar,
+ * sectioned nav (icon + expanded-width label, accent icon when selected),
+ * and the sessions pull-up panel pinned at the bottom. When the panel
+ * expands, the nav recedes (scale .98, y -24, fade) exactly like
+ * CodingAgentPanelLayers.
+ */
+
+const NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
+  { id: "chat", label: "Pi Agent", icon: Send },
+  { id: "agents", label: "Agents", icon: Send },
+  { id: "skills", label: "Skills", icon: WandSparkles },
+];
 
 export function Sidebar() {
   const projects = useAppStore((state) => state.projects);
   const currentProjectId = useAppStore((state) => state.currentProjectId);
-  const currentSession = useAppStore((state) => state.session);
-  const sessions = useAppStore((state) => state.sessions);
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
   const [draftPath, setDraftPath] = useState("");
   const [adding, setAdding] = useState(false);
-
-  const projectSessions = sessions
-    .filter((s) => (s.projectId ?? null) === currentProjectId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const [panelExpanded, setPanelExpanded] = useState(false);
 
   const submit = async (): Promise<void> => {
     const path = draftPath.trim();
@@ -30,125 +41,148 @@ export function Sidebar() {
     setAdding(false);
   };
 
-  const itemClass = (active: boolean): string =>
-    `w-full truncate rounded-md px-3 py-2 text-left text-sm transition-colors ${
+  const rowClass = (active: boolean): string =>
+    cn(
+      "flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] font-medium transition-colors",
       active
         ? "bg-[var(--color-selection-fill)] text-text-primary"
-        : "text-text-secondary hover:bg-[var(--color-hover-fill)]"
-    }`;
+        : "text-text-secondary hover:bg-[var(--color-hover-fill)]",
+    );
+
+  const sectionHeader = (label: string) => (
+    <div className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+      {label}
+    </div>
+  );
 
   return (
     <aside
-      className="flex w-60 shrink-0 flex-col border-r border-border-subtle bg-surface-elevated"
+      className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-border-subtle bg-surface-elevated"
       data-testid="sidebar"
     >
-      <div className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
-        Workspace
-      </div>
-      <nav className="space-y-1 px-2 pb-2">
-        {VIEWS.map((item) => (
-          <button
-            key={item.id}
-            className={itemClass(view === item.id)}
-            data-testid={`nav-${item.id}`}
-            onClick={() => setView(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-      <div className="flex items-center justify-between px-4 pb-2 pt-4">
-        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-          Chats
+      {/* Brand title bar — the pixel wordmark's only appearance (native rule). */}
+      <div className="flex items-center px-4 pb-1 pt-3">
+        <span className="font-pixel text-[17px] leading-none tracking-wide text-text-primary">
+          AGENT&nbsp;&nbsp;DECK
         </span>
-        <button
-          data-testid="new-chat"
-          className="rounded-capsule px-2 text-sm text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
-          title="New chat"
-          onClick={() => {
-            setView("chat");
-            void newChat();
+      </div>
+
+      {/* Panel host: everything below the logo. Two permanently-mounted
+          layers — the nav (with the collapsed sessions card at its bottom)
+          recedes while the expanded panel slides up and docks here. */}
+      <div className="relative min-h-0 flex-1">
+        {/* Nav layer */}
+        <div
+          className="absolute inset-0 flex flex-col"
+          style={{
+            transition: `${PANEL_MOVE}, ${PANEL_FADE}`,
+            transformOrigin: "top",
+            transform: panelExpanded ? "scale(0.98) translateY(-24px)" : "none",
+            opacity: panelExpanded ? 0 : 1,
+            pointerEvents: panelExpanded ? "none" : "auto",
           }}
         >
-          +
-        </button>
-      </div>
-      <nav className="max-h-48 space-y-1 overflow-y-auto px-2" data-testid="chat-list">
-        {projectSessions.map((s) => (
-          <button
-            key={s.id}
-            className={itemClass(view === "chat" && currentSession?.id === s.id)}
-            data-testid={`chat-${s.id}`}
-            title={s.agentName ? `agent: ${s.agentName}` : undefined}
-            onClick={() => {
-              setView("chat");
-              void switchToSession(s);
-            }}
-          >
-            <span data-testid="chat-title">{s.title ?? "New chat"}</span>
-            {s.agentName ? (
-              <span className="ml-1 text-xs text-text-muted">({s.agentName})</span>
-            ) : null}
-            {s.endedAt ? <span className="ml-1 text-xs text-text-muted">·ended</span> : null}
-          </button>
-        ))}
-      </nav>
-      <div className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
-        Projects
-      </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2">
-        <button
-          className={itemClass(currentProjectId === null)}
-          data-testid="project-default"
-          onClick={() => void switchToProject(null)}
-        >
-          Default
-        </button>
-        {projects.map((project) => (
-          <button
-            key={project.id}
-            className={itemClass(currentProjectId === project.id)}
-            title={project.path}
-            data-testid={`project-${project.name}`}
-            onClick={() => void switchToProject(project.id)}
-          >
-            {project.name}
-          </button>
-        ))}
-      </nav>
-      <div className="border-t border-border-subtle p-2">
-        {adding ? (
-          <div className="space-y-2">
-            <input
-              autoFocus
-              data-testid="add-project-path"
-              className="w-full rounded-md border border-border-strong bg-surface px-2 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-              placeholder="/path/to/project"
-              value={draftPath}
-              onChange={(event) => setDraftPath(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
-                if (event.key === "Escape") setAdding(false);
-              }}
-            />
-            <button
-              data-testid="add-project-confirm"
-              className="w-full rounded-md bg-primary px-2 py-1.5 text-sm font-medium"
-              style={{ color: "var(--color-accent-foreground)" }}
-              onClick={() => void submit()}
-            >
-              Add project
-            </button>
+          <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+            {sectionHeader("Workspace")}
+            <nav className="space-y-0.5 px-2">
+              {NAV.map((item) => {
+                const Icon = item.icon;
+                const active = view === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    className={rowClass(active)}
+                    data-testid={`nav-${item.id}`}
+                    onClick={() => setView(item.id)}
+                  >
+                    <Icon
+                      size={15}
+                      style={{ color: active ? "var(--color-brand-accent)" : undefined }}
+                    />
+                    <span style={{ fontStretch: "expanded" }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {sectionHeader("Projects")}
+            <nav className="space-y-0.5 px-2">
+              <button
+                className={rowClass(currentProjectId === null)}
+                data-testid="project-default"
+                onClick={() => void switchToProject(null)}
+              >
+                <Folder
+                  size={15}
+                  style={{
+                    color: currentProjectId === null ? "var(--color-brand-accent)" : undefined,
+                  }}
+                />
+                <span style={{ fontStretch: "expanded" }}>Default</span>
+              </button>
+              {projects.map((project) => (
+                <button
+                  key={project.id}
+                  className={rowClass(currentProjectId === project.id)}
+                  title={project.path}
+                  data-testid={`project-${project.name}`}
+                  onClick={() => void switchToProject(project.id)}
+                >
+                  <Folder
+                    size={15}
+                    style={{
+                      color:
+                        currentProjectId === project.id ? "var(--color-brand-accent)" : undefined,
+                    }}
+                  />
+                  <span className="truncate" style={{ fontStretch: "expanded" }}>
+                    {project.name}
+                  </span>
+                </button>
+              ))}
+              {adding ? (
+                <div className="space-y-1.5 px-1 pt-1">
+                  <input
+                    autoFocus
+                    data-testid="add-project-path"
+                    className="w-full rounded-md border border-border-strong bg-surface px-2 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+                    placeholder="/path/to/project"
+                    value={draftPath}
+                    onChange={(event) => setDraftPath(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void submit();
+                      if (event.key === "Escape") setAdding(false);
+                    }}
+                  />
+                  <button
+                    data-testid="add-project-confirm"
+                    className="w-full rounded-capsule bg-primary px-2 py-1.5 text-xs font-medium"
+                    style={{ color: "var(--color-accent-foreground)" }}
+                    onClick={() => void submit()}
+                  >
+                    Add project
+                  </button>
+                </div>
+              ) : (
+                <button
+                  data-testid="add-project"
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] text-text-muted hover:bg-[var(--color-hover-fill)]"
+                  onClick={() => setAdding(true)}
+                >
+                  <Plus size={15} />
+                  <span style={{ fontStretch: "expanded" }}>Add project</span>
+                </button>
+              )}
+            </nav>
           </div>
-        ) : (
-          <button
-            data-testid="add-project"
-            className="w-full rounded-md px-3 py-2 text-left text-sm text-text-muted hover:bg-[var(--color-hover-fill)]"
-            onClick={() => setAdding(true)}
-          >
-            + Add project
-          </button>
-        )}
+          <SessionsCollapsedCard onExpand={() => setPanelExpanded(true)} />
+        </div>
+
+        {/* Expanded layer — docks below the logo, full height. */}
+        <SessionsExpandedOverlay
+          expanded={panelExpanded}
+          onCollapse={() => setPanelExpanded(false)}
+        />
       </div>
     </aside>
   );

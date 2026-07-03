@@ -1,9 +1,34 @@
 import { Composer } from "./components/Composer.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Transcript } from "./components/Transcript.tsx";
+import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { useAppStore } from "./state/store.ts";
+
+/**
+ * Detail routing mirrors the native ContentView: the chat surface stays
+ * PERMANENTLY MOUNTED and is shown/hidden purely via opacity + a whisper of
+ * scale (SidebarTransition spring ≈ 340ms), so returning to it is instant and
+ * streaming state never tears down. Other screens mount on demand and slide
+ * in on the same curve.
+ */
+const DETAIL_MOVE = "transform 340ms cubic-bezier(0.3, 1.04, 0.4, 1)";
+const DETAIL_FADE = "opacity 200ms ease-out";
+
+function ChatColumn() {
+  const agentStatus = useAppStore((state) => state.transcript.agentStatus);
+  return (
+    <div className="flex h-full min-w-0 flex-col">
+      <Transcript />
+      <PiAgentProcessingIndicatorBar
+        message={agentStatus === "running" ? "Pi is working…" : null}
+        className="px-6"
+      />
+      <Composer />
+    </div>
+  );
+}
 
 export function App() {
   const connection = useAppStore((state) => state.connection);
@@ -11,6 +36,7 @@ export function App() {
   const session = useAppStore((state) => state.session);
   const error = useAppStore((state) => state.error);
   const view = useAppStore((state) => state.view);
+  const isChat = view === "chat";
 
   const statusLabel =
     connection !== "open" ? connection : agentStatus === "running" ? "responding" : "idle";
@@ -25,10 +51,15 @@ export function App() {
     <div className="flex h-full">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-border-subtle bg-surface-elevated px-6 py-3">
+        <header className="flex items-center justify-between border-b border-border-subtle bg-surface-elevated px-6 py-2.5">
           <div className="flex items-baseline gap-3">
-            <h1 className="font-pixel text-lg tracking-wide text-text-primary">AGENT DECK</h1>
-            {session ? (
+            <h1
+              className="text-sm font-semibold text-text-primary"
+              style={{ fontStretch: "expanded" }}
+            >
+              {isChat ? (session?.title ?? "Pi Agent") : view === "agents" ? "Agents" : "Skills"}
+            </h1>
+            {session && isChat ? (
               <span
                 className="max-w-[40ch] truncate font-mono text-xs text-text-muted"
                 data-testid="session-cwd"
@@ -58,16 +89,29 @@ export function App() {
             {error}
           </div>
         ) : null}
-        {view === "chat" ? (
-          <>
-            <Transcript />
-            <Composer />
-          </>
-        ) : view === "agents" ? (
-          <AgentsScreen />
-        ) : (
-          <SkillsScreen />
-        )}
+
+        <main className="relative min-h-0 flex-1">
+          {/* Chat layer: always mounted. */}
+          <div
+            className="absolute inset-0"
+            data-testid="chat-layer"
+            style={{
+              transition: `${DETAIL_MOVE}, ${DETAIL_FADE}`,
+              transform: isChat ? "none" : "scale(0.985)",
+              opacity: isChat ? 1 : 0,
+              pointerEvents: isChat ? "auto" : "none",
+            }}
+          >
+            <ChatColumn />
+          </div>
+
+          {/* Other screens: mount on demand, slide in on the same curve. */}
+          {!isChat ? (
+            <div className="detail-enter absolute inset-0 flex flex-col overflow-hidden">
+              {view === "agents" ? <AgentsScreen /> : <SkillsScreen />}
+            </div>
+          ) : null}
+        </main>
       </div>
     </div>
   );

@@ -32,13 +32,15 @@ test("chat renders the streamed reply incrementally", async ({ page }) => {
 
   // Sample the assistant text while it streams: we must observe at least two
   // distinct, growing, non-empty partial lengths BEFORE the full text is shown.
-  const assistantText = page.getByTestId("assistant-text");
+  // Target the rendered markdown body inside the bubble (excludes the header).
+  const assistantText = page.getByTestId("assistant-text").locator("[data-md-document-content]");
   const observedLengths: number[] = [];
   await expect
     .poll(
       async () => {
         const text = (await assistantText.textContent().catch(() => "")) ?? "";
-        const length = text.length;
+        // Rendered markdown may carry block-level trailing whitespace.
+        const length = text.trim().length;
         if (length > 0 && length !== observedLengths.at(-1)) observedLengths.push(length);
         const partials = observedLengths.filter((l) => l < SCRIPTED_REPLY.length);
         return partials.length >= 2 && observedLengths.at(-1) === SCRIPTED_REPLY.length;
