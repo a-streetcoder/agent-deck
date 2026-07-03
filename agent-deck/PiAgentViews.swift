@@ -695,6 +695,55 @@ struct QuestionRailScrollLandingResolver {
     }
 }
 
+enum QuestionRailKeyboardDirection {
+    case previous
+    case next
+}
+
+struct QuestionRailKeyboardNavigator {
+    func targetID(questionIDs: [String], activeID: String?, direction: QuestionRailKeyboardDirection) -> String? {
+        guard questionIDs.count >= 2 else { return nil }
+        guard let activeID, let currentIndex = questionIDs.firstIndex(of: activeID) else {
+            return direction == .previous ? questionIDs.last : questionIDs.first
+        }
+
+        switch direction {
+        case .previous:
+            guard currentIndex > questionIDs.startIndex else { return nil }
+            return questionIDs[questionIDs.index(before: currentIndex)]
+        case .next:
+            let nextIndex = questionIDs.index(after: currentIndex)
+            guard nextIndex < questionIDs.endIndex else { return nil }
+            return questionIDs[nextIndex]
+        }
+    }
+}
+
+@MainActor
+private protocol QuestionRailKeyboardNavigationHandling: AnyObject {
+    func handleQuestionRailKeyboardShortcut(_ event: NSEvent) -> Bool
+}
+
+@MainActor
+private final class PiAgentTranscriptTableView: NSTableView {
+    weak var questionNavigationHandler: QuestionRailKeyboardNavigationHandling?
+
+    override func keyDown(with event: NSEvent) {
+        if questionNavigationHandler?.handleQuestionRailKeyboardShortcut(event) == true { return }
+        super.keyDown(with: event)
+    }
+}
+
+@MainActor
+private final class PiAgentTranscriptScrollView: NSScrollView {
+    weak var questionNavigationHandler: QuestionRailKeyboardNavigationHandling?
+
+    override func keyDown(with event: NSEvent) {
+        if questionNavigationHandler?.handleQuestionRailKeyboardShortcut(event) == true { return }
+        super.keyDown(with: event)
+    }
+}
+
 /// Observable rail data. Mutated by the transcript coordinator on scroll/apply;
 /// the hosted rail view is created ONCE and never replaced, so SwiftUI `@State`
 /// (hover) survives every scroll/update tick instead of being reset — replacing
@@ -1033,7 +1082,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let tableView = NSTableView()
+        let tableView = PiAgentTranscriptTableView()
         tableView.headerView = nil
         tableView.backgroundColor = .clear
         tableView.gridStyleMask = []
@@ -1060,7 +1109,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         tableView.addTableColumn(column)
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
 
-        let scrollView = NSScrollView()
+        let scrollView = PiAgentTranscriptScrollView()
         // Layer-backed so row-removal reflows (re-run rewind, visibility toggles)
         // can crossfade via a CATransition on this layer.
         scrollView.wantsLayer = true
@@ -1103,6 +1152,8 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
         // the SwiftUI content has no hit shape there.
         scrollView.addSubview(questionRail)
 
+        tableView.questionNavigationHandler = context.coordinator
+        scrollView.questionNavigationHandler = context.coordinator
         context.coordinator.scrollView = scrollView
         context.coordinator.tableView = tableView
         context.coordinator.questionRail = questionRail
@@ -1156,7 +1207,7 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDelegate, QuestionRailKeyboardNavigationHandling {
         weak var scrollView: NSScrollView?
         weak var tableView: NSTableView?
         weak var questionRail: UserQuestionNavigationRailHostView?
@@ -1815,6 +1866,28 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             return (0 ..< tableView.numberOfRows).first { row in
                 dataSource.itemIdentifier(forRow: row) == id
             }
+        }
+
+        func handleQuestionRailKeyboardShortcut(_ event: NSEvent) -> Bool {
+            let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+            guard modifiers == .shift else { return false }
+
+            let direction: QuestionRailKeyboardDirection
+            switch event.keyCode {
+            case 126: direction = .previous // Shift-Up
+            case 125: direction = .next     // Shift-Down
+            default: return false
+            }
+
+            guard let scrollView, let tableView else { return true }
+            let questionRows = currentQuestionRows()
+            guard questionRows.count >= 2 else { return true }
+            let activeID = forcedActiveQuestionID ?? activeQuestionID(in: questionRows, scrollView: scrollView, tableView: tableView)
+            let questionIDs = questionRows.map(\.id)
+            if let targetID = QuestionRailKeyboardNavigator().targetID(questionIDs: questionIDs, activeID: activeID, direction: direction) {
+                scrollToUserQuestion(id: targetID)
+            }
+            return true
         }
 
         func scrollToUserQuestion(id: String) {

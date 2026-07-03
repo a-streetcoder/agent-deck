@@ -64,6 +64,31 @@ final class QuestionRailScrollLandingTests: XCTestCase {
         XCTAssertEqual(resolver.targetY(rowMinY: 4_900, documentHeight: 5_000), 4_500)
     }
 
+    func testKeyboardNavigatorMovesToAdjacentQuestion() {
+        let navigator = QuestionRailKeyboardNavigator()
+        let ids = ["q1", "q2", "q3"]
+
+        XCTAssertEqual(navigator.targetID(questionIDs: ids, activeID: "q2", direction: .previous), "q1")
+        XCTAssertEqual(navigator.targetID(questionIDs: ids, activeID: "q2", direction: .next), "q3")
+    }
+
+    func testKeyboardNavigatorConsumesEdgesWithoutWrapping() {
+        let navigator = QuestionRailKeyboardNavigator()
+        let ids = ["q1", "q2", "q3"]
+
+        XCTAssertNil(navigator.targetID(questionIDs: ids, activeID: "q1", direction: .previous))
+        XCTAssertNil(navigator.targetID(questionIDs: ids, activeID: "q3", direction: .next))
+    }
+
+    func testKeyboardNavigatorChoosesDirectionalEndWhenNoActiveQuestion() {
+        let navigator = QuestionRailKeyboardNavigator()
+        let ids = ["q1", "q2", "q3"]
+
+        XCTAssertEqual(navigator.targetID(questionIDs: ids, activeID: nil, direction: .previous), "q3")
+        XCTAssertEqual(navigator.targetID(questionIDs: ids, activeID: nil, direction: .next), "q1")
+        XCTAssertNil(navigator.targetID(questionIDs: ["q1"], activeID: nil, direction: .next))
+    }
+
     private func runLanding(
         resolver: QuestionRailScrollLandingResolver,
         rowMinYMeasurements: [CGFloat],

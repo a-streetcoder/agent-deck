@@ -12,6 +12,8 @@ enum AgentDeckShortcutAction: String, CaseIterable, Identifiable {
     case newSession
     case nextSession
     case previousSession
+    case previousQuestion
+    case nextQuestion
     case newAgent
     case refresh
     case stopSession
@@ -70,6 +72,8 @@ extension AgentDeckShortcutSection {
             .init(.newSession, "New Session", key: "n", modifiers: [.command], description: "Create a new Pi Agent session for the current project."),
             .init(.nextSession, "Next Session", key: "]", modifiers: [.command], description: "Select the next session in the current project."),
             .init(.previousSession, "Previous Session", key: "[", modifiers: [.command], description: "Select the previous session in the current project."),
+            .init(.previousQuestion, "Previous Question", key: "upArrow", modifiers: [.shift], description: "Jump to the previous user question when the Pi Agent transcript is focused."),
+            .init(.nextQuestion, "Next Question", key: "downArrow", modifiers: [.shift], description: "Jump to the next user question when the Pi Agent transcript is focused."),
             .init(.stopSession, "Stop Session", key: ".", modifiers: [.command], description: "Stop the currently running session."),
             .init(.deleteSession, "Delete Session", key: "delete", modifiers: [.command], description: "Delete the selected session."),
             .init(.resumeInTerminal, "Resume in Terminal", key: "t", modifiers: [.command, .option], description: "Resume the selected session in your configured terminal."),

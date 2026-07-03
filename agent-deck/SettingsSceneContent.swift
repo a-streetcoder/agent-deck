@@ -1602,6 +1602,10 @@ private extension AgentDeckShortcutItem {
         case "delete": return "⌫"
         case "escape": return "Esc"
         case "return": return "↩"
+        case "upArrow": return "↑"
+        case "downArrow": return "↓"
+        case "leftArrow": return "←"
+        case "rightArrow": return "→"
         case " ": return "Space"
         default: return key.uppercased()
         }
