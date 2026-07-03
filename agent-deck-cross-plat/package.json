@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "demo:chat": "tsx packages/testkit/demo/chat.ts",
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "pnpm -r test",
     "test:pi": "pnpm -r test:pi",
@@ -19,6 +20,7 @@
     "@eslint/js": "9.30.0",
     "eslint": "9.30.0",
     "prettier": "3.6.2",
+    "tsx": "4.20.3",
     "typescript": "5.8.3",
     "typescript-eslint": "8.35.0",
     "vitest": "3.2.4"

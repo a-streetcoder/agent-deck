@@ -17,6 +17,7 @@
     "cross-spawn": "7.0.6"
   },
   "devDependencies": {
+    "@agent-deck/testkit": "workspace:*",
     "@types/cross-spawn": "6.0.6",
     "@types/node": "22.15.29"
   }

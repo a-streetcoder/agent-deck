@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@agent-deck/domain": "workspace:*",
+    "@agent-deck/pi-host": "workspace:*",
     "@types/node": "22.15.29"
   }
 }
