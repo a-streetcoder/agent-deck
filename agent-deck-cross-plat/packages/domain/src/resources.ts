@@ -32,6 +32,8 @@ export interface AgentInfo {
   shadowed: boolean;
   /** Effective agent that hides a builtin of the same name. */
   replacesBuiltin: boolean;
+  /** Builtin whose values come partly from settings.json agentOverrides. */
+  overridden?: boolean;
 }
 
 export interface SkillInfo {
@@ -41,6 +43,8 @@ export interface SkillInfo {
   filePath: string;
   baseDir: string;
   disableModelInvocation: boolean;
+  /** SKILL.md markdown body (frontmatter stripped) — the editor's initial state. */
+  body: string;
 }
 
 export type AgentFilter =

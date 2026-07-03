@@ -7,6 +7,7 @@ import {
   type SkillInfo,
 } from "@agent-deck/domain";
 import { loadSkillsFromDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { applyAgentOverride, readAgentOverrides } from "./overrides.ts";
 import { agentCatalogDirs, skillCatalogDirs, type ResourceRoots } from "./paths.ts";
 
 /**
@@ -58,6 +59,7 @@ export function parseAgentFile(
 }
 
 export function scanAgents(roots: ResourceRoots): AgentInfo[] {
+  const overrides = readAgentOverrides(roots);
   const raw: Omit<AgentInfo, "shadowed" | "replacesBuiltin">[] = [];
   for (const { dir, scope } of agentCatalogDirs(roots)) {
     let entries: string[];
@@ -70,7 +72,11 @@ export function scanAgents(roots: ResourceRoots): AgentInfo[] {
       if (!entry.endsWith(".md")) continue;
       const filePath = path.join(dir, entry);
       try {
-        raw.push(parseAgentFile(filePath, readFileSync(filePath, "utf8"), scope));
+        let agent = parseAgentFile(filePath, readFileSync(filePath, "utf8"), scope);
+        // Builtin edits live as diff-shaped overrides — the file is pristine.
+        const override = scope === "builtin" ? overrides[agent.name] : undefined;
+        if (override) agent = applyAgentOverride(agent, override);
+        raw.push(agent);
       } catch {
         // Unreadable/malformed file — skip; a diagnostics channel comes later.
       }
@@ -84,6 +90,12 @@ export function scanSkills(roots: ResourceRoots): SkillInfo[] {
   for (const { dir, scope } of skillCatalogDirs(roots)) {
     const result = loadSkillsFromDir({ dir, source: scope });
     for (const skill of result.skills) {
+      let body = "";
+      try {
+        body = parseFrontmatter(readFileSync(skill.filePath, "utf8")).body.trim();
+      } catch {
+        // Unreadable — leave the body empty.
+      }
       skills.push({
         name: skill.name,
         description: skill.description,
@@ -91,6 +103,7 @@ export function scanSkills(roots: ResourceRoots): SkillInfo[] {
         filePath: skill.filePath,
         baseDir: skill.baseDir,
         disableModelInvocation: skill.disableModelInvocation,
+        body,
       });
     }
   }

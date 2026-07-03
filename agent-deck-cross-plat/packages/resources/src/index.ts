@@ -12,3 +12,12 @@ export {
 } from "./paths.ts";
 export { parseAgentFile, scanAgents, scanSkills } from "./scanner.ts";
 export { ensureDirs, watchResources } from "./watcher.ts";
+export {
+  applyAgentOverride,
+  computeBuiltinOverride,
+  readAgentOverrides,
+  writeBuiltinAgentOverride,
+  type AgentEdit,
+  type AgentOverride,
+} from "./overrides.ts";
+export { writeAgentFile, writeSkillFile, type WritableScope } from "./writer.ts";

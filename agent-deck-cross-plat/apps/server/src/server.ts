@@ -1,15 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import nodePath from "node:path";
 import { clientMessageSchema, type ProjectMeta, type ServerMessage } from "@agent-deck/domain";
 import {
+  computeBuiltinOverride,
   ensureDirs,
+  parseAgentFile,
   projectWatchDirs,
   scanAgents,
   scanSkills,
   watchResources,
+  writeAgentFile,
+  writeBuiltinAgentOverride,
+  writeSkillFile,
+  BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
 import fastifyStatic from "@fastify/static";
@@ -47,6 +53,37 @@ const createSessionBody = z.object({
 const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "managed_subagent", "ask_user"]);
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+/** Resource names become file/dir names — never let them traverse paths. */
+const RESOURCE_NAME = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "invalid resource name");
+
+const agentEditFields = z.object({
+  description: z.string().optional(),
+  whenToUse: z.string().optional(),
+  model: z.string().optional(),
+  thinking: z.string().optional(),
+  systemPromptMode: z.enum(["replace", "append"]).optional(),
+  tools: z.array(z.string()).optional(),
+  skills: z.array(z.string()).optional(),
+  body: z.string().optional(),
+});
+
+const agentEditBody = z.object({
+  projectId: z.string().optional(),
+  scope: z.enum(["builtin", "global", "project"]),
+  name: RESOURCE_NAME,
+  edit: agentEditFields,
+});
+
+const skillEditBody = z.object({
+  projectId: z.string().optional(),
+  scope: z.enum(["global", "project"]),
+  name: RESOURCE_NAME,
+  edit: z.object({
+    description: z.string().optional(),
+    body: z.string().optional(),
+  }),
+});
 
 function asThinkingLevel(value: string | undefined): AgentSessionPlan["thinking"] {
   return value && THINKING_LEVELS.has(value) ? (value as AgentSessionPlan["thinking"]) : undefined;
@@ -132,6 +169,54 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   fastify.get("/resources/skills", async (request) => {
     const { projectId } = request.query as { projectId?: string };
     return { skills: scanSkills(rootsFor(projectId)) };
+  });
+
+  // Edit-safety contract: builtin agents are NEVER written — edits become a
+  // diff vs the pristine builtin at settings.json → subagents.agentOverrides.
+  // The UI sends the complete form state, so the computed diff fully replaces
+  // any prior override (reverting a field back to base clears it).
+  fastify.put("/resources/agents", async (request, reply) => {
+    const parsed = agentEditBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, edit } = parsed.data;
+    const roots = rootsFor(projectId);
+    try {
+      if (scope === "builtin") {
+        const builtinFile = nodePath.join(BUILTIN_AGENTS_DIR, `${name}.md`);
+        if (!existsSync(builtinFile)) {
+          return reply.status(404).send({ error: `unknown builtin agent: ${name}` });
+        }
+        const base = parseAgentFile(builtinFile, readFileSync(builtinFile, "utf8"), "builtin");
+        writeBuiltinAgentOverride(roots, name, computeBuiltinOverride(base, edit));
+      } else {
+        if (scope === "project" && !roots.projectPath) {
+          return reply.status(400).send({ error: "projectId required for project scope" });
+        }
+        writeAgentFile(roots, scope, name, edit);
+      }
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    // settings.json isn't under the resource watcher — notify clients directly.
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  fastify.put("/resources/skills", async (request, reply) => {
+    const parsed = skillEditBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, edit } = parsed.data;
+    const roots = rootsFor(projectId);
+    if (scope === "project" && !roots.projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      writeSkillFile(roots, scope, name, edit);
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   fastify.get("/projects", async () => ({ projects: projects.list() }));
