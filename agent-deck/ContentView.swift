@@ -1054,7 +1054,7 @@ struct ContentView: View {
         ctx.openAgents = { viewModel.selectedSidebarItem = .agents }
         ctx.openSkills = { viewModel.selectedSidebarItem = .skills }
         ctx.openPrompts = { viewModel.selectedSidebarItem = .prompts }
-        ctx.createPiAgentSession = { viewModel.createPiAgentDraftForSelectedProject() }
+        ctx.createPiAgentSession = { viewModel.createPiAgentDraftForSelectedSessionProjectOrSelectedProject() }
         ctx.selectNextPiAgentSession = { viewModel.selectNextPiAgentSession() }
         ctx.selectPreviousPiAgentSession = { viewModel.selectPreviousPiAgentSession() }
         ctx.createAgent = {

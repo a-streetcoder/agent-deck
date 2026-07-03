@@ -2767,6 +2767,16 @@ final class AppViewModel: NSObject {
         }
     }
 
+    func createPiAgentDraftForSelectedSessionProjectOrSelectedProject() {
+        if let sessionProjectPath = piAgentSessionStore.selectedSession?.projectPathForProjectFeatures,
+           let project = projectByPath[sessionProjectPath] {
+            createPiAgentDraft(for: project)
+            return
+        }
+
+        createPiAgentDraftForSelectedProject()
+    }
+
     func createPiAgentDraftForSelectedProject() {
         guard let project = selectedDiscoveredProject else {
             createNoProjectPiAgentDraft()
