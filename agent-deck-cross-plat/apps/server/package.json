@@ -1,0 +1,17 @@
+{
+  "name": "@agent-deck/server",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-deck/domain": "workspace:*",
+    "@agent-deck/pi-host": "workspace:*",
+    "@agent-deck/resources": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.29"
+  }
+}

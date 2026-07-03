@@ -1,0 +1,43 @@
+name: agent-deck-cross-plat CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent-deck-cross-plat/**"
+      - ".github/workflows/agent-deck-cross-plat-ci.yml"
+  pull_request:
+    paths:
+      - "agent-deck-cross-plat/**"
+      - ".github/workflows/agent-deck-cross-plat-ci.yml"
+
+defaults:
+  run:
+    working-directory: agent-deck-cross-plat
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: agent-deck-cross-plat/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test
+      # Real-pi integration tests: pinned pi, deterministic mock provider, no API keys.
+      - name: Install pi
+        run: npm install -g @earendil-works/pi-coding-agent@0.80.3
+      - run: pnpm test:pi

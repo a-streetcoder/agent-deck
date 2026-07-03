@@ -1,0 +1,19 @@
+{
+  "name": "@agent-deck/domain",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "zod": "3.25.67"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.3"
+  }
+}

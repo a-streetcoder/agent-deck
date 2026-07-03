@@ -1,0 +1,23 @@
+{
+  "name": "@agent-deck/pi-host",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:pi": "vitest run --config vitest.pi.config.ts"
+  },
+  "dependencies": {
+    "@agent-deck/domain": "workspace:*",
+    "@earendil-works/pi-coding-agent": "0.80.3",
+    "cross-spawn": "7.0.6"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "6.0.6",
+    "@types/node": "22.15.29"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@agent-deck/web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-deck/domain": "workspace:*"
+  }
+}
