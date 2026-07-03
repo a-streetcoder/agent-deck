@@ -266,6 +266,22 @@ export class ManagedSession {
     return await this.pi.getCommands();
   }
 
+  async getState(): Promise<Awaited<ReturnType<PiSession["getState"]>>> {
+    return await this.pi.getState();
+  }
+
+  async getAvailableModels(): Promise<Awaited<ReturnType<PiSession["getAvailableModels"]>>> {
+    return await this.pi.getAvailableModels();
+  }
+
+  async setModel(provider: string, modelId: string): Promise<void> {
+    await this.pi.setModel(provider, modelId);
+  }
+
+  async setThinkingLevel(level: Parameters<PiSession["setThinkingLevel"]>[0]): Promise<void> {
+    await this.pi.setThinkingLevel(level);
+  }
+
   /** Subscribe to process exit; returns an unsubscribe. Fires immediately if already exited. */
   onExit(listener: (exit: PiProcessExit) => void): () => void {
     if (this.exit) {

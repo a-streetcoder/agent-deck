@@ -181,6 +181,11 @@ export class PiSession extends EventEmitter<PiSessionEvents> {
     return await this.request({ type: "set_model", provider, modelId });
   }
 
+  async getAvailableModels(): Promise<DataOf<"get_available_models">["models"]> {
+    const data = await this.request({ type: "get_available_models" });
+    return data.models;
+  }
+
   async setThinkingLevel(level: CommandOf<"set_thinking_level">["level"]): Promise<void> {
     await this.request({ type: "set_thinking_level", level });
   }

@@ -287,6 +287,30 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { project: next };
   });
 
+  // Live pi session state (model, thinking level, streaming flags) and the
+  // available-model catalog — the composer's picker data.
+  fastify.get("/sessions/:id/state", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const session = sessions.get(id);
+    if (!session) return reply.status(404).send({ error: "unknown session" });
+    try {
+      return { state: await session.getState() };
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+  });
+
+  fastify.get("/sessions/:id/models", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const session = sessions.get(id);
+    if (!session) return reply.status(404).send({ error: "unknown session" });
+    try {
+      return { models: await session.getAvailableModels() };
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+  });
+
   // Session slash commands (skills/prompts pi actually loaded) — also how
   // tests verify that assigned --skill flags landed inside pi.
   fastify.get("/sessions/:id/commands", async (request, reply) => {
@@ -530,6 +554,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
               break;
             case "abort":
               await session.abort();
+              break;
+            case "set_model":
+              await session.setModel(message.provider, message.modelId);
+              break;
+            case "set_thinking":
+              await session.setThinkingLevel(message.level);
               break;
             case "ui_response":
               session.respondToUiRequest(message.response);

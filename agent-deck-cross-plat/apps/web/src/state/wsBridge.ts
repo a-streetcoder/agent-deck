@@ -296,3 +296,15 @@ export function sendPrompt(message: string): void {
 export function sendAbort(): void {
   if (currentSessionId) send({ type: "abort", sessionId: currentSessionId });
 }
+
+export function sendSetModel(provider: string, modelId: string): void {
+  if (currentSessionId) {
+    send({ type: "set_model", sessionId: currentSessionId, provider, modelId });
+  }
+}
+
+export function sendSetThinking(
+  level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
+): void {
+  if (currentSessionId) send({ type: "set_thinking", sessionId: currentSessionId, level });
+}

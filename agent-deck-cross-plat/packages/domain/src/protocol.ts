@@ -20,6 +20,17 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("follow_up"), sessionId: z.string(), message: z.string() }),
   z.object({ type: z.literal("abort"), sessionId: z.string() }),
   z.object({
+    type: z.literal("set_model"),
+    sessionId: z.string(),
+    provider: z.string(),
+    modelId: z.string(),
+  }),
+  z.object({
+    type: z.literal("set_thinking"),
+    sessionId: z.string(),
+    level: z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]),
+  }),
+  z.object({
     type: z.literal("ui_response"),
     sessionId: z.string(),
     /** Raw pi extension_ui_response payload (pass-through). */

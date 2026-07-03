@@ -48,7 +48,8 @@ export function writeMockProviderExtension(baseUrl: string): string {
       {
         id: ${JSON.stringify(MOCK_MODEL_ID)},
         name: "Mock Model",
-        reasoning: false,
+        // Reasoning-capable so thinking levels round-trip in tests.
+        reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
