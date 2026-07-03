@@ -644,7 +644,30 @@ private enum TranscriptFloatingControlGeometry {
 
 struct QuestionRailVisibilityPolicy {
     func shouldShow(questionCount: Int, evenStackedHeight: CGFloat, railHeight: CGFloat) -> Bool {
-        questionCount >= 2 && evenStackedHeight <= railHeight
+        questionCount >= 2 && railHeight >= 44
+    }
+}
+
+struct QuestionRailActiveQuestionResolver {
+    let landingOffset: CGFloat
+    let visibleHeight: CGFloat
+    let bottomTolerance: CGFloat
+
+    init(landingOffset: CGFloat, visibleHeight: CGFloat, bottomTolerance: CGFloat = 2) {
+        self.landingOffset = landingOffset
+        self.visibleHeight = visibleHeight
+        self.bottomTolerance = bottomTolerance
+    }
+
+    func activeID(questions: [(id: String, minY: CGFloat)], viewportY: CGFloat, documentHeight: CGFloat) -> String? {
+        guard !questions.isEmpty else { return nil }
+        let maxY = max(0, documentHeight - visibleHeight)
+        if maxY - viewportY < bottomTolerance {
+            return questions.last?.id
+        }
+
+        let anchorY = viewportY + landingOffset
+        return questions.last(where: { $0.minY <= anchorY })?.id ?? questions.first?.id
     }
 }
 
@@ -680,13 +703,10 @@ struct QuestionRailScrollLandingResolver {
 private final class QuestionRailModel: ObservableObject {
     @Published var items: [UserQuestionNavigationRailItem] = []
     @Published var availableWidth: CGFloat = 0
-    /// Host (visible) rail height in px. Used by the view to position marks in
-    /// sliding-window mode.
+    /// Host (visible) rail height in px. Used by the overflow view's scroll frame.
     @Published var railHeight: CGFloat = 0
     /// True when the questions no longer fit as an evenly-spaced stack — the view
-    /// then switches to a scroll-synced sliding window with edge fades. Stable
-    /// during a session (depends only on window height + question count), so it
-    /// never flips mid-scroll.
+    /// then switches to a compact vertical scroller with edge fades.
     @Published var isSliding = false
 }
 
@@ -704,6 +724,10 @@ private struct UserQuestionNavigationRail: View {
         Self.expandedWidth(for: model.availableWidth)
     }
 
+    private var activeOverflowItemID: String? {
+        model.items.first(where: { $0.isActive })?.id
+    }
+
     static func expandedWidth(for availableWidth: CGFloat) -> CGFloat {
         let desiredWidth = max(168, availableWidth * 0.22)
         let availableEdgeWidth = max(96, availableWidth - 112)
@@ -713,12 +737,11 @@ private struct UserQuestionNavigationRail: View {
     var body: some View {
         // Two layouts share the same rows and hover/opacity behavior:
         //  - stack (default): evenly-spaced marks, the look already approved.
-        //  - sliding: when questions don't fit, marks are positioned by their
-        //    real place in the transcript and slide as you scroll, fading at the
-        //    top/bottom edges via the same gradient the transcript uses.
+        //  - overflow: when questions don't fit, keep every question reachable in
+        //    a compact vertical scroller instead of hiding the rail.
         Group {
             if model.isSliding {
-                slidingBody
+                overflowBody
             } else {
                 stackedBody
             }
@@ -748,21 +771,31 @@ private struct UserQuestionNavigationRail: View {
         .padding(.vertical, 8)
     }
 
-    private var slidingBody: some View {
-        // Marks are placed by `centerOffset` (px from rail center, mirroring the
-        // transcript). The container is the full rail height; marks beyond it are
-        // clipped by the host and softly faded at the edges. Position is NOT
-        // animated: it tracks the scroll 1:1 (many small updates per tick), so an
-        // explicit animation would lag; only hover changes animate.
-        ZStack(alignment: .trailing) {
-            ForEach(model.items) { item in
-                row(for: item)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .offset(y: item.centerOffset)
+    private var overflowBody: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .trailing, spacing: TranscriptFloatingControlGeometry.questionRailRowSpacing) {
+                    ForEach(model.items) { item in
+                        row(for: item)
+                            .id(item.id)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.vertical, 8)
             }
+            .frame(width: expandedRowWidth, height: max(1, model.railHeight), alignment: .trailing)
+            .transcriptEdgeFade(height: 16)
+            .onAppear { scrollOverflowActive(proxy) }
+            .onChange(of: activeOverflowItemID) { _, _ in scrollOverflowActive(proxy) }
+            .onChange(of: model.items) { _, _ in scrollOverflowActive(proxy) }
         }
-        .frame(width: expandedRowWidth, height: max(1, model.railHeight), alignment: .trailing)
-        .transcriptEdgeFade(height: 22)
+    }
+
+    private func scrollOverflowActive(_ proxy: ScrollViewProxy) {
+        guard model.isSliding, let activeOverflowItemID else { return }
+        withTransaction(Transaction(animation: nil)) {
+            proxy.scrollTo(activeOverflowItemID, anchor: .center)
+        }
     }
 
     private func row(for item: UserQuestionNavigationRailItem) -> some View {
@@ -795,6 +828,7 @@ private struct UserQuestionNavigationRail: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(displayText(for: item))
         .accessibilityLabel(displayText(for: item))
         .accessibilityHint("Scroll to this question")
         .onHover { hovering in
@@ -1676,13 +1710,11 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
             }
             let activeID = self.forcedActiveQuestionID ?? activeQuestionID(in: questionRows, scrollView: scrollView, tableView: tableView)
 
-            // Only show the rail when every question mark fits in the stable stack.
-            // The scroll-synced overflow layout proved too sparse/ambiguous at its
-            // transition thresholds, so overflow hides the rail instead.
+            let isOverflowing = stackedHeight > railHeight
             let items = questionRows.map { _, id, title in
                 UserQuestionNavigationRailItem(id: id, title: title, isActive: id == activeID)
             }
-            applyRailModel(items: items, width: scrollView.bounds.width, railHeight: railHeight, isSliding: false)
+            applyRailModel(items: items, width: scrollView.bounds.width, railHeight: railHeight, isSliding: isOverflowing)
         }
 
         private func evenStackedHeight(questionCount: Int) -> CGFloat {
@@ -1755,16 +1787,18 @@ private struct PiAgentAppKitTranscriptView: NSViewRepresentable {
                 return questionRows.last?.id
             }
 
-            // Anchor on the viewport CENTER (not the top): it matches the
-            // sliding-window position math so the active mark sits at rail center,
-            // and "active" reads as "the question you're currently reading".
-            let anchorY = clipBounds.origin.y + clipBounds.height / 2
-            return questionRows.min { lhs, rhs in
-                let lhsDistance = abs(tableView.rect(ofRow: lhs.row).minY - anchorY)
-                let rhsDistance = abs(tableView.rect(ofRow: rhs.row).minY - anchorY)
-                if lhsDistance == rhsDistance { return lhs.row < rhs.row }
-                return lhsDistance < rhsDistance
-            }?.id
+            let resolver = QuestionRailActiveQuestionResolver(
+                landingOffset: questionRailLandingOffset(for: clipBounds.height),
+                visibleHeight: clipBounds.height
+            )
+            let questions = questionRows.map { row, id, _ in
+                (id: id, minY: tableView.rect(ofRow: row).minY)
+            }
+            return resolver.activeID(
+                questions: questions,
+                viewportY: clipBounds.origin.y,
+                documentHeight: documentHeight
+            )
         }
 
         private func currentQuestionRows() -> [(row: Int, id: String, title: String)] {

@@ -3,19 +3,43 @@ import XCTest
 
 @MainActor
 final class QuestionRailScrollLandingTests: XCTestCase {
-    func testQuestionRailHidesWhenStackDoesNotFit() {
+    func testQuestionRailShowsScrollableOverflowWhenStackDoesNotFit() {
         let policy = QuestionRailVisibilityPolicy()
-        XCTAssertFalse(policy.shouldShow(questionCount: 18, evenStackedHeight: 520, railHeight: 328))
+        XCTAssertTrue(policy.shouldShow(questionCount: 18, evenStackedHeight: 520, railHeight: 328))
     }
 
-    func testQuestionRailHidesOverflowEvenWhenWindowIsTall() {
+    func testQuestionRailShowsOverflowEvenWhenManyQuestionsExceedTallWindow() {
         let policy = QuestionRailVisibilityPolicy()
-        XCTAssertFalse(policy.shouldShow(questionCount: 40, evenStackedHeight: 1_120, railHeight: 668))
+        XCTAssertTrue(policy.shouldShow(questionCount: 40, evenStackedHeight: 1_120, railHeight: 668))
     }
 
-    func testQuestionRailShowsOnlyWhenStackFits() {
+    func testQuestionRailShowsOnlyWithMultipleQuestions() {
         let policy = QuestionRailVisibilityPolicy()
+        XCTAssertFalse(policy.shouldShow(questionCount: 1, evenStackedHeight: 22, railHeight: 268))
         XCTAssertTrue(policy.shouldShow(questionCount: 3, evenStackedHeight: 82, railHeight: 268))
+    }
+
+    func testActiveQuestionUsesLandingOffsetFromViewportTop() {
+        let resolver = QuestionRailActiveQuestionResolver(landingOffset: 12, visibleHeight: 500)
+        let questions: [(id: String, minY: CGFloat)] = [
+            ("q1", 100),
+            ("q2", 360),
+            ("q3", 900)
+        ]
+
+        XCTAssertEqual(resolver.activeID(questions: questions, viewportY: 347, documentHeight: 2_000), "q1")
+        XCTAssertEqual(resolver.activeID(questions: questions, viewportY: 348, documentHeight: 2_000), "q2")
+    }
+
+    func testActiveQuestionClampsToLastAtDocumentBottom() {
+        let resolver = QuestionRailActiveQuestionResolver(landingOffset: 12, visibleHeight: 500)
+        let questions: [(id: String, minY: CGFloat)] = [
+            ("q1", 100),
+            ("q2", 360),
+            ("q3", 900)
+        ]
+
+        XCTAssertEqual(resolver.activeID(questions: questions, viewportY: 1_500, documentHeight: 2_000), "q3")
     }
 
     func testLandingResolverNormalStackedRailConvergesFirstSelection() {
