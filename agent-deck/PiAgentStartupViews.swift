@@ -743,13 +743,12 @@ struct PiAgentSessionSubagentPickerCard: View {
             Divider().padding(.vertical, 10)
             agentList(data)
             delegationPolicySelector
-                .padding(.top, 8)
         }
     }
 
     private var delegationPolicySelector: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Divider()
+        VStack(alignment: .leading, spacing: 0) {
+            Divider().padding(.vertical, 10)
 
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -779,7 +778,6 @@ struct PiAgentSessionSubagentPickerCard: View {
                 .controlSize(.small)
             }
         }
-        .padding(.top, 8)
     }
 
     private var compactDelegationPolicyDescription: String {
