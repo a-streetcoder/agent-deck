@@ -52,6 +52,12 @@ export interface AgentSessionPlan extends ModelSelection {
   sessionDir?: string;
   /** Continue a prior child session. */
   resumeSessionPath?: string;
+  /**
+   * Agent thinking level. Encoded as the `--model <model>:<thinking>` suffix
+   * when a model is known; falls back to `--thinking` when the agent inherits
+   * pi's default model (frontmatter `thinking` applies even without `model`).
+   */
+  thinking?: ThinkingLevel;
 }
 
 /** Isolated one-shot helper (titles, commit messages): no session, no resources. */
@@ -115,7 +121,15 @@ export function buildLaunchArgs(plan: LaunchPlan): string[] {
       args.push(...repeated("--extension", plan.extensions));
       args.push(...repeated("--skill", plan.skills));
       if (plan.provider) args.push("--provider", plan.provider);
-      if (plan.model) args.push("--model", plan.model);
+      if (plan.model) {
+        const model =
+          plan.thinking && !plan.model.includes(":")
+            ? `${plan.model}:${plan.thinking}`
+            : plan.model;
+        args.push("--model", model);
+      } else if (plan.thinking) {
+        args.push("--thinking", plan.thinking);
+      }
       break;
     }
     case "helper": {

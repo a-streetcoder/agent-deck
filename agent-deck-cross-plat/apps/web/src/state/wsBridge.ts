@@ -125,7 +125,12 @@ export async function refreshProjects(): Promise<void> {
   useAppStore.getState().setProjects(projects);
 }
 
+let activationToken = 0;
+
 async function activateSession(projectId: string | null, agentName: string | null): Promise<void> {
+  // Guards rapid switching: if another activation starts while this one's REST
+  // call is in flight, the stale result must never win.
+  const token = ++activationToken;
   const store = useAppStore.getState();
   try {
     store.setError(null);
@@ -134,9 +139,11 @@ async function activateSession(projectId: string | null, agentName: string | nul
     store.resetTranscript();
     store.setSession(null);
     const session = await findOrCreateSession(projectId, agentName);
+    if (token !== activationToken) return;
     useAppStore.getState().setSession(session);
     connect(session.id);
   } catch (error) {
+    if (token !== activationToken) return;
     useAppStore.getState().setError(String(error));
   }
 }

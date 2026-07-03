@@ -137,6 +137,33 @@ describe("agent plan", () => {
     expect(withDefault).not.toContain("--tools");
   });
 
+  it("applies thinking even when the model is inherited (contract: suffix or --thinking)", () => {
+    const withModel = buildLaunchArgs({
+      kind: "agent",
+      systemPrompt: { mode: "replace", text: "x" },
+      model: "claude-sonnet-5",
+      thinking: "low",
+    });
+    expect(withModel[withModel.indexOf("--model") + 1]).toBe("claude-sonnet-5:low");
+    expect(withModel).not.toContain("--thinking");
+
+    const presuffixed = buildLaunchArgs({
+      kind: "agent",
+      systemPrompt: { mode: "replace", text: "x" },
+      model: "claude-sonnet-5:high",
+      thinking: "low",
+    });
+    expect(presuffixed[presuffixed.indexOf("--model") + 1]).toBe("claude-sonnet-5:high");
+
+    const inherited = buildLaunchArgs({
+      kind: "agent",
+      systemPrompt: { mode: "replace", text: "x" },
+      thinking: "medium",
+    });
+    expect(inherited).not.toContain("--model");
+    expect(inherited[inherited.indexOf("--thinking") + 1]).toBe("medium");
+  });
+
   it("rejects sessionDir combined with resumeSessionPath", () => {
     expect(() =>
       buildLaunchArgs({

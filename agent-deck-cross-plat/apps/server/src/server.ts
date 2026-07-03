@@ -18,7 +18,12 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
 import { ProjectIndex, SessionIndex } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
-import { SessionManager, type LaunchPlan, type ManagedSession } from "./SessionManager.ts";
+import {
+  SessionManager,
+  type AgentSessionPlan,
+  type LaunchPlan,
+  type ManagedSession,
+} from "./SessionManager.ts";
 
 const createProjectBody = z.object({
   path: z.string(),
@@ -40,6 +45,12 @@ const createSessionBody = z.object({
 
 /** Tools only bridge extensions provide — stripped until those bridges are ported (M2). */
 const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "managed_subagent", "ask_user"]);
+
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+function asThinkingLevel(value: string | undefined): AgentSessionPlan["thinking"] {
+  return value && THINKING_LEVELS.has(value) ? (value as AgentSessionPlan["thinking"]) : undefined;
+}
 
 /**
  * Session defaults from the server environment. The e2e harness (and any dev
@@ -91,8 +102,8 @@ export interface StartServerOptions {
 
 export async function startServer(options: StartServerOptions = {}): Promise<AgentDeckServer> {
   const receipts = new ReceiptBus(process.env.AGENT_DECK_TEST === "1");
-  const sessions = new SessionManager(receipts);
   const index = new SessionIndex(options.dataDir);
+  const sessions = new SessionManager(receipts, (meta) => index.upsert(meta));
   const projects = new ProjectIndex(options.dataDir);
   const fastify = Fastify({ logger: false });
 
@@ -172,6 +183,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const model = body.model ?? defaults.model;
     const extensions = body.extensions ?? defaults.extensions;
 
+    // CONTRACT GAP (pi-rpc-launch-flags.md §1): full parent launches also load
+    // the Agent Deck bridge/audit/web extensions, preserve the active
+    // APPEND_SYSTEM.md, and pass Default+Project skill/prompt assignments.
+    // Assignments land in slice 10; bridge extensions are M2.
     let plan: LaunchPlan = {
       kind: "parent",
       provider,
@@ -191,9 +206,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         .map((name) => skillsByName.get(name)?.baseDir)
         .filter((p): p is string => Boolean(p));
       const effectiveTools = agent.tools?.filter((tool) => !BRIDGE_ONLY_TOOLS.has(tool));
-      const agentModel = agent.model
-        ? `${agent.model}${agent.thinking ? `:${agent.thinking}` : ""}`
-        : model;
       plan = {
         kind: "agent",
         systemPrompt: { mode: agent.systemPromptMode, text: agent.body },
@@ -201,7 +213,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         extensions: [...(extensions ?? []), ...(agent.extensions ?? [])],
         skills: agentSkillPaths,
         provider,
-        model: agentModel,
+        // Agent model, else the inherited default; frontmatter thinking applies
+        // either way (suffix when a model is known, --thinking otherwise).
+        model: agent.model ?? model,
+        thinking: asThinkingLevel(agent.thinking),
       };
     }
 
@@ -241,11 +256,31 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   };
   for (const project of projects.list()) watchProject(project.path);
 
+  // Per-socket subscription bookkeeping: re-subscribing to the same session
+  // replaces the old subscription (no duplicate events), and every listener —
+  // bus subscriber AND session exit listener — is released on socket close.
+  const socketCleanups = new Map<WebSocket, Map<string, () => void>>();
+
   const subscribe = (socket: WebSocket, session: ManagedSession, lastSeq?: number): void => {
-    const unsubscribe = session.bus.subscribe(({ seq, event }) => {
+    const cleanups = socketCleanups.get(socket) ?? new Map<string, () => void>();
+    socketCleanups.set(socket, cleanups);
+    cleanups.get(session.meta.id)?.();
+
+    const unsubscribeBus = session.bus.subscribe(({ seq, event }) => {
       send(socket, { type: "event", sessionId: session.meta.id, seq, event });
     });
-    socket.on("close", unsubscribe);
+    const unsubscribeExit = session.onExit((exit) =>
+      send(socket, {
+        type: "session_exit",
+        sessionId: session.meta.id,
+        code: exit.code,
+        signal: exit.signal,
+      }),
+    );
+    cleanups.set(session.meta.id, () => {
+      unsubscribeBus();
+      unsubscribeExit();
+    });
 
     if (lastSeq !== undefined) {
       const replay = session.bus.replayFrom(lastSeq);
@@ -262,7 +297,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   wss.on("connection", (socket: WebSocket) => {
     clients.add(socket);
-    socket.on("close", () => clients.delete(socket));
+    socket.on("close", () => {
+      clients.delete(socket);
+      const cleanups = socketCleanups.get(socket);
+      socketCleanups.delete(socket);
+      if (cleanups) for (const cleanup of cleanups.values()) cleanup();
+    });
     socket.on("message", (raw: Buffer) => {
       void (async () => {
         let message;
@@ -289,14 +329,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           switch (message.type) {
             case "subscribe_session":
               subscribe(socket, session, message.lastSeq);
-              session.onExit((exit) =>
-                send(socket, {
-                  type: "session_exit",
-                  sessionId: session.meta.id,
-                  code: exit.code,
-                  signal: exit.signal,
-                }),
-              );
               break;
             case "prompt":
               await session.prompt(message.message);

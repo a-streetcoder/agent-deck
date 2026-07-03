@@ -12,10 +12,11 @@ import {
   buildLaunchArgs,
   PiSession,
   resolvePiBinary,
+  type AgentSessionPlan,
   type LaunchPlan,
   type PiProcessExit,
 } from "@agent-deck/pi-host";
-export type { LaunchPlan };
+export type { AgentSessionPlan, LaunchPlan };
 import { SessionPushBus } from "./pushBus.ts";
 import type { ReceiptBus } from "./receipts.ts";
 
@@ -45,6 +46,7 @@ export class ManagedSession {
     readonly meta: SessionMeta,
     private readonly pi: PiSession,
     private readonly receipts: ReceiptBus,
+    private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
   ) {
     pi.on("event", (piEvent) => {
       for (const domainEvent of ingestPiEvent(this.ingest, piEvent)) {
@@ -59,12 +61,31 @@ export class ManagedSession {
         }
         if (domainEvent.type === "agent_status" && domainEvent.status === "idle") {
           receipts.emit("idle", meta.id);
+          this.captureSessionFile();
         }
       }
     });
     pi.on("exit", (exit) => {
       this.exit = exit;
+      this.meta.endedAt = new Date().toISOString();
+      this.onMetaChange(this.meta);
     });
+  }
+
+  /** Record pi's canonical session file (the resume handle) once it exists. */
+  private captureSessionFile(): void {
+    if (this.meta.piSessionFile || !this.pi.isRunning) return;
+    void this.pi
+      .getState()
+      .then((state) => {
+        if (state.sessionFile && !this.meta.piSessionFile) {
+          this.meta.piSessionFile = state.sessionFile;
+          this.onMetaChange(this.meta);
+        }
+      })
+      .catch(() => {
+        // Exited or unresponsive — nothing to record.
+      });
   }
 
   snapshot(): { seq: number; state: TranscriptState } {
@@ -95,8 +116,14 @@ export class ManagedSession {
     this.pi.respondToUiRequest(response as Parameters<PiSession["respondToUiRequest"]>[0]);
   }
 
-  onExit(listener: (exit: PiProcessExit) => void): void {
+  /** Subscribe to process exit; returns an unsubscribe. Fires immediately if already exited. */
+  onExit(listener: (exit: PiProcessExit) => void): () => void {
+    if (this.exit) {
+      listener(this.exit);
+      return () => {};
+    }
     this.pi.on("exit", listener);
+    return () => this.pi.off("exit", listener);
   }
 
   async stop(): Promise<void> {
@@ -107,7 +134,10 @@ export class ManagedSession {
 export class SessionManager {
   private readonly sessions = new Map<string, ManagedSession>();
 
-  constructor(private readonly receipts: ReceiptBus) {}
+  constructor(
+    private readonly receipts: ReceiptBus,
+    private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
+  ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
     const id = randomUUID();
@@ -124,7 +154,7 @@ export class SessionManager {
       cwd: options.cwd,
       env: options.env,
     });
-    const session = new ManagedSession(meta, pi, this.receipts);
+    const session = new ManagedSession(meta, pi, this.receipts, this.onMetaChange);
     this.sessions.set(id, session);
     pi.start();
     this.receipts.emit("session_created", id);

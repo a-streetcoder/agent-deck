@@ -45,7 +45,10 @@ export interface SessionMeta {
   /** Set when the session is backed by a named agent (injected system prompt). */
   agentName?: string;
   title?: string;
+  /** pi's canonical session file — the resume handle. Captured after first turn. */
   piSessionFile?: string;
+  /** Set when the pi subprocess exits; absent while live. */
+  endedAt?: string;
 }
 
 export type ServerMessage =
