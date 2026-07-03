@@ -29,6 +29,10 @@ final class PiSubagentRunService {
     private var completionHandlersByRunID: [UUID: (PiSubagentRunRecord) -> Void] = [:]
     private var supervisorTimeoutTasksByRequestID: [String: Task<Void, Never>] = [:]
     private var streamFlushTasksByRunID: [UUID: Task<Void, Never>] = [:]
+    /// Authoritative Pi messages seen for a child run. Category costs are derived
+    /// only from these messages and displayed only after they reconcile with the
+    /// child's `get_session_stats` total cost.
+    private var piMessagesByRunID: [UUID: [JSONValue]] = [:]
     /// On `agent_end` we request the child's session stats (for its cost) and
     /// hold off completion until the response lands or this timeout fires, so a
     /// model that never reports stats can't stall the run.
@@ -460,6 +464,13 @@ final class PiSubagentRunService {
                     }
                     run.child?.sessionFile = run.childPiSessionFile
                 }
+            } else if event.command == "get_messages" {
+                let messages = event.messages?.arrayValue
+                    ?? event.data?["messages"]?.arrayValue
+                    ?? event.data?.arrayValue
+                    ?? []
+                piMessagesByRunID[runID] = messages
+                applyVerifiedCostBreakdownIfPossible(runID: runID, parentSessionID: parentSessionID, messages: messages)
             } else if event.command == "get_session_stats", let data = event.data {
                 applySubagentStats(data, runID: runID, parentSessionID: parentSessionID)
                 // Stats arrived — cancel the timeout and complete now.
@@ -561,6 +572,7 @@ final class PiSubagentRunService {
     private func clearStreamingState(for runID: UUID) {
         streamFlushTasksByRunID.removeValue(forKey: runID)?.cancel()
         pendingStatsTasksByRunID.removeValue(forKey: runID)?.cancel()
+        piMessagesByRunID[runID] = nil
         assistantEntryIDsByRunID[runID] = nil
         assistantTextByRunID[runID] = nil
         thinkingEntryIDsByRunID[runID] = nil
@@ -664,6 +676,7 @@ final class PiSubagentRunService {
         }
         guard role == "assistant" else { return }
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rememberPiMessage(message, runID: runID)
             finalTextByRunID[runID] = text
             store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
                 run.summary = text
@@ -674,15 +687,33 @@ final class PiSubagentRunService {
                     if let v = usage["cacheRead"]?.flexibleNumber { run.child?.cacheReadTokens = Int(v) }
                     if let v = usage["cacheWrite"]?.flexibleNumber { run.child?.cacheWriteTokens = Int(v) }
                     if let v = usage["totalTokens"]?.flexibleNumber ?? usage["total"]?.flexibleNumber { run.child?.totalTokens = Int(v) }
-                    if let costBreakdown = PiAgentUsageCostBreakdown.from(usage["cost"]) {
-                        run.child?.costBreakdown = costBreakdown
-                        run.child?.cost = costBreakdown.resolvedTotal
+                    if PiAgentUsageCostBreakdown.from(usage["cost"]) != nil {
+                        run.child?.costBreakdown = nil
                     }
                 }
             }
             if let outputURL = outputURL(for: runID, parentSessionID: parentSessionID) {
                 try? text.write(to: outputURL, atomically: true, encoding: .utf8)
             }
+        }
+    }
+
+    private func rememberPiMessage(_ message: JSONValue, runID: UUID) {
+        let key = message["id"]?.stringValue ?? message.compactDescription
+        var messages = piMessagesByRunID[runID] ?? []
+        guard !messages.contains(where: { ($0["id"]?.stringValue ?? $0.compactDescription) == key }) else { return }
+        messages.append(message)
+        piMessagesByRunID[runID] = messages
+    }
+
+    private func applyVerifiedCostBreakdownIfPossible(runID: UUID, parentSessionID: UUID, messages: [JSONValue]) {
+        store.updateSubagentRun(runID, parentSessionID: parentSessionID) { run in
+            guard var child = run.child else { return }
+            child.costBreakdown = PiAgentUsageCostBreakdown.verifiedAssistantCategoryCosts(
+                from: messages,
+                statsTotalCost: child.cost
+            )
+            run.child = child
         }
     }
 
@@ -699,6 +730,7 @@ final class PiSubagentRunService {
             completeIfNeeded(runID: runID, parentSessionID: parentSessionID)
             return
         }
+        client.getMessages()
         client.getSessionStats()
         pendingStatsTasksByRunID[runID] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -723,8 +755,13 @@ final class PiSubagentRunService {
             if let v = data["tokens"]?["cacheWrite"]?.flexibleNumber { child.cacheWriteTokens = Int(v) }
             if let v = data["tokens"]?["total"]?.flexibleNumber { child.totalTokens = Int(v) }
             if let costBreakdown = PiAgentUsageCostBreakdown.from(data["cost"]) {
-                child.costBreakdown = costBreakdown.hasCategories ? costBreakdown : child.costBreakdown
                 child.cost = costBreakdown.resolvedTotal
+                child.costBreakdown = PiAgentUsageCostBreakdown.verifiedAssistantCategoryCosts(
+                    from: piMessagesByRunID[runID] ?? [],
+                    statsTotalCost: costBreakdown.resolvedTotal
+                )
+            } else {
+                child.costBreakdown = nil
             }
             if let v = data["contextUsage"]?["tokens"]?.numberValue { child.contextTokens = Int(v) }
             run.child = child

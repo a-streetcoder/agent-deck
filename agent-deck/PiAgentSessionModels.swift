@@ -336,6 +336,30 @@ struct PiAgentUsageCostBreakdown: Codable, Hashable {
         return breakdown.hasAnyValue ? breakdown : nil
     }
 
+    static func verifiedAssistantCategoryCosts(from messages: [JSONValue], statsTotalCost: Double?) -> PiAgentUsageCostBreakdown? {
+        guard let statsTotalCost else { return nil }
+        var aggregate: PiAgentUsageCostBreakdown?
+        for message in messages where message["role"]?.stringValue == "assistant" {
+            guard let cost = PiAgentUsageCostBreakdown.from(message["usage"]?["cost"]), cost.hasCategories else { continue }
+            let categoriesOnly = PiAgentUsageCostBreakdown(
+                input: cost.input,
+                output: cost.output,
+                cacheRead: cost.cacheRead,
+                cacheWrite: cost.cacheWrite,
+                total: nil
+            )
+            aggregate = aggregate.map { $0.adding(categoriesOnly) } ?? categoriesOnly
+        }
+        guard var aggregate,
+              let categoryTotal = sumKnown([aggregate.input, aggregate.output, aggregate.cacheRead, aggregate.cacheWrite]) else {
+            return nil
+        }
+        let tolerance = max(0.000001, abs(statsTotalCost) * 0.000001)
+        guard abs(categoryTotal - statsTotalCost) <= tolerance else { return nil }
+        aggregate.total = statsTotalCost
+        return aggregate
+    }
+
     var hasAnyValue: Bool {
         input != nil || output != nil || cacheRead != nil || cacheWrite != nil || total != nil
     }

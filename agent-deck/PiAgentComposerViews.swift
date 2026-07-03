@@ -1676,6 +1676,7 @@ struct PiAgentRuntimeCostAggregate: Equatable {
         }
 
         let parentCacheTokens = Self.cacheTokenTotal(read: session.cacheReadTokens, write: session.cacheWriteTokens)
+        let parentCostBreakdown = Self.displayableCostBreakdown(session.costBreakdown, total: session.cost)
         let parentSource = Source(
             id: session.id,
             label: "main chat",
@@ -1684,20 +1685,21 @@ struct PiAgentRuntimeCostAggregate: Equatable {
             inputTokens: session.inputTokens,
             outputTokens: session.outputTokens,
             cacheTokens: parentCacheTokens,
-            inputCost: session.costBreakdown?.input,
-            outputCost: session.costBreakdown?.output,
-            cacheCost: session.costBreakdown?.cache,
-            cost: session.cost ?? session.costBreakdown?.resolvedTotal,
+            inputCost: parentCostBreakdown?.input,
+            outputCost: parentCostBreakdown?.output,
+            cacheCost: parentCostBreakdown?.cache,
+            cost: session.cost ?? parentCostBreakdown?.resolvedTotal,
             isOrchestration: true
         )
         sources.append(parentSource)
-        addCosts(session.costBreakdown, total: session.cost)
+        addCosts(parentCostBreakdown, total: session.cost)
 
         var subagentCount = 0
         for run in runs {
             let children: [PiSubagentChildRecord] = run.children ?? run.child.map { [$0] } ?? []
             for child in children {
                 let childCacheTokens = Self.cacheTokenTotal(read: child.cacheReadTokens, write: child.cacheWriteTokens)
+                let childCostBreakdown = Self.displayableCostBreakdown(child.costBreakdown, total: child.cost)
                 let childSource = Source(
                     id: child.id,
                     label: child.agentName,
@@ -1706,14 +1708,14 @@ struct PiAgentRuntimeCostAggregate: Equatable {
                     inputTokens: child.inputTokens,
                     outputTokens: child.outputTokens,
                     cacheTokens: childCacheTokens,
-                    inputCost: child.costBreakdown?.input,
-                    outputCost: child.costBreakdown?.output,
-                    cacheCost: child.costBreakdown?.cache,
-                    cost: child.cost ?? child.costBreakdown?.resolvedTotal,
+                    inputCost: childCostBreakdown?.input,
+                    outputCost: childCostBreakdown?.output,
+                    cacheCost: childCostBreakdown?.cache,
+                    cost: child.cost ?? childCostBreakdown?.resolvedTotal,
                     isOrchestration: false
                 )
                 sources.append(childSource)
-                addCosts(child.costBreakdown, total: child.cost)
+                addCosts(childCostBreakdown, total: child.cost)
                 subagentCount += 1
             }
         }
@@ -1730,6 +1732,19 @@ struct PiAgentRuntimeCostAggregate: Equatable {
             sources: sources,
             hasSubagents: subagentCount > 0
         )
+    }
+
+    private static func displayableCostBreakdown(_ breakdown: PiAgentUsageCostBreakdown?, total: Double?) -> PiAgentUsageCostBreakdown? {
+        guard let breakdown,
+              let total,
+              let verifiedTotal = breakdown.total,
+              let categoryTotal = PiAgentUsageCostBreakdown.sumKnown([breakdown.input, breakdown.output, breakdown.cacheRead, breakdown.cacheWrite]) else {
+            return nil
+        }
+        let tolerance = max(0.000001, abs(total) * 0.000001)
+        guard abs(verifiedTotal - total) <= tolerance,
+              abs(categoryTotal - total) <= tolerance else { return nil }
+        return breakdown
     }
 
     private static func cacheTokenTotal(read: Int?, write: Int?) -> Int? {

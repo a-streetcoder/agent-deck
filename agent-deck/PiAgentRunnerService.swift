@@ -102,6 +102,10 @@ final class PiAgentRunnerService {
     /// Sessions whose transcript we've already reconciled against Pi's session file
     /// on open this launch — keeps the on-view disk read to once per session.
     private var rehydratedFromDiskSessionIDs: Set<UUID> = []
+    /// Authoritative Pi messages seen via `get_messages`, live final messages, or
+    /// the session JSONL. Category costs are derived only from these messages and
+    /// displayed only after they reconcile with `get_session_stats` total cost.
+    private var piMessagesBySessionID: [UUID: [JSONValue]] = [:]
     private var pendingThinkingLevelsBySessionID: [UUID: PendingThinkingLevel] = [:]
     /// Re-run: everything needed to resend the forked message exactly as it was
     /// originally sent — the display text and the recorded attachments (images
@@ -1306,6 +1310,7 @@ final class PiAgentRunnerService {
             }
             if event.type == "agent_end" {
                 scheduleIdleConfirmation(sessionID: sessionID)
+                clientsBySessionID[sessionID]?.getMessages()
             }
             clientsBySessionID[sessionID]?.getState()
             clientsBySessionID[sessionID]?.getSessionStats()
@@ -1446,6 +1451,8 @@ final class PiAgentRunnerService {
                 ?? event.data?["messages"]?.arrayValue
                 ?? event.data?.arrayValue
                 ?? []
+            piMessagesBySessionID[sessionID] = messages
+            applyVerifiedCostBreakdownIfPossible(sessionID: sessionID, messages: messages)
             applyRehydratedMessages(messages, sessionID: sessionID)
             return
         }
@@ -1461,8 +1468,13 @@ final class PiAgentRunnerService {
                 record.toolCalls = data["toolCalls"]?.flexibleNumber.map(Int.init)
                 record.toolResults = data["toolResults"]?.flexibleNumber.map(Int.init)
                 if let costBreakdown = PiAgentUsageCostBreakdown.from(data["cost"]) {
-                    record.costBreakdown = costBreakdown.hasCategories ? costBreakdown : record.costBreakdown
                     record.cost = costBreakdown.resolvedTotal
+                    record.costBreakdown = PiAgentUsageCostBreakdown.verifiedAssistantCategoryCosts(
+                        from: piMessagesBySessionID[sessionID] ?? [],
+                        statsTotalCost: costBreakdown.resolvedTotal
+                    )
+                } else {
+                    record.costBreakdown = nil
                 }
                 if let contextUsage = data["contextUsage"] {
                     record.contextTokens = contextUsage["tokens"]?.numberValue.map(Int.init)
@@ -1803,6 +1815,7 @@ final class PiAgentRunnerService {
         let text = extractText(from: message)
         let role = message["role"]?.stringValue ?? "assistant"
         if role == "assistant" {
+            rememberPiMessage(message, sessionID: sessionID)
             applyAssistantUsage(message["usage"], sessionID: sessionID)
             streamFlushTasksBySessionID[sessionID]?.cancel()
             streamFlushTasksBySessionID[sessionID] = nil
@@ -1886,6 +1899,23 @@ final class PiAgentRunnerService {
         }
     }
 
+    private func rememberPiMessage(_ message: JSONValue, sessionID: UUID) {
+        let key = message["id"]?.stringValue ?? message.compactDescription
+        var messages = piMessagesBySessionID[sessionID] ?? []
+        guard !messages.contains(where: { ($0["id"]?.stringValue ?? $0.compactDescription) == key }) else { return }
+        messages.append(message)
+        piMessagesBySessionID[sessionID] = messages
+    }
+
+    private func applyVerifiedCostBreakdownIfPossible(sessionID: UUID, messages: [JSONValue]) {
+        store.updateSession(sessionID) { record in
+            record.costBreakdown = PiAgentUsageCostBreakdown.verifiedAssistantCategoryCosts(
+                from: messages,
+                statsTotalCost: record.cost
+            )
+        }
+    }
+
     private func applyAssistantUsage(_ usage: JSONValue?, sessionID: UUID) {
         guard let usage else { return }
         store.updateSession(sessionID) { record in
@@ -1894,9 +1924,8 @@ final class PiAgentRunnerService {
             if let v = usage["cacheRead"]?.flexibleNumber { record.cacheReadTokens = Int(v) }
             if let v = usage["cacheWrite"]?.flexibleNumber { record.cacheWriteTokens = Int(v) }
             if let v = usage["totalTokens"]?.flexibleNumber ?? usage["total"]?.flexibleNumber { record.totalTokens = Int(v) }
-            if let costBreakdown = PiAgentUsageCostBreakdown.from(usage["cost"]) {
-                record.costBreakdown = record.costBreakdown?.adding(costBreakdown) ?? costBreakdown
-                record.cost = record.costBreakdown?.resolvedTotal ?? costBreakdown.resolvedTotal
+            if PiAgentUsageCostBreakdown.from(usage["cost"]) != nil {
+                record.costBreakdown = nil
             }
         }
     }
@@ -1933,13 +1962,21 @@ final class PiAgentRunnerService {
         let assistants = transcript.filter { $0.role == .assistant }
         let needsBackfill = !assistants.isEmpty && assistants.contains { $0.text.isEmpty }
         let needsBuild = transcript.isEmpty
-        RPCDebugLog.log("REHYDRATE decision session=\(sessionID.uuidString.prefix(8)) entries=\(transcript.count) assistants=\(assistants.count) emptyAssistants=\(assistants.filter { $0.text.isEmpty }.count) needsBackfill=\(needsBackfill) needsBuild=\(needsBuild)")
-        guard needsBackfill || needsBuild else { return }
+        let needsCostAggregation = session.cost != nil
+        RPCDebugLog.log("REHYDRATE decision session=\(sessionID.uuidString.prefix(8)) entries=\(transcript.count) assistants=\(assistants.count) emptyAssistants=\(assistants.filter { $0.text.isEmpty }.count) needsBackfill=\(needsBackfill) needsBuild=\(needsBuild) needsCostAggregation=\(needsCostAggregation)")
+        guard needsBackfill || needsBuild || needsCostAggregation else { return }
         rehydratedFromDiskSessionIDs.insert(sessionID)
         Task { [weak self] in
             let messages = await Task.detached { Self.parsePiSessionMessages(at: path) }.value
             RPCDebugLog.log("REHYDRATE parsed session=\(sessionID.uuidString.prefix(8)) piMessages=\(messages.count)")
-            await MainActor.run { self?.applyRehydratedMessages(messages, sessionID: sessionID) }
+            await MainActor.run {
+                guard let self else { return }
+                self.piMessagesBySessionID[sessionID] = messages
+                self.applyVerifiedCostBreakdownIfPossible(sessionID: sessionID, messages: messages)
+                if needsBackfill || needsBuild {
+                    self.applyRehydratedMessages(messages, sessionID: sessionID)
+                }
+            }
         }
     }
 
