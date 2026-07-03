@@ -760,7 +760,6 @@ struct PiAgentSessionSubagentPickerCard: View {
                         .foregroundStyle(AppTheme.mutedText)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(height: 28, alignment: .topLeading)
                         .transaction { transaction in
                             transaction.animation = nil
                         }
