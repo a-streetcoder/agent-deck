@@ -3,3 +3,4 @@
 export * from "./pi-types.ts";
 export * from "./transcript.ts";
 export * from "./ingest.ts";
+export * from "./protocol.ts";
