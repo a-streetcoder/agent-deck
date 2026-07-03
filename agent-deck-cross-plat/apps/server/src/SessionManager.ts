@@ -21,6 +21,7 @@ import type { ReceiptBus } from "./receipts.ts";
 export interface CreateSessionOptions {
   cwd: string;
   plan: LaunchPlan;
+  projectId?: string;
   /** Extra env for the pi subprocess (merged over process.env). */
   env?: Record<string, string | undefined>;
 }
@@ -112,6 +113,7 @@ export class SessionManager {
       id,
       cwd: options.cwd,
       createdAt: new Date().toISOString(),
+      projectId: options.projectId,
     };
     const pi = new PiSession({
       binPath: resolvePiBinary().path,

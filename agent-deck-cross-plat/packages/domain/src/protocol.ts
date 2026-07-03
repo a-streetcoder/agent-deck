@@ -29,10 +29,19 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
 
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
+export interface ProjectMeta {
+  id: string;
+  /** Absolute path to the project root; sessions run with this as cwd. */
+  path: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface SessionMeta {
   id: string;
   cwd: string;
   createdAt: string;
+  projectId?: string;
   title?: string;
   piSessionFile?: string;
 }

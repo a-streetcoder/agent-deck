@@ -1,11 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import envPaths from "env-paths";
-import type { SessionMeta } from "@agent-deck/domain";
+import type { ProjectMeta, SessionMeta } from "@agent-deck/domain";
 
 /**
- * App-data persistence. pi owns the canonical session files; we keep a light
- * index of sessions this app created (survives server restarts). Writes are
+ * App-data persistence. pi owns the canonical session files; we keep light
+ * JSON indexes (sessions, projects) that survive server restarts. Writes are
  * atomic (tmp + rename).
  */
 
@@ -13,35 +13,51 @@ export function defaultDataDir(): string {
   return envPaths("agent-deck-cross-plat", { suffix: "" }).data;
 }
 
-export class SessionIndex {
+class JsonArrayStore<T extends { id: string }> {
   private readonly file: string;
-  private sessions: SessionMeta[] = [];
+  private items: T[] = [];
 
-  constructor(dataDir: string = defaultDataDir()) {
-    this.file = path.join(dataDir, "sessions.json");
+  constructor(dataDir: string, fileName: string) {
+    this.file = path.join(dataDir, fileName);
     mkdirSync(dataDir, { recursive: true });
     try {
       const parsed: unknown = JSON.parse(readFileSync(this.file, "utf8"));
-      if (Array.isArray(parsed)) this.sessions = parsed as SessionMeta[];
+      if (Array.isArray(parsed)) this.items = parsed as T[];
     } catch {
-      // Missing or corrupt index — start fresh; pi still owns the real sessions.
+      // Missing or corrupt index — start fresh.
     }
   }
 
-  list(): SessionMeta[] {
-    return this.sessions;
+  list(): T[] {
+    return this.items;
   }
 
-  upsert(meta: SessionMeta): void {
-    const index = this.sessions.findIndex((s) => s.id === meta.id);
-    if (index === -1) this.sessions.push(meta);
-    else this.sessions[index] = meta;
+  find(predicate: (item: T) => boolean): T | undefined {
+    return this.items.find(predicate);
+  }
+
+  upsert(item: T): void {
+    const index = this.items.findIndex((existing) => existing.id === item.id);
+    if (index === -1) this.items.push(item);
+    else this.items[index] = item;
     this.flush();
   }
 
   private flush(): void {
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.sessions, null, 2));
+    writeFileSync(tmp, JSON.stringify(this.items, null, 2));
     renameSync(tmp, this.file);
+  }
+}
+
+export class SessionIndex extends JsonArrayStore<SessionMeta> {
+  constructor(dataDir: string = defaultDataDir()) {
+    super(dataDir, "sessions.json");
+  }
+}
+
+export class ProjectIndex extends JsonArrayStore<ProjectMeta> {
+  constructor(dataDir: string = defaultDataDir()) {
+    super(dataDir, "projects.json");
   }
 }

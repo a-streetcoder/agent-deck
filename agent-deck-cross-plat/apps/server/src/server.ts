@@ -1,16 +1,28 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import nodePath from "node:path";
-import { clientMessageSchema, type ServerMessage } from "@agent-deck/domain";
+import {
+  clientMessageSchema,
+  type ProjectMeta,
+  type ServerMessage,
+} from "@agent-deck/domain";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
-import { SessionIndex } from "./persistence.ts";
+import { ProjectIndex, SessionIndex } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
 import { SessionManager, type ManagedSession } from "./SessionManager.ts";
 
+const createProjectBody = z.object({
+  path: z.string(),
+  name: z.string().optional(),
+});
+
 const createSessionBody = z.object({
   cwd: z.string().optional(),
+  projectId: z.string().optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
   extensions: z.array(z.string()).optional(),
@@ -71,6 +83,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   const receipts = new ReceiptBus(process.env.AGENT_DECK_TEST === "1");
   const sessions = new SessionManager(receipts);
   const index = new SessionIndex(options.dataDir);
+  const projects = new ProjectIndex(options.dataDir);
   const fastify = Fastify({ logger: false });
 
   if (options.staticDir) {
@@ -79,7 +92,35 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   fastify.get("/health", async () => ({ ok: true }));
 
-  fastify.get("/sessions", async () => ({ sessions: sessions.list() }));
+  fastify.get("/projects", async () => ({ projects: projects.list() }));
+
+  fastify.post("/projects", async (request, reply) => {
+    const parsed = createProjectBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+    const projectPath = nodePath.resolve(parsed.data.path);
+    if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+      return reply.status(400).send({ error: `not a directory: ${projectPath}` });
+    }
+    // Idempotent by path: re-adding an existing project returns it.
+    const existing = projects.find((p) => p.path === projectPath);
+    if (existing) return reply.status(200).send({ project: existing });
+    const project: ProjectMeta = {
+      id: randomUUID(),
+      path: projectPath,
+      name: parsed.data.name ?? nodePath.basename(projectPath),
+      createdAt: new Date().toISOString(),
+    };
+    projects.upsert(project);
+    return reply.status(201).send({ project });
+  });
+
+  fastify.get("/sessions", async (request) => {
+    const { projectId } = request.query as { projectId?: string };
+    const all = sessions.list();
+    return { sessions: projectId ? all.filter((s) => s.projectId === projectId) : all };
+  });
 
   fastify.post("/sessions", async (request, reply) => {
     const parsed = createSessionBody.safeParse(request.body);
@@ -88,8 +129,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     const body = parsed.data;
     const defaults = envDefaults();
+    let cwd = body.cwd ?? process.cwd();
+    if (body.projectId) {
+      const project = projects.find((p) => p.id === body.projectId);
+      if (!project) return reply.status(404).send({ error: "unknown project" });
+      cwd = project.path;
+    }
     const session = sessions.create({
-      cwd: body.cwd ?? process.cwd(),
+      cwd,
+      projectId: body.projectId,
       env: { ...defaults.env, ...body.env },
       plan: {
         kind: "parent",

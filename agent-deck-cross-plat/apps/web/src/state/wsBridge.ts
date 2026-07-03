@@ -1,6 +1,7 @@
 import {
   reduceTranscript,
   type ClientMessage,
+  type ProjectMeta,
   type ServerMessage,
   type SessionMeta,
 } from "@agent-deck/domain";
@@ -10,10 +11,15 @@ import { useAppStore } from "./store.ts";
  * The ONLY module that touches the WebSocket. Server messages mutate the
  * zustand store through the shared domain reducer; UI components send
  * commands exclusively through the exported functions below.
+ *
+ * One socket, one subscribed session at a time: switching project closes the
+ * socket and reconnects subscribed to that project's session.
  */
 
 let socket: WebSocket | null = null;
 let reconnectDelayMs = 500;
+let currentSessionId: string | null = null;
+let generation = 0; // bumped on every deliberate switch to invalidate reconnects
 
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -30,9 +36,11 @@ function handleMessage(message: ServerMessage): void {
   const store = useAppStore.getState();
   switch (message.type) {
     case "snapshot":
+      if (message.sessionId !== currentSessionId) return;
       store.setSnapshot(message.state, message.seq);
       break;
     case "event": {
+      if (message.sessionId !== currentSessionId) return;
       const { transcript, lastSeq } = useAppStore.getState();
       if (message.seq <= lastSeq) return; // replay overlap — already applied
       store.setTranscript(reduceTranscript(transcript, message.event), message.seq);
@@ -42,6 +50,7 @@ function handleMessage(message: ServerMessage): void {
       store.setError(message.message);
       break;
     case "session_exit":
+      if (message.sessionId !== currentSessionId) return;
       store.setError(`pi exited (code ${message.code ?? "?"})`);
       break;
     case "hello_ok":
@@ -50,9 +59,13 @@ function handleMessage(message: ServerMessage): void {
 }
 
 function connect(sessionId: string): void {
+  const myGeneration = ++generation;
+  currentSessionId = sessionId;
+  socket?.close();
   useAppStore.getState().setConnection("connecting");
   socket = new WebSocket(wsUrl());
   socket.onopen = () => {
+    if (myGeneration !== generation) return;
     reconnectDelayMs = 500;
     useAppStore.getState().setConnection("open");
     const { lastSeq } = useAppStore.getState();
@@ -63,32 +76,52 @@ function connect(sessionId: string): void {
     });
   };
   socket.onmessage = (event) => {
+    if (myGeneration !== generation) return;
     handleMessage(JSON.parse(event.data as string) as ServerMessage);
   };
   socket.onclose = () => {
+    if (myGeneration !== generation) return;
     useAppStore.getState().setConnection("closed");
-    setTimeout(() => connect(sessionId), reconnectDelayMs);
+    setTimeout(() => {
+      if (myGeneration === generation) connect(sessionId);
+    }, reconnectDelayMs);
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10_000);
   };
 }
 
-/** Reuse the server's existing session or create one, then open the socket. */
-export async function connectAndBootstrap(): Promise<void> {
+async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(input, init);
+  if (!response.ok) throw new Error(`${input}: ${await response.text()}`);
+  return (await response.json()) as T;
+}
+
+async function findOrCreateSession(projectId: string | null): Promise<SessionMeta> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  const { sessions } = await fetchJson<{ sessions: SessionMeta[] }>(`/sessions${query}`);
+  const scoped = projectId ? sessions : sessions.filter((s) => !s.projectId);
+  const existing = scoped.at(-1);
+  if (existing) return existing;
+  const { session } = await fetchJson<{ session: SessionMeta }>("/sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(projectId ? { projectId } : {}),
+  });
+  return session;
+}
+
+export async function refreshProjects(): Promise<void> {
+  const { projects } = await fetchJson<{ projects: ProjectMeta[] }>("/projects");
+  useAppStore.getState().setProjects(projects);
+}
+
+export async function switchToProject(projectId: string | null): Promise<void> {
+  const store = useAppStore.getState();
   try {
-    const listResponse = await fetch("/sessions");
-    const { sessions } = (await listResponse.json()) as { sessions: SessionMeta[] };
-    let session = sessions.at(-1) ?? null;
-    if (!session) {
-      const createResponse = await fetch("/sessions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!createResponse.ok) {
-        throw new Error(`session create failed: ${await createResponse.text()}`);
-      }
-      session = ((await createResponse.json()) as { session: SessionMeta }).session;
-    }
+    store.setError(null);
+    store.setCurrentProject(projectId);
+    store.resetTranscript();
+    store.setSession(null);
+    const session = await findOrCreateSession(projectId);
     useAppStore.getState().setSession(session);
     connect(session.id);
   } catch (error) {
@@ -96,12 +129,34 @@ export async function connectAndBootstrap(): Promise<void> {
   }
 }
 
+export async function addProject(path: string): Promise<void> {
+  const store = useAppStore.getState();
+  try {
+    const { project } = await fetchJson<{ project: ProjectMeta }>("/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    await refreshProjects();
+    await switchToProject(project.id);
+  } catch (error) {
+    store.setError(String(error));
+  }
+}
+
+export async function connectAndBootstrap(): Promise<void> {
+  try {
+    await refreshProjects();
+    await switchToProject(null);
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+  }
+}
+
 export function sendPrompt(message: string): void {
-  const session = useAppStore.getState().session;
-  if (session) send({ type: "prompt", sessionId: session.id, message });
+  if (currentSessionId) send({ type: "prompt", sessionId: currentSessionId, message });
 }
 
 export function sendAbort(): void {
-  const session = useAppStore.getState().session;
-  if (session) send({ type: "abort", sessionId: session.id });
+  if (currentSessionId) send({ type: "abort", sessionId: currentSessionId });
 }
