@@ -37,7 +37,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm test
-      # Real-pi integration tests: pinned pi, deterministic mock provider, no API keys.
-      - name: Install pi
-        run: npm install -g @earendil-works/pi-coding-agent@0.80.3
+      # Real-pi integration tests. The pinned @earendil-works/pi-coding-agent workspace
+      # dependency provides the actual `pi` binary on PATH during pnpm scripts, so runs
+      # are deterministic, keyless, and need no global install.
       - run: pnpm test:pi

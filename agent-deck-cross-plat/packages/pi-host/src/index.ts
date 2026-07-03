@@ -1,2 +1,19 @@
-// pi-host: binary discovery, JSONL framing, subprocess lifecycle, RPC correlation (slice 2).
-export {};
+export { createJsonlReader, serializeJsonLine, type JsonlReader } from "./jsonl.ts";
+export { PI_INSTALL_HINT, PiNotFoundError, resolvePiBinary, type ResolvedPi } from "./resolve.ts";
+export { PiProcess, type PiProcessExit, type PiProcessOptions } from "./PiProcess.ts";
+export {
+  PiRpcError,
+  PiSession,
+  type PiAgentEvent,
+  type PiInboundEvent,
+  type PiSessionOptions,
+} from "./PiSession.ts";
+export {
+  buildLaunchArgs,
+  type AgentSessionPlan,
+  type HelperPlan,
+  type LaunchPlan,
+  type ModelSelection,
+  type ParentSessionPlan,
+  type ThinkingLevel,
+} from "./launchPlan.ts";
