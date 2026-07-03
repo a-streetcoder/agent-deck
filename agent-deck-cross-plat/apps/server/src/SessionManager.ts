@@ -57,6 +57,10 @@ export class ManagedSession {
   private transcript: TranscriptState = emptyTranscript();
   private sawFirstDelta = false;
   private titleStarted = false;
+  /** Open extension_ui_requests: id → method. Answers must match one. */
+  private readonly pendingUiRequests = new Map<string, string>();
+  /** While seeding history on resume, live pi events are queued, not applied. */
+  private seedGate: Array<Parameters<typeof ingestPiEvent>[1]> | null = null;
   exit: PiProcessExit | null = null;
 
   constructor(
@@ -71,28 +75,39 @@ export class ManagedSession {
     },
   ) {
     pi.on("event", (piEvent) => {
-      for (const domainEvent of ingestPiEvent(this.ingest, piEvent)) {
-        this.transcript = reduceTranscript(this.transcript, domainEvent);
-        this.bus.append(domainEvent);
-        if (domainEvent.type === "cell_delta" && !this.sawFirstDelta) {
-          this.sawFirstDelta = true;
-          receipts.emit("first_delta", meta.id);
-        }
-        if (domainEvent.type === "cell_final" && domainEvent.cell.kind === "assistant") {
-          receipts.emit("assistant_final", meta.id);
-        }
-        if (domainEvent.type === "agent_status" && domainEvent.status === "idle") {
-          receipts.emit("idle", meta.id);
-          this.captureSessionFile();
-          void this.generateTitle();
-        }
+      if (this.seedGate) {
+        this.seedGate.push(piEvent);
+        return;
       }
+      this.applyPiEvent(piEvent);
     });
     pi.on("exit", (exit) => {
       this.exit = exit;
       this.meta.endedAt = new Date().toISOString();
       this.onMetaChange(this.meta);
     });
+  }
+
+  private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {
+    if (piEvent.type === "extension_ui_request") {
+      this.pendingUiRequests.set(piEvent.id, piEvent.method);
+    }
+    for (const domainEvent of ingestPiEvent(this.ingest, piEvent)) {
+      this.transcript = reduceTranscript(this.transcript, domainEvent);
+      this.bus.append(domainEvent);
+      if (domainEvent.type === "cell_delta" && !this.sawFirstDelta) {
+        this.sawFirstDelta = true;
+        this.receipts.emit("first_delta", this.meta.id);
+      }
+      if (domainEvent.type === "cell_final" && domainEvent.cell.kind === "assistant") {
+        this.receipts.emit("assistant_final", this.meta.id);
+      }
+      if (domainEvent.type === "agent_status" && domainEvent.status === "idle") {
+        this.receipts.emit("idle", this.meta.id);
+        this.captureSessionFile();
+        void this.generateTitle();
+      }
+    }
   }
 
   /** Record pi's canonical session file (the resume handle) once it exists. */
@@ -166,17 +181,32 @@ export class ManagedSession {
     }
   }
 
-  /** Rebuild the transcript from pi's canonical history (resume path). */
+  /** Queue live pi events until seedFromHistory finishes (resume path). */
+  holdLiveEvents(): void {
+    this.seedGate = [];
+  }
+
+  /**
+   * Rebuild the transcript from pi's canonical history (resume path). Live
+   * events received meanwhile were queued and are applied strictly after the
+   * seed, preserving order.
+   */
   async seedFromHistory(): Promise<void> {
-    const { messages } = await this.pi.getMessages();
-    for (const message of messages) {
-      for (const domainEvent of ingestPiEvent(this.ingest, {
-        type: "message_end",
-        message,
-      } as Parameters<typeof ingestPiEvent>[1])) {
-        this.transcript = reduceTranscript(this.transcript, domainEvent);
-        this.bus.append(domainEvent);
+    try {
+      const { messages } = await this.pi.getMessages();
+      for (const message of messages) {
+        for (const domainEvent of ingestPiEvent(this.ingest, {
+          type: "message_end",
+          message,
+        } as Parameters<typeof ingestPiEvent>[1])) {
+          this.transcript = reduceTranscript(this.transcript, domainEvent);
+          this.bus.append(domainEvent);
+        }
       }
+    } finally {
+      const queued = this.seedGate ?? [];
+      this.seedGate = null;
+      for (const piEvent of queued) this.applyPiEvent(piEvent);
     }
   }
 
@@ -204,17 +234,32 @@ export class ManagedSession {
     await this.pi.abort();
   }
 
-  respondToUiRequest(response: Record<string, unknown>): void {
+  /**
+   * Answer an extension UI request. The client's payload is NOT forwarded
+   * raw: the id must match an open request and the response is rebuilt here
+   * in the exact typed shape pi expects (RpcExtensionUIResponse).
+   */
+  respondToUiRequest(raw: Record<string, unknown>): void {
+    const id = raw.id;
+    if (typeof id !== "string" || !this.pendingUiRequests.has(id)) {
+      throw new Error("no open extension UI request with that id");
+    }
+    let response: { type: "extension_ui_response"; id: string } & Record<string, unknown>;
+    if (raw.cancelled === true) {
+      response = { type: "extension_ui_response", id, cancelled: true };
+    } else if (typeof raw.confirmed === "boolean") {
+      response = { type: "extension_ui_response", id, confirmed: raw.confirmed };
+    } else if (typeof raw.value === "string") {
+      response = { type: "extension_ui_response", id, value: raw.value };
+    } else {
+      throw new Error("ui response must carry cancelled, confirmed, or a string value");
+    }
+    this.pendingUiRequests.delete(id);
     this.pi.respondToUiRequest(response as Parameters<PiSession["respondToUiRequest"]>[0]);
     // The card is answered from the transcript's point of view immediately.
-    if (typeof response.id === "string") {
-      const domainEvent = {
-        type: "question_answered",
-        cellId: `question-${response.id}`,
-      } as const;
-      this.transcript = reduceTranscript(this.transcript, domainEvent);
-      this.bus.append(domainEvent);
-    }
+    const domainEvent = { type: "question_answered", cellId: `question-${id}` } as const;
+    this.transcript = reduceTranscript(this.transcript, domainEvent);
+    this.bus.append(domainEvent);
   }
 
   async getCommands(): Promise<Awaited<ReturnType<PiSession["getCommands"]>>> {
@@ -238,10 +283,14 @@ export class ManagedSession {
 
 export class SessionManager {
   private readonly sessions = new Map<string, ManagedSession>();
+  /** In-flight resumes by session id — double-resume returns the same promise. */
+  private readonly resuming = new Map<string, Promise<ManagedSession>>();
 
   constructor(
     private readonly receipts: ReceiptBus,
     private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
+    /** Provider-registration extensions — the ONLY ones helper launches load. */
+    private readonly helperExtensions: () => string[] | undefined = () => undefined,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -251,30 +300,55 @@ export class SessionManager {
       createdAt: new Date().toISOString(),
       projectId: options.projectId,
       agentName: options.agentName,
+      launchPlan: options.plan,
     };
     return this.launch(meta, options.plan, options.env);
   }
 
   /**
-   * Relaunch a persisted session against its pi session file and rebuild the
-   * transcript from pi's canonical history before any live events.
+   * Relaunch a persisted session against its pi session file, with the SAME
+   * launch shape it was created with, rebuilding the transcript from pi's
+   * canonical history before any live events. Concurrent resumes of the same
+   * id share one relaunch.
    */
   async resume(
     meta: SessionMeta,
-    plan: LaunchPlan,
+    fallbackPlan: LaunchPlan,
     env?: Record<string, string | undefined>,
   ): Promise<ManagedSession> {
-    const revived: SessionMeta = { ...meta, endedAt: undefined };
-    const session = this.launch(revived, plan, env);
-    await session.seedFromHistory();
-    this.onMetaChange(revived);
-    return session;
+    const inFlight = this.resuming.get(meta.id);
+    if (inFlight) return await inFlight;
+
+    const original = (meta.launchPlan as LaunchPlan | undefined) ?? fallbackPlan;
+    let plan: LaunchPlan;
+    if (original.kind === "agent") {
+      plan = { ...original, sessionDir: undefined, resumeSessionPath: meta.piSessionFile };
+    } else if (original.kind === "parent") {
+      plan = { ...original, resumeSessionPath: meta.piSessionFile };
+    } else {
+      plan = original;
+    }
+
+    const task = (async () => {
+      const revived: SessionMeta = { ...meta, endedAt: undefined };
+      const session = this.launch(revived, plan, env, { holdLive: true });
+      await session.seedFromHistory();
+      this.onMetaChange(revived);
+      return session;
+    })();
+    this.resuming.set(meta.id, task);
+    try {
+      return await task;
+    } finally {
+      this.resuming.delete(meta.id);
+    }
   }
 
   private launch(
     meta: SessionMeta,
     plan: LaunchPlan,
     env?: Record<string, string | undefined>,
+    options?: { holdLive?: boolean },
   ): ManagedSession {
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
@@ -285,11 +359,13 @@ export class SessionManager {
     const helperContext = {
       provider: plan.provider,
       model: plan.model,
-      // Custom providers register via extensions — the helper needs them too.
-      extensions: "extensions" in plan ? plan.extensions : undefined,
+      // Helpers stay resource-free (launch contract §3) except for
+      // provider-registration extensions, which custom providers require.
+      extensions: this.helperExtensions(),
       env,
     };
     const session = new ManagedSession(meta, pi, this.receipts, this.onMetaChange, helperContext);
+    if (options?.holdLive) session.holdLiveEvents();
     this.sessions.set(meta.id, session);
     pi.start();
     this.receipts.emit("session_created", meta.id);

@@ -53,6 +53,12 @@ export interface SessionMeta {
   piSessionFile?: string;
   /** Set when the pi subprocess exits; absent while live. */
   endedAt?: string;
+  /**
+   * The LaunchPlan this session was created with (opaque here — typed in
+   * pi-host). Persisted so resume relaunches with the same shape: agent
+   * system prompt/tools/skills, project assignments, provider/model.
+   */
+  launchPlan?: unknown;
 }
 
 export type ServerMessage =

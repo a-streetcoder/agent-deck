@@ -42,13 +42,16 @@ export async function startHarness(options?: {
   });
   const tmpHome = mkdtempSync(path.join(tmpdir(), "pi-e2e-home-"));
 
+  const providerExtension = writeMockProviderExtension(mock.baseUrl);
   process.env.AGENT_DECK_TEST = "1";
   process.env.AGENT_DECK_DEFAULT_PROVIDER = MOCK_PROVIDER_ID;
   process.env.AGENT_DECK_DEFAULT_MODEL = MOCK_MODEL_ID;
   process.env.AGENT_DECK_DEFAULT_EXTENSIONS = [
-    writeMockProviderExtension(mock.baseUrl),
+    providerExtension,
     ...(options?.extraExtensions ?? []),
   ].join(path.delimiter);
+  // Helper launches (titles) load ONLY the provider registration.
+  process.env.AGENT_DECK_PROVIDER_EXTENSIONS = providerExtension;
   process.env.AGENT_DECK_PI_ENV = JSON.stringify({
     HOME: tmpHome,
     USERPROFILE: tmpHome,

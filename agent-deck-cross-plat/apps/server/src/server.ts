@@ -7,8 +7,10 @@ import { clientMessageSchema, type ProjectMeta, type ServerMessage } from "@agen
 import {
   computeBuiltinOverride,
   ensureDirs,
+  mergeWithUnmanagedOverrideFields,
   parseAgentFile,
   projectWatchDirs,
+  readAgentOverrides,
   scanAgents,
   scanSkills,
   watchResources,
@@ -31,14 +33,17 @@ import {
   type ManagedSession,
 } from "./SessionManager.ts";
 
+/** Resource names become file/dir names — never let them traverse paths. */
+const RESOURCE_NAME = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "invalid resource name");
+
 const createProjectBody = z.object({
   path: z.string(),
   name: z.string().optional(),
 });
 
 const patchProjectBody = z.object({
-  assignedSkills: z.array(z.string()).optional(),
-  defaultAgentName: z.string().nullable().optional(),
+  assignedSkills: z.array(RESOURCE_NAME).optional(),
+  defaultAgentName: RESOURCE_NAME.nullable().optional(),
 });
 
 const createSessionBody = z.object({
@@ -58,9 +63,6 @@ const createSessionBody = z.object({
 const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "managed_subagent", "ask_user"]);
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
-
-/** Resource names become file/dir names — never let them traverse paths. */
-const RESOURCE_NAME = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "invalid resource name");
 
 const agentEditFields = z.object({
   description: z.string().optional(),
@@ -99,17 +101,23 @@ function asThinkingLevel(value: string | undefined): AgentSessionPlan["thinking"
  * setup) uses these to route UI-created sessions to the mock provider without
  * the UI knowing: AGENT_DECK_DEFAULT_PROVIDER, AGENT_DECK_DEFAULT_MODEL,
  * AGENT_DECK_DEFAULT_EXTENSIONS (path.delimiter-separated),
+ * AGENT_DECK_PROVIDER_EXTENSIONS (provider-registration extensions only —
+ * the ONLY extensions isolated helper launches may load),
  * AGENT_DECK_PI_ENV (JSON object merged into the pi subprocess env).
  */
 function envDefaults(): {
   provider?: string;
   model?: string;
   extensions?: string[];
+  providerExtensions?: string[];
   env?: Record<string, string>;
 } {
   const extensions = process.env.AGENT_DECK_DEFAULT_EXTENSIONS?.split(nodePath.delimiter).filter(
     Boolean,
   );
+  const providerExtensions = process.env.AGENT_DECK_PROVIDER_EXTENSIONS?.split(
+    nodePath.delimiter,
+  ).filter(Boolean);
   let env: Record<string, string> | undefined;
   if (process.env.AGENT_DECK_PI_ENV) {
     try {
@@ -122,6 +130,7 @@ function envDefaults(): {
     provider: process.env.AGENT_DECK_DEFAULT_PROVIDER,
     model: process.env.AGENT_DECK_DEFAULT_MODEL,
     extensions: extensions?.length ? extensions : undefined,
+    providerExtensions: providerExtensions?.length ? providerExtensions : undefined,
     env,
   };
 }
@@ -145,11 +154,15 @@ export interface StartServerOptions {
 export async function startServer(options: StartServerOptions = {}): Promise<AgentDeckServer> {
   const receipts = new ReceiptBus(process.env.AGENT_DECK_TEST === "1");
   const index = new SessionIndex(options.dataDir);
-  const sessions = new SessionManager(receipts, (meta) => {
-    index.upsert(meta);
-    // `broadcast` is initialized during startServer, before any meta changes.
-    broadcast({ type: "session_meta", session: meta });
-  });
+  const sessions = new SessionManager(
+    receipts,
+    (meta) => {
+      index.upsert(meta);
+      // `broadcast` is initialized during startServer, before any meta changes.
+      broadcast({ type: "session_meta", session: meta });
+    },
+    () => envDefaults().providerExtensions,
+  );
   const projects = new ProjectIndex(options.dataDir);
   const fastify = Fastify({ logger: false });
 
@@ -196,7 +209,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           return reply.status(404).send({ error: `unknown builtin agent: ${name}` });
         }
         const base = parseAgentFile(builtinFile, readFileSync(builtinFile, "utf8"), "builtin");
-        writeBuiltinAgentOverride(roots, name, computeBuiltinOverride(base, edit));
+        // Merge: fields this editor doesn't manage (disabled, mcpServers, …)
+        // survive; managed fields are fully recomputed from the form state.
+        const merged = mergeWithUnmanagedOverrideFields(
+          readAgentOverrides(roots)[name],
+          computeBuiltinOverride(base, edit),
+        );
+        writeBuiltinAgentOverride(roots, name, merged);
       } else {
         if (scope === "project" && !roots.projectPath) {
           return reply.status(400).send({ error: "projectId required for project scope" });

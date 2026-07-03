@@ -15,6 +15,8 @@ export { ensureDirs, watchResources } from "./watcher.ts";
 export {
   applyAgentOverride,
   computeBuiltinOverride,
+  EDITABLE_OVERRIDE_KEYS,
+  mergeWithUnmanagedOverrideFields,
   readAgentOverrides,
   writeBuiltinAgentOverride,
   type AgentEdit,

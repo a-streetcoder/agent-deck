@@ -63,6 +63,16 @@ describe("builtin override edit safety", () => {
     expect(settings.subagents).toEqual({ disableBuiltins: false });
   });
 
+  it("refuses to overwrite an existing but malformed settings.json (data-loss guard)", () => {
+    const home = makeHome();
+    const settingsFile = path.join(home, ".pi", "agent", "settings.json");
+    mkdirSync(path.dirname(settingsFile), { recursive: true });
+    writeFileSync(settingsFile, "{ this is not json");
+    expect(() => writeBuiltinAgentOverride({ home }, "coder", { description: "x" })).toThrow();
+    // The broken file is untouched for the user to repair.
+    expect(readFileSync(settingsFile, "utf8")).toBe("{ this is not json");
+  });
+
   it("diffing equal values yields no override; body edits become systemPrompt", () => {
     const home = makeHome();
     const base = scanAgents({ home }).find((a) => a.name === "coder" && a.scope === "builtin")!;
