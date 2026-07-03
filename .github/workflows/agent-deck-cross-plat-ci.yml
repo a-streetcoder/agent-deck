@@ -37,7 +37,11 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm test
-      # Real-pi integration tests. The pinned @earendil-works/pi-coding-agent workspace
-      # dependency provides the actual `pi` binary on PATH during pnpm scripts, so runs
-      # are deterministic, keyless, and need no global install.
+      - run: pnpm --filter @agent-deck/web build
+      - name: Install Playwright chromium
+        run: npx playwright install chromium --with-deps
+        working-directory: agent-deck-cross-plat/e2e
+      # Real-pi integration + e2e tests. The pinned @earendil-works/pi-coding-agent
+      # workspace dependency provides the actual `pi` binary on PATH during pnpm
+      # scripts, so runs are deterministic, keyless, and need no global install.
       - run: pnpm test:pi

@@ -4,9 +4,14 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:pi": "playwright test"
   },
   "devDependencies": {
+    "@agent-deck/domain": "workspace:*",
+    "@agent-deck/server": "workspace:*",
+    "@agent-deck/testkit": "workspace:*",
+    "@playwright/test": "1.53.1",
     "@types/node": "22.15.29"
   }
 }

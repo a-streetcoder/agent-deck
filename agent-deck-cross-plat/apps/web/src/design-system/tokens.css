@@ -1,0 +1,155 @@
+/*
+ * Design tokens as CSS custom properties.
+ * Tailwind (see tailwind.config.ts) references these by var(--*).
+ *
+ * Default :root is the dark theme (matches the macOS app default). A light
+ * variant is exposed via [data-theme="light"]; ThemeProvider sets
+ * data-theme on <html>.
+ */
+
+/* Fonts */
+@font-face {
+  font-family: "Kemco Pixel Bold";
+  src: url("/fonts/KemcoPixelBold.ttf") format("truetype");
+  font-display: swap;
+  font-weight: 700;
+}
+
+:root,
+[data-theme="dark"] {
+  /* Brand accent palette (from design_tokens) */
+  --color-brand-accent: #64d2ff;
+  --color-brand-accent-bright: #9fe2ff;
+  --color-brand-accent-deep: #43a0c7;
+  --color-brand-accent-shadow: #1c414f;
+
+  /* Surfaces */
+  --color-surface: #1e1e20;
+  --color-surface-elevated: #28282b;
+  --color-surface-subtle: #33333a;
+  --color-surface-stroke: #5c5c63;
+
+  /* Semantic aliases used by tailwind.config.ts */
+  --color-primary: var(--color-brand-accent);
+  --color-primary-hover: var(--color-brand-accent-bright);
+  --color-accent: var(--color-brand-accent);
+  /*
+   * Foreground color guaranteed to be readable on top of the accent
+   * fills used by primary buttons, prominent circle buttons, etc.
+   * Dark theme: accent is bright cyan, so we render glyphs/text in
+   * white. The light theme block overrides this with the deepest
+   * variant so we stay legible on the same cyan fill.
+   */
+  --color-accent-foreground: #ffffff;
+
+  /* Text */
+  --color-text-primary: #f5f5f7;
+  --color-text-secondary: #c4c4c8;
+  --color-text-muted: #8e8e93;
+
+  /* Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Role colors */
+  --color-role-assistant: #ba6eee;
+  --color-role-thinking: #8c97e8;
+  --color-role-tool: #dda84e;
+  --color-role-error: #e5746c;
+  --color-role-stderr: #e08ab2;
+  --color-role-status: #7c7c84;
+
+  /* Diff */
+  --color-diff-added: #56c98a;
+  --color-diff-removed: #e5746c;
+
+  /* Source kind tints */
+  --color-source-builtin: #f0a55a;
+  --color-source-library: #be82eb;
+  --color-source-project: #64c882;
+
+  /* Misc */
+  --color-warning: #e5a23a;
+  --color-success: #56c98a;
+  --color-code-block-fill: #1e1e20;
+  --color-quote-bar-fill: #606066;
+  --color-hover-fill: rgba(255, 255, 255, 0.06);
+  --color-selection-fill: rgba(100, 210, 255, 0.22);
+  --color-selection-stroke: rgba(100, 210, 255, 0.32);
+  --color-glass-tint: rgba(100, 210, 255, 0.55);
+
+  /* Typography */
+  --font-pixel: "Kemco Pixel Bold", "Press Start 2P", monospace;
+  /*
+   * Lead with the bundled @fontsource-variable/inter family so Linux
+   * and Windows hosts pick up the embedded webfont before any OS
+   * fallbacks. On macOS the apple-system fallback still kicks in if
+   * Inter Variable hasn't loaded yet.
+   */
+  --font-sans:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI Variable", Inter, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+
+  /* Spacing */
+  --space-gutter: 16px;
+  --space-section: 24px;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 0 rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-capsule: 0 1px 0 rgba(0, 0, 0, 0.2);
+  --shadow-elevated: 0 10px 30px rgba(0, 0, 0, 0.45);
+
+  /* Sidebar width (overridable from uiSlice) */
+  --sidebar-width: 240px;
+}
+
+[data-theme="light"] {
+  --color-surface: #f7f7f8;
+  --color-surface-elevated: #ffffff;
+  --color-surface-subtle: #ececef;
+  --color-surface-stroke: #d1d1d6;
+
+  --color-text-primary: #18181b;
+  --color-text-secondary: #3a3a40;
+  --color-text-muted: #6a6a70;
+
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
+  --color-border-strong: rgba(0, 0, 0, 0.14);
+
+  --color-hover-fill: rgba(0, 0, 0, 0.04);
+  --color-code-block-fill: #f0f0f0;
+  --color-quote-bar-fill: #b4b4b8;
+
+  /*
+   * On the light theme the accent stays bright cyan, so we need a
+   * dark foreground (the deepest brand shadow) to keep button
+   * glyphs/text legible. This overrides the dark default.
+   */
+  --color-accent-foreground: var(--color-brand-accent-shadow);
+}
+
+/*
+ * Keyframes for renderer-side feedback primitives.
+ *
+ * `indeterminate-bar` sweeps a 42%-wide pill across the parent track,
+ * matching the macOS `AppIndeterminateBar` (1.15s easeInOut, infinite,
+ * non-autoreversing). The pill starts off-screen on the left and exits
+ * past the right edge before resetting.
+ */
+@keyframes indeterminate-bar {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
