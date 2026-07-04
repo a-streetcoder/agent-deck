@@ -43,6 +43,14 @@ class JsonArrayStore<T extends { id: string }> {
     this.flush();
   }
 
+  remove(id: string): boolean {
+    const index = this.items.findIndex((existing) => existing.id === id);
+    if (index === -1) return false;
+    this.items.splice(index, 1);
+    this.flush();
+    return true;
+  }
+
   private flush(): void {
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, JSON.stringify(this.items, null, 2));

@@ -44,6 +44,7 @@ const createProjectBody = z.object({
 const patchProjectBody = z.object({
   assignedSkills: z.array(RESOURCE_NAME).optional(),
   defaultAgentName: RESOURCE_NAME.nullable().optional(),
+  enabled: z.boolean().optional(),
 });
 
 const createSessionBody = z.object({
@@ -294,6 +295,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (parsed.data.defaultAgentName !== undefined) {
       next.defaultAgentName = parsed.data.defaultAgentName ?? undefined;
     }
+    if (parsed.data.enabled !== undefined) next.enabled = parsed.data.enabled;
     projects.upsert(next);
     return { project: next };
   });
@@ -333,6 +335,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
     }
+  });
+
+  // "Hide from list" (native): removes the registry entry only — project
+  // files on disk are never touched.
+  fastify.delete("/projects/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!projects.remove(id)) return reply.status(404).send({ error: "unknown project" });
+    return { ok: true };
   });
 
   fastify.get("/sessions", async (request) => {

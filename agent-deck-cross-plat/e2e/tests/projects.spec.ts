@@ -64,3 +64,26 @@ test("adding and switching projects scopes sessions to the project cwd", async (
   await expect(page.getByTestId("user-cell")).toContainText("message for alpha");
   await expect(page.getByTestId("assistant-text")).toContainText("message for alpha");
 });
+
+test("the Projects screen toggles enabled state and hides entries", async ({ page }) => {
+  const name = path.basename(projectB);
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-projects").click();
+
+  const row = page.locator(`[data-project-name="${name}"]`);
+  await expect(row).toBeVisible();
+
+  // Disable: the sidebar entry disappears (enabled filter hides the row too).
+  await page.getByTestId(`project-enabled-${name}`).click();
+  await expect(page.getByTestId(`project-${name}`)).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+  await page.getByTestId("project-filter-disabled").click();
+  await expect(row).toBeVisible();
+
+  // Re-enable, then hide: the registry entry goes away entirely.
+  await page.getByTestId(`project-enabled-${name}`).click();
+  await page.getByTestId("project-filter-all").click();
+  await page.getByTestId(`project-hide-${name}`).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.getByTestId(`project-${name}`)).toHaveCount(0);
+});

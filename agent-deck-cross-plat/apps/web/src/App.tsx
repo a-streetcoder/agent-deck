@@ -3,6 +3,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { Transcript } from "./components/Transcript.tsx";
 import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
+import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { useAppStore } from "./state/store.ts";
 
@@ -57,7 +58,13 @@ export function App() {
               className="text-sm font-semibold text-text-primary"
               style={{ fontStretch: "expanded" }}
             >
-              {isChat ? (session?.title ?? "Pi Agent") : view === "agents" ? "Agents" : "Skills"}
+              {isChat
+                ? (session?.title ?? "Pi Agent")
+                : view === "agents"
+                  ? "Agents"
+                  : view === "skills"
+                    ? "Skills"
+                    : "Projects"}
             </h1>
             {session && isChat ? (
               <span
@@ -110,7 +117,13 @@ export function App() {
           {/* Other screens: mount on demand, slide in on the same curve. */}
           {!isChat ? (
             <div className="detail-enter absolute inset-0 flex flex-col overflow-hidden">
-              {view === "agents" ? <AgentsScreen /> : <SkillsScreen />}
+              {view === "agents" ? (
+                <AgentsScreen />
+              ) : view === "skills" ? (
+                <SkillsScreen />
+              ) : (
+                <ProjectsScreen />
+              )}
             </div>
           ) : null}
         </main>

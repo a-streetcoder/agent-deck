@@ -20,6 +20,7 @@ import {
 
 const NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "chat", label: "Pi Agent", icon: Send },
+  { id: "projects", label: "Projects", icon: Folder },
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
 ];
@@ -122,26 +123,28 @@ export function Sidebar() {
                 />
                 <span style={{ fontStretch: "expanded" }}>Default</span>
               </button>
-              {projects.map((project) => (
-                <button
-                  key={project.id}
-                  className={rowClass(currentProjectId === project.id)}
-                  title={project.path}
-                  data-testid={`project-${project.name}`}
-                  onClick={() => void switchToProject(project.id)}
-                >
-                  <Folder
-                    size={15}
-                    style={{
-                      color:
-                        currentProjectId === project.id ? "var(--color-brand-accent)" : undefined,
-                    }}
-                  />
-                  <span className="truncate" style={{ fontStretch: "expanded" }}>
-                    {project.name}
-                  </span>
-                </button>
-              ))}
+              {projects
+                .filter((project) => project.enabled !== false)
+                .map((project) => (
+                  <button
+                    key={project.id}
+                    className={rowClass(currentProjectId === project.id)}
+                    title={project.path}
+                    data-testid={`project-${project.name}`}
+                    onClick={() => void switchToProject(project.id)}
+                  >
+                    <Folder
+                      size={15}
+                      style={{
+                        color:
+                          currentProjectId === project.id ? "var(--color-brand-accent)" : undefined,
+                      }}
+                    />
+                    <span className="truncate" style={{ fontStretch: "expanded" }}>
+                      {project.name}
+                    </span>
+                  </button>
+                ))}
               {adding ? (
                 <div className="space-y-1.5 px-1 pt-1">
                   <input

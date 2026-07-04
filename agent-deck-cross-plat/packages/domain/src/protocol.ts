@@ -50,6 +50,8 @@ export interface ProjectMeta {
   assignedSkills?: string[];
   /** Agent preselected when switching to this project. */
   defaultAgentName?: string;
+  /** Disabled projects are hidden from the sidebar and session creation. */
+  enabled?: boolean;
 }
 
 export interface SessionMeta {
