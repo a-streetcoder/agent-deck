@@ -17,9 +17,11 @@ import {
   writeAgentFile,
   writeBuiltinAgentOverride,
   writeSkillFile,
+  scanEnv,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
+import { runDoctor } from "@agent-deck/pi-host";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -248,6 +250,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     broadcast({ type: "resources_changed" });
     return { ok: true };
   });
+
+  // Runtime screens: masked env inspector and the doctor health probe.
+  fastify.get("/runtime/env", async (request) => {
+    const { projectId } = request.query as { projectId?: string };
+    return { entries: scanEnv(rootsFor(projectId)) };
+  });
+
+  fastify.get("/runtime/doctor", async () => ({ report: await runDoctor(resourceHome()) }));
 
   fastify.get("/settings", async () => ({ settings: settings.get() }));
 

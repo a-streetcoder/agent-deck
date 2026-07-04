@@ -8,7 +8,7 @@ import { create } from "zustand";
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
-export type AppView = "chat" | "agents" | "skills" | "projects";
+export type AppView = "chat" | "agents" | "skills" | "projects" | "environment" | "doctor";
 
 export interface AppState {
   connection: ConnectionStatus;

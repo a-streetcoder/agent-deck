@@ -4,6 +4,7 @@ import { Transcript } from "./components/Transcript.tsx";
 import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
+import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { useAppStore } from "./state/store.ts";
 
@@ -16,6 +17,14 @@ import { useAppStore } from "./state/store.ts";
  */
 const DETAIL_MOVE = "transform 340ms cubic-bezier(0.3, 1.04, 0.4, 1)";
 const DETAIL_FADE = "opacity 200ms ease-out";
+
+const VIEW_TITLES: Record<string, string> = {
+  agents: "Agents",
+  skills: "Skills",
+  projects: "Projects",
+  environment: "Environment",
+  doctor: "Doctor",
+};
 
 function ChatColumn() {
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
@@ -58,13 +67,7 @@ export function App() {
               className="text-sm font-semibold text-text-primary"
               style={{ fontStretch: "expanded" }}
             >
-              {isChat
-                ? (session?.title ?? "Pi Agent")
-                : view === "agents"
-                  ? "Agents"
-                  : view === "skills"
-                    ? "Skills"
-                    : "Projects"}
+              {isChat ? (session?.title ?? "Pi Agent") : VIEW_TITLES[view]}
             </h1>
             {session && isChat ? (
               <span
@@ -121,8 +124,12 @@ export function App() {
                 <AgentsScreen />
               ) : view === "skills" ? (
                 <SkillsScreen />
-              ) : (
+              ) : view === "projects" ? (
                 <ProjectsScreen />
+              ) : view === "environment" ? (
+                <EnvironmentScreen />
+              ) : (
+                <DoctorScreen />
               )}
             </div>
           ) : null}

@@ -23,3 +23,4 @@ export {
   type AgentOverride,
 } from "./overrides.ts";
 export { writeAgentFile, writeSkillFile, type WritableScope } from "./writer.ts";
+export { scanEnv, type EnvEntry } from "./env.ts";

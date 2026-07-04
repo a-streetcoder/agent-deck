@@ -8,6 +8,7 @@ export {
   type PiInboundEvent,
   type PiSessionOptions,
 } from "./PiSession.ts";
+export { runDoctor, type CheckStatus, type DoctorReport, type HealthCheck } from "./doctor.ts";
 export {
   buildLaunchArgs,
   type AgentSessionPlan,

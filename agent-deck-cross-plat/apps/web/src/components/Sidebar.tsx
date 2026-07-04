@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Folder, Plus, Send, WandSparkles } from "lucide-react";
+import { Folder, Key, Plus, Send, Stethoscope, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAppStore, type AppView } from "../state/store.ts";
 import { addProject, switchToProject } from "../state/wsBridge.ts";
@@ -18,11 +18,16 @@ import {
  * CodingAgentPanelLayers.
  */
 
-const NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
+const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "chat", label: "Pi Agent", icon: Send },
   { id: "projects", label: "Projects", icon: Folder },
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
+];
+
+const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
+  { id: "environment", label: "Environment", icon: Key },
+  { id: "doctor", label: "Doctor", icon: Stethoscope },
 ];
 
 export function Sidebar() {
@@ -88,7 +93,7 @@ export function Sidebar() {
           <div className="min-h-0 flex-1 overflow-y-auto pb-2">
             {sectionHeader("Workspace")}
             <nav className="space-y-0.5 px-2">
-              {NAV.map((item) => {
+              {WORKSPACE_NAV.map((item) => {
                 const Icon = item.icon;
                 const active = view === item.id;
                 return (
@@ -178,6 +183,28 @@ export function Sidebar() {
                   <span style={{ fontStretch: "expanded" }}>Add project</span>
                 </button>
               )}
+            </nav>
+
+            {sectionHeader("Runtime")}
+            <nav className="space-y-0.5 px-2">
+              {RUNTIME_NAV.map((item) => {
+                const Icon = item.icon;
+                const active = view === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    className={rowClass(active)}
+                    data-testid={`nav-${item.id}`}
+                    onClick={() => setView(item.id)}
+                  >
+                    <Icon
+                      size={15}
+                      style={{ color: active ? "var(--color-brand-accent)" : undefined }}
+                    />
+                    <span style={{ fontStretch: "expanded" }}>{item.label}</span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
           <SessionsCollapsedCard onExpand={() => setPanelExpanded(true)} />
