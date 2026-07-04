@@ -23,17 +23,20 @@ function Switch({
   checked,
   onChange,
   testid,
+  disabled,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   testid: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
       data-testid={testid}
-      className="relative h-5 w-9 rounded-capsule transition-colors"
+      disabled={disabled}
+      className="relative h-5 w-9 rounded-capsule transition-colors disabled:opacity-40"
       style={{
         background: checked ? "var(--color-brand-accent)" : "var(--color-surface-subtle)",
         border: "1px solid var(--color-border-strong)",
@@ -233,15 +236,20 @@ export function ProjectsScreen() {
                   title="Assigned skills"
                   count={project.assignedSkills?.length ?? 0}
                 />
-                <Switch
-                  checked={enabled}
-                  testid={`project-enabled-${project.name}`}
-                  onChange={(next) => void updateProject(project.id, { enabled: next })}
-                />
+                {/* The active session's project can't be disabled or hidden. */}
+                <span title={active ? "Can't change the active project" : undefined}>
+                  <Switch
+                    checked={enabled}
+                    disabled={active}
+                    testid={`project-enabled-${project.name}`}
+                    onChange={(next) => void updateProject(project.id, { enabled: next })}
+                  />
+                </span>
                 <button
                   data-testid={`project-hide-${project.name}`}
-                  className="rounded-capsule p-1.5 text-text-muted hover:text-[var(--color-role-error)]"
-                  title="Hide from list"
+                  className="rounded-capsule p-1.5 text-text-muted hover:text-[var(--color-role-error)] disabled:opacity-30 disabled:hover:text-text-muted"
+                  title={active ? "Can't hide the active project" : "Hide from list"}
+                  disabled={active}
                   onClick={() => void hide(project)}
                 >
                   <EyeOff size={14} />

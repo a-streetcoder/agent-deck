@@ -66,7 +66,17 @@ test("adding and switching projects scopes sessions to the project cwd", async (
 });
 
 test("the Projects screen toggles enabled state and hides entries", async ({ page }) => {
-  const name = path.basename(projectB);
+  // A dedicated project that never hosts a session, so hide (which is refused
+  // for a project with a live session) is unconditionally allowed.
+  const projectC = mkdtempSync(path.join(tmpdir(), "proj-gamma-"));
+  const name = path.basename(projectC);
+  const response = await fetch(`${harness.baseUrl}/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path: projectC }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-projects").click();
 
@@ -80,7 +90,9 @@ test("the Projects screen toggles enabled state and hides entries", async ({ pag
   await page.getByTestId("project-filter-disabled").click();
   await expect(row).toBeVisible();
 
-  // Re-enable, then hide: the registry entry goes away entirely.
+  // Re-enable from the disabled view (B isn't shown under the enabled
+  // filter while disabled), then hide it. B is not the active project on a
+  // fresh load (bootstrap selects Default), so hide is allowed.
   await page.getByTestId(`project-enabled-${name}`).click();
   await page.getByTestId("project-filter-all").click();
   await page.getByTestId(`project-hide-${name}`).click();

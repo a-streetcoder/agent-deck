@@ -104,9 +104,26 @@ export class SettingsStore {
 
   update(patch: Partial<AppSettings>): AppSettings {
     this.settings = { ...this.settings, ...patch };
+    this.flush();
+    return this.settings;
+  }
+
+  /**
+   * Atomic membership ops — computed against CURRENT state so concurrent
+   * clients can't clobber each other with stale whole-array replacements.
+   */
+  setDefaultSkill(name: string, enabled: boolean): AppSettings {
+    const next = new Set(this.settings.defaultSkills);
+    if (enabled) next.add(name);
+    else next.delete(name);
+    this.settings = { ...this.settings, defaultSkills: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  private flush(): void {
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, JSON.stringify(this.settings, null, 2));
     renameSync(tmp, this.file);
-    return this.settings;
   }
 }

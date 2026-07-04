@@ -253,13 +253,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   fastify.patch("/settings", async (request, reply) => {
     const parsed = z
-      .object({ defaultSkills: z.array(RESOURCE_NAME).optional() })
+      .object({
+        defaultSkills: z.array(RESOURCE_NAME).optional(),
+        /** Atomic membership op — preferred over whole-array replacement. */
+        setDefaultSkill: z.object({ name: RESOURCE_NAME, enabled: z.boolean() }).optional(),
+      })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    if (parsed.data.setDefaultSkill) {
+      const { name, enabled } = parsed.data.setDefaultSkill;
+      return { settings: settings.setDefaultSkill(name, enabled) };
+    }
     return { settings: settings.update(parsed.data) };
   });
 
-  fastify.get("/projects", async () => ({ projects: projects.list() }));
+  fastify.get("/projects", async () => ({
+    projects: projects.list().filter((p) => !p.hidden),
+  }));
 
   fastify.post("/projects", async (request, reply) => {
     const parsed = createProjectBody.safeParse(request.body);
@@ -270,9 +280,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
       return reply.status(400).send({ error: `not a directory: ${projectPath}` });
     }
-    // Idempotent by path: re-adding an existing project returns it.
+    // Idempotent by path: re-adding an existing (possibly hidden) project
+    // returns it with its metadata intact — hide is never data loss.
     const existing = projects.find((p) => p.path === projectPath);
-    if (existing) return reply.status(200).send({ project: existing });
+    if (existing) {
+      if (existing.hidden) {
+        const restored = { ...existing, hidden: false };
+        projects.upsert(restored);
+        return reply.status(200).send({ project: restored });
+      }
+      return reply.status(200).send({ project: existing });
+    }
     const project: ProjectMeta = {
       id: randomUUID(),
       path: projectPath,
@@ -337,11 +355,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
   });
 
-  // "Hide from list" (native): removes the registry entry only — project
-  // files on disk are never touched.
+  // "Hide from list" (native): soft-hide — metadata and session links are
+  // preserved and re-adding the same path restores them. The project hosting
+  // a LIVE session can't be hidden.
   fastify.delete("/projects/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!projects.remove(id)) return reply.status(404).send({ error: "unknown project" });
+    const project = projects.find((p) => p.id === id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    const hasLiveSession = sessions.list().some((s) => s.projectId === id && !s.endedAt);
+    if (hasLiveSession) {
+      return reply.status(409).send({ error: "project has a live session" });
+    }
+    projects.upsert({ ...project, hidden: true });
     return { ok: true };
   });
 
@@ -416,7 +441,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       const project = body.projectId ? projects.find((p) => p.id === body.projectId) : undefined;
       const names = [...settings.get().defaultSkills, ...(project?.assignedSkills ?? [])];
       if (names.length > 0) {
+        // scanSkills lists global catalogs first and the project catalog
+        // last; the Map keeps the LAST entry per name, so a project skill
+        // deliberately wins a name collision with a global one.
         const skillsByName = new Map(scanSkills(rootsFor(body.projectId)).map((s) => [s.name, s]));
+        const missing = [...new Set(names)].filter((name) => !skillsByName.has(name));
+        if (missing.length > 0) {
+          fastify.log.warn({ missing }, "assigned skills not found in catalog");
+        }
         const paths = [...new Set(names)]
           .map((name) => skillsByName.get(name)?.baseDir)
           .filter((p): p is string => Boolean(p));

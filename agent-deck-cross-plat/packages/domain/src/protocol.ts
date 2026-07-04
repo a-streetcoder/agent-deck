@@ -52,6 +52,12 @@ export interface ProjectMeta {
   defaultAgentName?: string;
   /** Disabled projects are hidden from the sidebar and session creation. */
   enabled?: boolean;
+  /**
+   * "Hide from list": the entry disappears everywhere but its metadata
+   * (assignments, default agent, session links) is preserved; re-adding the
+   * same path un-hides it.
+   */
+  hidden?: boolean;
 }
 
 export interface SessionMeta {

@@ -218,9 +218,10 @@ function AssignmentCard({ skill }: { skill: SkillInfo }) {
     }
   }, []);
 
+  // Refetch when the selected skill changes so another tab's edits show up.
   useEffect(() => {
     void refreshSettings();
-  }, [refreshSettings]);
+  }, [refreshSettings, skill.name]);
 
   const allProjects = defaultSkills.includes(skill.name);
 
@@ -229,10 +230,12 @@ function AssignmentCard({ skill }: { skill: SkillInfo }) {
     if (enabled) next.add(skill.name);
     else next.delete(skill.name);
     setDefaultSkills([...next]); // optimistic — checkbox must flip immediately
+    // Atomic membership op: the server computes against CURRENT state, so
+    // concurrent edits to other skills can't be clobbered.
     await fetch("/settings", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ defaultSkills: [...next] }),
+      body: JSON.stringify({ setDefaultSkill: { name: skill.name, enabled } }),
     }).catch(() => {});
     await refreshSettings();
   };
