@@ -43,6 +43,7 @@ function AgentRow({
     <div
       className={cn(
         "group flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 transition-colors",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-accent)]",
         selected
           ? "border-[var(--color-selection-stroke)] bg-[var(--color-selection-fill)]"
           : "border-transparent hover:bg-[var(--color-hover-fill)]",
@@ -50,7 +51,16 @@ function AgentRow({
       )}
       data-testid="agent-row"
       data-agent-name={agent.name}
+      role="option"
+      aria-selected={selected}
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <AgentAvatar agent={agent} />
       <div className="min-w-0 flex-1">
@@ -77,17 +87,20 @@ function AgentRow({
           <div className="line-clamp-2 text-xs text-text-secondary">{agent.description}</div>
         ) : null}
       </div>
-      {/* Hover-reveal Edit pill (native AgentListRow). */}
-      <button
-        data-testid={`agent-row-edit-${agent.name}`}
-        className="rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
-        onClick={(event) => {
-          event.stopPropagation();
-          onEdit();
-        }}
-      >
-        Edit
-      </button>
+      {/* Hover-reveal Edit pill (native AgentListRow). Library agents are
+          read-only catalog entries — no writable target exists for them. */}
+      {agent.scope !== "library" ? (
+        <button
+          data-testid={`agent-row-edit-${agent.name}`}
+          className="rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary opacity-0 transition-opacity hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit();
+          }}
+        >
+          Edit
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -162,19 +175,21 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
               {isDefault ? "project default" : "make default"}
             </button>
           ) : null}
-          <button
-            data-testid="agent-edit"
-            className="flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
-            style={{
-              background:
-                "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
-              color: "var(--color-accent-foreground)",
-            }}
-            onClick={onEdit}
-          >
-            <Pencil size={12} />
-            Edit
-          </button>
+          {agent.scope !== "library" ? (
+            <button
+              data-testid="agent-edit"
+              className="flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
+              style={{
+                background:
+                  "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                color: "var(--color-accent-foreground)",
+              }}
+              onClick={onEdit}
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -287,7 +302,11 @@ export function AgentsScreen() {
             ))}
           </div>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-4">
+        <div
+          className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-4"
+          role="listbox"
+          aria-label="Agents"
+        >
           {SECTION_ORDER.map(({ scope, title, hint }) => {
             const sectionAgents = visible.filter((agent) => agent.scope === scope);
             if (sectionAgents.length === 0) return null;

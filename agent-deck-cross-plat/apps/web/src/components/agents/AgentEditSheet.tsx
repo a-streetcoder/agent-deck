@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { AgentInfo, ResourceScope } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
@@ -45,6 +45,66 @@ export function AgentEditSheet({
   const [body, setBody] = useState(agent?.body ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Snapshot of the managed fields at open time — used both for dirty
+  // detection (backdrop/Escape only dismiss when clean) and for the
+  // conflict check before save.
+  const initial = useRef({
+    description: agent?.description ?? "",
+    whenToUse: agent?.whenToUse ?? "",
+    model: agent?.model ?? "",
+    thinking: agent?.thinking ?? "",
+    mode: agent?.systemPromptMode ?? "replace",
+    tools: (agent?.tools ?? []).join(", "),
+    skills: (agent?.skills ?? []).join(", "),
+    body: agent?.body ?? "",
+  }).current;
+  const dirty =
+    description !== initial.description ||
+    whenToUse !== initial.whenToUse ||
+    model !== initial.model ||
+    thinking !== initial.thinking ||
+    mode !== initial.mode ||
+    tools !== initial.tools ||
+    skills !== initial.skills ||
+    body !== initial.body ||
+    (!agent && name.trim() !== "");
+
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  // Modal keyboard behavior: initial focus, Escape (when clean), focus trap.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusables = (): HTMLElement[] =>
+      [...dialog.querySelectorAll<HTMLElement>("button, input, select, textarea")].filter(
+        (el) => !el.hasAttribute("disabled"),
+      );
+    focusables()[1]?.focus(); // first field after the close button
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && !dirtyRef.current) {
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", onKeyDown);
+    return () => dialog.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const isBuiltin = agent?.scope === "builtin";
   const parseList = (value: string): string[] =>
@@ -57,6 +117,31 @@ export function AgentEditSheet({
     setSaving(true);
     setError(null);
     try {
+      if (agent) {
+        // Conflict guard: the sheet sends complete form state, so refuse to
+        // save when the agent changed on disk since the sheet opened.
+        const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
+        const response = await fetch(`/resources/agents${query}`);
+        if (response.ok) {
+          const { agents } = (await response.json()) as { agents: AgentInfo[] };
+          const live = agents.find((a) => a.name === agent.name && a.scope === agent.scope);
+          if (
+            live &&
+            ((live.description ?? "") !== initial.description ||
+              (live.whenToUse ?? "") !== initial.whenToUse ||
+              (live.model ?? "") !== initial.model ||
+              (live.thinking ?? "") !== initial.thinking ||
+              live.systemPromptMode !== initial.mode ||
+              (live.tools ?? []).join(", ") !== initial.tools ||
+              (live.skills ?? []).join(", ") !== initial.skills ||
+              live.body !== initial.body)
+          ) {
+            throw new Error(
+              "This agent changed on disk while you were editing. Close the editor and reopen it to avoid overwriting those changes.",
+            );
+          }
+        }
+      }
       const response = await fetch("/resources/agents", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -89,10 +174,13 @@ export function AgentEditSheet({
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-8"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        // Backdrop dismisses only while the form is clean — a stray press
+        // must never discard edits (Cancel is the explicit path).
+        if (event.target === event.currentTarget && !dirty) onClose();
       }}
     >
       <div
+        ref={dialogRef}
         className="flex max-h-[85vh] w-[560px] flex-col rounded-2xl border border-border-strong bg-surface-elevated shadow-elevated"
         data-testid="agent-editor"
         role="dialog"
