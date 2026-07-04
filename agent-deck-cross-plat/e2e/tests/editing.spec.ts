@@ -110,8 +110,10 @@ test("editing a skill updates its SKILL.md without losing the body", async ({ pa
   const row = page.locator('[data-skill-name="changelog"]');
   await expect(row).toBeVisible();
 
-  // Re-open and change only the description: the body must survive.
+  // Re-open via the detail pane and change only the description: the body
+  // must survive.
   await row.click();
+  await page.getByTestId("skill-edit").click();
   await expect(page.getByTestId("skill-editor-body")).toHaveValue("How to write a changelog.");
   await page.getByTestId("skill-editor-description").fill("Write excellent changelogs");
   await page.getByTestId("skill-editor-save").click();

@@ -19,6 +19,8 @@ export interface E2eHarness {
   server: AgentDeckServer;
   mock: MockProviderServer;
   baseUrl: string;
+  /** The hermetic HOME the pi subprocesses (and resource scanner) use. */
+  piHome: string;
   close(): Promise<void>;
 }
 
@@ -67,6 +69,7 @@ export async function startHarness(options?: {
     server,
     mock,
     baseUrl: `http://127.0.0.1:${server.port}`,
+    piHome: tmpHome,
     close: async () => {
       await server.close();
       await mock.close();

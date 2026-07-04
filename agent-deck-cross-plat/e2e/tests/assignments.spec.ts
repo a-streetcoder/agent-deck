@@ -54,9 +54,10 @@ test("assigning a skill in the UI injects /skill:<name> into new sessions", asyn
   await page.getByTestId(`project-${path.basename(project)}`).click();
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
 
-  // Assign via the Skills screen checkbox.
+  // Assign via the detail pane's per-project checkbox row.
   await page.getByTestId("nav-skills").click();
-  const checkbox = page.getByTestId("assign-skill-tidy-commits");
+  await page.locator('[data-skill-name="tidy-commits"]').click();
+  const checkbox = page.getByTestId(`assign-skill-tidy-commits-${path.basename(project)}`);
   await checkbox.check();
   await expect(checkbox).toBeChecked();
 
@@ -84,6 +85,48 @@ test("assigning a skill in the UI injects /skill:<name> into new sessions", asyn
       { timeout: 30_000 },
     )
     .toContain("skill:tidy-commits");
+});
+
+test("an All-Projects (default) skill reaches sessions of every project", async ({ page }) => {
+  // A GLOBAL skill in the hermetic pi home.
+  const globalSkillDir = path.join(harness.piHome, ".pi", "agent", "skills", "sign-offs");
+  mkdirSync(globalSkillDir, { recursive: true });
+  writeFileSync(
+    path.join(globalSkillDir, "SKILL.md"),
+    "---\nname: sign-offs\ndescription: Sign every message\n---\n\nHow to sign off.\n",
+  );
+
+  await page.goto(harness.baseUrl);
+  // Enable it for All Projects from the Skills detail pane (Default context).
+  await page.getByTestId("nav-skills").click();
+  await page.locator('[data-skill-name="sign-offs"]').click();
+  const allProjects = page.getByTestId("assign-skill-all-sign-offs");
+  await allProjects.check();
+  await expect(allProjects).toBeChecked();
+
+  // A fresh session for the registered project (NOT the default context)
+  // must load it: pi's get_commands shows /skill:sign-offs.
+  const id = await projectId();
+  const created = await fetch(`${harness.baseUrl}/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: id }),
+  });
+  expect(created.status).toBe(201);
+  const { session } = (await created.json()) as { session: SessionMeta };
+  await expect
+    .poll(
+      async () => {
+        const response = await fetch(`${harness.baseUrl}/sessions/${session.id}/commands`);
+        if (!response.ok) return [];
+        const { commands } = (await response.json()) as {
+          commands: Array<{ name: string; source: string }>;
+        };
+        return commands.filter((c) => c.source === "skill").map((c) => c.name);
+      },
+      { timeout: 30_000 },
+    )
+    .toContain("skill:sign-offs");
 });
 
 test("the project default agent is auto-selected on switch", async ({ page }) => {

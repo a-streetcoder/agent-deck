@@ -24,7 +24,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
-import { ProjectIndex, SessionIndex } from "./persistence.ts";
+import { ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
 import {
   SessionManager,
@@ -164,6 +164,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     () => envDefaults().providerExtensions,
   );
   const projects = new ProjectIndex(options.dataDir);
+  const settings = new SettingsStore(options.dataDir);
   const fastify = Fastify({ logger: false });
 
   if (options.staticDir) {
@@ -245,6 +246,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };
+  });
+
+  fastify.get("/settings", async () => ({ settings: settings.get() }));
+
+  fastify.patch("/settings", async (request, reply) => {
+    const parsed = z
+      .object({ defaultSkills: z.array(RESOURCE_NAME).optional() })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    return { settings: settings.update(parsed.data) };
   });
 
   fastify.get("/projects", async () => ({ projects: projects.list() }));
@@ -384,19 +395,22 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const model = body.model ?? defaults.model;
     const extensions = body.extensions ?? defaults.extensions;
 
-    // Project skill assignments become explicit --skill paths on parent
-    // sessions (pi-rpc-launch-flags.md §1). Applied at session creation; an
-    // already-running session keeps its flags until relaunched.
+    // Default + project skill assignments become explicit --skill paths on
+    // parent sessions (pi-rpc-launch-flags.md §1: "Default + current Project
+    // skill assignments"). Applied at session creation; a running session
+    // keeps its flags until relaunched.
     // CONTRACT GAP: bridge/audit/web extensions and APPEND_SYSTEM.md
     // preservation are still missing here (M2).
     let assignedSkillPaths: string[] | undefined;
-    if (body.projectId) {
-      const project = projects.find((p) => p.id === body.projectId);
-      if (project?.assignedSkills?.length) {
+    {
+      const project = body.projectId ? projects.find((p) => p.id === body.projectId) : undefined;
+      const names = [...settings.get().defaultSkills, ...(project?.assignedSkills ?? [])];
+      if (names.length > 0) {
         const skillsByName = new Map(scanSkills(rootsFor(body.projectId)).map((s) => [s.name, s]));
-        assignedSkillPaths = project.assignedSkills
+        const paths = [...new Set(names)]
           .map((name) => skillsByName.get(name)?.baseDir)
           .filter((p): p is string => Boolean(p));
+        if (paths.length > 0) assignedSkillPaths = paths;
       }
     }
 

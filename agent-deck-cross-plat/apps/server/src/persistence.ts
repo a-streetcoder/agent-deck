@@ -61,3 +61,44 @@ export class ProjectIndex extends JsonArrayStore<ProjectMeta> {
     super(dataDir, "projects.json");
   }
 }
+
+export interface AppSettings {
+  /** Skills injected into EVERY project's parent sessions ("All Projects"). */
+  defaultSkills: string[];
+}
+
+/** App-level settings (app-settings.json), atomic writes like the indexes. */
+export class SettingsStore {
+  private readonly file: string;
+  private settings: AppSettings = { defaultSkills: [] };
+
+  constructor(dataDir: string = defaultDataDir()) {
+    this.file = path.join(dataDir, "app-settings.json");
+    mkdirSync(dataDir, { recursive: true });
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(this.file, "utf8"));
+      if (typeof parsed === "object" && parsed !== null) {
+        const record = parsed as Partial<AppSettings>;
+        this.settings = {
+          defaultSkills: Array.isArray(record.defaultSkills)
+            ? record.defaultSkills.map(String)
+            : [],
+        };
+      }
+    } catch {
+      // Missing or corrupt — defaults apply.
+    }
+  }
+
+  get(): AppSettings {
+    return this.settings;
+  }
+
+  update(patch: Partial<AppSettings>): AppSettings {
+    this.settings = { ...this.settings, ...patch };
+    const tmp = `${this.file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(this.settings, null, 2));
+    renameSync(tmp, this.file);
+    return this.settings;
+  }
+}
