@@ -222,7 +222,36 @@ const PURIFY_ALLOWED_ATTR = [
   "disabled",
 ];
 
+/**
+ * `style` is only needed for shiki's inline token colours. Restrict it to a
+ * narrow property allowlist so raw markdown HTML can't smuggle arbitrary CSS
+ * (overlay/redress tricks) through sanitization.
+ */
+const STYLE_PROPERTY_ALLOWLIST = new Set([
+  "color",
+  "background-color",
+  "font-style",
+  "font-weight",
+  "text-decoration",
+]);
+
+let purifyHooksInstalled = false;
+function installPurifyHooks(): void {
+  if (purifyHooksInstalled) return;
+  purifyHooksInstalled = true;
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (!(node instanceof Element) || !node.hasAttribute("style")) return;
+    const style = (node as HTMLElement).style;
+    for (let i = style.length - 1; i >= 0; i -= 1) {
+      const property = style.item(i);
+      if (!STYLE_PROPERTY_ALLOWLIST.has(property)) style.removeProperty(property);
+    }
+    if (style.length === 0) node.removeAttribute("style");
+  });
+}
+
 function sanitize(html: string): string {
+  installPurifyHooks();
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: PURIFY_ALLOWED_TAGS,
     ALLOWED_ATTR: PURIFY_ALLOWED_ATTR,

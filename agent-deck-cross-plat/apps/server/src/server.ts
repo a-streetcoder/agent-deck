@@ -555,9 +555,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
             case "abort":
               await session.abort();
               break;
-            case "set_model":
+            case "set_model": {
+              // Only switch to models pi actually offers.
+              const available = await session.getAvailableModels();
+              const known = available.some(
+                (m) => m.provider === message.provider && m.id === message.modelId,
+              );
+              if (!known) {
+                send(socket, {
+                  type: "error",
+                  message: `unknown model: ${message.provider}/${message.modelId}`,
+                  sessionId: message.sessionId,
+                });
+                break;
+              }
               await session.setModel(message.provider, message.modelId);
               break;
+            }
             case "set_thinking":
               await session.setThinkingLevel(message.level);
               break;
@@ -576,12 +590,25 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     });
   });
 
-  fastify.server.on("upgrade", (request: IncomingMessage, socket, head) => {
-    if (request.url === "/ws") {
-      wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
-    } else {
-      socket.destroy();
+  // Browsers may open cross-origin WebSockets to localhost services; only
+  // accept upgrades from local origins (or non-browser clients, which send
+  // no Origin header) so a hostile web page can't drive sessions.
+  const isTrustedOrigin = (origin: string | undefined): boolean => {
+    if (origin === undefined) return true; // ws library clients, curl, tests
+    try {
+      const { hostname } = new URL(origin);
+      return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+    } catch {
+      return false;
     }
+  };
+
+  fastify.server.on("upgrade", (request: IncomingMessage, socket, head) => {
+    if (request.url !== "/ws" || !isTrustedOrigin(request.headers.origin)) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
   await fastify.listen({ port: options.port ?? 0, host: options.host ?? "127.0.0.1" });

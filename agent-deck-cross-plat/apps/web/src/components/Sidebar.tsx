@@ -74,6 +74,8 @@ export function Sidebar() {
         {/* Nav layer */}
         <div
           className="absolute inset-0 flex flex-col"
+          inert={panelExpanded}
+          aria-hidden={panelExpanded}
           style={{
             transition: `${PANEL_MOVE}, ${PANEL_FADE}`,
             transformOrigin: "top",

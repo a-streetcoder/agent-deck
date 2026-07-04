@@ -33,11 +33,22 @@ export function chipClass(active = false): string {
 function useDismiss(onDismiss: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const handler = (event: MouseEvent): void => {
+    const onMouse = (event: MouseEvent): void => {
       if (ref.current && !ref.current.contains(event.target as Node)) onDismiss();
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        onDismiss();
+        // Return focus to the trigger (first button inside the wrapper).
+        ref.current?.querySelector("button")?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onMouse);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouse);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [onDismiss]);
   return ref;
 }
@@ -65,6 +76,8 @@ export function ModelChip({
         data-testid="model-chip"
         className={chipClass(open)}
         title="Model"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         <Cpu size={12} />
@@ -76,6 +89,8 @@ export function ModelChip({
       {open ? (
         <div
           data-testid="model-menu"
+          role="listbox"
+          aria-label="Model"
           className="absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-64 overflow-y-auto rounded-xl border border-border-strong bg-surface-elevated p-1.5 shadow-elevated"
         >
           {[...byProvider.entries()].map(([provider, providerModels]) => (
@@ -128,6 +143,8 @@ export function ThinkingChip({
         data-testid="thinking-chip"
         className={chipClass(open)}
         title="Thinking level"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         <Brain size={12} />
@@ -137,6 +154,8 @@ export function ThinkingChip({
       {open ? (
         <div
           data-testid="thinking-menu"
+          role="listbox"
+          aria-label="Thinking level"
           className="absolute bottom-full left-0 z-20 mb-1.5 w-36 rounded-xl border border-border-strong bg-surface-elevated p-1.5 shadow-elevated"
         >
           {THINKING_LEVELS.map((level) => (

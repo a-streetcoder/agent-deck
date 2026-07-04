@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import { useAppStore } from "../state/store.ts";
 import { useAgents } from "../state/useAgents.ts";
@@ -35,15 +35,20 @@ export function Composer() {
 
   const [piState, setPiState] = useState<PiComposerState | null>(null);
   const [models, setModels] = useState<PiModelInfo[]>([]);
+  const sessionId = session?.id ?? null;
+  // Guards against a stale session's response/timer clobbering the new one.
+  const activeSessionRef = useRef<string | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshPiState = useCallback(async (): Promise<void> => {
-    if (!session) return;
+    if (!sessionId) return;
     try {
-      const response = await fetch(`/sessions/${encodeURIComponent(session.id)}/state`);
-      if (!response.ok) return;
+      const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/state`);
+      if (!response.ok || activeSessionRef.current !== sessionId) return;
       const { state } = (await response.json()) as {
         state: { model?: { provider: string; id: string }; thinkingLevel: string };
       };
+      if (activeSessionRef.current !== sessionId) return;
       setPiState({
         provider: state.model?.provider,
         modelId: state.model?.id,
@@ -52,20 +57,31 @@ export function Composer() {
     } catch {
       // Session may be mid-restart; the next refresh wins.
     }
-  }, [session?.id]);
+  }, [sessionId]);
+
+  const scheduleRefresh = useCallback((): void => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => void refreshPiState(), 300);
+  }, [refreshPiState]);
 
   useEffect(() => {
+    activeSessionRef.current = sessionId;
     setPiState(null);
     setModels([]);
-    if (!session) return;
+    if (!sessionId) return;
     void refreshPiState();
-    void fetch(`/sessions/${encodeURIComponent(session.id)}/models`)
+    void fetch(`/sessions/${encodeURIComponent(sessionId)}/models`)
       .then((response) => (response.ok ? response.json() : { models: [] }))
-      .then((data: { models: Array<{ provider: string; id: string }> }) =>
-        setModels(data.models.map((m) => ({ provider: m.provider, id: m.id }))),
-      )
+      .then((data: { models: Array<{ provider: string; id: string }> }) => {
+        if (activeSessionRef.current === sessionId) {
+          setModels(data.models.map((m) => ({ provider: m.provider, id: m.id })));
+        }
+      })
       .catch(() => {});
-  }, [session?.id, refreshPiState]);
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, [sessionId, refreshPiState]);
 
   const submit = (): void => {
     const message = draft.trim();
@@ -117,7 +133,7 @@ export function Composer() {
               setPiState((prev) =>
                 prev ? { ...prev, provider: model.provider, modelId: model.id } : prev,
               );
-              setTimeout(() => void refreshPiState(), 300);
+              scheduleRefresh();
             }}
           />
           <ThinkingChip
@@ -125,7 +141,7 @@ export function Composer() {
             onSelect={(level) => {
               sendSetThinking(level);
               setPiState((prev) => (prev ? { ...prev, thinkingLevel: level } : prev));
-              setTimeout(() => void refreshPiState(), 300);
+              scheduleRefresh();
             }}
           />
           <div className="flex-1" />

@@ -95,6 +95,8 @@ export function App() {
           <div
             className="absolute inset-0"
             data-testid="chat-layer"
+            inert={!isChat}
+            aria-hidden={!isChat}
             style={{
               transition: `${DETAIL_MOVE}, ${DETAIL_FADE}`,
               transform: isChat ? "none" : "scale(0.985)",

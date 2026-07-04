@@ -22,8 +22,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("set_model"),
     sessionId: z.string(),
-    provider: z.string(),
-    modelId: z.string(),
+    provider: z.string().min(1).max(200),
+    modelId: z.string().min(1).max(200),
   }),
   z.object({
     type: z.literal("set_thinking"),

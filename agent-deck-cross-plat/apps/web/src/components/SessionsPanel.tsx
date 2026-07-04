@@ -170,6 +170,8 @@ export function SessionsExpandedOverlay({
     <div
       className="absolute inset-0 z-10 flex flex-col px-2 pb-2"
       data-testid="sessions-expanded"
+      inert={!expanded}
+      aria-hidden={!expanded}
       style={{
         transition: `${PANEL_MOVE}, ${PANEL_FADE}`,
         transformOrigin: "bottom",
