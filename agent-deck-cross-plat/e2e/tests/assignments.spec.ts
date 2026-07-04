@@ -100,7 +100,8 @@ test("the project default agent is auto-selected on switch", async ({ page }) =>
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
   await expect(page.getByTestId("agent-picker")).toHaveValue("syrup-bot");
 
-  // And the Agents screen shows the star on the default.
+  // And the Agents screen shows the star on the default (in the detail pane).
   await page.getByTestId("nav-agents").click();
+  await page.locator('[data-agent-name="syrup-bot"]').click();
   await expect(page.getByTestId("default-agent-syrup-bot")).toContainText("project default");
 });

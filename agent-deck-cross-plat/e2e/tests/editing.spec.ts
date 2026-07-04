@@ -45,7 +45,9 @@ test("editing a builtin writes an override and never mutates the builtin file", 
 
   await page.goto(harness.baseUrl);
   await page.getByTestId("nav-agents").click();
+  // Master-detail: clicking a row selects it; Edit opens the tabbed sheet.
   await page.locator('[data-agent-name="coder"]').click();
+  await page.getByTestId("agent-edit").click();
   await expect(page.getByTestId("agent-editor")).toBeVisible();
 
   await page.getByTestId("editor-description").fill("My customized coder");
@@ -70,6 +72,8 @@ test("creating a project agent in the editor lands on disk and is pickable", asy
   await page.getByTestId("editor-name").fill("waffle-bot");
   await page.getByTestId("editor-scope").selectOption("project");
   await page.getByTestId("editor-description").fill("Waffles only");
+  // The system prompt lives on the Prompt tab of the sheet.
+  await page.getByTestId("editor-tab-prompt").click();
   await page.getByTestId("editor-body").fill("You are waffle-bot.");
   await page.getByTestId("editor-save").click();
   await expect(page.getByTestId("agent-editor")).toHaveCount(0);
