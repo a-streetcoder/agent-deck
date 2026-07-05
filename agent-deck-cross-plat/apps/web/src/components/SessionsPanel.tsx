@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Trash2 } from "lucide-react";
 import type { SessionMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
-import { sessionDisplayTitle } from "@/lib/sessionTitle";
+import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "../state/store.ts";
 import {
   deleteSession,
@@ -167,8 +167,7 @@ function useSessionsData() {
   const setView = useAppStore((state) => state.setView);
 
   const byNewest = [...sessions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const projectName = (id?: string): string =>
-    id ? (projects.find((p) => p.id === id)?.name ?? "Unknown project") : "Default";
+  const projectName = (id?: string): string => projectDisplayName(projects, id);
 
   return { byNewest, currentProjectId, currentSession, agentStatus, setView, projectName };
 }

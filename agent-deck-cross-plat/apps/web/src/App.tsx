@@ -8,7 +8,7 @@ import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { cn } from "@/lib/cn";
 import { isMacDesktop } from "@/lib/native";
-import { sessionDisplayTitle } from "@/lib/sessionTitle";
+import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "./state/store.ts";
 import { useMenuCommands } from "./state/useMenuCommands.ts";
 
@@ -52,8 +52,9 @@ export function App() {
   const error = useAppStore((state) => state.error);
   const view = useAppStore((state) => state.view);
   const isChat = view === "chat";
-  const headerProjectName = projects.find((p) => p.id === session?.projectId)?.name ?? "Default";
-  const chatTitle = session ? sessionDisplayTitle(session.title, headerProjectName) : "Pi Agent";
+  const chatTitle = session
+    ? sessionDisplayTitle(session.title, projectDisplayName(projects, session.projectId))
+    : "Pi Agent";
   useMenuCommands();
   // The frameless macOS window needs a drag region across the top bar so the
   // window can be moved by its header (the sidebar strip is already draggable).
