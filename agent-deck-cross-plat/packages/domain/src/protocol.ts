@@ -40,11 +40,41 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
 
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
+export type ProjectType =
+  | "xcode"
+  | "swift"
+  | "tauri"
+  | "electron"
+  | "nextjs"
+  | "nuxt"
+  | "astro"
+  | "sveltekit"
+  | "angular"
+  | "vue"
+  | "react"
+  | "node"
+  | "go"
+  | "rust"
+  | "python"
+  | "ruby"
+  | "git"
+  | "unknown";
+
+/** A project candidate found by scanning a configured root folder. */
+export interface DiscoveredProject {
+  path: string;
+  name: string;
+  type: ProjectType;
+  /** Already in the registry (visible or hidden). */
+  registered: boolean;
+}
+
 export interface ProjectMeta {
   id: string;
   /** Absolute path to the project root; sessions run with this as cwd. */
   path: string;
   name: string;
+  type?: ProjectType;
   createdAt: string;
   /** Skill names injected (as --skill paths) into this project's parent sessions. */
   assignedSkills?: string[];

@@ -75,12 +75,14 @@ export interface AppSettings {
   defaultSkills: string[];
   /** Skills the user turned off: unassignable, excluded from --skill injection. */
   disabledSkills: string[];
+  /** Root folders scanned for project auto-discovery. */
+  projectRoots: string[];
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
 export class SettingsStore {
   private readonly file: string;
-  private settings: AppSettings = { defaultSkills: [], disabledSkills: [] };
+  private settings: AppSettings = { defaultSkills: [], disabledSkills: [], projectRoots: [] };
 
   constructor(dataDir: string = defaultDataDir()) {
     this.file = path.join(dataDir, "app-settings.json");
@@ -96,6 +98,7 @@ export class SettingsStore {
           disabledSkills: Array.isArray(record.disabledSkills)
             ? record.disabledSkills.map(String)
             : [],
+          projectRoots: Array.isArray(record.projectRoots) ? record.projectRoots.map(String) : [],
         };
       }
     } catch {
@@ -133,7 +136,11 @@ export class SettingsStore {
     // A disabled skill can't also be a default.
     const defaults = new Set(this.settings.defaultSkills);
     if (disabled) defaults.delete(name);
-    this.settings = { defaultSkills: [...defaults], disabledSkills: [...next] };
+    this.settings = {
+      ...this.settings,
+      defaultSkills: [...defaults],
+      disabledSkills: [...next],
+    };
     this.flush();
     return this.settings;
   }
@@ -141,9 +148,20 @@ export class SettingsStore {
   /** Drop a skill name from every list (used when a skill is deleted). */
   forgetSkill(name: string): AppSettings {
     this.settings = {
+      ...this.settings,
       defaultSkills: this.settings.defaultSkills.filter((s) => s !== name),
       disabledSkills: this.settings.disabledSkills.filter((s) => s !== name),
     };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Add or remove a discovery root (atomic membership op). */
+  setProjectRoot(root: string, present: boolean): AppSettings {
+    const next = new Set(this.settings.projectRoots);
+    if (present) next.add(root);
+    else next.delete(root);
+    this.settings = { ...this.settings, projectRoots: [...next] };
     this.flush();
     return this.settings;
   }

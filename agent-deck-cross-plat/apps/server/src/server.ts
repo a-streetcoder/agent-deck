@@ -27,6 +27,8 @@ import {
   deleteSkillDir,
   scanEnv,
   writeEnvVar,
+  discoverProjects,
+  detectProjectType,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
@@ -463,6 +465,36 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     projects: projects.list().filter((p) => !p.hidden),
   }));
 
+  // Discovery roots + scan. GET returns the configured roots and every
+  // project candidate found under them (flagged if already registered).
+  fastify.get("/projects/discovery", async () => {
+    const roots = settings.get().projectRoots;
+    const known = new Set(projects.list().map((p) => nodePath.resolve(p.path)));
+    const discovered = discoverProjects(roots).map((c) => ({
+      ...c,
+      registered: known.has(nodePath.resolve(c.path)),
+    }));
+    return { roots, discovered };
+  });
+
+  fastify.post("/projects/discovery/roots", async (request, reply) => {
+    const parsed = z.object({ root: z.string().min(1) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const root = nodePath.resolve(parsed.data.root);
+    if (!existsSync(root) || !statSync(root).isDirectory()) {
+      return reply.status(400).send({ error: `not a directory: ${root}` });
+    }
+    return { roots: settings.setProjectRoot(root, true).projectRoots };
+  });
+
+  fastify.delete("/projects/discovery/roots", async (request, reply) => {
+    const parsed = z.object({ root: z.string().min(1) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    return {
+      roots: settings.setProjectRoot(nodePath.resolve(parsed.data.root), false).projectRoots,
+    };
+  });
+
   fastify.post("/projects", async (request, reply) => {
     const parsed = createProjectBody.safeParse(request.body);
     if (!parsed.success) {
@@ -487,6 +519,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       id: randomUUID(),
       path: projectPath,
       name: parsed.data.name ?? nodePath.basename(projectPath),
+      type: detectProjectType(projectPath),
       createdAt: new Date().toISOString(),
     };
     projects.upsert(project);

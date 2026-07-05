@@ -1,6 +1,16 @@
-import { useState } from "react";
-import { EyeOff, Folder, Github, Plus, Send, WandSparkles } from "lucide-react";
-import type { ProjectMeta } from "@agent-deck/domain";
+import { useCallback, useEffect, useState } from "react";
+import {
+  EyeOff,
+  Folder,
+  Github,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  WandSparkles,
+  X,
+} from "lucide-react";
+import type { DiscoveredProject, ProjectMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
 import { addProject, refreshProjects, updateProject } from "../state/wsBridge.ts";
@@ -74,6 +84,177 @@ function RecapButton({
   );
 }
 
+function DiscoveryPanel() {
+  const setError = useAppStore((state) => state.setError);
+  const [roots, setRoots] = useState<string[]>([]);
+  const [discovered, setDiscovered] = useState<DiscoveredProject[]>([]);
+  const [rootDraft, setRootDraft] = useState("");
+  const [scanning, setScanning] = useState(false);
+
+  const scan = useCallback(async (): Promise<void> => {
+    setScanning(true);
+    try {
+      const response = await fetch("/projects/discovery");
+      if (!response.ok) throw new Error(await response.text());
+      const data = (await response.json()) as { roots: string[]; discovered: DiscoveredProject[] };
+      setRoots(data.roots);
+      setDiscovered(data.discovered);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setScanning(false);
+    }
+  }, [setError]);
+
+  useEffect(() => {
+    void scan();
+  }, [scan]);
+
+  const addRoot = async (): Promise<void> => {
+    const root = rootDraft.trim();
+    if (!root) return;
+    const response = await fetch("/projects/discovery/roots", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ root }),
+    });
+    if (!response.ok) {
+      setError(await response.text());
+      return;
+    }
+    setRootDraft("");
+    await scan();
+  };
+
+  const removeRoot = async (root: string): Promise<void> => {
+    await fetch("/projects/discovery/roots", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ root }),
+    }).catch(() => {});
+    await scan();
+  };
+
+  const unregistered = discovered.filter((d) => !d.registered);
+
+  return (
+    <div className="mb-4 rounded-2xl border border-border-subtle bg-surface-elevated p-4">
+      <div className="flex items-center justify-between pb-1">
+        <div className="flex items-center gap-2">
+          <Search size={15} className="text-text-secondary" />
+          <h3
+            className="text-sm font-semibold text-text-primary"
+            style={{ fontStretch: "expanded" }}
+          >
+            Discover
+          </h3>
+        </div>
+        <button
+          data-testid="discovery-rescan"
+          className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-0.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+          disabled={scanning}
+          onClick={() => void scan()}
+        >
+          <RefreshCw size={11} className={scanning ? "animate-spin" : undefined} />
+          Rescan
+        </button>
+      </div>
+      <p className="pb-2 text-xs text-text-muted">
+        Scan folders for git repos and known project types, then add them with one click.
+      </p>
+
+      <div className="flex gap-2 pb-2">
+        <input
+          data-testid="discovery-root-input"
+          className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+          placeholder="/path/to/dev/folder"
+          value={rootDraft}
+          onChange={(e) => setRootDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void addRoot();
+          }}
+        />
+        <button
+          data-testid="discovery-root-add"
+          className="rounded-capsule border border-border-strong px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+          disabled={!rootDraft.trim()}
+          onClick={() => void addRoot()}
+        >
+          Add root
+        </button>
+      </div>
+
+      {roots.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pb-2">
+          {roots.map((root) => (
+            <span
+              key={root}
+              data-testid="discovery-root-chip"
+              className="flex items-center gap-1 rounded-capsule border border-border-subtle bg-surface px-2 py-0.5 font-mono text-[11px] text-text-secondary"
+            >
+              {root}
+              <button
+                className="text-text-muted hover:text-[var(--color-role-error)]"
+                title="Remove root"
+                onClick={() => void removeRoot(root)}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-1" data-testid="discovery-results">
+        {unregistered.map((candidate) => (
+          <div
+            key={candidate.path}
+            className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface px-3 py-1.5"
+            data-testid="discovery-candidate"
+            data-candidate-name={candidate.name}
+          >
+            <Folder size={16} className="shrink-0 text-text-secondary" />
+            <span
+              className="text-sm font-medium text-text-primary"
+              style={{ fontStretch: "expanded" }}
+            >
+              {candidate.name}
+            </span>
+            <span className="rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted">
+              {candidate.type}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">
+              {candidate.path}
+            </span>
+            <button
+              data-testid={`discovery-add-${candidate.name}`}
+              className="rounded-capsule px-2.5 py-0.5 text-xs font-medium shadow-capsule"
+              style={{
+                background:
+                  "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                color: "var(--color-accent-foreground)",
+              }}
+              onClick={() => void addProject(candidate.path).then(() => void scan())}
+            >
+              Add
+            </button>
+          </div>
+        ))}
+        {roots.length > 0 && unregistered.length === 0 ? (
+          <div className="py-2 text-center text-xs text-text-muted">
+            No new projects found under the configured roots.
+          </div>
+        ) : null}
+        {roots.length === 0 ? (
+          <div className="py-2 text-center text-xs text-text-muted">
+            Add a root folder above to discover projects.
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function ProjectsScreen() {
   const projects = useAppStore((state) => state.projects);
   const currentProjectId = useAppStore((state) => state.currentProjectId);
@@ -94,6 +275,7 @@ export function ProjectsScreen() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="projects-screen">
+      <DiscoveryPanel />
       <div className="rounded-2xl border border-border-subtle bg-surface-elevated p-4">
         <div className="flex items-center justify-between pb-1">
           <h2
@@ -204,6 +386,14 @@ export function ProjectsScreen() {
                     >
                       {project.name}
                     </span>
+                    {project.type && project.type !== "unknown" && project.type !== "git" ? (
+                      <span
+                        className="rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted"
+                        data-testid="project-type-badge"
+                      >
+                        {project.type}
+                      </span>
+                    ) : null}
                     {project.path.includes("github") ? <Github size={12} /> : null}
                     {active ? (
                       <span
