@@ -1,0 +1,5 @@
+# Normalise line endings to LF everywhere so Prettier's format:check passes on
+# the Windows CI runner (which would otherwise check out CRLF).
+* text=auto eol=lf
+*.ttf binary
+*.png binary
