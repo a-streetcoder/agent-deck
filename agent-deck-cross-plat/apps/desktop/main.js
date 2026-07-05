@@ -198,7 +198,20 @@ function buildAppMenu() {
       ],
     },
     { role: "editMenu" },
-    { role: "viewMenu" },
+    // Dev keeps the full View menu (reload/devtools handy); a shipped build gets
+    // only the user-facing zoom/fullscreen controls.
+    app.isPackaged
+      ? {
+          label: "View",
+          submenu: [
+            { role: "resetZoom" },
+            { role: "zoomIn" },
+            { role: "zoomOut" },
+            { type: "separator" },
+            { role: "togglefullscreen" },
+          ],
+        }
+      : { role: "viewMenu" },
     { role: "windowMenu" },
   ];
   return Menu.buildFromTemplate(template);
