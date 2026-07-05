@@ -10,7 +10,6 @@
 // GUI-safe PATH, code-signing) are a later phase.
 
 import { spawn } from "node:child_process";
-import { createServer } from "node:net";
 import http from "node:http";
 import path from "node:path";
 import process from "node:process";
@@ -28,51 +27,69 @@ let serverProcess = null;
 let serverPort = null;
 let mainWindow = null;
 
-/** Ask the OS for an unused TCP port so we never collide with a stray server. */
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.unref();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
 /** Resolve pnpm's executable name per platform (dev PATH is inherited). */
 function pnpmCommand() {
   return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
-/** Spawn the agent-deck server on `port`, serving the built web app. */
-function startServer(port) {
-  const child = spawn(pnpmCommand(), ["--filter", "@agent-deck/server", "dev"], {
-    cwd: repoRoot,
-    env: { ...process.env, PORT: String(port) },
-    // Pipe (not inherit) so the child holds pipes to us, not our raw stdout fds
-    // — otherwise a detached child keeps our stdout open and blocks a clean exit.
-    stdio: ["ignore", "pipe", "pipe"],
-    // pnpm.cmd on Windows needs a shell to resolve. On POSIX, run the server in
-    // its own process group so we can kill the whole tree (pnpm → tsx → node).
-    shell: process.platform === "win32",
-    detached: process.platform !== "win32",
+/**
+ * Spawn the agent-deck server and resolve with the port it actually bound.
+ * We pass PORT=0 so Fastify picks a free ephemeral port itself and reports it
+ * in its startup log — no pre-pick, so there's no window for another process
+ * to steal the port between choosing and binding it.
+ */
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(pnpmCommand(), ["--filter", "@agent-deck/server", "dev"], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "0" },
+      // Pipe (not inherit) so the child holds pipes to us, not our raw stdout fds
+      // — otherwise a detached child keeps our stdout open and blocks a clean exit.
+      stdio: ["ignore", "pipe", "pipe"],
+      // pnpm.cmd on Windows needs a shell to resolve. On POSIX, run the server in
+      // its own process group so we can kill the whole tree (pnpm → tsx → node).
+      shell: process.platform === "win32",
+      detached: process.platform !== "win32",
+    });
+    serverProcess = child;
+
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("server did not report a port within 25s"));
+    }, 25_000);
+
+    child.stdout?.on("data", (chunk) => {
+      process.stdout.write(chunk);
+      if (settled) return;
+      const match = /listening on http:\/\/127\.0\.0\.1:(\d+)/.exec(chunk.toString());
+      if (match) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+    child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+
+    child.on("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error(`server exited (code ${code}) before it started listening`));
+        return;
+      }
+      // Died after starting, while the app is up → tear the app down rather than
+      // leave a dead window pointed at nothing.
+      if (!app.isQuiting && code !== 0 && code !== null) {
+        dialog.showErrorBox(
+          "agent-deck server stopped",
+          `The backend exited with code ${code}. Check the terminal for details.`,
+        );
+        app.quit();
+      }
+    });
   });
-  child.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-  child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
-  child.on("exit", (code) => {
-    // If the server dies unexpectedly while the app is up, tear the app down
-    // rather than leave a dead window pointed at nothing.
-    if (!app.isQuiting && code !== 0 && code !== null) {
-      dialog.showErrorBox(
-        "agent-deck server stopped",
-        `The backend exited with code ${code}. Check the terminal for details.`,
-      );
-      app.quit();
-    }
-  });
-  return child;
 }
 
 /** Kill the whole server process tree (pnpm → tsx → node), cross-platform. */
@@ -134,11 +151,21 @@ function createWindow(port) {
   void mainWindow.loadURL(rendererUrl);
 
   // Open external links (docs, GitHub) in the user's browser, not the app.
+  // Parse the URL and compare the exact host so a look-alike like
+  // http://127.0.0.1.evil.test can't pass, and only ever hand http(s) to the OS.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { action: "deny" };
+    }
+    if (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") {
       return { action: "allow" };
     }
-    void shell.openExternal(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 
@@ -162,17 +189,15 @@ ipcMain.handle("dialog:openDirectory", async (_event, options = {}) => {
 });
 
 async function bootstrap() {
-  const port = await getFreePort();
-  serverPort = port;
-  serverProcess = startServer(port);
   try {
-    await waitForHealth(port);
+    serverPort = await startServer();
+    await waitForHealth(serverPort);
   } catch (error) {
     dialog.showErrorBox("agent-deck failed to start", String(error));
     app.quit();
     return;
   }
-  createWindow(port);
+  createWindow(serverPort);
 }
 
 app.whenReady().then(bootstrap);

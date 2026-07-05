@@ -38,5 +38,10 @@ export async function chooseDirectory(
 ): Promise<string[]> {
   const bridge = nativeBridge();
   if (!bridge?.chooseDirectory) return [];
-  return bridge.chooseDirectory(options);
+  try {
+    return (await bridge.chooseDirectory(options)) ?? [];
+  } catch {
+    // A failed IPC/dialog shouldn't become an unhandled rejection at call sites.
+    return [];
+  }
 }
