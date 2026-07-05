@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -802,6 +804,43 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     writeFileSync(target.path, parsed.data.content, "utf8");
     return { ok: true, path: target.path };
+  });
+
+  // GitHub issues for a project, via the gh CLI (reuses the user's gh auth so
+  // there's no OAuth to build). AGENT_DECK_GH_BIN overrides the binary (tests).
+  const execFileAsync = promisify(execFile);
+  fastify.get("/projects/:id/issues", async (request, reply) => {
+    const project = projects.find((p) => p.id === (request.params as { id: string }).id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    const ghBin = process.env.AGENT_DECK_GH_BIN || "gh";
+    try {
+      const { stdout } = await execFileAsync(
+        ghBin,
+        ["issue", "list", "--json", "number,title,state,url,labels", "--limit", "50"],
+        { cwd: project.path, timeout: 15_000, maxBuffer: 8_000_000 },
+      );
+      const raw = JSON.parse(stdout) as Array<{
+        number: number;
+        title: string;
+        state: string;
+        url: string;
+        labels?: Array<{ name: string }>;
+      }>;
+      return {
+        issues: raw.map((i) => ({
+          number: i.number,
+          title: i.title,
+          state: i.state,
+          url: i.url,
+          labels: (i.labels ?? []).map((l) => l.name),
+        })),
+      };
+    } catch {
+      return {
+        issues: [],
+        error: "Couldn't list issues — needs the gh CLI installed, authenticated, and a GitHub remote.",
+      };
+    }
   });
 
   fastify.get("/sessions", async (request) => {

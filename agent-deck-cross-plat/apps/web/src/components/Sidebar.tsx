@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  CircleDot,
   Cpu,
   FileText,
   Folder,
@@ -36,6 +37,7 @@ import {
 const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "projects", label: "Projects", icon: Folder },
   { id: "instructions", label: "Instructions", icon: FileText },
+  { id: "issues", label: "Issues", icon: CircleDot },
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
   { id: "prompts", label: "Prompts", icon: MessageSquareText },

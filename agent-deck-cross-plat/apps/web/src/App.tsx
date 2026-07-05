@@ -5,6 +5,7 @@ import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentPr
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { ExtensionsScreen } from "./screens/ExtensionsScreen.tsx";
 import { InstructionsScreen } from "./screens/InstructionsScreen.tsx";
+import { IssuesScreen } from "./screens/IssuesScreen.tsx";
 import { ModelsScreen } from "./screens/ModelsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { PromptsScreen } from "./screens/PromptsScreen.tsx";
@@ -31,6 +32,7 @@ const VIEW_TITLES: Record<string, string> = {
   skills: "Skills",
   projects: "Projects",
   instructions: "Instructions",
+  issues: "Issues",
   prompts: "Prompts",
   models: "Models",
   extensions: "Extensions",
@@ -153,6 +155,8 @@ export function App() {
                 <ProjectsScreen />
               ) : view === "instructions" ? (
                 <InstructionsScreen />
+              ) : view === "issues" ? (
+                <IssuesScreen />
               ) : view === "prompts" ? (
                 <PromptsScreen />
               ) : view === "models" ? (

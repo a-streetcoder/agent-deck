@@ -49,6 +49,8 @@ async function fileToImage(file: File): Promise<PendingImage | null> {
  */
 export function Composer() {
   const [draft, setDraft] = useState("");
+  const pendingComposerText = useAppStore((state) => state.pendingComposerText);
+  const setPendingComposerText = useAppStore((state) => state.setPendingComposerText);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const connection = useAppStore((state) => state.connection);
   const session = useAppStore((state) => state.session);
@@ -110,6 +112,14 @@ export function Composer() {
   const suggestions = useSuggestions(sessionId);
   const [images, setImages] = useState<PendingImage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Seed the composer from elsewhere (e.g. an issue), appending to any draft.
+  useEffect(() => {
+    if (pendingComposerText === null) return;
+    setDraft((current) => (current ? `${current}\n\n${pendingComposerText}` : pendingComposerText));
+    setPendingComposerText(null);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [pendingComposerText, setPendingComposerText]);
 
   const applyAccept = (accepted: { value: string; caret: number }): void => {
     setDraft(accepted.value);
