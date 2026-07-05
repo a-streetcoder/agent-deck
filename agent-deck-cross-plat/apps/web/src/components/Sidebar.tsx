@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Cpu,
   FileText,
   Folder,
   Key,
@@ -40,6 +41,7 @@ const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = 
 ];
 
 const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
+  { id: "models", label: "Models", icon: Cpu },
   { id: "environment", label: "Environment", icon: Key },
   { id: "doctor", label: "Doctor", icon: Stethoscope },
 ];
