@@ -390,8 +390,21 @@ export async function connectAndBootstrap(): Promise<void> {
   }
 }
 
-export function sendPrompt(message: string): void {
-  if (currentSessionId) send({ type: "prompt", sessionId: currentSessionId, message });
+export interface ImageAttachment {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+export function sendPrompt(message: string, images?: ImageAttachment[]): void {
+  if (currentSessionId) {
+    send({
+      type: "prompt",
+      sessionId: currentSessionId,
+      message,
+      ...(images && images.length > 0 ? { images } : {}),
+    });
+  }
 }
 
 export function sendAbort(): void {

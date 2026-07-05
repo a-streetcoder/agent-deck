@@ -37,3 +37,4 @@ export {
   discoverProjectsInRoot,
   type DiscoveryCandidate,
 } from "./discovery.ts";
+export { listProjectFiles } from "./files.ts";

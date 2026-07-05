@@ -29,6 +29,7 @@ import {
   writeEnvVar,
   discoverProjects,
   detectProjectType,
+  listProjectFiles,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
@@ -611,6 +612,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
   });
 
+  // Project-relative file list for `@`-file autocomplete, scoped to the
+  // session's cwd. Bounded + symlink-safe (see listProjectFiles).
+  fastify.get("/sessions/:id/files", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { q } = request.query as { q?: string };
+    const session = sessions.get(id);
+    if (!session) return reply.status(404).send({ error: "unknown session" });
+    return { files: listProjectFiles(session.meta.cwd, q ?? "").slice(0, 50) };
+  });
+
   // "Hide from list" (native): soft-hide — metadata and session links are
   // preserved and re-adding the same path restores them. The project hosting
   // a LIVE session can't be hidden.
@@ -940,7 +951,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
               subscribe(socket, session, message.lastSeq);
               break;
             case "prompt":
-              await session.prompt(message.message);
+              await session.prompt(message.message, message.images);
               break;
             case "steer":
               await session.steer(message.message);

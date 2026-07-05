@@ -15,7 +15,22 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     /** Last seq this client saw; omit for a fresh snapshot. */
     lastSeq: z.number().int().nonnegative().optional(),
   }),
-  z.object({ type: z.literal("prompt"), sessionId: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("prompt"),
+    sessionId: z.string(),
+    message: z.string(),
+    /** Base64 image attachments sent with the prompt (pi ImageContent). */
+    images: z
+      .array(
+        z.object({
+          type: z.literal("image"),
+          data: z.string().max(20_000_000),
+          mimeType: z.string().max(100),
+        }),
+      )
+      .max(8)
+      .optional(),
+  }),
   z.object({ type: z.literal("steer"), sessionId: z.string(), message: z.string() }),
   z.object({ type: z.literal("follow_up"), sessionId: z.string(), message: z.string() }),
   z.object({ type: z.literal("abort"), sessionId: z.string() }),

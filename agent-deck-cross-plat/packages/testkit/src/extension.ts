@@ -50,7 +50,7 @@ export function writeMockProviderExtension(baseUrl: string): string {
         name: "Mock Model",
         // Reasoning-capable so thinking levels round-trip in tests.
         reasoning: true,
-        input: ["text"],
+        input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
         maxTokens: 4096,

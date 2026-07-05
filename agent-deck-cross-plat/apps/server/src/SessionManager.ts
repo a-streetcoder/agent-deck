@@ -219,8 +219,8 @@ export class ManagedSession {
     return this.pi.isRunning;
   }
 
-  async prompt(message: string): Promise<void> {
-    await this.pi.prompt(message);
+  async prompt(message: string, images?: Parameters<PiSession["prompt"]>[1]): Promise<void> {
+    await this.pi.prompt(message, images);
   }
 
   async steer(message: string): Promise<void> {
