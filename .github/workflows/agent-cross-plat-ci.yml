@@ -69,10 +69,14 @@ jobs:
       - run: pnpm -r --filter '!@agent-deck/e2e' test:pi
 
   # Playwright e2e — the streaming UI and the Electron desktop shell. Runs on
-  # ubuntu under xvfb (Electron needs a display).
+  # Linux (under xvfb) and Windows, since both are ship targets.
   e2e:
     needs: lint
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -85,8 +89,10 @@ jobs:
           cache-dependency-path: agent-deck-cross-plat/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       # pnpm may not run Electron's postinstall on a frozen install; fetch its
-      # binary explicitly so the desktop-shell e2e can launch it.
+      # binary explicitly so the desktop-shell e2e can launch it. (bash is on
+      # the Windows runner too.)
       - name: Ensure Electron binary
+        shell: bash
         run: |
           ELECTRON_DIR=$(node -e "console.log(require('path').dirname(require.resolve('electron/package.json', { paths: [require('path').resolve('apps/desktop')] })))")
           node "$ELECTRON_DIR/install.js"
@@ -94,6 +100,11 @@ jobs:
       - name: Install Playwright browsers + system deps
         run: pnpm exec playwright install --with-deps chromium
         working-directory: agent-deck-cross-plat/e2e
-      - name: Run Playwright e2e (xvfb for Electron)
+      - name: Run Playwright e2e — Linux (xvfb for Electron)
+        if: runner.os == 'Linux'
         run: xvfb-run -a pnpm exec playwright test
+        working-directory: agent-deck-cross-plat/e2e
+      - name: Run Playwright e2e — Windows
+        if: runner.os == 'Windows'
+        run: pnpm exec playwright test
         working-directory: agent-deck-cross-plat/e2e

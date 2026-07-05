@@ -10,6 +10,10 @@ import { startHarness, type E2eHarness } from "../helpers/env.ts";
  * with the composer seeded from the issue.
  */
 
+// The gh CLI is stubbed with a unix shell script for hermeticity; skip on
+// Windows (gh runs natively there). The Linux e2e leg covers this feature.
+test.skip(process.platform === "win32", "gh CLI stub is a unix shell script");
+
 let harness: E2eHarness;
 const project = mkdtempSync(path.join(tmpdir(), "proj-issues-"));
 
