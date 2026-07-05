@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Cpu, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
@@ -37,35 +37,57 @@ export function ModelsScreen() {
   const sessionId = session?.id ?? null;
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [active, setActive] = useState<ActiveModel | null>(null);
+  // Guards a slow response for a previous session from clobbering the new one.
+  const activeRef = useRef<string | null>(null);
+  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (id: string): Promise<void> => {
+  // pi's authoritative active model — used on load and to reconcile a select().
+  const loadState = useCallback(async (id: string): Promise<void> => {
     try {
-      const [modelsRes, stateRes] = await Promise.all([
-        fetch(`/sessions/${encodeURIComponent(id)}/models`),
-        fetch(`/sessions/${encodeURIComponent(id)}/state`),
-      ]);
-      if (modelsRes.ok) {
-        const data = (await modelsRes.json()) as { models: CatalogModel[] };
-        setModels(data.models);
-      }
-      if (stateRes.ok) {
-        const { state } = (await stateRes.json()) as {
-          state: { model?: { provider: string; id: string } };
-        };
-        setActive(state.model ? { provider: state.model.provider, id: state.model.id } : null);
-      }
-    } catch (err) {
-      setError(String(err));
+      const res = await fetch(`/sessions/${encodeURIComponent(id)}/state`);
+      if (!res.ok || activeRef.current !== id) return;
+      const { state } = (await res.json()) as {
+        state: { model?: { provider: string; id: string } };
+      };
+      if (activeRef.current !== id) return;
+      setActive(state.model ? { provider: state.model.provider, id: state.model.id } : null);
+    } catch {
+      // Transient; a later load reconciles.
     }
-  }, [setError]);
+  }, []);
+
+  const load = useCallback(
+    async (id: string): Promise<void> => {
+      activeRef.current = id;
+      try {
+        const res = await fetch(`/sessions/${encodeURIComponent(id)}/models`);
+        if (res.ok && activeRef.current === id) {
+          const data = (await res.json()) as { models: CatalogModel[] };
+          setModels(data.models);
+        }
+        await loadState(id);
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [loadState, setError],
+  );
 
   useEffect(() => {
     if (sessionId) void load(sessionId);
+    return () => {
+      if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    };
   }, [sessionId, load]);
 
   const select = (model: CatalogModel): void => {
     sendSetModel(model.provider, model.id);
     setActive({ provider: model.provider, id: model.id }); // optimistic
+    // Reconcile against pi's actual state — set_model can reject a model.
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => {
+      if (activeRef.current) void loadState(activeRef.current);
+    }, 500);
   };
 
   const byProvider = new Map<string, CatalogModel[]>();
