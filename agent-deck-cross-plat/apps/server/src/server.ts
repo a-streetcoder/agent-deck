@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import nodePath from "node:path";
@@ -417,6 +417,65 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         defaults.env,
       );
       return { session: session.meta };
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+  });
+
+  // Rename: updates pi's session name (when live) and the persisted title.
+  fastify.patch("/sessions/:id", async (request, reply) => {
+    const parsed = z.object({ title: z.string().min(1).max(200) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { id } = request.params as { id: string };
+    const live = sessions.get(id);
+    if (live) {
+      await live.rename(parsed.data.title);
+      return { session: live.meta };
+    }
+    const meta = index.find((s) => s.id === id);
+    if (!meta) return reply.status(404).send({ error: "unknown session" });
+    const next = { ...meta, title: parsed.data.title };
+    index.upsert(next);
+    broadcast({ type: "session_meta", session: next });
+    return { session: next };
+  });
+
+  // Delete: stop the live process, drop the index entry, remove the pi
+  // session file. Session content is destroyed — this is the explicit delete.
+  fastify.delete("/sessions/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const meta = sessions.get(id)?.meta ?? index.find((s) => s.id === id);
+    if (!meta) return reply.status(404).send({ error: "unknown session" });
+    await sessions.destroy(id);
+    index.remove(id);
+    if (meta.piSessionFile) {
+      try {
+        rmSync(meta.piSessionFile, { force: true });
+      } catch {
+        // pi may still hold the file briefly; best-effort.
+      }
+    }
+    broadcast({ type: "session_removed", sessionId: id });
+    return { ok: true };
+  });
+
+  // Fork/duplicate: copy the source's pi session file and launch an
+  // independent resumed session from the copy. The original is untouched.
+  fastify.post("/sessions/:id/fork", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const meta = sessions.get(id)?.meta ?? index.find((s) => s.id === id);
+    if (!meta) return reply.status(404).send({ error: "unknown session" });
+    if (!meta.piSessionFile || !existsSync(meta.piSessionFile)) {
+      return reply.status(409).send({ error: "session has no history to fork yet" });
+    }
+    const copyTo = nodePath.join(
+      nodePath.dirname(meta.piSessionFile),
+      `${nodePath.basename(meta.piSessionFile, nodePath.extname(meta.piSessionFile))}-fork-${randomUUID().slice(0, 8)}${nodePath.extname(meta.piSessionFile)}`,
+    );
+    try {
+      const session = await sessions.fork(meta, meta.piSessionFile, copyTo, envDefaults().env);
+      index.upsert(session.meta);
+      return reply.status(201).send({ session: session.meta });
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
     }

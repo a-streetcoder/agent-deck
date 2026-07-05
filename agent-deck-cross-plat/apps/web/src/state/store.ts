@@ -36,6 +36,7 @@ export interface AppState {
   setSession(session: SessionMeta | null): void;
   setSessions(sessions: SessionMeta[]): void;
   upsertSessionMeta(session: SessionMeta): void;
+  removeSession(sessionId: string): void;
   setSnapshot(state: TranscriptState, seq: number): void;
   setTranscript(state: TranscriptState, seq: number): void;
   resetTranscript(): void;
@@ -69,6 +70,8 @@ export const useAppStore = create<AppState>((set) => ({
         : [...state.sessions, session],
       session: state.session?.id === session.id ? session : state.session,
     })),
+  removeSession: (sessionId) =>
+    set((state) => ({ sessions: state.sessions.filter((s) => s.id !== sessionId) })),
   setSnapshot: (transcript, lastSeq) => set({ transcript, lastSeq }),
   setTranscript: (transcript, lastSeq) => set({ transcript, lastSeq }),
   resetTranscript: () => set({ transcript: emptyTranscript(), lastSeq: 0 }),

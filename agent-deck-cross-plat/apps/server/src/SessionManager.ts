@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { copyFileSync } from "node:fs";
 import {
   createIngestState,
   emptyTranscript,
@@ -292,6 +293,21 @@ export class ManagedSession {
     return () => this.pi.off("exit", listener);
   }
 
+  /** Rename: update pi's session name (when live) and the persisted title. */
+  async rename(title: string): Promise<void> {
+    if (this.pi.isRunning) {
+      await this.pi.setSessionName(title).catch(() => {
+        // Non-fatal: the display title below is authoritative for the UI.
+      });
+    }
+    this.meta.title = title;
+    this.onMetaChange(this.meta);
+  }
+
+  get piSessionFile(): string | undefined {
+    return this.meta.piSessionFile;
+  }
+
   async stop(): Promise<void> {
     await this.pi.stop();
   }
@@ -395,6 +411,52 @@ export class SessionManager {
 
   list(): SessionMeta[] {
     return [...this.sessions.values()].map((session) => session.meta);
+  }
+
+  /** Stop and drop a live session from the manager (index removal is caller's). */
+  async destroy(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    this.sessions.delete(id);
+    await session.stop();
+  }
+
+  /**
+   * Fork/duplicate: copy the source session's canonical pi file and launch a
+   * fresh, independent session resumed from the copy. The original is never
+   * touched. Requires the source to have a captured pi session file (i.e. at
+   * least one turn has happened).
+   */
+  async fork(
+    source: SessionMeta,
+    sessionFilePath: string,
+    copyTo: string,
+    env?: Record<string, string | undefined>,
+  ): Promise<ManagedSession> {
+    copyFileSync(sessionFilePath, copyTo);
+    const meta: SessionMeta = {
+      id: randomUUID(),
+      cwd: source.cwd,
+      createdAt: new Date().toISOString(),
+      projectId: source.projectId,
+      agentName: source.agentName,
+      launchPlan: source.launchPlan,
+      piSessionFile: copyTo,
+      title: source.title ? `${source.title} (fork)` : undefined,
+    };
+    const original = (source.launchPlan as LaunchPlan | undefined) ?? { kind: "parent" };
+    let plan: LaunchPlan;
+    if (original.kind === "agent") {
+      plan = { ...original, sessionDir: undefined, resumeSessionPath: copyTo };
+    } else if (original.kind === "parent") {
+      plan = { ...original, resumeSessionPath: copyTo };
+    } else {
+      plan = original;
+    }
+    const session = this.launch(meta, plan, env, { holdLive: true });
+    await session.seedFromHistory();
+    this.onMetaChange(meta);
+    return session;
   }
 
   async stopAll(): Promise<void> {

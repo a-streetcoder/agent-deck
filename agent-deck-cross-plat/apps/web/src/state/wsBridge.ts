@@ -59,6 +59,9 @@ function handleMessage(message: ServerMessage): void {
     case "session_meta":
       store.upsertSessionMeta(message.session);
       break;
+    case "session_removed":
+      store.removeSession(message.sessionId);
+      break;
     case "hello_ok":
       break;
   }
@@ -204,6 +207,50 @@ export async function newChat(): Promise<void> {
     await refreshSessions();
   } catch (error) {
     if (token !== activationToken) return;
+    useAppStore.getState().setError(String(error));
+  }
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  try {
+    const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    await refreshSessions();
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+  }
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  try {
+    const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) throw new Error(await response.text());
+    // If the deleted session was open, fall back to a new chat.
+    if (useAppStore.getState().session?.id === sessionId) {
+      await newChat();
+    }
+    await refreshSessions();
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+  }
+}
+
+export async function forkSession(sessionId: string): Promise<void> {
+  try {
+    const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/fork`, {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const { session } = (await response.json()) as { session: SessionMeta };
+    await refreshSessions();
+    await switchToSession(session);
+  } catch (error) {
     useAppStore.getState().setError(String(error));
   }
 }

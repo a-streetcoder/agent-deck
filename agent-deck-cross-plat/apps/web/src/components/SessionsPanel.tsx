@@ -1,8 +1,15 @@
-import { ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Trash2 } from "lucide-react";
 import type { SessionMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
-import { newChat, switchToSession } from "../state/wsBridge.ts";
+import {
+  deleteSession,
+  forkSession,
+  newChat,
+  renameSession,
+  switchToSession,
+} from "../state/wsBridge.ts";
 
 /**
  * The Coding-Agent sessions panel, ported from the native sidebar
@@ -45,10 +52,42 @@ function SessionRow({
   running: boolean;
   onSelect: () => void;
 }) {
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(session.title ?? "");
+
+  const commitRename = (): void => {
+    const title = draft.trim();
+    setRenaming(false);
+    if (title && title !== session.title) void renameSession(session.id, title);
+  };
+
+  if (renaming) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-md px-2.5 py-1"
+        data-testid={`chat-${session.id}`}
+      >
+        <input
+          autoFocus
+          data-testid={`chat-rename-input-${session.id}`}
+          className="min-w-0 flex-1 rounded border border-border-strong bg-surface px-1.5 py-0.5 text-[13px] text-text-primary outline-none focus:border-accent"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commitRename();
+            if (event.key === "Escape") setRenaming(false);
+          }}
+          onBlur={commitRename}
+        />
+      </div>
+    );
+  }
+
   return (
-    <button
+    <div
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors",
+        "group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-brand-accent)]",
         active
           ? "bg-[var(--color-selection-fill)] text-text-primary"
           : "text-text-secondary hover:bg-[var(--color-hover-fill)]",
@@ -56,7 +95,15 @@ function SessionRow({
       )}
       data-testid={`chat-${session.id}`}
       title={session.agentName ? `agent: ${session.agentName}` : undefined}
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <span
         className="min-w-0 flex-1 truncate text-[13px] font-medium"
@@ -65,11 +112,46 @@ function SessionRow({
       >
         {session.title ?? "New chat"}
       </span>
-      {session.agentName ? (
-        <span className="shrink-0 text-[10px] text-text-muted">{session.agentName}</span>
-      ) : null}
       {running ? <TypingDots /> : null}
-    </button>
+      {/* Hover-reveal actions (native session row). */}
+      <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          data-testid={`chat-rename-${session.id}`}
+          className="rounded p-0.5 text-text-muted hover:text-text-primary"
+          title="Rename"
+          onClick={(event) => {
+            event.stopPropagation();
+            setDraft(session.title ?? "");
+            setRenaming(true);
+          }}
+        >
+          <Pencil size={12} />
+        </button>
+        <button
+          data-testid={`chat-fork-${session.id}`}
+          className="rounded p-0.5 text-text-muted enabled:hover:text-text-primary disabled:opacity-30"
+          title={session.piSessionFile ? "Duplicate" : "Nothing to duplicate yet"}
+          disabled={!session.piSessionFile}
+          onClick={(event) => {
+            event.stopPropagation();
+            void forkSession(session.id);
+          }}
+        >
+          <GitFork size={12} />
+        </button>
+        <button
+          data-testid={`chat-delete-${session.id}`}
+          className="rounded p-0.5 text-text-muted hover:text-[var(--color-role-error)]"
+          title="Delete"
+          onClick={(event) => {
+            event.stopPropagation();
+            void deleteSession(session.id);
+          }}
+        >
+          <Trash2 size={12} />
+        </button>
+      </span>
+    </div>
   );
 }
 
