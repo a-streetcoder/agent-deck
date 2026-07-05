@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "../state/store.ts";
 import { CellView } from "./cells.tsx";
+import { SessionStartupCard } from "./SessionStartupCard.tsx";
 
 export function Transcript() {
   const cells = useAppStore((state) => state.transcript.cells);
@@ -26,7 +27,7 @@ export function Transcript() {
       }}
     >
       {cells.length === 0 ? (
-        <div className="mt-16 text-center text-text-muted">Start a conversation with pi.</div>
+        <SessionStartupCard />
       ) : (
         cells.map((cell) => <CellView key={cell.id} cell={cell} />)
       )}
