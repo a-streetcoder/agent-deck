@@ -126,3 +126,8 @@ test("the native File menu exposes New Chat and it creates a session", async () 
   });
   await expect.poll(sessionCount, { timeout: 10_000 }).toBe(before + 1);
 });
+
+test("the app presents itself as Agent Deck", async () => {
+  const name = await app.evaluate(({ app: electronApp }) => electronApp.getName());
+  expect(name).toBe("Agent Deck");
+});

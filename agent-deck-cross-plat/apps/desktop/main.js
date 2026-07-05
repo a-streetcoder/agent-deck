@@ -20,6 +20,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // apps/desktop -> repo root (agent-deck-cross-plat).
 const repoRoot = path.resolve(__dirname, "..", "..");
 
+// Present as "Agent Deck" everywhere the OS shows the app name (menu bar,
+// About panel) instead of the package/Electron default.
+app.setName("Agent Deck");
+
 /** Background dark so there's no white flash before the UI paints. */
 const WINDOW_BG = "#0f1115";
 
@@ -240,6 +244,11 @@ async function bootstrap() {
     app.quit();
     return;
   }
+  app.setAboutPanelOptions({
+    applicationName: "Agent Deck",
+    applicationVersion: app.getVersion(),
+    credits: "A native harness for the pi coding agent.",
+  });
   Menu.setApplicationMenu(buildAppMenu());
   createWindow(serverPort);
 }

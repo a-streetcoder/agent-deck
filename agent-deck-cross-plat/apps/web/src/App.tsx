@@ -6,6 +6,8 @@ import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
+import { cn } from "@/lib/cn";
+import { isMacDesktop } from "@/lib/native";
 import { useAppStore } from "./state/store.ts";
 import { useMenuCommands } from "./state/useMenuCommands.ts";
 
@@ -49,6 +51,9 @@ export function App() {
   const view = useAppStore((state) => state.view);
   const isChat = view === "chat";
   useMenuCommands();
+  // The frameless macOS window needs a drag region across the top bar so the
+  // window can be moved by its header (the sidebar strip is already draggable).
+  const macDesktop = isMacDesktop();
 
   const statusLabel =
     connection !== "open" ? connection : agentStatus === "running" ? "responding" : "idle";
@@ -63,7 +68,12 @@ export function App() {
     <div className="flex h-full">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-border-subtle bg-surface-elevated px-6 py-2.5">
+        <header
+          className={cn(
+            "flex items-center justify-between border-b border-border-subtle bg-surface-elevated px-6 py-2.5",
+            macDesktop && "[-webkit-app-region:drag]",
+          )}
+        >
           <div className="flex items-baseline gap-3">
             <h1
               className="text-sm font-semibold text-text-primary"
