@@ -7,6 +7,7 @@ import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { useAppStore } from "./state/store.ts";
+import { useMenuCommands } from "./state/useMenuCommands.ts";
 
 /**
  * Detail routing mirrors the native ContentView: the chat surface stays
@@ -47,6 +48,7 @@ export function App() {
   const error = useAppStore((state) => state.error);
   const view = useAppStore((state) => state.view);
   const isChat = view === "chat";
+  useMenuCommands();
 
   const statusLabel =
     connection !== "open" ? connection : agentStatus === "running" ? "responding" : "idle";

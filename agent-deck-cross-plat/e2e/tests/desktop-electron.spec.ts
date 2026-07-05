@@ -100,3 +100,29 @@ test("adding a project via the native folder picker registers it", async () => {
   // The picked folder shows up as a registered project in the sidebar.
   await expect(window.getByTestId(`project-${projectName}`)).toBeVisible({ timeout: 15_000 });
 });
+
+test("the native File menu exposes New Chat and it creates a session", async () => {
+  const window = await app.firstWindow();
+
+  const fileItems = await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((i) => i.label === "File");
+    return file?.submenu?.items.map((i) => i.label) ?? [];
+  });
+  expect(fileItems).toContain("New Chat");
+  expect(fileItems).toContain("Add Project…");
+
+  const sessionCount = () =>
+    window.evaluate(async () => {
+      const res = await fetch("/sessions");
+      const { sessions } = (await res.json()) as { sessions: unknown[] };
+      return sessions.length;
+    });
+  const before = await sessionCount();
+
+  // Trigger the menu item → IPC → renderer newChat() → a new session.
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((i) => i.label === "File");
+    file?.submenu?.items.find((i) => i.label === "New Chat")?.click();
+  });
+  await expect.poll(sessionCount, { timeout: 10_000 }).toBe(before + 1);
+});

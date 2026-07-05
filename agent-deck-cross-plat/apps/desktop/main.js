@@ -14,7 +14,7 @@ import http from "node:http";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // apps/desktop -> repo root (agent-deck-cross-plat).
@@ -174,6 +174,36 @@ function createWindow(port) {
   });
 }
 
+/** Route a menu command to the renderer, which owns the actual action. */
+function sendMenu(action) {
+  mainWindow?.webContents.send("menu", action);
+}
+
+/** Native application menu — File actions bridge to the renderer via IPC. */
+function buildAppMenu() {
+  const isMac = process.platform === "darwin";
+  const template = [
+    ...(isMac ? [{ role: "appMenu" }] : []),
+    {
+      label: "File",
+      submenu: [
+        { label: "New Chat", accelerator: "CmdOrCtrl+N", click: () => sendMenu("new-chat") },
+        {
+          label: "Add Project…",
+          accelerator: "CmdOrCtrl+Alt+O",
+          click: () => sendMenu("add-project"),
+        },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit" },
+      ],
+    },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ];
+  return Menu.buildFromTemplate(template);
+}
+
 /** Native folder chooser (the NSOpenPanel equivalent) for the project flow. */
 ipcMain.handle("dialog:openDirectory", async (_event, options = {}) => {
   const properties = ["openDirectory", "createDirectory"];
@@ -197,6 +227,7 @@ async function bootstrap() {
     app.quit();
     return;
   }
+  Menu.setApplicationMenu(buildAppMenu());
   createWindow(serverPort);
 }
 

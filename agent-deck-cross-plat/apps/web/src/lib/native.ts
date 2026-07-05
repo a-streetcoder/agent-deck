@@ -12,6 +12,8 @@ export interface AgentDeckBridge {
     buttonLabel?: string;
     multiple?: boolean;
   }): Promise<string[]>;
+  /** Subscribe to native-menu commands; returns an unsubscribe function. */
+  onMenu?(handler: (action: string) => void): () => void;
 }
 
 declare global {

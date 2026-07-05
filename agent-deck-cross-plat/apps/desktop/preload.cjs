@@ -15,4 +15,15 @@ contextBridge.exposeInMainWorld("agentDeck", {
    * @returns {Promise<string[]>}
    */
   chooseDirectory: (options) => ipcRenderer.invoke("dialog:openDirectory", options),
+  /**
+   * Subscribe to native-menu commands ("new-chat", "add-project"). Returns an
+   * unsubscribe function.
+   * @param {(action: string) => void} handler
+   * @returns {() => void}
+   */
+  onMenu: (handler) => {
+    const listener = (_event, action) => handler(action);
+    ipcRenderer.on("menu", listener);
+    return () => ipcRenderer.removeListener("menu", listener);
+  },
 });
