@@ -91,6 +91,7 @@ jobs:
       - run: pnpm --filter @agent-deck/web build
       - name: Install Playwright browsers + system deps
         run: pnpm exec playwright install --with-deps chromium
+        working-directory: agent-deck-cross-plat/e2e
       - name: Run Playwright e2e (xvfb for Electron)
         run: xvfb-run -a pnpm exec playwright test
         working-directory: agent-deck-cross-plat/e2e

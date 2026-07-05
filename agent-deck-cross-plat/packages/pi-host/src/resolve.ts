@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Discovery of the user-installed `pi` binary.
@@ -17,7 +18,7 @@ export class PiNotFoundError extends Error {}
 
 export interface ResolvedPi {
   path: string;
-  source: "env" | "path" | "candidate";
+  source: "env" | "path" | "bundled" | "candidate";
 }
 
 const WINDOWS_EXTENSIONS = [".cmd", ".exe", ".bat", ".ps1", ""];
@@ -42,6 +43,26 @@ function findInDir(dir: string, platform: NodeJS.Platform): string | undefined {
     if (isExecutableFile(candidate)) return candidate;
   }
   return undefined;
+}
+
+/**
+ * The pinned pi's own `.bin` locations. pi is a dependency of THIS package, so
+ * its executable symlink lives in pi-host's node_modules (and, when hoisted,
+ * the workspace root's). Searching these makes pi resolvable even when it isn't
+ * on the current script's PATH — e.g. a workspace script run from a package
+ * (like apps/server) whose PATH doesn't include pi under a strict CI install.
+ */
+function bundledBinDirs(): string[] {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const piHostRoot = path.resolve(here, ".."); // packages/pi-host
+    return [
+      path.join(piHostRoot, "node_modules", ".bin"),
+      path.resolve(piHostRoot, "..", "..", "node_modules", ".bin"), // workspace root
+    ];
+  } catch {
+    return [];
+  }
 }
 
 function unixCandidateDirs(home: string): string[] {
@@ -99,14 +120,21 @@ export function resolvePiBinary(
     }
   }
 
-  // 2. PATH lookup.
+  // 2. PATH lookup (the user's own pi wins when present).
   for (const dir of (env.PATH ?? "").split(path.delimiter)) {
     if (!dir) continue;
     const found = findInDir(dir, platform);
     if (found) return { path: found, source: "path" };
   }
 
-  // 3. Well-known install locations (covers GUI launches with a minimal PATH).
+  // 3. The pinned pi bundled as this package's dependency — resolves regardless
+  // of PATH/hoisting (the CI case where pi isn't on a package script's PATH).
+  for (const dir of bundledBinDirs()) {
+    const found = findInDir(dir, platform);
+    if (found) return { path: found, source: "bundled" };
+  }
+
+  // 4. Well-known install locations (covers GUI launches with a minimal PATH).
   const home = homedir();
   const dirs = platform === "win32" ? windowsCandidateDirs(home, env) : unixCandidateDirs(home);
   for (const dir of dirs) {
