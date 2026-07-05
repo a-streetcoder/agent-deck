@@ -57,6 +57,8 @@ test("fork duplicates the transcript into an independent session", async ({ page
   await expect(page.getByTestId("assistant-text").last()).toContainText("pineapple", {
     timeout: 30_000,
   });
+  // Fork is refused while responding — wait for the turn to finish.
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
 
   const before = await liveSessions();
   const source = before[0]!;

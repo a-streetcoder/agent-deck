@@ -61,6 +61,11 @@ function handleMessage(message: ServerMessage): void {
       break;
     case "session_removed":
       store.removeSession(message.sessionId);
+      // If ANOTHER client deleted the session we're viewing, drop it and open
+      // a fresh chat so we're not pointing at (or subscribed to) a dead id.
+      if (useAppStore.getState().session?.id === message.sessionId) {
+        void newChat();
+      }
       break;
     case "hello_ok":
       break;

@@ -424,7 +424,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   // Rename: updates pi's session name (when live) and the persisted title.
   fastify.patch("/sessions/:id", async (request, reply) => {
-    const parsed = z.object({ title: z.string().min(1).max(200) }).safeParse(request.body);
+    const parsed = z.object({ title: z.string().trim().min(1).max(200) }).safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     const { id } = request.params as { id: string };
     const live = sessions.get(id);
@@ -463,15 +463,32 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // independent resumed session from the copy. The original is untouched.
   fastify.post("/sessions/:id/fork", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const meta = sessions.get(id)?.meta ?? index.find((s) => s.id === id);
+    const live = sessions.get(id);
+    const meta = live?.meta ?? index.find((s) => s.id === id);
     if (!meta) return reply.status(404).send({ error: "unknown session" });
     if (!meta.piSessionFile || !existsSync(meta.piSessionFile)) {
       return reply.status(409).send({ error: "session has no history to fork yet" });
     }
-    const copyTo = nodePath.join(
-      nodePath.dirname(meta.piSessionFile),
-      `${nodePath.basename(meta.piSessionFile, nodePath.extname(meta.piSessionFile))}-fork-${randomUUID().slice(0, 8)}${nodePath.extname(meta.piSessionFile)}`,
-    );
+    // Copying a session file mid-write (streaming) can yield a torn copy the
+    // fork can't resume — refuse while the source is actively responding.
+    if (live?.isRunning) {
+      try {
+        const state = await live.getState();
+        if (state.isStreaming) {
+          return reply.status(409).send({ error: "cannot fork while the session is responding" });
+        }
+      } catch {
+        // Couldn't read state — proceed; the source file is only appended to.
+      }
+    }
+    const ext = nodePath.extname(meta.piSessionFile);
+    const base = nodePath.basename(meta.piSessionFile, ext);
+    const dir = nodePath.dirname(meta.piSessionFile);
+    // Full UUID + existence check so the fork can never overwrite another file.
+    let copyTo = "";
+    do {
+      copyTo = nodePath.join(dir, `${base}-fork-${randomUUID()}${ext}`);
+    } while (existsSync(copyTo));
     try {
       const session = await sessions.fork(meta, meta.piSessionFile, copyTo, envDefaults().env);
       index.upsert(session.meta);
