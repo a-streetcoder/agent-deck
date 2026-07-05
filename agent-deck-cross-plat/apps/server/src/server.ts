@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import nodePath from "node:path";
@@ -640,6 +640,31 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     projects.upsert({ ...project, hidden: true });
     return { ok: true };
+  });
+
+  // Project instructions: pi's canonical AGENTS.md at the project root, which
+  // pi auto-loads as project context every turn. (Global scope + CLAUDE.md are
+  // follow-ups; AGENTS.md wins over CLAUDE.md in pi's own precedence.)
+  const instructionsBody = z.object({ content: z.string().max(200_000) });
+  const agentsFileFor = (id: string): { path: string } | null => {
+    const project = projects.find((p) => p.id === id);
+    return project ? { path: nodePath.join(project.path, "AGENTS.md") } : null;
+  };
+
+  fastify.get("/projects/:id/instructions", async (request, reply) => {
+    const target = agentsFileFor((request.params as { id: string }).id);
+    if (!target) return reply.status(404).send({ error: "unknown project" });
+    const content = existsSync(target.path) ? readFileSync(target.path, "utf8") : "";
+    return { content, path: target.path };
+  });
+
+  fastify.put("/projects/:id/instructions", async (request, reply) => {
+    const target = agentsFileFor((request.params as { id: string }).id);
+    if (!target) return reply.status(404).send({ error: "unknown project" });
+    const parsed = instructionsBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    writeFileSync(target.path, parsed.data.content, "utf8");
+    return { ok: true, path: target.path };
   });
 
   fastify.get("/sessions", async (request) => {

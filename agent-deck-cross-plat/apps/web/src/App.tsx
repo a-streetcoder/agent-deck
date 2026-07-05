@@ -3,6 +3,7 @@ import { Sidebar } from "./components/Sidebar.tsx";
 import { Transcript } from "./components/Transcript.tsx";
 import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
+import { InstructionsScreen } from "./screens/InstructionsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
@@ -26,6 +27,7 @@ const VIEW_TITLES: Record<string, string> = {
   agents: "Agents",
   skills: "Skills",
   projects: "Projects",
+  instructions: "Instructions",
   environment: "Environment",
   doctor: "Doctor",
 };
@@ -143,6 +145,8 @@ export function App() {
                 <SkillsScreen />
               ) : view === "projects" ? (
                 <ProjectsScreen />
+              ) : view === "instructions" ? (
+                <InstructionsScreen />
               ) : view === "environment" ? (
                 <EnvironmentScreen />
               ) : (

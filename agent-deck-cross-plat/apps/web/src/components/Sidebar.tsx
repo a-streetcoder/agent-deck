@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Folder, Key, Plus, Send, Stethoscope, WandSparkles } from "lucide-react";
+import { FileText, Folder, Key, Plus, Send, Stethoscope, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { chooseDirectory, isElectron, isMacDesktop } from "@/lib/native";
 import { useAppStore, type AppView } from "../state/store.ts";
@@ -24,6 +24,7 @@ import {
 // panel below, exactly like the native sidebar (which excludes .agent).
 const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "projects", label: "Projects", icon: Folder },
+  { id: "instructions", label: "Instructions", icon: FileText },
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
 ];
