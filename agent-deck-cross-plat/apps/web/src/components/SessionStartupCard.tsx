@@ -42,7 +42,7 @@ export function SessionStartupCard() {
         <dl className="mt-4 space-y-3 text-sm">
           <div className="flex items-start justify-between gap-3">
             <dt className="flex items-center gap-1.5 text-text-muted">
-              <Folder size={13} /> Project
+              <Folder size={13} aria-hidden /> Project
             </dt>
             <dd className="min-w-0 text-right">
               <div className="truncate font-medium text-text-primary" style={{ fontStretch: "expanded" }}>
@@ -56,7 +56,7 @@ export function SessionStartupCard() {
 
           <div className="flex items-start justify-between gap-3">
             <dt className="flex items-center gap-1.5 text-text-muted">
-              <WandSparkles size={13} /> Skills
+              <WandSparkles size={13} aria-hidden /> Skills
             </dt>
             <dd
               className="flex max-w-[70%] flex-wrap justify-end gap-1.5"

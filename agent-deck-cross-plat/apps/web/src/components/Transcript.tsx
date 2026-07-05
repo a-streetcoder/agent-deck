@@ -5,6 +5,11 @@ import { SessionStartupCard } from "./SessionStartupCard.tsx";
 
 export function Transcript() {
   const cells = useAppStore((state) => state.transcript.cells);
+  const session = useAppStore((state) => state.session);
+  // Only a genuinely new session shows the startup card. An existing session
+  // already has a piSessionFile (set on switch, before its history streams in),
+  // so it never flashes the card during the brief empty-transcript load gap.
+  const isNewSession = cells.length === 0 && !session?.piSessionFile;
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -27,7 +32,9 @@ export function Transcript() {
       }}
     >
       {cells.length === 0 ? (
-        <SessionStartupCard />
+        isNewSession ? (
+          <SessionStartupCard />
+        ) : null
       ) : (
         cells.map((cell) => <CellView key={cell.id} cell={cell} />)
       )}
