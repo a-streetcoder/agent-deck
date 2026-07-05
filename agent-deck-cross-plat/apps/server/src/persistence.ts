@@ -77,12 +77,22 @@ export interface AppSettings {
   disabledSkills: string[];
   /** Root folders scanned for project auto-discovery. */
   projectRoots: string[];
+  /** Extension files (absolute paths) the user added to load into sessions. */
+  extensions: string[];
+  /** Extensions turned off: kept in the list but excluded from --extension. */
+  disabledExtensions: string[];
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
 export class SettingsStore {
   private readonly file: string;
-  private settings: AppSettings = { defaultSkills: [], disabledSkills: [], projectRoots: [] };
+  private settings: AppSettings = {
+    defaultSkills: [],
+    disabledSkills: [],
+    projectRoots: [],
+    extensions: [],
+    disabledExtensions: [],
+  };
 
   constructor(dataDir: string = defaultDataDir()) {
     this.file = path.join(dataDir, "app-settings.json");
@@ -99,6 +109,10 @@ export class SettingsStore {
             ? record.disabledSkills.map(String)
             : [],
           projectRoots: Array.isArray(record.projectRoots) ? record.projectRoots.map(String) : [],
+          extensions: Array.isArray(record.extensions) ? record.extensions.map(String) : [],
+          disabledExtensions: Array.isArray(record.disabledExtensions)
+            ? record.disabledExtensions.map(String)
+            : [],
         };
       }
     } catch {
@@ -143,6 +157,41 @@ export class SettingsStore {
     };
     this.flush();
     return this.settings;
+  }
+
+  /** Add an extension path (idempotent), enabled by default. */
+  addExtension(extPath: string): AppSettings {
+    const next = new Set(this.settings.extensions);
+    next.add(extPath);
+    this.settings = { ...this.settings, extensions: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Remove an extension path from both lists entirely. */
+  removeExtension(extPath: string): AppSettings {
+    this.settings = {
+      ...this.settings,
+      extensions: this.settings.extensions.filter((p) => p !== extPath),
+      disabledExtensions: this.settings.disabledExtensions.filter((p) => p !== extPath),
+    };
+    this.flush();
+    return this.settings;
+  }
+
+  setExtensionDisabled(extPath: string, disabled: boolean): AppSettings {
+    const next = new Set(this.settings.disabledExtensions);
+    if (disabled) next.add(extPath);
+    else next.delete(extPath);
+    this.settings = { ...this.settings, disabledExtensions: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Enabled extension paths — merged into every session launch. */
+  enabledExtensions(): string[] {
+    const disabled = new Set(this.settings.disabledExtensions);
+    return this.settings.extensions.filter((p) => !disabled.has(p));
   }
 
   /** Drop a skill name from every list (used when a skill is deleted). */

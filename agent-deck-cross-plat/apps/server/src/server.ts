@@ -314,6 +314,50 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { ok: true };
   });
 
+  // Extensions: user-added pi extension files (.ts/.js) merged into every
+  // session's --extension list. Enable/disable without removing the entry.
+  fastify.get("/resources/extensions", async () => {
+    const disabled = new Set(settings.get().disabledExtensions);
+    return {
+      extensions: settings.get().extensions.map((filePath) => ({
+        path: filePath,
+        name: nodePath.basename(filePath),
+        exists: existsSync(filePath),
+        disabled: disabled.has(filePath),
+      })),
+    };
+  });
+
+  fastify.post("/resources/extensions", async (request, reply) => {
+    const parsed = z.object({ path: z.string().min(1) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const filePath = nodePath.resolve(parsed.data.path);
+    if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+      return reply.status(400).send({ error: `not a file: ${filePath}` });
+    }
+    settings.addExtension(filePath);
+    broadcast({ type: "resources_changed" });
+    return { ok: true, path: filePath };
+  });
+
+  fastify.post("/resources/extensions/disabled", async (request, reply) => {
+    const parsed = z
+      .object({ path: z.string().min(1), disabled: z.boolean() })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    settings.setExtensionDisabled(parsed.data.path, parsed.data.disabled);
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  fastify.delete("/resources/extensions", async (request, reply) => {
+    const parsed = z.object({ path: z.string().min(1) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    settings.removeExtension(parsed.data.path);
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
   // Edit-safety contract: builtin agents are NEVER written — edits become a
   // diff vs the pristine builtin at settings.json → subagents.agentOverrides.
   // The UI sends the complete form state, so the computed diff fully replaces
@@ -876,7 +920,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
     const provider = body.provider ?? defaults.provider;
     const model = body.model ?? defaults.model;
-    const extensions = body.extensions ?? defaults.extensions;
+    // Base extensions (request or env defaults) + the user's enabled ones.
+    const baseExtensions = body.extensions ?? defaults.extensions ?? [];
+    const userExtensions = settings.enabledExtensions();
+    const merged = [...baseExtensions, ...userExtensions];
+    const extensions = merged.length > 0 ? merged : undefined;
 
     // Default + project skill assignments become explicit --skill paths on
     // parent sessions (pi-rpc-launch-flags.md §1: "Default + current Project

@@ -5,6 +5,7 @@ import {
   Folder,
   Key,
   MessageSquareText,
+  Plug,
   Plus,
   Send,
   Stethoscope,
@@ -43,6 +44,7 @@ const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = 
 const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "models", label: "Models", icon: Cpu },
   { id: "environment", label: "Environment", icon: Key },
+  { id: "extensions", label: "Extensions", icon: Plug },
   { id: "doctor", label: "Doctor", icon: Stethoscope },
 ];
 

@@ -16,6 +16,7 @@ export type AppView =
   | "instructions"
   | "prompts"
   | "models"
+  | "extensions"
   | "environment"
   | "doctor";
 
