@@ -39,9 +39,12 @@ test.beforeAll(async () => {
   // This spec sends no prompt, so it never launches pi nor mutates ~/.pi; the
   // isolated AGENT_DECK_DATA_DIR keeps the added project out of real state.
   const dataDir = mkdtempSync(path.join(tmpdir(), "electron-e2e-data-"));
+  // CI runs as root in a container where Chromium's setuid sandbox can't start,
+  // so Electron needs --no-sandbox there (harmless locally, gated on CI).
+  const launchArgs = process.env.CI ? [DESKTOP_DIR, "--no-sandbox"] : [DESKTOP_DIR];
   app = await electron.launch({
     executablePath: electronPath,
-    args: [DESKTOP_DIR],
+    args: launchArgs,
     env: { ...process.env, PI_SKIP_VERSION_CHECK: "1", AGENT_DECK_DATA_DIR: dataDir },
   });
   electronPid = app.process().pid ?? undefined;

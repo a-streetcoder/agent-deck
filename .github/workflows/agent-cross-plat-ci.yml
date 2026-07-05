@@ -64,7 +64,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm --filter @agent-deck/web build
-      - run: pnpm test:pi
+      # Real-pi vitest integration (pi-host + server). The e2e package's
+      # Playwright suite runs in the dedicated e2e job, so exclude it here.
+      - run: pnpm -r --filter '!@agent-deck/e2e' test:pi
 
   # Playwright e2e — the streaming UI and the Electron desktop shell. Runs on
   # ubuntu under xvfb (Electron needs a display).
