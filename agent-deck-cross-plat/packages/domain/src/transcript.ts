@@ -49,6 +49,8 @@ export interface QuestionCell {
   message?: string;
   options?: string[];
   placeholder?: string;
+  /** Initial text for the `editor` (multiline) method. */
+  prefill?: string;
   answered: boolean;
 }
 

@@ -33,6 +33,44 @@ export function writeQuestionCommandExtension(): string {
   return file;
 }
 
+/**
+ * Extension registering /ask-input, /ask-select, /ask-editor — one command per
+ * remaining ask-user card type, so the input/select/editor cards can be driven
+ * through real pi extension_ui_requests.
+ */
+export function writeUiCardsExtension(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-deck-uicards-ext-"));
+  const file = path.join(dir, "ui-cards.ts");
+  writeFileSync(
+    file,
+    `export default function (pi) {
+  pi.registerCommand("ask-input", {
+    description: "Ask for a line of input",
+    handler: async (_args, ctx) => {
+      const v = await ctx.ui.input("Your handle", "type it");
+      ctx.ui.notify("input:" + v, "info");
+    },
+  });
+  pi.registerCommand("ask-select", {
+    description: "Ask to pick one",
+    handler: async (_args, ctx) => {
+      const v = await ctx.ui.select("Pick a color", ["crimson", "viridian"]);
+      ctx.ui.notify("select:" + v, "info");
+    },
+  });
+  pi.registerCommand("ask-editor", {
+    description: "Ask to edit multiline text",
+    handler: async (_args, ctx) => {
+      const v = await ctx.ui.editor("Edit the note", "hello from prefill");
+      ctx.ui.notify("editor:" + v, "info");
+    },
+  });
+}
+`,
+  );
+  return file;
+}
+
 export function writeMockProviderExtension(baseUrl: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), "agent-deck-mock-ext-"));
   const file = path.join(dir, "mock-provider.ts");

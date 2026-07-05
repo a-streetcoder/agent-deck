@@ -42,7 +42,7 @@ function ToolCellView({ cell }: { cell: ToolCell }) {
 }
 
 function QuestionCellView({ cell }: { cell: QuestionCell }) {
-  const [inputValue, setInputValue] = useState("");
+  const [inputValue, setInputValue] = useState(cell.method === "editor" ? (cell.prefill ?? "") : "");
   const answer = (response: Record<string, unknown>): void =>
     sendUiResponse(cell.requestId, response);
 
@@ -92,6 +92,24 @@ function QuestionCellView({ cell }: { cell: QuestionCell }) {
               {option}
             </button>
           ))}
+        </div>
+      ) : cell.method === "editor" ? (
+        <div className="mt-3 flex flex-col gap-2">
+          <textarea
+            data-testid="question-editor"
+            className="min-h-[7rem] resize-y rounded-md border border-border-strong bg-surface px-2 py-1.5 font-mono text-sm text-text-primary outline-none focus:border-accent"
+            placeholder={cell.placeholder}
+            value={inputValue}
+            onChange={(event) => setInputValue(event.target.value)}
+          />
+          <button
+            data-testid="question-submit"
+            className="self-end rounded-capsule bg-primary px-3 py-1.5 text-sm font-medium"
+            style={{ color: "var(--color-accent-foreground)" }}
+            onClick={() => answer({ value: inputValue })}
+          >
+            Send
+          </button>
         </div>
       ) : (
         <div className="mt-3 flex gap-2">

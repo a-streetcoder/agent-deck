@@ -9,4 +9,5 @@ export {
   MOCK_PROVIDER_ID,
   writeMockProviderExtension,
   writeQuestionCommandExtension,
+  writeUiCardsExtension,
 } from "./extension.ts";

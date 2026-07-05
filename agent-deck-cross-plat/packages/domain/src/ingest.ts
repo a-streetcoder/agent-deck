@@ -238,6 +238,7 @@ export function ingestPiEvent(state: IngestState, event: PiInboundEvent): Domain
         message?: string;
         options?: string[];
         placeholder?: string;
+        prefill?: string;
       };
       const cell: TranscriptCell = {
         kind: "question",
@@ -248,6 +249,7 @@ export function ingestPiEvent(state: IngestState, event: PiInboundEvent): Domain
         message: request.message,
         options: request.options,
         placeholder: request.placeholder,
+        prefill: request.prefill,
         answered: false,
       };
       return [{ type: "cell_open", cell }];
