@@ -36,6 +36,16 @@ function promptDirFor(roots: ResourceRoots, scope: WritableScope): string {
   return dir;
 }
 
+/** Defense-in-depth: the resolved .md must stay inside the prompt catalog. */
+function promptFilePath(roots: ResourceRoots, scope: WritableScope, name: string): string {
+  const dir = promptDirFor(roots, scope);
+  const filePath = path.join(dir, `${name}.md`);
+  if (!path.resolve(filePath).startsWith(path.resolve(dir) + path.sep)) {
+    throw new Error("refusing to write outside the prompt catalog");
+  }
+  return filePath;
+}
+
 /** Create or update a prompt-template .md file, preserving unknown frontmatter. */
 export function writePromptFile(
   roots: ResourceRoots,
@@ -43,8 +53,7 @@ export function writePromptFile(
   name: string,
   edit: { description?: string; body?: string },
 ): string {
-  const dir = promptDirFor(roots, scope);
-  const filePath = path.join(dir, `${name}.md`);
+  const filePath = promptFilePath(roots, scope, name);
 
   let frontmatter: Record<string, unknown> = {};
   let body = "";
@@ -60,15 +69,14 @@ export function writePromptFile(
   if (edit.description !== undefined) frontmatter.description = edit.description;
   if (edit.body !== undefined) body = edit.body.trim();
 
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(promptDirFor(roots, scope), { recursive: true });
   writeFileSync(filePath, `---\n${serializeFrontmatter(frontmatter)}\n---\n\n${body}\n`);
   return filePath;
 }
 
 /** Delete a global/project prompt-template .md file. */
 export function deletePromptFile(roots: ResourceRoots, scope: WritableScope, name: string): void {
-  const filePath = path.join(promptDirFor(roots, scope), `${name}.md`);
-  rmSync(filePath, { force: true });
+  rmSync(promptFilePath(roots, scope, name), { force: true });
 }
 
 const AGENT_FIELD_ORDER = [

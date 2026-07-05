@@ -15,6 +15,8 @@ interface Draft {
   description: string;
   body: string;
   scope: "global" | "project";
+  /** The project this edit targets, captured when the editor opened. */
+  projectId: string | null;
   original?: string; // set when editing an existing prompt (its name)
 }
 
@@ -41,12 +43,19 @@ export function PromptsScreen() {
     void load();
   }, [load, resourcesVersion]);
 
+  // Close the editor when the project changes so an in-progress edit can't be
+  // saved against a different project than it was opened in.
+  useEffect(() => {
+    setDraft(null);
+  }, [currentProjectId]);
+
   const startNew = (): void =>
     setDraft({
       name: "",
       description: "",
       body: "",
       scope: currentProjectId ? "project" : "global",
+      projectId: currentProjectId,
     });
 
   const startEdit = (prompt: PromptInfo): void =>
@@ -55,6 +64,7 @@ export function PromptsScreen() {
       description: prompt.description ?? "",
       body: prompt.body,
       scope: prompt.scope === "project" ? "project" : "global",
+      projectId: currentProjectId,
       original: prompt.name,
     });
 
@@ -65,7 +75,7 @@ export function PromptsScreen() {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          projectId: currentProjectId ?? undefined,
+          projectId: draft.projectId ?? undefined,
           scope: draft.scope,
           name: draft.name.trim(),
           edit: { description: draft.description, body: draft.body },

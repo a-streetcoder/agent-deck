@@ -302,6 +302,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     const { projectId, scope, name } = parsed.data;
+    if (scope === "project" && !rootsFor(projectId).projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
     try {
       deletePromptFile(rootsFor(projectId), scope, name);
     } catch (error) {

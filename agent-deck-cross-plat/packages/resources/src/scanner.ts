@@ -92,12 +92,14 @@ export function scanAgents(roots: ResourceRoots): AgentInfo[] {
   return applyShadowing(raw);
 }
 
-/** Prompt templates: single .md files, `/prompt:<name>` in pi. */
+/**
+ * Prompt templates: single .md files, `/prompt:<name>` in pi. Returns EVERY
+ * scope's entry (no dedup) so a management UI can edit/delete both a global
+ * prompt and a same-name project one — pi resolves precedence itself at load.
+ */
 export function scanPrompts(roots: ResourceRoots): PromptInfo[] {
   const prompts: PromptInfo[] = [];
-  const seen = new Set<string>();
-  // Project scope wins over global for the same name (scan project first).
-  for (const { dir, scope } of [...promptCatalogDirs(roots)].reverse()) {
+  for (const { dir, scope } of promptCatalogDirs(roots)) {
     let entries: string[];
     try {
       entries = readdirSync(dir);
@@ -109,11 +111,8 @@ export function scanPrompts(roots: ResourceRoots): PromptInfo[] {
       const filePath = path.join(dir, entry);
       try {
         const { frontmatter, body } = parseFrontmatter(readFileSync(filePath, "utf8"));
-        const name = asString(frontmatter.name) ?? path.basename(entry, ".md");
-        if (seen.has(name)) continue;
-        seen.add(name);
         prompts.push({
-          name,
+          name: asString(frontmatter.name) ?? path.basename(entry, ".md"),
           description: asString(frontmatter.description),
           scope,
           filePath,
@@ -124,7 +123,7 @@ export function scanPrompts(roots: ResourceRoots): PromptInfo[] {
       }
     }
   }
-  return prompts.sort((a, b) => a.name.localeCompare(b.name));
+  return prompts.sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope));
 }
 
 export function scanSkills(roots: ResourceRoots): SkillInfo[] {
