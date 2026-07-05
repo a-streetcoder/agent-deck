@@ -73,12 +73,14 @@ export class ProjectIndex extends JsonArrayStore<ProjectMeta> {
 export interface AppSettings {
   /** Skills injected into EVERY project's parent sessions ("All Projects"). */
   defaultSkills: string[];
+  /** Skills the user turned off: unassignable, excluded from --skill injection. */
+  disabledSkills: string[];
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
 export class SettingsStore {
   private readonly file: string;
-  private settings: AppSettings = { defaultSkills: [] };
+  private settings: AppSettings = { defaultSkills: [], disabledSkills: [] };
 
   constructor(dataDir: string = defaultDataDir()) {
     this.file = path.join(dataDir, "app-settings.json");
@@ -90,6 +92,9 @@ export class SettingsStore {
         this.settings = {
           defaultSkills: Array.isArray(record.defaultSkills)
             ? record.defaultSkills.map(String)
+            : [],
+          disabledSkills: Array.isArray(record.disabledSkills)
+            ? record.disabledSkills.map(String)
             : [],
         };
       }
@@ -117,6 +122,28 @@ export class SettingsStore {
     if (enabled) next.add(name);
     else next.delete(name);
     this.settings = { ...this.settings, defaultSkills: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  setDisabledSkill(name: string, disabled: boolean): AppSettings {
+    const next = new Set(this.settings.disabledSkills);
+    if (disabled) next.add(name);
+    else next.delete(name);
+    // A disabled skill can't also be a default.
+    const defaults = new Set(this.settings.defaultSkills);
+    if (disabled) defaults.delete(name);
+    this.settings = { defaultSkills: [...defaults], disabledSkills: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Drop a skill name from every list (used when a skill is deleted). */
+  forgetSkill(name: string): AppSettings {
+    this.settings = {
+      defaultSkills: this.settings.defaultSkills.filter((s) => s !== name),
+      disabledSkills: this.settings.disabledSkills.filter((s) => s !== name),
+    };
     this.flush();
     return this.settings;
   }

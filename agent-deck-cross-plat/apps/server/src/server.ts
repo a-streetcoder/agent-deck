@@ -3,7 +3,12 @@ import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import nodePath from "node:path";
-import { clientMessageSchema, type ProjectMeta, type ServerMessage } from "@agent-deck/domain";
+import {
+  clientMessageSchema,
+  type ProjectMeta,
+  type ServerMessage,
+  type SkillInfo,
+} from "@agent-deck/domain";
 import {
   computeBuiltinOverride,
   ensureDirs,
@@ -17,6 +22,9 @@ import {
   writeAgentFile,
   writeBuiltinAgentOverride,
   writeSkillFile,
+  deleteAgentFile,
+  setAgentDisabledFile,
+  deleteSkillDir,
   scanEnv,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
@@ -192,9 +200,47 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { agents: scanAgents(rootsFor(projectId)) };
   });
 
+  // Skills carry the app-level disabled flag from settings.
+  const enrichSkills = (skills: SkillInfo[]): SkillInfo[] => {
+    const disabled = new Set(settings.get().disabledSkills);
+    return skills.map((s) => ({ ...s, disabled: disabled.has(s.name) }));
+  };
+
   fastify.get("/resources/skills", async (request) => {
     const { projectId } = request.query as { projectId?: string };
-    return { skills: scanSkills(rootsFor(projectId)) };
+    return { skills: enrichSkills(scanSkills(rootsFor(projectId))) };
+  });
+
+  // Delete a global/project skill (its SKILL.md dir) and forget it everywhere.
+  fastify.delete("/resources/skills", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        name: RESOURCE_NAME,
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name } = parsed.data;
+    if (scope === "project" && !rootsFor(projectId).projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      deleteSkillDir(rootsFor(projectId), scope, name);
+      settings.forgetSkill(name);
+      for (const project of projects.list()) {
+        if (project.assignedSkills?.includes(name)) {
+          projects.upsert({
+            ...project,
+            assignedSkills: project.assignedSkills.filter((s) => s !== name),
+          });
+        }
+      }
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   // Edit-safety contract: builtin agents are NEVER written — edits become a
@@ -234,6 +280,75 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return { ok: true };
   });
 
+  // Toggle an agent's disabled flag: override for builtins, frontmatter for
+  // global/project. Library agents are read-only.
+  fastify.post("/resources/agents/disabled", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["builtin", "global", "project"]),
+        name: RESOURCE_NAME,
+        disabled: z.boolean(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, disabled } = parsed.data;
+    const roots = rootsFor(projectId);
+    try {
+      if (scope === "builtin") {
+        const existing = readAgentOverrides(roots)[name] ?? {};
+        const next = { ...existing };
+        if (disabled) next.disabled = true;
+        else delete next.disabled;
+        writeBuiltinAgentOverride(roots, name, Object.keys(next).length > 0 ? next : null);
+      } else {
+        if (scope === "project" && !roots.projectPath) {
+          return reply.status(400).send({ error: "projectId required for project scope" });
+        }
+        setAgentDisabledFile(roots, scope, name, disabled);
+      }
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Delete a custom (global/project) agent's file. Builtins can't be deleted;
+  // "delete" for a builtin means removing its override (reset to pristine).
+  fastify.delete("/resources/agents", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["builtin", "global", "project"]),
+        name: RESOURCE_NAME,
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name } = parsed.data;
+    const roots = rootsFor(projectId);
+    try {
+      if (scope === "builtin") {
+        writeBuiltinAgentOverride(roots, name, null); // reset to pristine
+      } else {
+        if (scope === "project" && !roots.projectPath) {
+          return reply.status(400).send({ error: "projectId required for project scope" });
+        }
+        deleteAgentFile(roots, scope, name);
+        // A deleted agent can no longer be a project default.
+        for (const project of projects.list()) {
+          if (project.defaultAgentName === name) {
+            projects.upsert({ ...project, defaultAgentName: undefined });
+          }
+        }
+      }
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
   fastify.put("/resources/skills", async (request, reply) => {
     const parsed = skillEditBody.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
@@ -265,14 +380,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const parsed = z
       .object({
         defaultSkills: z.array(RESOURCE_NAME).optional(),
-        /** Atomic membership op — preferred over whole-array replacement. */
+        /** Atomic membership ops — preferred over whole-array replacement. */
         setDefaultSkill: z.object({ name: RESOURCE_NAME, enabled: z.boolean() }).optional(),
+        setDisabledSkill: z.object({ name: RESOURCE_NAME, disabled: z.boolean() }).optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     if (parsed.data.setDefaultSkill) {
       const { name, enabled } = parsed.data.setDefaultSkill;
       return { settings: settings.setDefaultSkill(name, enabled) };
+    }
+    if (parsed.data.setDisabledSkill) {
+      const { name, disabled } = parsed.data.setDisabledSkill;
+      const result = settings.setDisabledSkill(name, disabled);
+      broadcast({ type: "resources_changed" }); // dims the row, updates assignment
+      return { settings: result };
     }
     return { settings: settings.update(parsed.data) };
   });
@@ -525,7 +647,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     let assignedSkillPaths: string[] | undefined;
     {
       const project = body.projectId ? projects.find((p) => p.id === body.projectId) : undefined;
-      const names = [...settings.get().defaultSkills, ...(project?.assignedSkills ?? [])];
+      const disabledSkills = new Set(settings.get().disabledSkills);
+      const names = [...settings.get().defaultSkills, ...(project?.assignedSkills ?? [])].filter(
+        (name) => !disabledSkills.has(name), // disabled skills are never injected
+      );
       if (names.length > 0) {
         // scanSkills lists global catalogs first and the project catalog
         // last; the Map keeps the LAST entry per name, so a project skill
@@ -556,6 +681,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       const roots = rootsFor(body.projectId);
       const agent = scanAgents(roots).find((a) => a.name === body.agentName && !a.shadowed);
       if (!agent) return reply.status(404).send({ error: `unknown agent: ${body.agentName}` });
+      if (agent.disabled) {
+        return reply.status(409).send({ error: `agent is disabled: ${body.agentName}` });
+      }
       const skillsByName = new Map(scanSkills(roots).map((s) => [s.name, s]));
       const agentSkillPaths = (agent.skills ?? [])
         .map((name) => skillsByName.get(name)?.baseDir)

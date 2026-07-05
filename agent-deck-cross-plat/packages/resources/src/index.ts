@@ -22,5 +22,12 @@ export {
   type AgentEdit,
   type AgentOverride,
 } from "./overrides.ts";
-export { writeAgentFile, writeSkillFile, type WritableScope } from "./writer.ts";
+export {
+  writeAgentFile,
+  writeSkillFile,
+  deleteAgentFile,
+  setAgentDisabledFile,
+  deleteSkillDir,
+  type WritableScope,
+} from "./writer.ts";
 export { scanEnv, type EnvEntry } from "./env.ts";

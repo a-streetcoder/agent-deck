@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Grid3x3, Pencil, Plus, WandSparkles, X } from "lucide-react";
+import { Grid3x3, Pencil, Power, PowerOff, Plus, Trash2, WandSparkles, X } from "lucide-react";
 import type { SkillInfo } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAppStore } from "../state/store.ts";
-import { updateProject } from "../state/wsBridge.ts";
+import { deleteSkill, setSkillDisabled, updateProject } from "../state/wsBridge.ts";
 import { ScopeChip } from "../components/ScopeChip.tsx";
 
 /**
@@ -249,11 +249,17 @@ function AssignmentCard({ skill }: { skill: SkillInfo }) {
         Assigned skills are passed to new sessions as explicit --skill paths (no ambient discovery).
         Changes apply to the next session.
       </p>
+      {skill.disabled ? (
+        <p className="pb-2 text-xs" style={{ color: "var(--color-warning)" }}>
+          This skill is disabled — enable it to assign it to projects.
+        </p>
+      ) : null}
       <label className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-[var(--color-hover-fill)]">
         <input
           type="checkbox"
           data-testid={`assign-skill-all-${skill.name}`}
           checked={allProjects}
+          disabled={skill.disabled}
           onChange={(event) => void toggleAllProjects(event.target.checked)}
         />
         <Grid3x3 size={14} className="text-text-muted" />
@@ -261,7 +267,12 @@ function AssignmentCard({ skill }: { skill: SkillInfo }) {
         <span className="text-xs text-text-muted">enable this skill for every project</span>
       </label>
       <div className="my-1.5 border-t border-border-subtle" />
-      <div className={cn("space-y-0.5", allProjects && "pointer-events-none opacity-40")}>
+      <div
+        className={cn(
+          "space-y-0.5",
+          (allProjects || skill.disabled) && "pointer-events-none opacity-40",
+        )}
+      >
         {projects.map((project) => {
           const assigned = (project.assignedSkills ?? []).includes(skill.name);
           return (
@@ -273,7 +284,7 @@ function AssignmentCard({ skill }: { skill: SkillInfo }) {
                 type="checkbox"
                 data-testid={`assign-skill-${skill.name}-${project.name}`}
                 checked={assigned}
-                disabled={allProjects}
+                disabled={allProjects || skill.disabled}
                 onChange={(event) => {
                   const next = new Set(project.assignedSkills ?? []);
                   if (event.target.checked) next.add(skill.name);
@@ -389,6 +400,7 @@ export function SkillsScreen() {
                   isSelected
                     ? "border-[var(--color-selection-stroke)] bg-[var(--color-selection-fill)]"
                     : "border-transparent hover:bg-[var(--color-hover-fill)]",
+                  skill.disabled && "opacity-60 saturate-50",
                 )}
                 data-testid="skill-row"
                 data-skill-name={skill.name}
@@ -419,6 +431,18 @@ export function SkillsScreen() {
                       {skill.name}
                     </span>
                     <ScopeChip scope={skill.scope} />
+                    {skill.disabled ? (
+                      <span
+                        className="rounded-capsule border px-1.5 text-[10px]"
+                        style={{
+                          color: "var(--color-text-muted)",
+                          borderColor: "var(--color-border-strong)",
+                        }}
+                        data-testid="skill-disabled-badge"
+                      >
+                        disabled
+                      </span>
+                    ) : null}
                   </div>
                   <div className="truncate text-xs text-text-secondary">{skill.description}</div>
                 </div>
@@ -470,19 +494,41 @@ export function SkillsScreen() {
               </div>
               <p className="mt-0.5 text-sm text-text-secondary">{selected.description}</p>
             </div>
-            <button
-              data-testid="skill-edit"
-              className="flex shrink-0 items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
-              style={{
-                background:
-                  "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
-                color: "var(--color-accent-foreground)",
-              }}
-              onClick={() => setEditing(editDraft(selected))}
-            >
-              <Pencil size={12} />
-              Edit SKILL.md
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                data-testid="skill-disable"
+                className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                onClick={() => void setSkillDisabled(selected.name, !selected.disabled)}
+              >
+                {selected.disabled ? <Power size={12} /> : <PowerOff size={12} />}
+                {selected.disabled ? "Enable" : "Disable"}
+              </button>
+              <button
+                data-testid="skill-edit"
+                className="flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
+                style={{
+                  background:
+                    "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                  color: "var(--color-accent-foreground)",
+                }}
+                onClick={() => setEditing(editDraft(selected))}
+              >
+                <Pencil size={12} />
+                Edit SKILL.md
+              </button>
+              <button
+                data-testid="skill-delete"
+                className="rounded-capsule border border-border-strong p-1.5 text-text-muted hover:text-[var(--color-role-error)]"
+                title="Delete skill"
+                onClick={() => {
+                  if (confirm(`Delete skill "${selected.name}"? This removes its SKILL.md.`)) {
+                    void deleteSkill(selected.scope, selected.name);
+                  }
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </div>
 
           <div className="mt-5 space-y-4">

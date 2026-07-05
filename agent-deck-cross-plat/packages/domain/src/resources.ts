@@ -34,6 +34,8 @@ export interface AgentInfo {
   replacesBuiltin: boolean;
   /** Builtin whose values come partly from settings.json agentOverrides. */
   overridden?: boolean;
+  /** Disabled agents are excluded from the picker and won't launch. */
+  disabled?: boolean;
 }
 
 export interface SkillInfo {
@@ -45,6 +47,8 @@ export interface SkillInfo {
   disableModelInvocation: boolean;
   /** SKILL.md markdown body (frontmatter stripped) — the editor's initial state. */
   body: string;
+  /** App-level disable: dimmed, unassignable, excluded from --skill injection. */
+  disabled?: boolean;
 }
 
 export type AgentFilter =
@@ -54,7 +58,8 @@ export type AgentFilter =
   | "library"
   | "project"
   | "replaced"
-  | "custom";
+  | "custom"
+  | "disabled";
 
 export const AGENT_FILTERS: AgentFilter[] = [
   "all",
@@ -64,6 +69,7 @@ export const AGENT_FILTERS: AgentFilter[] = [
   "project",
   "replaced",
   "custom",
+  "disabled",
 ];
 
 export function agentMatchesFilter(agent: AgentInfo, filter: AgentFilter): boolean {
@@ -79,6 +85,8 @@ export function agentMatchesFilter(agent: AgentInfo, filter: AgentFilter): boole
       return agent.replacesBuiltin || (agent.scope === "builtin" && agent.shadowed);
     case "custom":
       return agent.scope !== "builtin";
+    case "disabled":
+      return agent.disabled === true;
   }
 }
 

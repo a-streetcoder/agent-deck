@@ -260,6 +260,54 @@ export async function forkSession(sessionId: string): Promise<void> {
   }
 }
 
+async function resourceAction(input: string, init: RequestInit): Promise<void> {
+  try {
+    const response = await fetch(input, init);
+    if (!response.ok) throw new Error(await response.text());
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+  }
+}
+
+export async function setAgentDisabled(
+  scope: string,
+  name: string,
+  disabled: boolean,
+): Promise<void> {
+  const projectId = useAppStore.getState().currentProjectId ?? undefined;
+  await resourceAction("/resources/agents/disabled", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId, scope, name, disabled }),
+  });
+}
+
+export async function deleteAgent(scope: string, name: string): Promise<void> {
+  const projectId = useAppStore.getState().currentProjectId ?? undefined;
+  await resourceAction("/resources/agents", {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId, scope, name }),
+  });
+}
+
+export async function setSkillDisabled(name: string, disabled: boolean): Promise<void> {
+  await resourceAction("/settings", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ setDisabledSkill: { name, disabled } }),
+  });
+}
+
+export async function deleteSkill(scope: string, name: string): Promise<void> {
+  const projectId = useAppStore.getState().currentProjectId ?? undefined;
+  await resourceAction("/resources/skills", {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId, scope, name }),
+  });
+}
+
 /** Answer a question card. */
 export function sendUiResponse(requestId: string, response: Record<string, unknown>): void {
   if (currentSessionId) {

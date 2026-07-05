@@ -55,6 +55,7 @@ export function parseAgentFile(
     scope,
     filePath,
     body: body.trim(),
+    disabled: frontmatter.disabled === true,
   };
 }
 

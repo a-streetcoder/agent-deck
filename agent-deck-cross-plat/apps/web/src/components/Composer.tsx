@@ -31,7 +31,7 @@ export function Composer() {
   const currentAgentName = useAppStore((state) => state.currentAgentName);
   const agents = useAgents();
   const running = agentStatus === "running";
-  const pickableAgents = agents.filter((agent) => !agent.shadowed);
+  const pickableAgents = agents.filter((agent) => !agent.shadowed && !agent.disabled);
 
   const [piState, setPiState] = useState<PiComposerState | null>(null);
   const [models, setModels] = useState<PiModelInfo[]>([]);

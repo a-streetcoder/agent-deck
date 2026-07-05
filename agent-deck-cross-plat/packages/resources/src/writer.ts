@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import YAML from "yaml";
@@ -120,4 +120,45 @@ export function writeSkillFile(
   mkdirSync(dir, { recursive: true });
   writeFileSync(filePath, `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n\n${body}\n`);
   return filePath;
+}
+
+/** Delete a global/project agent's .md file. Builtins are never touched here. */
+export function deleteAgentFile(roots: ResourceRoots, scope: WritableScope, name: string): void {
+  const filePath = path.join(agentDirFor(roots, scope), `${name}.md`);
+  rmSync(filePath, { force: true });
+}
+
+/** Set the `disabled` frontmatter flag on a global/project agent file. */
+export function setAgentDisabledFile(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+  disabled: boolean,
+): void {
+  const filePath = path.join(agentDirFor(roots, scope), `${name}.md`);
+  const existing = parseFrontmatter(readFileSync(filePath, "utf8"));
+  const frontmatter: Record<string, unknown> = { ...existing.frontmatter };
+  if (disabled) frontmatter.disabled = true;
+  else delete frontmatter.disabled;
+  writeFileSync(
+    filePath,
+    `---\n${serializeFrontmatter(frontmatter)}\n---\n\n${existing.body.trim()}\n`,
+  );
+}
+
+/** Delete a global/project skill directory (its SKILL.md + contents). */
+export function deleteSkillDir(roots: ResourceRoots, scope: WritableScope, name: string): void {
+  const dir = path.join(skillDirFor(roots, scope), name);
+  // Guard against traversal: the resolved dir must stay under the catalog.
+  const catalog = skillDirFor(roots, scope);
+  if (!path.resolve(dir).startsWith(path.resolve(catalog) + path.sep)) {
+    throw new Error("refusing to delete outside the skill catalog");
+  }
+  rmSync(dir, { recursive: true, force: true });
+  // Prune the catalog dir if it's now empty.
+  try {
+    if (readdirSync(catalog).length === 0) rmSync(catalog, { recursive: true, force: true });
+  } catch {
+    // Non-fatal.
+  }
 }

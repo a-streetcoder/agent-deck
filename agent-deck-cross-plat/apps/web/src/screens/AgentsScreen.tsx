@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pencil, Plus, Star } from "lucide-react";
+import { Pencil, Power, PowerOff, Plus, Star, Trash2 } from "lucide-react";
 import {
   agentMatchesFilter,
   AGENT_FILTERS,
@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAgents } from "../state/useAgents.ts";
 import { useAppStore } from "../state/store.ts";
-import { updateProject } from "../state/wsBridge.ts";
+import { deleteAgent, setAgentDisabled, updateProject } from "../state/wsBridge.ts";
 import { AgentAvatar, agentSourceColor } from "../components/agents/AgentAvatar.tsx";
 import { AgentEditSheet } from "../components/agents/AgentEditSheet.tsx";
 import { ScopeChip } from "../components/ScopeChip.tsx";
@@ -47,7 +47,7 @@ function AgentRow({
         selected
           ? "border-[var(--color-selection-stroke)] bg-[var(--color-selection-fill)]"
           : "border-transparent hover:bg-[var(--color-hover-fill)]",
-        agent.shadowed && "opacity-60 saturate-50",
+        (agent.shadowed || agent.disabled) && "opacity-60 saturate-50",
       )}
       data-testid="agent-row"
       data-agent-name={agent.name}
@@ -72,6 +72,18 @@ function AgentRow({
             {agent.name}
           </span>
           <ScopeChip scope={agent.scope} />
+          {agent.disabled ? (
+            <span
+              className="rounded-capsule border px-1.5 text-[10px]"
+              style={{
+                color: "var(--color-text-muted)",
+                borderColor: "var(--color-border-strong)",
+              }}
+              data-testid="disabled-badge"
+            >
+              disabled
+            </span>
+          ) : null}
           {agent.overridden ? (
             <span
               className="text-[10px]"
@@ -176,19 +188,43 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
             </button>
           ) : null}
           {agent.scope !== "library" ? (
-            <button
-              data-testid="agent-edit"
-              className="flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
-              style={{
-                background:
-                  "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
-                color: "var(--color-accent-foreground)",
-              }}
-              onClick={onEdit}
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
+            <>
+              <button
+                data-testid="agent-disable"
+                className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                onClick={() => void setAgentDisabled(agent.scope, agent.name, !agent.disabled)}
+              >
+                {agent.disabled ? <Power size={12} /> : <PowerOff size={12} />}
+                {agent.disabled ? "Enable" : "Disable"}
+              </button>
+              <button
+                data-testid="agent-edit"
+                className="flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
+                style={{
+                  background:
+                    "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                  color: "var(--color-accent-foreground)",
+                }}
+                onClick={onEdit}
+              >
+                <Pencil size={12} />
+                Edit
+              </button>
+              <button
+                data-testid="agent-delete"
+                className="rounded-capsule border border-border-strong p-1.5 text-text-muted hover:text-[var(--color-role-error)]"
+                title={agent.scope === "builtin" ? "Reset builtin to default" : "Delete agent"}
+                onClick={() => {
+                  const message =
+                    agent.scope === "builtin"
+                      ? `Reset builtin "${agent.name}" to its default?`
+                      : `Delete agent "${agent.name}"? This removes its file.`;
+                  if (confirm(message)) void deleteAgent(agent.scope, agent.name);
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
           ) : null}
         </div>
       </div>
