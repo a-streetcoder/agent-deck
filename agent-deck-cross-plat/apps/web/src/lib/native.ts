@@ -30,6 +30,15 @@ export function isElectron(): boolean {
 }
 
 /**
+ * True on the macOS desktop build, where the frameless window (hiddenInset)
+ * puts the traffic-light buttons over the top-left — content there must clear
+ * them.
+ */
+export function isMacDesktop(): boolean {
+  return isElectron() && nativeBridge()?.platform === "darwin";
+}
+
+/**
  * Open the native OS folder chooser (the NSOpenPanel equivalent). Resolves to
  * the chosen absolute path(s), or [] if unavailable or the user cancels.
  */

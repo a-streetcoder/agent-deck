@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Folder, Key, Plus, Send, Stethoscope, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { chooseDirectory, isElectron } from "@/lib/native";
+import { chooseDirectory, isElectron, isMacDesktop } from "@/lib/native";
 import { useAppStore, type AppView } from "../state/store.ts";
 import { addProject, switchToProject } from "../state/wsBridge.ts";
 import {
@@ -42,6 +42,9 @@ export function Sidebar() {
   const setPanelExpanded = useAppStore((state) => state.setPanelExpanded);
   const [draftPath, setDraftPath] = useState("");
   const [adding, setAdding] = useState(false);
+  // On the macOS desktop build the window's traffic lights overlap the top-left,
+  // so drop the wordmark below them and make the strip a drag region.
+  const macDesktop = isMacDesktop();
 
   const submit = async (): Promise<void> => {
     const path = draftPath.trim();
@@ -85,7 +88,12 @@ export function Sidebar() {
       data-testid="sidebar"
     >
       {/* Brand title bar — the pixel wordmark's only appearance (native rule). */}
-      <div className="flex items-center px-4 pb-1 pt-3">
+      <div
+        className={cn(
+          "flex items-center px-4 pb-1",
+          macDesktop ? "pt-9 [-webkit-app-region:drag]" : "pt-3",
+        )}
+      >
         <span className="font-pixel text-[17px] leading-none tracking-wide text-text-primary">
           AGENT&nbsp;&nbsp;DECK
         </span>
