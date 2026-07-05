@@ -389,7 +389,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         projectId: z.string().optional(),
         scope: z.enum(["global", "project"]),
         key: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "invalid env key"),
-        value: z.string().max(100_000),
+        value: z
+          .string()
+          .max(100_000)
+          .refine((v) => !/[\r\n]/.test(v), "env values cannot contain newlines"),
       })
       .safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
