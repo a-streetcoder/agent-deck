@@ -3,12 +3,18 @@ import path from "node:path";
 import {
   applyShadowing,
   type AgentInfo,
+  type PromptInfo,
   type ResourceScope,
   type SkillInfo,
 } from "@agent-deck/domain";
 import { loadSkillsFromDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { applyAgentOverride, readAgentOverrides } from "./overrides.ts";
-import { agentCatalogDirs, skillCatalogDirs, type ResourceRoots } from "./paths.ts";
+import {
+  agentCatalogDirs,
+  promptCatalogDirs,
+  skillCatalogDirs,
+  type ResourceRoots,
+} from "./paths.ts";
 
 /**
  * Filesystem scanners for agents and skills. Agent frontmatter follows
@@ -84,6 +90,41 @@ export function scanAgents(roots: ResourceRoots): AgentInfo[] {
     }
   }
   return applyShadowing(raw);
+}
+
+/** Prompt templates: single .md files, `/prompt:<name>` in pi. */
+export function scanPrompts(roots: ResourceRoots): PromptInfo[] {
+  const prompts: PromptInfo[] = [];
+  const seen = new Set<string>();
+  // Project scope wins over global for the same name (scan project first).
+  for (const { dir, scope } of [...promptCatalogDirs(roots)].reverse()) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const filePath = path.join(dir, entry);
+      try {
+        const { frontmatter, body } = parseFrontmatter(readFileSync(filePath, "utf8"));
+        const name = asString(frontmatter.name) ?? path.basename(entry, ".md");
+        if (seen.has(name)) continue;
+        seen.add(name);
+        prompts.push({
+          name,
+          description: asString(frontmatter.description),
+          scope,
+          filePath,
+          body: body.trim(),
+        });
+      } catch {
+        // Unreadable/malformed — skip.
+      }
+    }
+  }
+  return prompts.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function scanSkills(roots: ResourceRoots): SkillInfo[] {

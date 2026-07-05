@@ -14,6 +14,7 @@ export type AppView =
   | "skills"
   | "projects"
   | "instructions"
+  | "prompts"
   | "environment"
   | "doctor";
 

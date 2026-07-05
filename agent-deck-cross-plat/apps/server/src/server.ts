@@ -26,13 +26,16 @@ import {
   readAgentOverrides,
   scanAgents,
   scanSkills,
+  scanPrompts,
   watchResources,
   writeAgentFile,
   writeBuiltinAgentOverride,
   writeSkillFile,
+  writePromptFile,
   deleteAgentFile,
   setAgentDisabledFile,
   deleteSkillDir,
+  deletePromptFile,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -253,6 +256,54 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           });
         }
       }
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Prompt templates: single .md files pi exposes as /prompt:<name>.
+  fastify.get("/resources/prompts", async (request) => {
+    const { projectId } = request.query as { projectId?: string };
+    return { prompts: scanPrompts(rootsFor(projectId)) };
+  });
+
+  const promptWriteBody = z.object({
+    projectId: z.string().optional(),
+    scope: z.enum(["global", "project"]),
+    name: RESOURCE_NAME,
+    edit: z.object({ description: z.string().max(500).optional(), body: z.string().max(100_000) }),
+  });
+
+  fastify.put("/resources/prompts", async (request, reply) => {
+    const parsed = promptWriteBody.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, edit } = parsed.data;
+    if (scope === "project" && !rootsFor(projectId).projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      writePromptFile(rootsFor(projectId), scope, name, edit);
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  fastify.delete("/resources/prompts", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        name: RESOURCE_NAME,
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name } = parsed.data;
+    try {
+      deletePromptFile(rootsFor(projectId), scope, name);
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
     }

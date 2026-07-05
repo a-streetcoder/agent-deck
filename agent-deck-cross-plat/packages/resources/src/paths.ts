@@ -61,6 +61,22 @@ export function skillCatalogDirs(roots: ResourceRoots): SkillCatalogDir[] {
   return dirs;
 }
 
+export interface PromptCatalogDir {
+  dir: string;
+  scope: ResourceScope;
+}
+
+/** Prompt-template catalog dirs — single .md files, pi's `/prompt:<name>`. */
+export function promptCatalogDirs(roots: ResourceRoots): PromptCatalogDir[] {
+  const dirs: PromptCatalogDir[] = [
+    { dir: path.join(piAgentHome(roots), "prompts"), scope: "global" },
+  ];
+  if (roots.projectPath) {
+    dirs.push({ dir: path.join(roots.projectPath, ".pi", "prompts"), scope: "project" });
+  }
+  return dirs;
+}
+
 /**
  * Directories the file watcher observes. Builtins never change and legacy
  * locations are excluded so they are never auto-created in user projects.
@@ -71,10 +87,15 @@ export function watchDirs(roots: ResourceRoots): string[] {
       .filter((d) => d.scope !== "builtin" && !d.legacy)
       .map((d) => d.dir),
     ...skillCatalogDirs(roots).map((d) => d.dir),
+    ...promptCatalogDirs(roots).map((d) => d.dir),
   ];
 }
 
 /** The project-scoped watch dirs alone — for FSWatcher.add() when a project registers. */
 export function projectWatchDirs(projectPath: string): string[] {
-  return [path.join(projectPath, ".pi", "agents"), path.join(projectPath, ".pi", "skills")];
+  return [
+    path.join(projectPath, ".pi", "agents"),
+    path.join(projectPath, ".pi", "skills"),
+    path.join(projectPath, ".pi", "prompts"),
+  ];
 }

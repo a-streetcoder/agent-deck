@@ -3,7 +3,12 @@ import path from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import YAML from "yaml";
 import type { AgentEdit } from "./overrides.ts";
-import { agentCatalogDirs, skillCatalogDirs, type ResourceRoots } from "./paths.ts";
+import {
+  agentCatalogDirs,
+  promptCatalogDirs,
+  skillCatalogDirs,
+  type ResourceRoots,
+} from "./paths.ts";
 
 /**
  * File writers for global/project agents and skills. Existing files keep
@@ -23,6 +28,47 @@ function skillDirFor(roots: ResourceRoots, scope: WritableScope): string {
   const dir = skillCatalogDirs(roots).find((d) => d.scope === scope)?.dir;
   if (!dir) throw new Error(`no ${scope} skill directory (is a project selected?)`);
   return dir;
+}
+
+function promptDirFor(roots: ResourceRoots, scope: WritableScope): string {
+  const dir = promptCatalogDirs(roots).find((d) => d.scope === scope)?.dir;
+  if (!dir) throw new Error(`no ${scope} prompt directory (is a project selected?)`);
+  return dir;
+}
+
+/** Create or update a prompt-template .md file, preserving unknown frontmatter. */
+export function writePromptFile(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+  edit: { description?: string; body?: string },
+): string {
+  const dir = promptDirFor(roots, scope);
+  const filePath = path.join(dir, `${name}.md`);
+
+  let frontmatter: Record<string, unknown> = {};
+  let body = "";
+  try {
+    const existing = parseFrontmatter(readFileSync(filePath, "utf8"));
+    frontmatter = { ...existing.frontmatter };
+    body = existing.body.trim();
+  } catch {
+    // New prompt.
+  }
+
+  frontmatter.name = name;
+  if (edit.description !== undefined) frontmatter.description = edit.description;
+  if (edit.body !== undefined) body = edit.body.trim();
+
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, `---\n${serializeFrontmatter(frontmatter)}\n---\n\n${body}\n`);
+  return filePath;
+}
+
+/** Delete a global/project prompt-template .md file. */
+export function deletePromptFile(roots: ResourceRoots, scope: WritableScope, name: string): void {
+  const filePath = path.join(promptDirFor(roots, scope), `${name}.md`);
+  rmSync(filePath, { force: true });
 }
 
 const AGENT_FIELD_ORDER = [

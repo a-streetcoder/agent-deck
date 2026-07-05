@@ -4,13 +4,15 @@ export {
   defaultRoots,
   piAgentHome,
   projectWatchDirs,
+  promptCatalogDirs,
   skillCatalogDirs,
   watchDirs,
   type AgentCatalogDir,
+  type PromptCatalogDir,
   type ResourceRoots,
   type SkillCatalogDir,
 } from "./paths.ts";
-export { parseAgentFile, scanAgents, scanSkills } from "./scanner.ts";
+export { parseAgentFile, scanAgents, scanPrompts, scanSkills } from "./scanner.ts";
 export { ensureDirs, watchResources } from "./watcher.ts";
 export {
   applyAgentOverride,
@@ -25,9 +27,11 @@ export {
 export {
   writeAgentFile,
   writeSkillFile,
+  writePromptFile,
   deleteAgentFile,
   setAgentDisabledFile,
   deleteSkillDir,
+  deletePromptFile,
   type WritableScope,
 } from "./writer.ts";
 export { scanEnv, writeEnvVar, type EnvEntry, type EnvScope } from "./env.ts";

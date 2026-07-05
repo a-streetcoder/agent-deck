@@ -51,6 +51,15 @@ export interface SkillInfo {
   disabled?: boolean;
 }
 
+export interface PromptInfo {
+  name: string;
+  description?: string;
+  scope: ResourceScope;
+  filePath: string;
+  /** Markdown body (frontmatter stripped) — the editor's initial state. */
+  body: string;
+}
+
 export type AgentFilter =
   | "all"
   | "builtin"
