@@ -109,6 +109,10 @@ export interface SessionMeta {
   id: string;
   cwd: string;
   createdAt: string;
+  /** Last-touched time (created / resumed / prompted / titled). Drives the
+   * session list's most-recently-active-first ordering. Optional: sessions
+   * persisted before this field fall back to createdAt. */
+  updatedAt?: string;
   projectId?: string;
   /** Set when the session is backed by a named agent (injected system prompt). */
   agentName?: string;

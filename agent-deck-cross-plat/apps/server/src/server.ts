@@ -172,6 +172,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   const sessions = new SessionManager(
     receipts,
     (meta) => {
+      // Every meta change (title / resume / end / rename / prompt) is activity —
+      // stamp updatedAt so the session floats up the most-recent-first list.
+      meta.updatedAt = new Date().toISOString();
       index.upsert(meta);
       // `broadcast` is initialized during startServer, before any meta changes.
       broadcast({ type: "session_meta", session: meta });
@@ -691,7 +694,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     const meta = index.find((s) => s.id === id);
     if (!meta) return reply.status(404).send({ error: "unknown session" });
-    const next = { ...meta, title: parsed.data.title };
+    const next = { ...meta, title: parsed.data.title, updatedAt: new Date().toISOString() };
     index.upsert(next);
     broadcast({ type: "session_meta", session: next });
     return { session: next };

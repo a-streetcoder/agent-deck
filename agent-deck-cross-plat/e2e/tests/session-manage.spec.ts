@@ -103,3 +103,46 @@ test("delete removes a chat", async ({ page }) => {
   await expect.poll(async () => (await liveSessions()).some((s) => s.id === id)).toBe(false);
   await expect(page.getByTestId("chat-list").getByTestId(`chat-${id}`)).toHaveCount(0);
 });
+
+// The id of the one session added since `before` (other tests share the server).
+async function newSessionId(before: Set<string>): Promise<string> {
+  const fresh = (await liveSessions()).filter((s) => !before.has(s.id));
+  return fresh[0]!.id;
+}
+
+test("the most recently active session sorts to the top of the list", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Session A: create it explicitly and capture its id (prior tests leave
+  // sessions in the shared server, so positional lookups aren't reliable).
+  const beforeA = new Set((await liveSessions()).map((s) => s.id));
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  await expect.poll(async () => (await liveSessions()).length).toBe(beforeA.size + 1);
+  const idA = await newSessionId(beforeA);
+  await page.getByTestId("composer-input").fill("message in A");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("assistant-text").last()).toContainText("message in A", {
+    timeout: 30_000,
+  });
+
+  // Session B is created after A, so it starts on top of A.
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+
+  // Re-activating A (switch + prompt) must float it back above B.
+  await page.getByTestId("chat-list").getByTestId(`chat-${idA}`).click();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  await page.getByTestId("composer-input").fill("back in A");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("assistant-text").last()).toContainText("back in A", {
+    timeout: 30_000,
+  });
+
+  const firstRow = page
+    .getByTestId("chat-list")
+    .locator('[data-testid^="chat-"][role="button"]')
+    .first();
+  await expect(firstRow).toHaveAttribute("data-testid", `chat-${idA}`);
+});

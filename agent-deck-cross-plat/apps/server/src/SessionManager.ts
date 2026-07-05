@@ -221,6 +221,9 @@ export class ManagedSession {
 
   async prompt(message: string, images?: Parameters<PiSession["prompt"]>[1]): Promise<void> {
     await this.pi.prompt(message, images);
+    // Prompting is activity — bump updatedAt (the callback stamps it) so this
+    // session sorts to the top of the most-recent-first list.
+    this.onMetaChange(this.meta);
   }
 
   async steer(message: string): Promise<void> {
@@ -326,10 +329,12 @@ export class SessionManager {
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
+    const now = new Date().toISOString();
     const meta: SessionMeta = {
       id: randomUUID(),
       cwd: options.cwd,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
       projectId: options.projectId,
       agentName: options.agentName,
       launchPlan: options.plan,

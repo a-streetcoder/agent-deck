@@ -166,7 +166,10 @@ function useSessionsData() {
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const setView = useAppStore((state) => state.setView);
 
-  const byNewest = [...sessions].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // Most-recently-active first (native exact-updatedAt ordering); createdAt is
+  // the fallback for sessions persisted before updatedAt existed.
+  const activityAt = (s: SessionMeta): string => s.updatedAt ?? s.createdAt;
+  const byNewest = [...sessions].sort((a, b) => activityAt(b).localeCompare(activityAt(a)));
   const projectName = (id?: string): string => projectDisplayName(projects, id);
 
   return { byNewest, currentProjectId, currentSession, agentStatus, setView, projectName };
