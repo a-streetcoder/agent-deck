@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
@@ -25,6 +26,9 @@ const electronPath = requireFromDesktop("electron") as string;
 
 let app: ElectronApplication;
 let electronPid: number | undefined;
+// A throwaway directory to "pick" as a project, and an isolated persistence dir.
+const projectDir = mkdtempSync(path.join(tmpdir(), "electron-e2e-project-"));
+const projectName = path.basename(projectDir);
 
 test.beforeAll(async () => {
   if (!existsSync(path.join(WEB_DIST, "index.html"))) {
@@ -32,12 +36,13 @@ test.beforeAll(async () => {
   }
   // The main process spawns the server via pnpm, which needs the real HOME
   // (a throwaway HOME sends corepack into a reinstall that aborts with no TTY).
-  // This boot smoke sends no prompt, so it neither launches pi nor mutates
-  // anything under ~/.pi — read-only against the real home is safe.
+  // This spec sends no prompt, so it never launches pi nor mutates ~/.pi; the
+  // isolated AGENT_DECK_DATA_DIR keeps the added project out of real state.
+  const dataDir = mkdtempSync(path.join(tmpdir(), "electron-e2e-data-"));
   app = await electron.launch({
     executablePath: electronPath,
     args: [DESKTOP_DIR],
-    env: { ...process.env, PI_SKIP_VERSION_CHECK: "1" },
+    env: { ...process.env, PI_SKIP_VERSION_CHECK: "1", AGENT_DECK_DATA_DIR: dataDir },
   });
   electronPid = app.process().pid ?? undefined;
 });
@@ -78,4 +83,20 @@ test("the desktop shell boots the server and mounts the UI", async () => {
     return res.ok;
   });
   expect(health).toBe(true);
+});
+
+test("adding a project via the native folder picker registers it", async () => {
+  const window = await app.firstWindow();
+  await expect(window.getByTestId("add-project")).toBeVisible({ timeout: 30_000 });
+
+  // Stub the OS folder chooser to return our throwaway project directory, so
+  // the real preload → ipcMain → dialog → addProject chain runs headlessly.
+  await app.evaluate(({ dialog }, dir) => {
+    dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [dir] });
+  }, projectDir);
+
+  await window.getByTestId("add-project").click();
+
+  // The picked folder shows up as a registered project in the sidebar.
+  await expect(window.getByTestId(`project-${projectName}`)).toBeVisible({ timeout: 15_000 });
 });

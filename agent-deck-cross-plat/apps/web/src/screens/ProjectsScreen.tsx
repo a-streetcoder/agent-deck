@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { DiscoveredProject, ProjectMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
+import { chooseDirectory, isElectron } from "@/lib/native";
 import { useAppStore } from "../state/store.ts";
 import { addProject, refreshProjects, updateProject } from "../state/wsBridge.ts";
 
@@ -110,9 +111,7 @@ function DiscoveryPanel() {
     void scan();
   }, [scan]);
 
-  const addRoot = async (): Promise<void> => {
-    const root = rootDraft.trim();
-    if (!root) return;
+  const postRoot = async (root: string): Promise<boolean> => {
     const response = await fetch("/projects/discovery/roots", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -120,10 +119,30 @@ function DiscoveryPanel() {
     });
     if (!response.ok) {
       setError(await response.text());
-      return;
+      return false;
     }
-    setRootDraft("");
-    await scan();
+    return true;
+  };
+
+  const addRoot = async (): Promise<void> => {
+    const root = rootDraft.trim();
+    if (!root) return;
+    if (await postRoot(root)) {
+      setRootDraft("");
+      await scan();
+    }
+  };
+
+  // Desktop: pick one or more parent folders with the native chooser.
+  const browseRoots = async (): Promise<void> => {
+    const picked = await chooseDirectory({
+      title: "Choose Projects Folder",
+      message: "Choose one or more parent folders that contain your projects",
+      multiple: true,
+    });
+    let any = false;
+    for (const root of picked) any = (await postRoot(root)) || any;
+    if (any) await scan();
   };
 
   const removeRoot = async (root: string): Promise<void> => {
@@ -164,24 +183,36 @@ function DiscoveryPanel() {
       </p>
 
       <div className="flex gap-2 pb-2">
-        <input
-          data-testid="discovery-root-input"
-          className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-          placeholder="/path/to/dev/folder"
-          value={rootDraft}
-          onChange={(e) => setRootDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void addRoot();
-          }}
-        />
-        <button
-          data-testid="discovery-root-add"
-          className="rounded-capsule border border-border-strong px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
-          disabled={!rootDraft.trim()}
-          onClick={() => void addRoot()}
-        >
-          Add root
-        </button>
+        {isElectron() ? (
+          <button
+            data-testid="discovery-root-browse"
+            className="rounded-capsule border border-border-strong px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
+            onClick={() => void browseRoots()}
+          >
+            Choose folder…
+          </button>
+        ) : (
+          <>
+            <input
+              data-testid="discovery-root-input"
+              className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+              placeholder="/path/to/dev/folder"
+              value={rootDraft}
+              onChange={(e) => setRootDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void addRoot();
+              }}
+            />
+            <button
+              data-testid="discovery-root-add"
+              className="rounded-capsule border border-border-strong px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+              disabled={!rootDraft.trim()}
+              onClick={() => void addRoot()}
+            >
+              Add root
+            </button>
+          </>
+        )}
       </div>
 
       {roots.length > 0 ? (
@@ -273,6 +304,19 @@ export function ProjectsScreen() {
     await refreshProjects();
   };
 
+  // Desktop uses the native folder chooser; browser toggles the path input.
+  const startAdd = async (): Promise<void> => {
+    if (isElectron()) {
+      const [picked] = await chooseDirectory({
+        title: "Add Project",
+        message: "Choose a repo or project root to add",
+      });
+      if (picked) await addProject(picked);
+      return;
+    }
+    setAdding((v) => !v);
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="projects-screen">
       <DiscoveryPanel />
@@ -312,7 +356,7 @@ export function ProjectsScreen() {
                 color: "var(--color-accent-foreground)",
               }}
               title="Add project"
-              onClick={() => setAdding((v) => !v)}
+              onClick={() => void startAdd()}
             >
               <Plus size={14} />
             </button>

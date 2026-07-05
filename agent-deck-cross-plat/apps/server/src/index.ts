@@ -23,7 +23,12 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     );
   }
 
-  const server = await startServer({ port, staticDir: hasWebBuild ? webDist : undefined });
+  const server = await startServer({
+    port,
+    staticDir: hasWebBuild ? webDist : undefined,
+    // Lets the desktop shell (and tests) point persistence at an isolated dir.
+    dataDir: process.env.AGENT_DECK_DATA_DIR || undefined,
+  });
   console.log(`agent-deck listening on http://127.0.0.1:${server.port}`);
   const shutdown = (): void => {
     void server.close().then(() => process.exit(0));

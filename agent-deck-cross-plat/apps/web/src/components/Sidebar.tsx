@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Folder, Key, Plus, Send, Stethoscope, WandSparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { chooseDirectory, isElectron } from "@/lib/native";
 import { useAppStore, type AppView } from "../state/store.ts";
 import { addProject, switchToProject } from "../state/wsBridge.ts";
 import {
@@ -48,6 +49,20 @@ export function Sidebar() {
     await addProject(path);
     setDraftPath("");
     setAdding(false);
+  };
+
+  // In the desktop app, "Add project" opens the native folder chooser; in a
+  // browser it falls back to the type-a-path input.
+  const startAddProject = async (): Promise<void> => {
+    if (isElectron()) {
+      const [picked] = await chooseDirectory({
+        title: "Add Project",
+        message: "Choose a repo or project root to add",
+      });
+      if (picked) await addProject(picked);
+      return;
+    }
+    setAdding(true);
   };
 
   const rowClass = (active: boolean): string =>
@@ -180,7 +195,7 @@ export function Sidebar() {
                 <button
                   data-testid="add-project"
                   className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] text-text-muted hover:bg-[var(--color-hover-fill)]"
-                  onClick={() => setAdding(true)}
+                  onClick={() => void startAddProject()}
                 >
                   <Plus size={15} />
                   <span style={{ fontStretch: "expanded" }}>Add project</span>
