@@ -73,7 +73,8 @@ test("the desktop shell boots the server and mounts the UI", async () => {
   // The preload bridge is present → the native folder picker is reachable.
   const bridge = await window.evaluate(
     () =>
-      (window as unknown as { agentDeck?: { isElectron?: boolean } }).agentDeck?.isElectron ?? false,
+      (window as unknown as { agentDeck?: { isElectron?: boolean } }).agentDeck?.isElectron ??
+      false,
   );
   expect(bridge).toBe(true);
 

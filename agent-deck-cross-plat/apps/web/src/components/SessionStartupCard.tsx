@@ -45,7 +45,10 @@ export function SessionStartupCard() {
               <Folder size={13} aria-hidden /> Project
             </dt>
             <dd className="min-w-0 text-right">
-              <div className="truncate font-medium text-text-primary" style={{ fontStretch: "expanded" }}>
+              <div
+                className="truncate font-medium text-text-primary"
+                style={{ fontStretch: "expanded" }}
+              >
                 {projectName}
               </div>
               {session?.cwd ? (

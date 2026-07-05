@@ -21,24 +21,27 @@ export function InstructionsScreen() {
   const activeProject = useRef<string | null>(null);
   const loadedProject = useRef<string | null>(null);
 
-  const load = useCallback(async (projectId: string): Promise<void> => {
-    activeProject.current = projectId;
-    try {
-      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/instructions`);
-      if (!response.ok) throw new Error(await response.text());
-      const data = (await response.json()) as { content: string; path: string };
-      if (activeProject.current !== projectId) return;
-      setContent(data.content);
-      setSavedContent(data.content);
-      setFilePath(data.path);
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      // Reveal the editor only after the first load, so a fill/keystroke can't
-      // race the load resetting the controlled value.
-      if (activeProject.current === projectId) setLoaded(true);
-    }
-  }, [setError]);
+  const load = useCallback(
+    async (projectId: string): Promise<void> => {
+      activeProject.current = projectId;
+      try {
+        const response = await fetch(`/projects/${encodeURIComponent(projectId)}/instructions`);
+        if (!response.ok) throw new Error(await response.text());
+        const data = (await response.json()) as { content: string; path: string };
+        if (activeProject.current !== projectId) return;
+        setContent(data.content);
+        setSavedContent(data.content);
+        setFilePath(data.path);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        // Reveal the editor only after the first load, so a fill/keystroke can't
+        // race the load resetting the controlled value.
+        if (activeProject.current === projectId) setLoaded(true);
+      }
+    },
+    [setError],
+  );
 
   useEffect(() => {
     // Load once per project — the project-activation flow can re-fire this
@@ -58,11 +61,14 @@ export function InstructionsScreen() {
     if (!currentProjectId) return;
     setSaving(true);
     try {
-      const response = await fetch(`/projects/${encodeURIComponent(currentProjectId)}/instructions`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content }),
-      });
+      const response = await fetch(
+        `/projects/${encodeURIComponent(currentProjectId)}/instructions`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content }),
+        },
+      );
       if (!response.ok) throw new Error(await response.text());
       setSavedContent(content);
     } catch (err) {

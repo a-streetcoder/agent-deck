@@ -838,7 +838,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     } catch {
       return {
         issues: [],
-        error: "Couldn't list issues — needs the gh CLI installed, authenticated, and a GitHub remote.",
+        error:
+          "Couldn't list issues — needs the gh CLI installed, authenticated, and a GitHub remote.",
       };
     }
   });

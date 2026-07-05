@@ -8,7 +8,9 @@
     "node": ">=22"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron"]
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
   },
   "scripts": {
     "demo:chat": "tsx packages/testkit/demo/chat.ts",

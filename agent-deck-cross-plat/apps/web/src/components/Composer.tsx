@@ -134,17 +134,20 @@ export function Composer() {
     });
   };
 
-  const addFiles = useCallback(async (files: FileList | File[]): Promise<void> => {
-    // Cap to the remaining slots *before* encoding so many/huge files can't
-    // freeze the tab base64-encoding images that would be discarded anyway.
-    const remaining = 8 - images.length;
-    if (remaining <= 0) return;
-    const candidates = [...files].filter((f) => f.type.startsWith("image/")).slice(0, remaining);
-    const imgs = (await Promise.all(candidates.map(fileToImage))).filter(
-      (i): i is PendingImage => i !== null,
-    );
-    if (imgs.length > 0) setImages((prev) => [...prev, ...imgs].slice(0, 8));
-  }, [images.length]);
+  const addFiles = useCallback(
+    async (files: FileList | File[]): Promise<void> => {
+      // Cap to the remaining slots *before* encoding so many/huge files can't
+      // freeze the tab base64-encoding images that would be discarded anyway.
+      const remaining = 8 - images.length;
+      if (remaining <= 0) return;
+      const candidates = [...files].filter((f) => f.type.startsWith("image/")).slice(0, remaining);
+      const imgs = (await Promise.all(candidates.map(fileToImage))).filter(
+        (i): i is PendingImage => i !== null,
+      );
+      if (imgs.length > 0) setImages((prev) => [...prev, ...imgs].slice(0, 8));
+    },
+    [images.length],
+  );
 
   const submit = (): void => {
     const message = draft.trim();

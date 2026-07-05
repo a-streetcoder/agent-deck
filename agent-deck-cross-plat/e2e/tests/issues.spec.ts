@@ -56,7 +56,5 @@ test("lists a project's issues and starts a session seeded from one", async ({ p
 
   // Selecting it starts a chat with the composer seeded from the issue.
   await issue.click();
-  await expect(page.getByTestId("composer-input")).toHaveValue(
-    /issue #7: Fix the flux capacitor/,
-  );
+  await expect(page.getByTestId("composer-input")).toHaveValue(/issue #7: Fix the flux capacitor/);
 });

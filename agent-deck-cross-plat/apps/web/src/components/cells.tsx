@@ -42,7 +42,9 @@ function ToolCellView({ cell }: { cell: ToolCell }) {
 }
 
 function QuestionCellView({ cell }: { cell: QuestionCell }) {
-  const [inputValue, setInputValue] = useState(cell.method === "editor" ? (cell.prefill ?? "") : "");
+  const [inputValue, setInputValue] = useState(
+    cell.method === "editor" ? (cell.prefill ?? "") : "",
+  );
   const answer = (response: Record<string, unknown>): void =>
     sendUiResponse(cell.requestId, response);
 
