@@ -97,6 +97,7 @@ function SessionRow({
         !active && session.endedAt && "opacity-60 saturate-50",
       )}
       data-testid={`chat-${session.id}`}
+      data-active={active ? "true" : "false"}
       title={session.agentName ? `agent: ${session.agentName}` : undefined}
       role="button"
       tabIndex={0}

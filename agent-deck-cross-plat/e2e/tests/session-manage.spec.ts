@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import type { SessionMeta } from "@agent-deck/domain";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
@@ -104,23 +104,27 @@ test("delete removes a chat", async ({ page }) => {
   await expect(page.getByTestId("chat-list").getByTestId(`chat-${id}`)).toHaveCount(0);
 });
 
-// The id of the one session added since `before` (other tests share the server).
-async function newSessionId(before: Set<string>): Promise<string> {
-  const fresh = (await liveSessions()).filter((s) => !before.has(s.id));
-  return fresh[0]!.id;
+/** The id of the currently-active session row (the one new-chat/switch selects). */
+async function activeSessionId(page: Page): Promise<string> {
+  const testid = await page
+    .getByTestId("chat-list")
+    .locator('[data-active="true"]')
+    .first()
+    .getAttribute("data-testid");
+  return testid!.replace("chat-", "");
 }
 
 test("the most recently active session sorts to the top of the list", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
 
-  // Session A: create it explicitly and capture its id (prior tests leave
-  // sessions in the shared server, so positional lookups aren't reliable).
-  const beforeA = new Set((await liveSessions()).map((s) => s.id));
+  // Session A: create it and capture its id from the ACTIVE row (robust to the
+  // default session / prior tests' sessions registering at their own pace — no
+  // fragile session-count math that flakes on a slow CI runner).
   await page.getByTestId("new-chat").click();
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
-  await expect.poll(async () => (await liveSessions()).length).toBe(beforeA.size + 1);
-  const idA = await newSessionId(beforeA);
+  await expect(page.getByTestId("chat-list").locator('[data-active="true"]')).toBeVisible();
+  const idA = await activeSessionId(page);
   await page.getByTestId("composer-input").fill("message in A");
   await page.getByTestId("send-button").click();
   await expect(page.getByTestId("assistant-text").last()).toContainText("message in A", {
