@@ -210,20 +210,38 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
                 <Pencil size={12} />
                 Edit
               </button>
-              <button
-                data-testid="agent-delete"
-                className="rounded-capsule border border-border-strong p-1.5 text-text-muted hover:text-[var(--color-role-error)]"
-                title={agent.scope === "builtin" ? "Reset builtin to default" : "Delete agent"}
-                onClick={() => {
-                  const message =
-                    agent.scope === "builtin"
-                      ? `Reset builtin "${agent.name}" to its default?`
-                      : `Delete agent "${agent.name}"? This removes its file.`;
-                  if (confirm(message)) void deleteAgent(agent.scope, agent.name);
-                }}
-              >
-                <Trash2 size={13} />
-              </button>
+              {/* Delete removes a custom agent's file. Builtins are bundled
+                  and can only be reset — offered just when overridden, so its
+                  effect ("clear all overrides") is unambiguous. */}
+              {agent.scope !== "builtin" ? (
+                <button
+                  data-testid="agent-delete"
+                  className="rounded-capsule border border-border-strong p-1.5 text-text-muted hover:text-[var(--color-role-error)]"
+                  title="Delete agent"
+                  onClick={() => {
+                    if (confirm(`Delete agent "${agent.name}"? This removes its file.`)) {
+                      void deleteAgent(agent.scope, agent.name);
+                    }
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              ) : agent.overridden ? (
+                <button
+                  data-testid="agent-reset"
+                  className="rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-muted hover:text-[var(--color-role-error)]"
+                  title="Clear all overrides and restore the bundled defaults"
+                  onClick={() => {
+                    if (
+                      confirm(`Reset "${agent.name}" — clear all overrides and restore defaults?`)
+                    ) {
+                      void deleteAgent(agent.scope, agent.name);
+                    }
+                  }}
+                >
+                  Reset
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>

@@ -296,6 +296,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const roots = rootsFor(projectId);
     try {
       if (scope === "builtin") {
+        if (!existsSync(nodePath.join(BUILTIN_AGENTS_DIR, `${name}.md`))) {
+          return reply.status(404).send({ error: `unknown builtin agent: ${name}` });
+        }
         const existing = readAgentOverrides(roots)[name] ?? {};
         const next = { ...existing };
         if (disabled) next.disabled = true;
@@ -329,7 +332,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const roots = rootsFor(projectId);
     try {
       if (scope === "builtin") {
-        writeBuiltinAgentOverride(roots, name, null); // reset to pristine
+        if (!existsSync(nodePath.join(BUILTIN_AGENTS_DIR, `${name}.md`))) {
+          return reply.status(404).send({ error: `unknown builtin agent: ${name}` });
+        }
+        // "Reset to pristine" — remove the entire override, including any
+        // unmanaged keys (mcpServers, …). This is why the UI only offers
+        // reset for a builtin that is currently overridden.
+        writeBuiltinAgentOverride(roots, name, null);
       } else {
         if (scope === "project" && !roots.projectPath) {
           return reply.status(400).send({ error: "projectId required for project scope" });
@@ -685,7 +694,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         return reply.status(409).send({ error: `agent is disabled: ${body.agentName}` });
       }
       const skillsByName = new Map(scanSkills(roots).map((s) => [s.name, s]));
+      const disabledSkills = new Set(settings.get().disabledSkills);
       const agentSkillPaths = (agent.skills ?? [])
+        .filter((name) => !disabledSkills.has(name)) // disabled skills never inject
         .map((name) => skillsByName.get(name)?.baseDir)
         .filter((p): p is string => Boolean(p));
       const effectiveTools = agent.tools?.filter((tool) => !BRIDGE_ONLY_TOOLS.has(tool));

@@ -140,10 +140,8 @@ export function setAgentDisabledFile(
   const frontmatter: Record<string, unknown> = { ...existing.frontmatter };
   if (disabled) frontmatter.disabled = true;
   else delete frontmatter.disabled;
-  writeFileSync(
-    filePath,
-    `---\n${serializeFrontmatter(frontmatter)}\n---\n\n${existing.body.trim()}\n`,
-  );
+  // A metadata-only toggle preserves the body verbatim (no re-trim).
+  writeFileSync(filePath, `---\n${serializeFrontmatter(frontmatter)}\n---\n${existing.body}`);
 }
 
 /** Delete a global/project skill directory (its SKILL.md + contents). */
