@@ -97,6 +97,7 @@ function QuestionCellView({ cell }: { cell: QuestionCell }) {
         <div className="mt-3 flex flex-col gap-2">
           <textarea
             data-testid="question-editor"
+            aria-label={cell.title}
             className="min-h-[7rem] resize-y rounded-md border border-border-strong bg-surface px-2 py-1.5 font-mono text-sm text-text-primary outline-none focus:border-accent"
             placeholder={cell.placeholder}
             value={inputValue}
@@ -115,6 +116,7 @@ function QuestionCellView({ cell }: { cell: QuestionCell }) {
         <div className="mt-3 flex gap-2">
           <input
             data-testid="question-input"
+            aria-label={cell.title}
             className="flex-1 rounded-md border border-border-strong bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
             placeholder={cell.placeholder}
             value={inputValue}
