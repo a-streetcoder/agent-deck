@@ -1,4 +1,5 @@
 import { Composer } from "./components/Composer.tsx";
+import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Transcript } from "./components/Transcript.tsx";
 import { PiAgentProcessingIndicatorBar } from "@/components/transcript/PiAgentProcessingIndicatorBar";
@@ -117,6 +118,7 @@ export function App() {
             <span className="text-sm text-text-secondary">{statusLabel}</span>
           </div>
         </header>
+        <OnboardingOverlay />
         {error ? (
           <div
             className="px-6 py-2 text-sm"

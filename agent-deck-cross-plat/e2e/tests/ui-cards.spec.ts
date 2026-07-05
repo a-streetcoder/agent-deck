@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { writeUiCardsExtension } from "@agent-deck/testkit";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
@@ -19,7 +19,7 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-async function runCommand(page: import("@playwright/test").Page, command: string): Promise<void> {
+async function runCommand(page: Page, command: string): Promise<void> {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
   // Fresh chat so each test's card is the only one in its transcript.
