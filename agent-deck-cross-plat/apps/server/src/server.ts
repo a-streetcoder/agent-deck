@@ -26,6 +26,7 @@ import {
   setAgentDisabledFile,
   deleteSkillDir,
   scanEnv,
+  writeEnvVar,
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
@@ -379,6 +380,53 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   fastify.get("/runtime/env", async (request) => {
     const { projectId } = request.query as { projectId?: string };
     return { entries: scanEnv(rootsFor(projectId)) };
+  });
+
+  // Set or add an env var (value provided) in the given scope's .env.
+  fastify.put("/runtime/env", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        key: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "invalid env key"),
+        value: z.string().max(100_000),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, key, value } = parsed.data;
+    if (scope === "project" && !rootsFor(projectId).projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      writeEnvVar(rootsFor(projectId), scope, key, value);
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Delete an env var from the given scope's .env.
+  fastify.delete("/runtime/env", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        key: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "invalid env key"),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, key } = parsed.data;
+    if (scope === "project" && !rootsFor(projectId).projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      writeEnvVar(rootsFor(projectId), scope, key, null);
+    } catch (error) {
+      return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   fastify.get("/runtime/doctor", async () => ({ report: await runDoctor(resourceHome()) }));

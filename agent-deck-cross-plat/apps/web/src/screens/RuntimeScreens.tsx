@@ -1,5 +1,15 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Key, Stethoscope, TriangleAlert, XCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  CheckCircle2,
+  Key,
+  Pencil,
+  Plus,
+  Stethoscope,
+  TriangleAlert,
+  Trash2,
+  XCircle,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
 import { ScopeChip } from "../components/ScopeChip.tsx";
 
@@ -16,59 +26,198 @@ interface EnvEntry {
   overridden: boolean;
 }
 
+type EnvScope = "global" | "project";
+
 export function EnvironmentScreen() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const resourcesVersion = useAppStore((state) => state.resourcesVersion);
+  const setError = useAppStore((state) => state.setError);
   const [entries, setEntries] = useState<EnvEntry[]>([]);
+  const [editing, setEditing] = useState<{ scope: EnvScope; key: string } | null>(null);
+  const [draftValue, setDraftValue] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [newScope, setNewScope] = useState<EnvScope>("global");
+
+  const refresh = useCallback(async (): Promise<void> => {
+    const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
+    const response = await fetch(`/runtime/env${query}`);
+    if (response.ok) setEntries(((await response.json()) as { entries: EnvEntry[] }).entries);
+  }, [currentProjectId]);
 
   useEffect(() => {
-    const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
-    let cancelled = false;
-    void fetch(`/runtime/env${query}`)
-      .then((response) => response.json())
-      .then((data: { entries: EnvEntry[] }) => {
-        if (!cancelled) setEntries(data.entries);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentProjectId, resourcesVersion]);
+    void refresh();
+  }, [refresh, resourcesVersion]);
+
+  const writeVar = async (scope: EnvScope, key: string, value: string): Promise<void> => {
+    const response = await fetch("/runtime/env", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: currentProjectId ?? undefined, scope, key, value }),
+    });
+    if (!response.ok) setError(await response.text());
+    await refresh();
+  };
+
+  const deleteVar = async (scope: EnvScope, key: string): Promise<void> => {
+    const response = await fetch("/runtime/env", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: currentProjectId ?? undefined, scope, key }),
+    });
+    if (!response.ok) setError(await response.text());
+    await refresh();
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="environment-screen">
       <div className="rounded-2xl border border-border-subtle bg-surface-elevated p-4">
-        <div className="flex items-center gap-2 pb-1">
-          <Key size={16} className="text-text-secondary" />
-          <h2
-            className="text-base font-semibold text-text-primary"
-            style={{ fontStretch: "expanded" }}
+        <div className="flex items-center justify-between pb-1">
+          <div className="flex items-center gap-2">
+            <Key size={16} className="text-text-secondary" />
+            <h2
+              className="text-base font-semibold text-text-primary"
+              style={{ fontStretch: "expanded" }}
+            >
+              Environment
+            </h2>
+          </div>
+          <button
+            data-testid="env-add"
+            className="flex h-7 w-7 items-center justify-center rounded-full shadow-capsule"
+            style={{
+              background:
+                "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+              color: "var(--color-accent-foreground)",
+            }}
+            title="Add variable"
+            onClick={() => {
+              setAdding((v) => !v);
+              setNewScope(currentProjectId ? "project" : "global");
+            }}
           >
-            Environment
-          </h2>
+            <Plus size={14} />
+          </button>
         </div>
         <p className="pb-3 text-xs text-text-muted">
-          Variables from ~/.pi/agent/.env and this project's .pi/.env. Values are masked — this is a
-          read-only presence inspector.
+          Variables from ~/.pi/agent/.env and this project's .pi/.env. Values are masked; editing
+          replaces the whole value.
         </p>
-        <div className="space-y-1">
-          {entries.map((entry) => (
-            <div
-              key={`${entry.scope}:${entry.key}`}
-              className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface px-3 py-1.5"
-              data-testid="env-row"
-              data-env-key={entry.key}
-              style={entry.overridden ? { opacity: 0.55 } : undefined}
+
+        {adding ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border-strong bg-surface p-2">
+            <input
+              data-testid="env-new-key"
+              className="min-w-[10ch] flex-1 rounded border border-border-strong bg-surface px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent"
+              placeholder="KEY"
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+            />
+            <input
+              data-testid="env-new-value"
+              className="min-w-[12ch] flex-1 rounded border border-border-strong bg-surface px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent"
+              placeholder="value"
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+            />
+            <select
+              data-testid="env-new-scope"
+              className="rounded border border-border-strong bg-surface px-2 py-1 text-xs text-text-primary"
+              value={newScope}
+              onChange={(e) => setNewScope(e.target.value as EnvScope)}
             >
-              <span className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary">
-                {entry.key}
-              </span>
-              <span className="font-mono text-xs text-text-muted">{entry.masked || "(empty)"}</span>
-              <ScopeChip scope={entry.scope} />
-              {entry.overridden ? (
-                <span className="text-[10px] text-text-muted">overridden</span>
-              ) : null}
-            </div>
-          ))}
+              <option value="global">global</option>
+              {currentProjectId ? <option value="project">project</option> : null}
+            </select>
+            <button
+              data-testid="env-new-save"
+              className="rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule disabled:opacity-40"
+              style={{
+                background:
+                  "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                color: "var(--color-accent-foreground)",
+              }}
+              disabled={!/^[A-Za-z_][A-Za-z0-9_]*$/.test(newKey)}
+              onClick={() =>
+                void writeVar(newScope, newKey, newValue).then(() => {
+                  setNewKey("");
+                  setNewValue("");
+                  setAdding(false);
+                })
+              }
+            >
+              Add
+            </button>
+          </div>
+        ) : null}
+
+        <div className="space-y-1">
+          {entries.map((entry) => {
+            const isEditing = editing?.scope === entry.scope && editing.key === entry.key;
+            return (
+              <div
+                key={`${entry.scope}:${entry.key}`}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border border-border-subtle bg-surface px-3 py-1.5",
+                  entry.overridden && "opacity-55",
+                )}
+                data-testid="env-row"
+                data-env-key={entry.key}
+                data-env-scope={entry.scope}
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary">
+                  {entry.key}
+                </span>
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    data-testid={`env-edit-input-${entry.key}`}
+                    className="w-40 rounded border border-border-strong bg-surface px-2 py-0.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+                    placeholder="new value"
+                    value={draftValue}
+                    onChange={(e) => setDraftValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        void writeVar(entry.scope, entry.key, draftValue).then(() =>
+                          setEditing(null),
+                        );
+                      }
+                      if (e.key === "Escape") setEditing(null);
+                    }}
+                    onBlur={() => setEditing(null)}
+                  />
+                ) : (
+                  <span className="font-mono text-xs text-text-muted">
+                    {entry.masked || "(empty)"}
+                  </span>
+                )}
+                <ScopeChip scope={entry.scope} />
+                {entry.overridden ? (
+                  <span className="text-[10px] text-text-muted">overridden</span>
+                ) : null}
+                <button
+                  data-testid={`env-edit-${entry.key}`}
+                  className="rounded p-1 text-text-muted hover:text-text-primary"
+                  title="Set value"
+                  onClick={() => {
+                    setDraftValue("");
+                    setEditing({ scope: entry.scope, key: entry.key });
+                  }}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  data-testid={`env-delete-${entry.key}`}
+                  className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
+                  title="Delete"
+                  onClick={() => void deleteVar(entry.scope, entry.key)}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            );
+          })}
           {entries.length === 0 ? (
             <div className="py-6 text-center text-sm text-text-muted">
               No environment variables found.

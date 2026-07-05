@@ -30,4 +30,4 @@ export {
   deleteSkillDir,
   type WritableScope,
 } from "./writer.ts";
-export { scanEnv, type EnvEntry } from "./env.ts";
+export { scanEnv, writeEnvVar, type EnvEntry, type EnvScope } from "./env.ts";

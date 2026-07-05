@@ -1,7 +1,9 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ResourceScope } from "@agent-deck/domain";
 import { piAgentHome, type ResourceRoots } from "./paths.ts";
+
+export type EnvScope = Extract<ResourceScope, "global" | "project">;
 
 /**
  * Read-only view of pi's .env files (~/.pi/agent/.env and PROJECT/.pi/.env,
@@ -74,4 +76,58 @@ export function scanEnv(roots: ResourceRoots): EnvEntry[] {
     entries.push({ key, masked: maskValue(value), scope: "project", overridden: false });
   }
   return entries.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function envFilePath(roots: ResourceRoots, scope: EnvScope): string {
+  if (scope === "global") return path.join(piAgentHome(roots), ".env");
+  if (!roots.projectPath) throw new Error("projectId required for the project env file");
+  return path.join(roots.projectPath, ".pi", ".env");
+}
+
+/**
+ * Preserve unknown lines (comments, blanks, ordering) on write. Only the
+ * KEY=VALUE line for `key` is edited/appended; a null `value` deletes it.
+ * Values with whitespace/special chars are double-quoted.
+ */
+function serializeEnvValue(value: string): string {
+  if (value === "" || /[\s"'#=]/.test(value)) {
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  return value;
+}
+
+function isKeyLine(line: string, key: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length === 0 || trimmed.startsWith("#")) return false;
+  const eq = trimmed.indexOf("=");
+  return eq !== -1 && trimmed.slice(0, eq).trim() === key;
+}
+
+/** Set (or with null, delete) one env var, preserving all other lines. */
+export function writeEnvVar(
+  roots: ResourceRoots,
+  scope: EnvScope,
+  key: string,
+  value: string | null,
+): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+    throw new Error(`invalid env key: ${key}`);
+  }
+  const filePath = envFilePath(roots, scope);
+  let lines: string[] = [];
+  try {
+    lines = readFileSync(filePath, "utf8").split("\n");
+  } catch {
+    // New file.
+  }
+  const kept = lines.filter((line) => !isKeyLine(line, key));
+  // Drop a trailing empty element from split so we don't accumulate blanks.
+  while (kept.length > 0 && kept[kept.length - 1]!.trim() === "") kept.pop();
+  if (value !== null) kept.push(`${key}=${serializeEnvValue(value)}`);
+
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const content = kept.length > 0 ? `${kept.join("\n")}\n` : "";
+  const tmp = `${filePath}.tmp`;
+  writeFileSync(tmp, content);
+  renameSync(tmp, filePath); // atomic replace
 }
