@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import nodePath from "node:path";
@@ -465,14 +465,42 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     projects: projects.list().filter((p) => !p.hidden),
   }));
 
+  // Root folders that are too broad to scan (filesystem/system roots) — a
+  // huge fan-out would block the sync scan. Users add specific dev folders.
+  const FORBIDDEN_ROOTS = new Set(
+    [
+      "/",
+      "/etc",
+      "/usr",
+      "/bin",
+      "/sbin",
+      "/var",
+      "/sys",
+      "/proc",
+      "/dev",
+      "/System",
+      "/Library",
+      "/private",
+      homedir(), // the bare home dir fans out enormously; a subfolder is fine
+    ].map((p) => nodePath.resolve(p)),
+  );
+
+  const canonicalPath = (p: string): string => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return nodePath.resolve(p);
+    }
+  };
+
   // Discovery roots + scan. GET returns the configured roots and every
   // project candidate found under them (flagged if already registered).
   fastify.get("/projects/discovery", async () => {
     const roots = settings.get().projectRoots;
-    const known = new Set(projects.list().map((p) => nodePath.resolve(p.path)));
+    const known = new Set(projects.list().map((p) => canonicalPath(p.path)));
     const discovered = discoverProjects(roots).map((c) => ({
       ...c,
-      registered: known.has(nodePath.resolve(c.path)),
+      registered: known.has(canonicalPath(c.path)),
     }));
     return { roots, discovered };
   });
@@ -483,6 +511,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const root = nodePath.resolve(parsed.data.root);
     if (!existsSync(root) || !statSync(root).isDirectory()) {
       return reply.status(400).send({ error: `not a directory: ${root}` });
+    }
+    if (FORBIDDEN_ROOTS.has(root) || nodePath.dirname(root) === root) {
+      return reply.status(400).send({ error: "root is too broad to scan; pick a project folder" });
     }
     return { roots: settings.setProjectRoot(root, true).projectRoots };
   });

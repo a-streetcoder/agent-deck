@@ -1,6 +1,11 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import type { ProjectType } from "@agent-deck/domain";
+
+/** Cap the per-root fan-out so a giant folder can't stall the event loop. */
+const MAX_ENTRIES_PER_ROOT = 2000;
+/** Skip package.json files larger than this when detecting type. */
+const MAX_PACKAGE_JSON_BYTES = 512 * 1024;
 
 /**
  * Project discovery, mirroring the native ProjectDiscovery + ProjectType:
@@ -25,17 +30,20 @@ function hasXcodeProject(dir: string): boolean {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** package.json dependency+devDependency names, or empty on absence/parse error. */
 function packageDeps(dir: string): Set<string> {
   try {
-    const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8")) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    return new Set([
-      ...Object.keys(pkg.dependencies ?? {}),
-      ...Object.keys(pkg.devDependencies ?? {}),
-    ]);
+    const file = path.join(dir, "package.json");
+    if (statSync(file).size > MAX_PACKAGE_JSON_BYTES) return new Set(); // don't parse huge files
+    const pkg: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (!isPlainObject(pkg)) return new Set();
+    const deps = isPlainObject(pkg.dependencies) ? Object.keys(pkg.dependencies) : [];
+    const dev = isPlainObject(pkg.devDependencies) ? Object.keys(pkg.devDependencies) : [];
+    return new Set([...deps, ...dev]);
   } catch {
     return new Set();
   }
@@ -111,7 +119,7 @@ export function discoverProjectsInRoot(root: string): DiscoveryCandidate[] {
   }
   let entries: string[];
   try {
-    entries = readdirSync(resolved);
+    entries = readdirSync(resolved).slice(0, MAX_ENTRIES_PER_ROOT);
   } catch {
     return candidates;
   }
@@ -119,7 +127,10 @@ export function discoverProjectsInRoot(root: string): DiscoveryCandidate[] {
     if (entry.startsWith(".")) continue;
     const child = path.join(resolved, entry);
     try {
-      if (!statSync(child).isDirectory() || !isProjectDir(child)) continue;
+      // lstat (not stat): a symlinked child is skipped so discovery can't
+      // follow a link out of the configured root into slow/mounted/private
+      // locations.
+      if (!lstatSync(child).isDirectory() || !isProjectDir(child)) continue;
     } catch {
       continue;
     }
@@ -128,12 +139,21 @@ export function discoverProjectsInRoot(root: string): DiscoveryCandidate[] {
   return candidates;
 }
 
-/** Discover across several roots, de-duplicated by resolved path. */
+/** Canonicalize a path for identity comparison, tolerating missing targets. */
+function canonical(p: string): string {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/** Discover across several roots, de-duplicated by canonical (realpath) path. */
 export function discoverProjects(roots: string[]): DiscoveryCandidate[] {
   const byPath = new Map<string, DiscoveryCandidate>();
   for (const root of roots) {
     for (const candidate of discoverProjectsInRoot(root)) {
-      byPath.set(candidate.path, candidate);
+      byPath.set(canonical(candidate.path), candidate);
     }
   }
   return [...byPath.values()].sort((a, b) => a.name.localeCompare(b.name));

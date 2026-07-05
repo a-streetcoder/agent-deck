@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -48,6 +48,14 @@ describe("detectProjectType", () => {
     expect(detectProjectType(makeProject(root, "repo", { ".git/HEAD": "ref: main" }))).toBe("git");
     expect(detectProjectType(makeProject(root, "empty", {}))).toBe("unknown");
   });
+
+  it("ignores a huge package.json rather than parsing it", () => {
+    const root = makeRoot();
+    const big = JSON.stringify({ dependencies: { react: "19", filler: "x".repeat(600 * 1024) } });
+    const dir = makeProject(root, "bloated", { "package.json": big });
+    // Over the size cap → deps not consulted → falls back to bare node.
+    expect(detectProjectType(dir)).toBe("node");
+  });
 });
 
 describe("discoverProjectsInRoot", () => {
@@ -64,5 +72,17 @@ describe("discoverProjectsInRoot", () => {
     expect(names).toContain("beta");
     expect(names).not.toContain("notaproject");
     expect(found.find((c) => c.name === "beta")?.type).toBe("vue");
+  });
+
+  it("skips symlinked children (no traversal out of the root)", () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    makeProject(outside, "external-repo", { ".git/HEAD": "x" });
+    makeProject(root, "real", { ".git/HEAD": "x" });
+    symlinkSync(path.join(outside, "external-repo"), path.join(root, "linked"));
+
+    const names = discoverProjectsInRoot(root).map((c) => c.name);
+    expect(names).toContain("real");
+    expect(names).not.toContain("linked"); // symlinked child skipped
   });
 });
