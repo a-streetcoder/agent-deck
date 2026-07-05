@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, type Dirent } from "node:fs";
 import path from "node:path";
 
 /**
@@ -40,7 +40,7 @@ export function listProjectFiles(root: string, query = ""): string[] {
   while (queue.length > 0 && results.length < MAX_RESULTS && visited < MAX_VISITED_DIRS) {
     const dir = queue.shift()!;
     visited += 1;
-    let entries: import("node:fs").Dirent[];
+    let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {

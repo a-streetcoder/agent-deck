@@ -64,6 +64,9 @@ export function useSuggestions(sessionId: string | null): UseSuggestions {
 
   const close = useCallback(() => {
     triggerRef.current = null;
+    // Invalidate any in-flight fetch so a late response can't reopen the panel
+    // (e.g. after a session switch) with stale commands/paths.
+    reqIdRef.current += 1;
     setMode(null);
     setItems([]);
     setSelectedIndex(0);

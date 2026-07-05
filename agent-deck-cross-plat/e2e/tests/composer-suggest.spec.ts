@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 /**
@@ -35,7 +35,7 @@ test.afterAll(async () => {
   await harness.close();
 });
 
-async function openProject(page: import("@playwright/test").Page): Promise<void> {
+async function openProject(page: Page): Promise<void> {
   await page.goto(harness.baseUrl);
   await page.getByTestId(`project-${path.basename(project)}`).click();
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
