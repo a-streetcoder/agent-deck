@@ -51,10 +51,21 @@ export interface AppState {
   setError(error: string | null): void;
 }
 
+const PANEL_KEY = "agentdeck-panel-expanded";
+
+/** The panel opens the way you last left it (persisted); collapsed by default. */
+function initialPanelExpanded(): boolean {
+  try {
+    return localStorage.getItem(PANEL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export const useAppStore = create<AppState>((set) => ({
   connection: "connecting",
   view: "chat",
-  panelExpanded: false,
+  panelExpanded: initialPanelExpanded(),
   resourcesVersion: 0,
   projects: [],
   currentProjectId: null,
@@ -69,7 +80,16 @@ export const useAppStore = create<AppState>((set) => ({
   // nav it covers); staying in chat — e.g. selecting a session — leaves the
   // expansion untouched so it persists across session switches.
   setView: (view) => set(view === "chat" ? { view } : { view, panelExpanded: false }),
-  setPanelExpanded: (panelExpanded) => set({ panelExpanded }),
+  // Explicit expand/collapse persists so the panel launches as you left it.
+  // (setView's auto-collapse is transient and deliberately does not persist.)
+  setPanelExpanded: (panelExpanded) => {
+    try {
+      localStorage.setItem(PANEL_KEY, panelExpanded ? "1" : "0");
+    } catch {
+      // Private-mode / storage-disabled: preference just isn't remembered.
+    }
+    set({ panelExpanded });
+  },
   bumpResourcesVersion: () => set((state) => ({ resourcesVersion: state.resourcesVersion + 1 })),
   setProjects: (projects) => set({ projects }),
   setCurrentProject: (currentProjectId) => set({ currentProjectId }),

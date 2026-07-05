@@ -57,6 +57,26 @@ test("the sessions panel stays expanded while switching sessions", async ({ page
   await expect(panel).toHaveAttribute("aria-hidden", "true");
 });
 
+test("the panel remembers its expanded state across reloads", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  const panel = page.getByTestId("sessions-expanded");
+
+  await page.getByTestId("sessions-expand").click();
+  await expect(panel).toHaveAttribute("aria-hidden", "false");
+
+  // The explicit expand persists — a fresh load opens the panel the same way.
+  await page.reload();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  await expect(panel).toHaveAttribute("aria-hidden", "false");
+
+  // Collapsing persists too.
+  await page.getByTestId("sessions-collapse").click();
+  await page.reload();
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  await expect(panel).toHaveAttribute("aria-hidden", "true");
+});
+
 test("navigating to a nav section renders it with the panel collapsed", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
