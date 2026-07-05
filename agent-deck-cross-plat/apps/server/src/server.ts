@@ -123,6 +123,24 @@ function asThinkingLevel(value: string | undefined): AgentSessionPlan["thinking"
 }
 
 /**
+ * Finalize a session's --extension list: resolve, drop duplicates (loading the
+ * same extension twice is wasteful/buggy), and skip anything that isn't a real
+ * file right now (an added extension can be deleted or moved after the fact).
+ */
+function finalizeExtensions(paths: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of paths) {
+    if (!raw) continue;
+    const resolved = nodePath.resolve(raw);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    if (existsSync(resolved) && statSync(resolved).isFile()) out.push(resolved);
+  }
+  return out;
+}
+
+/**
  * Session defaults from the server environment. The e2e harness (and any dev
  * setup) uses these to route UI-created sessions to the mock provider without
  * the UI knowing: AGENT_DECK_DEFAULT_PROVIDER, AGENT_DECK_DEFAULT_MODEL,
@@ -920,11 +938,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
     const provider = body.provider ?? defaults.provider;
     const model = body.model ?? defaults.model;
-    // Base extensions (request or env defaults) + the user's enabled ones.
+    // Base extensions (request or env defaults) + the user's enabled ones,
+    // deduped and re-validated as real files at launch time.
     const baseExtensions = body.extensions ?? defaults.extensions ?? [];
-    const userExtensions = settings.enabledExtensions();
-    const merged = [...baseExtensions, ...userExtensions];
-    const extensions = merged.length > 0 ? merged : undefined;
+    const finalizedBase = finalizeExtensions([...baseExtensions, ...settings.enabledExtensions()]);
+    const extensions = finalizedBase.length > 0 ? finalizedBase : undefined;
 
     // Default + project skill assignments become explicit --skill paths on
     // parent sessions (pi-rpc-launch-flags.md §1: "Default + current Project
@@ -983,7 +1001,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         kind: "agent",
         systemPrompt: { mode: agent.systemPromptMode, text: agent.body },
         tools: effectiveTools,
-        extensions: [...(extensions ?? []), ...(agent.extensions ?? [])],
+        extensions: finalizeExtensions([...(extensions ?? []), ...(agent.extensions ?? [])]),
         skills: agentSkillPaths,
         provider,
         // Agent model, else the inherited default; frontmatter thinking applies
