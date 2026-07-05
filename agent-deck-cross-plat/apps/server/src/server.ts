@@ -172,9 +172,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   const sessions = new SessionManager(
     receipts,
     (meta) => {
-      // Every meta change (title / resume / end / rename / prompt) is activity —
-      // stamp updatedAt so the session floats up the most-recent-first list.
-      meta.updatedAt = new Date().toISOString();
+      // User activity (create / resume / prompt / title) floats the session up
+      // the most-recent-first list. Process exit is NOT activity: an ended or
+      // crashed session keeps its last-active time instead of jumping to the top
+      // (resume clears endedAt, so it re-floats correctly).
+      if (!meta.endedAt) meta.updatedAt = new Date().toISOString();
       index.upsert(meta);
       // `broadcast` is initialized during startServer, before any meta changes.
       broadcast({ type: "session_meta", session: meta });

@@ -169,7 +169,13 @@ function useSessionsData() {
   // Most-recently-active first (native exact-updatedAt ordering); createdAt is
   // the fallback for sessions persisted before updatedAt existed.
   const activityAt = (s: SessionMeta): string => s.updatedAt ?? s.createdAt;
-  const byNewest = [...sessions].sort((a, b) => activityAt(b).localeCompare(activityAt(a)));
+  const byNewest = [...sessions].sort(
+    (a, b) =>
+      activityAt(b).localeCompare(activityAt(a)) ||
+      b.createdAt.localeCompare(a.createdAt) ||
+      // Final deterministic tiebreak so same-millisecond sessions never jitter.
+      a.id.localeCompare(b.id),
+  );
   const projectName = (id?: string): string => projectDisplayName(projects, id);
 
   return { byNewest, currentProjectId, currentSession, agentStatus, setView, projectName };
