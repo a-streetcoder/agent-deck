@@ -20,10 +20,12 @@ function wasDismissed(): boolean {
 
 export function OnboardingOverlay() {
   const projects = useAppStore((state) => state.projects);
+  const projectsLoaded = useAppStore((state) => state.projectsLoaded);
   const setView = useAppStore((state) => state.setView);
   const [dismissed, setDismissed] = useState(wasDismissed);
 
-  if (projects.length > 0 || dismissed) return null;
+  // Wait for the initial fetch so a returning user never flashes the banner.
+  if (!projectsLoaded || projects.length > 0 || dismissed) return null;
 
   const dismiss = (): void => {
     try {
@@ -56,12 +58,9 @@ export function OnboardingOverlay() {
             "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
           color: "var(--color-accent-foreground)",
         }}
-        onClick={() => {
-          setView("projects");
-          dismiss();
-        }}
+        onClick={() => setView("projects")}
       >
-        <FolderPlus size={13} /> Add a project
+        <FolderPlus size={13} aria-hidden /> Add a project
       </button>
       <button
         data-testid="onboarding-skip"

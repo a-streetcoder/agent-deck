@@ -34,6 +34,8 @@ export interface AppState {
   /** Bumped by resources_changed pushes; resource screens refetch on change. */
   resourcesVersion: number;
   projects: ProjectMeta[];
+  /** True once the initial /projects fetch has settled (avoids first-run flash). */
+  projectsLoaded: boolean;
   /** null = the server's default cwd ("Default" workspace). */
   currentProjectId: string | null;
   /** null = the default "Pi Agent" session; a name = agent-backed session. */
@@ -82,6 +84,7 @@ export const useAppStore = create<AppState>((set) => ({
   panelExpanded: initialPanelExpanded(),
   resourcesVersion: 0,
   projects: [],
+  projectsLoaded: false,
   currentProjectId: null,
   currentAgentName: null,
   session: null,
@@ -106,7 +109,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({ panelExpanded });
   },
   bumpResourcesVersion: () => set((state) => ({ resourcesVersion: state.resourcesVersion + 1 })),
-  setProjects: (projects) => set({ projects }),
+  setProjects: (projects) => set({ projects, projectsLoaded: true }),
   setCurrentProject: (currentProjectId) => set({ currentProjectId }),
   setCurrentAgent: (currentAgentName) => set({ currentAgentName }),
   setSession: (session) => set({ session }),

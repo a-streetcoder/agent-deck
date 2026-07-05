@@ -26,9 +26,11 @@ test("the first-run welcome shows and 'Add a project' opens Projects", async ({ 
   await expect(banner).toBeVisible();
   await expect(banner).toContainText("Welcome to Agent Deck");
 
+  // 'Add a project' navigates to Projects but does NOT dismiss — it keeps
+  // nudging until a project actually exists.
   await page.getByTestId("onboarding-add-project").click();
   await expect(page.getByTestId("projects-screen")).toBeVisible();
-  await expect(banner).toBeHidden();
+  await expect(banner).toBeVisible();
 });
 
 test("Skip dismisses the welcome and it stays dismissed across reloads", async ({ page }) => {
