@@ -113,10 +113,11 @@ export function Composer() {
   const [images, setImages] = useState<PendingImage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Seed the composer from elsewhere (e.g. an issue), appending to any draft.
+  // Seed the composer from elsewhere (e.g. an issue) — replaces the draft,
+  // since seeding is a deliberate "start on this" action, not an append.
   useEffect(() => {
     if (pendingComposerText === null) return;
-    setDraft((current) => (current ? `${current}\n\n${pendingComposerText}` : pendingComposerText));
+    setDraft(pendingComposerText);
     setPendingComposerText(null);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [pendingComposerText, setPendingComposerText]);

@@ -32,9 +32,9 @@ export function IssuesScreen() {
     setLocalError(null);
     try {
       const response = await fetch(`/projects/${encodeURIComponent(projectId)}/issues`);
-      const data = (await response.json()) as { issues: Issue[]; error?: string };
-      setIssues(data.issues);
-      setLocalError(data.error ?? null);
+      const data = (await response.json()) as { issues?: Issue[]; error?: string };
+      setIssues(data.issues ?? []);
+      setLocalError(data.error ?? (response.ok ? null : "Couldn't load issues."));
     } finally {
       setLoading(false);
     }
@@ -44,9 +44,11 @@ export function IssuesScreen() {
     if (currentProjectId) void load(currentProjectId);
   }, [currentProjectId, load]);
 
-  const start = (issue: Issue): void => {
+  const start = async (issue: Issue): Promise<void> => {
     setView("chat");
-    void newChat();
+    // Wait for the new session to become active before seeding its composer,
+    // so the prompt can't land in the previous session's draft.
+    await newChat();
     setPendingComposerText(
       `Work on GitHub issue #${issue.number}: ${issue.title}\n${issue.url}\n\n` +
         `Investigate the issue and propose a fix.`,
@@ -106,7 +108,7 @@ export function IssuesScreen() {
                 key={issue.number}
                 data-testid={`issue-${issue.number}`}
                 className="flex w-full items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5 text-left hover:bg-[var(--color-hover-fill)]"
-                onClick={() => start(issue)}
+                onClick={() => void start(issue)}
               >
                 <span className="font-mono text-xs text-text-muted">#{issue.number}</span>
                 <span
