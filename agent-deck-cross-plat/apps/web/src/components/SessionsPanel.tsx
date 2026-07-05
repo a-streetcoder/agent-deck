@@ -292,8 +292,9 @@ export function SessionsExpandedOverlay({
                     active={currentSession?.id === session.id}
                     running={currentSession?.id === session.id && agentStatus === "running"}
                     onSelect={() => {
+                      // Stay expanded while moving between sessions (native:
+                      // selecting a session never collapses the panel).
                       setView("chat");
-                      onCollapse();
                       void switchToSession(session);
                     }}
                   />

@@ -13,6 +13,13 @@ export type AppView = "chat" | "agents" | "skills" | "projects" | "environment" 
 export interface AppState {
   connection: ConnectionStatus;
   view: AppView;
+  /**
+   * Whether the sessions pull-up panel covers the sidebar nav (native
+   * isCodingAgentPanelExpanded). One global boolean: it persists while you
+   * switch sessions and only auto-collapses when you leave the chat view for
+   * another nav section.
+   */
+  panelExpanded: boolean;
   /** Bumped by resources_changed pushes; resource screens refetch on change. */
   resourcesVersion: number;
   projects: ProjectMeta[];
@@ -29,6 +36,7 @@ export interface AppState {
   error: string | null;
   setConnection(connection: ConnectionStatus): void;
   setView(view: AppView): void;
+  setPanelExpanded(expanded: boolean): void;
   bumpResourcesVersion(): void;
   setProjects(projects: ProjectMeta[]): void;
   setCurrentProject(projectId: string | null): void;
@@ -46,6 +54,7 @@ export interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   connection: "connecting",
   view: "chat",
+  panelExpanded: false,
   resourcesVersion: 0,
   projects: [],
   currentProjectId: null,
@@ -56,7 +65,11 @@ export const useAppStore = create<AppState>((set) => ({
   lastSeq: 0,
   error: null,
   setConnection: (connection) => set({ connection }),
-  setView: (view) => set({ view }),
+  // Leaving chat for another nav section auto-collapses the panel (revealing the
+  // nav it covers); staying in chat — e.g. selecting a session — leaves the
+  // expansion untouched so it persists across session switches.
+  setView: (view) => set(view === "chat" ? { view } : { view, panelExpanded: false }),
+  setPanelExpanded: (panelExpanded) => set({ panelExpanded }),
   bumpResourcesVersion: () => set((state) => ({ resourcesVersion: state.resourcesVersion + 1 })),
   setProjects: (projects) => set({ projects }),
   setCurrentProject: (currentProjectId) => set({ currentProjectId }),

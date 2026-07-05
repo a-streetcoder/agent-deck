@@ -86,7 +86,7 @@ test("a disabled agent disappears from the composer picker", async ({ page }) =>
   ).toBeVisible();
 
   // Now it's gone from the picker.
-  await page.getByTestId("nav-chat").click();
+  await page.getByTestId("new-chat").click();
   await expect(page.getByTestId("agent-picker").locator('option[value="toaster"]')).toHaveCount(0);
 });
 

@@ -87,7 +87,7 @@ test("creating a project agent in the editor lands on disk and is pickable", asy
   expect(content).toContain("You are waffle-bot.");
 
   // …and pickable in the composer.
-  await page.getByTestId("nav-chat").click();
+  await page.getByTestId("new-chat").click();
   await expect(page.getByTestId("agent-picker").locator('option[value="waffle-bot"]')).toHaveCount(
     1,
   );

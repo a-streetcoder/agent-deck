@@ -18,8 +18,10 @@ import {
  * CodingAgentPanelLayers.
  */
 
+// No "Pi Agent" row: the pi-agent chat isn't a nav destination — it's the
+// detail screen you reach by selecting (or starting) a session in the pull-up
+// panel below, exactly like the native sidebar (which excludes .agent).
 const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
-  { id: "chat", label: "Pi Agent", icon: Send },
   { id: "projects", label: "Projects", icon: Folder },
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
@@ -35,9 +37,10 @@ export function Sidebar() {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
+  const panelExpanded = useAppStore((state) => state.panelExpanded);
+  const setPanelExpanded = useAppStore((state) => state.setPanelExpanded);
   const [draftPath, setDraftPath] = useState("");
   const [adding, setAdding] = useState(false);
-  const [panelExpanded, setPanelExpanded] = useState(false);
 
   const submit = async (): Promise<void> => {
     const path = draftPath.trim();
