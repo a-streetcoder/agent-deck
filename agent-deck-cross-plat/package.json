@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron"]
+  },
   "scripts": {
     "demo:chat": "tsx packages/testkit/demo/chat.ts",
     "typecheck": "pnpm -r --parallel typecheck",

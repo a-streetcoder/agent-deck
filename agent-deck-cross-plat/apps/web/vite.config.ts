@@ -19,8 +19,12 @@ export default defineConfig({
     port: 5199,
     proxy: {
       "/ws": { target: serverTarget, ws: true },
-      "/sessions": { target: serverTarget },
       "/health": { target: serverTarget },
+      "/sessions": { target: serverTarget },
+      "/projects": { target: serverTarget },
+      "/resources": { target: serverTarget },
+      "/runtime": { target: serverTarget },
+      "/settings": { target: serverTarget },
     },
   },
 });

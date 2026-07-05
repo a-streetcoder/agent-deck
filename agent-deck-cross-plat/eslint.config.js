@@ -15,6 +15,17 @@ export default tseslint.config(
     },
   },
   {
+    // Electron main is ESM node code; give it the host timers it uses.
+    files: ["apps/desktop/**/*.js"],
+    languageOptions: {
+      globals: {
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        console: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.cjs"],
     languageOptions: {
       globals: {

@@ -1,0 +1,16 @@
+{
+  "name": "@agent-deck/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Electron shell — boots the agent-deck server in-process-adjacent and hosts the web UI so it runs as a native app on macOS/Windows/Linux.",
+  "main": "main.js",
+  "scripts": {
+    "build:web": "pnpm --filter @agent-deck/web build",
+    "start": "electron .",
+    "dev": "pnpm run build:web && electron ."
+  },
+  "devDependencies": {
+    "electron": "^43.0.0"
+  }
+}
