@@ -77,6 +77,13 @@ test("the panel remembers its expanded state across reloads", async ({ page }) =
   await expect(panel).toHaveAttribute("aria-hidden", "true");
 });
 
+test("an untitled session shows a Draft · <project> display title", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");
+  await page.getByTestId("new-chat").click();
+  await expect(page.getByTestId("chat-list")).toContainText("Draft · Default");
+});
+
 test("navigating to a nav section renders it with the panel collapsed", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await expect(page.getByTestId("status-indicator")).toHaveAttribute("data-status", "idle");

@@ -8,6 +8,7 @@ import { DoctorScreen, EnvironmentScreen } from "./screens/RuntimeScreens.tsx";
 import { SkillsScreen } from "./screens/SkillsScreen.tsx";
 import { cn } from "@/lib/cn";
 import { isMacDesktop } from "@/lib/native";
+import { sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "./state/store.ts";
 import { useMenuCommands } from "./state/useMenuCommands.ts";
 
@@ -47,9 +48,12 @@ export function App() {
   const connection = useAppStore((state) => state.connection);
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   const session = useAppStore((state) => state.session);
+  const projects = useAppStore((state) => state.projects);
   const error = useAppStore((state) => state.error);
   const view = useAppStore((state) => state.view);
   const isChat = view === "chat";
+  const headerProjectName = projects.find((p) => p.id === session?.projectId)?.name ?? "Default";
+  const chatTitle = session ? sessionDisplayTitle(session.title, headerProjectName) : "Pi Agent";
   useMenuCommands();
   // The frameless macOS window needs a drag region across the top bar so the
   // window can be moved by its header (the sidebar strip is already draggable).
@@ -79,7 +83,7 @@ export function App() {
               className="text-sm font-semibold text-text-primary"
               style={{ fontStretch: "expanded" }}
             >
-              {isChat ? (session?.title ?? "Pi Agent") : VIEW_TITLES[view]}
+              {isChat ? chatTitle : VIEW_TITLES[view]}
             </h1>
             {session && isChat ? (
               <span

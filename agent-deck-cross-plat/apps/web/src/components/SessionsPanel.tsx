@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp, GitFork, Pencil, Plus, Trash2 } from "lucide-react";
 import type { SessionMeta } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
+import { sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "../state/store.ts";
 import {
   deleteSession,
@@ -43,11 +44,13 @@ function TypingDots() {
 
 function SessionRow({
   session,
+  displayTitle,
   active,
   running,
   onSelect,
 }: {
   session: SessionMeta;
+  displayTitle: string;
   active: boolean;
   running: boolean;
   onSelect: () => void;
@@ -110,7 +113,7 @@ function SessionRow({
         style={{ fontStretch: "expanded" }}
         data-testid="chat-title"
       >
-        {session.title ?? "New chat"}
+        {displayTitle}
       </span>
       {running ? <TypingDots /> : null}
       {/* Hover-reveal actions (native session row). */}
@@ -172,7 +175,8 @@ function useSessionsData() {
 
 /** Collapsed card — lives at the bottom of the NAV layer. */
 export function SessionsCollapsedCard({ onExpand }: { onExpand: () => void }) {
-  const { byNewest, currentProjectId, currentSession, agentStatus, setView } = useSessionsData();
+  const { byNewest, currentProjectId, currentSession, agentStatus, setView, projectName } =
+    useSessionsData();
   const currentProjectSessions = byNewest.filter((s) => (s.projectId ?? null) === currentProjectId);
 
   return (
@@ -212,6 +216,7 @@ export function SessionsCollapsedCard({ onExpand }: { onExpand: () => void }) {
             <SessionRow
               key={session.id}
               session={session}
+              displayTitle={sessionDisplayTitle(session.title, projectName(session.projectId))}
               active={currentSession?.id === session.id}
               running={currentSession?.id === session.id && agentStatus === "running"}
               onSelect={() => {
@@ -289,6 +294,7 @@ export function SessionsExpandedOverlay({
                   <SessionRow
                     key={session.id}
                     session={session}
+                    displayTitle={sessionDisplayTitle(session.title, group)}
                     active={currentSession?.id === session.id}
                     running={currentSession?.id === session.id && agentStatus === "running"}
                     onSelect={() => {

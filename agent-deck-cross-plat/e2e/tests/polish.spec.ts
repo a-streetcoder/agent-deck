@@ -30,12 +30,13 @@ test("a chat gets a generated title in the sidebar", async ({ page }) => {
   await page.getByTestId("send-button").click();
   await expect(page.getByTestId("assistant-text")).toContainText("birthday", { timeout: 30_000 });
 
-  // Title arrives via the session_meta push once the helper finishes.
+  // Title arrives via the session_meta push once the helper finishes — the
+  // "Draft · …" placeholder is replaced by a real generated title.
   await expect
     .poll(async () => (await page.getByTestId("chat-title").first().textContent()) ?? "", {
       timeout: 30_000,
     })
-    .not.toBe("New chat");
+    .not.toMatch(/^Draft ·/);
 });
 
 test("an ended session resumes with its transcript rebuilt from pi's history", async ({ page }) => {
