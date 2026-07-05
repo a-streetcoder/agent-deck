@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import nodePath from "node:path";
@@ -651,10 +659,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return project ? { path: nodePath.join(project.path, "AGENTS.md") } : null;
   };
 
+  const INSTRUCTIONS_MAX = 1_000_000;
+
   fastify.get("/projects/:id/instructions", async (request, reply) => {
     const target = agentsFileFor((request.params as { id: string }).id);
     if (!target) return reply.status(404).send({ error: "unknown project" });
-    const content = existsSync(target.path) ? readFileSync(target.path, "utf8") : "";
+    let content = "";
+    if (existsSync(target.path)) {
+      if (statSync(target.path).size > INSTRUCTIONS_MAX) {
+        return reply.status(413).send({ error: "AGENTS.md is too large to edit here" });
+      }
+      content = readFileSync(target.path, "utf8");
+    }
     return { content, path: target.path };
   });
 
@@ -663,6 +679,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (!target) return reply.status(404).send({ error: "unknown project" });
     const parsed = instructionsBody.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    // Never write THROUGH a symlink — a symlinked AGENTS.md could redirect the
+    // write to a file outside the project.
+    if (existsSync(target.path) && lstatSync(target.path).isSymbolicLink()) {
+      return reply.status(400).send({ error: "AGENTS.md is a symlink; refusing to write" });
+    }
     writeFileSync(target.path, parsed.data.content, "utf8");
     return { ok: true, path: target.path };
   });

@@ -45,6 +45,11 @@ export function InstructionsScreen() {
     // effect, and a second load would clobber unsaved edits.
     if (currentProjectId && loadedProject.current !== currentProjectId) {
       loadedProject.current = currentProjectId;
+      // Switching projects: hide the editor and clear the previous project's
+      // content until the new one loads, so Save can't PUT stale content to it.
+      setLoaded(false);
+      setContent("");
+      setSavedContent("");
       void load(currentProjectId);
     }
   }, [currentProjectId, load]);

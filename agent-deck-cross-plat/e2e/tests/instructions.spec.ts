@@ -11,15 +11,18 @@ import { startHarness, type E2eHarness } from "../helpers/env.ts";
 
 let harness: E2eHarness;
 const project = mkdtempSync(path.join(tmpdir(), "proj-instructions-"));
+const projectB = mkdtempSync(path.join(tmpdir(), "proj-instructions-b-"));
 
 test.beforeAll(async () => {
   harness = await startHarness({ chunkDelayMs: 20 });
-  const response = await fetch(`${harness.baseUrl}/projects`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path: project }),
-  });
-  if (!response.ok) throw new Error(await response.text());
+  for (const p of [project, projectB]) {
+    const response = await fetch(`${harness.baseUrl}/projects`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: p }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+  }
 });
 
 test.afterAll(async () => {
@@ -54,4 +57,25 @@ test("editing a project's AGENTS.md writes it to disk and reloads", async ({ pag
   await page.getByTestId(`project-${path.basename(project)}`).click();
   await page.getByTestId("nav-instructions").click();
   await expect(page.getByTestId("instructions-editor")).toHaveValue(/Always write tidy commits\./);
+});
+
+test("switching projects reloads instructions and never saves stale content", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await page.getByTestId("nav-instructions").click();
+  const editor = page.getByTestId("instructions-editor");
+  await expect(editor).toBeVisible();
+  await editor.fill("edits for project A that must not leak");
+
+  // Switch to project B while on the screen: the editor reloads B's (empty)
+  // AGENTS.md — A's dirty content must not carry over or be saveable to B.
+  await page.getByTestId(`project-${path.basename(projectB)}`).click();
+  await expect(editor).toHaveValue("");
+  await expect(page.getByTestId("instructions-save")).toHaveText("Saved");
+
+  // B's file on disk stays untouched by A's edits.
+  const fileB = path.join(projectB, "AGENTS.md");
+  if (existsSync(fileB)) {
+    expect(readFileSync(fileB, "utf8")).not.toContain("must not leak");
+  }
 });
