@@ -1,0 +1,96 @@
+name: agent-cross-plat CI
+
+# Branch-tailored CI for the cross-plat port development branch. Fast static
+# checks fail first; then the real-pi + unit matrix (blocking on Windows too);
+# then the Playwright e2e (UI streaming + the Electron shell) under xvfb.
+on:
+  push:
+    branches: [agent-cross-plat]
+    paths:
+      - "agent-deck-cross-plat/**"
+      - ".github/workflows/agent-cross-plat-ci.yml"
+  pull_request:
+    branches: [agent-cross-plat]
+    paths:
+      - "agent-deck-cross-plat/**"
+      - ".github/workflows/agent-cross-plat-ci.yml"
+
+concurrency:
+  group: agent-cross-plat-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: agent-deck-cross-plat
+
+jobs:
+  # Fast fail-fast feedback (~30s): static checks on one OS.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: agent-deck-cross-plat/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+
+  # Units + real-pi integration (the pinned pi binary provides deterministic,
+  # keyless runs). Blocks on all three OS — Windows RPC is a hard gate here.
+  test:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: agent-deck-cross-plat/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm --filter @agent-deck/web build
+      - run: pnpm test:pi
+
+  # Playwright e2e — the streaming UI and the Electron desktop shell. Runs on
+  # ubuntu under xvfb (Electron needs a display).
+  e2e:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: agent-deck-cross-plat/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # pnpm may not run Electron's postinstall on a frozen install; fetch its
+      # binary explicitly so the desktop-shell e2e can launch it.
+      - name: Ensure Electron binary
+        run: |
+          ELECTRON_DIR=$(node -e "console.log(require('path').dirname(require.resolve('electron/package.json', { paths: [require('path').resolve('apps/desktop')] })))")
+          node "$ELECTRON_DIR/install.js"
+      - run: pnpm --filter @agent-deck/web build
+      - name: Install Playwright browsers + system deps
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run Playwright e2e (xvfb for Electron)
+        run: xvfb-run -a pnpm exec playwright test
+        working-directory: agent-deck-cross-plat/e2e

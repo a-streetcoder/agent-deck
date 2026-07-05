@@ -2,7 +2,7 @@ name: agent-deck-cross-plat CI
 
 on:
   push:
-    branches: [main, agent-cross-plat]
+    branches: [main]
     paths:
       - "agent-deck-cross-plat/**"
       - ".github/workflows/agent-deck-cross-plat-ci.yml"
