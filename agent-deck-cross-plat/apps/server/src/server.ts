@@ -73,6 +73,7 @@ import { BridgeRegistry } from "./bridge.ts";
 import { McpManager, mcpServerConfigsFromEnv } from "./mcpTools.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
+import { SupervisorLog, type SupervisorMethod } from "./supervisor.ts";
 import { ReceiptBus } from "./receipts.ts";
 import {
   SessionManager,
@@ -121,6 +122,33 @@ const bridgeCallBody = z.object({
  * allowlist until those bridges are ported. managed_subagent is now a real
  * bridge tool, so it's no longer stripped (an agent may allowlist it). */
 const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "ask_user"]);
+
+/**
+ * The child subagent's supervisor tool. Exposed ONLY through the per-child bridge
+ * (never in the parent bridge's specs, so a parent never sees it). v1 handles the
+ * non-blocking `progress_update`; the blocking methods are a later slice.
+ */
+const CONTACT_SUPERVISOR_SPEC = {
+  name: "contact_supervisor",
+  label: "Contact supervisor",
+  description:
+    "Report progress up to your supervisor while you work. Use method 'progress_update' with a short status message. Non-blocking — you get an immediate acknowledgement and keep going.",
+  parameters: {
+    type: "object",
+    properties: {
+      method: {
+        type: "string",
+        enum: ["progress_update"],
+        description: "The kind of message. Only 'progress_update' is supported.",
+      },
+      message: { type: "string", description: "A short progress status for the supervisor." },
+      title: { type: "string", description: "Optional short title for the update." },
+    },
+    required: ["method", "message"],
+    additionalProperties: false,
+  },
+  promptSnippet: "contact_supervisor — send a non-blocking progress update to your supervisor.",
+} as const;
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
@@ -220,6 +248,8 @@ export interface AgentDeckServer {
   receipts: ReceiptBus;
   /** App-managed tool registry (memory/mcp/subagents register their tools here). */
   bridge: BridgeRegistry;
+  /** Records child subagents' contact_supervisor requests (progress_update, …). */
+  supervisor: SupervisorLog;
   close(): Promise<void>;
 }
 
@@ -244,6 +274,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // route requires a call's token to match its session's, so a local caller
   // can't invoke another session's (project/session-scoped) tools.
   const bridgeTokens = new Map<string, string>();
+  // Supervisor channel (native-subagent-bridge.md): a child subagent talks UP to
+  // its parent via a contact_supervisor tool. `supervisor` records those requests;
+  // `childSupervisors` maps a child's bridge session id → the parent transcript
+  // cell its progress flows into. v1 handles non-blocking progress_update only.
+  const supervisor = new SupervisorLog();
+  const childSupervisors = new Map<string, { parentSessionId: string; cellId: string }>();
   // Native memory (memory.md), on by default like the native app; storage under
   // the app data dir. AGENT_DECK_MEMORY=0 disables it entirely.
   const memoryEnabled = process.env.AGENT_DECK_MEMORY !== "0";
@@ -293,6 +329,37 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       writeFileSync(blockFile, block, "utf8");
       appends.push(blockFile);
       return { appends, cleanupDir };
+    },
+    // Child subagent supervisor bridge: registers a child-scoped bridge token +
+    // supervisor route, and generates an extension exposing ONLY contact_supervisor
+    // (never in the parent bridge's specs, so parents never get it). dispose()
+    // tears the whole thing down after the child exits.
+    (childSessionId, route) => {
+      if (!bridgeAddress.endpoint) return undefined;
+      const token = randomUUID();
+      // Generate the extension FIRST; only register the token + route if it
+      // succeeds, so a writeBridgeExtension failure can't leak map entries with
+      // no dispose() to clean them (dispose is only returned on success).
+      const extension = writeBridgeExtension({
+        endpoint: bridgeAddress.endpoint,
+        sessionId: childSessionId,
+        token,
+        tools: [CONTACT_SUPERVISOR_SPEC],
+      });
+      bridgeTokens.set(childSessionId, token);
+      childSupervisors.set(childSessionId, route);
+      return {
+        extension,
+        dispose: () => {
+          bridgeTokens.delete(childSessionId);
+          childSupervisors.delete(childSessionId);
+          try {
+            rmSync(nodePath.dirname(extension), { recursive: true, force: true });
+          } catch {
+            // Best-effort: a leftover temp dir is harmless.
+          }
+        },
+      };
     },
   );
   const projects = new ProjectIndex(options.dataDir);
@@ -1576,6 +1643,45 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
+  // Handle a child subagent's contact_supervisor call: record it and stream it
+  // into the parent's Subagent card. v1 supports only the non-blocking
+  // progress_update; blocking methods (need_decision/interview_request) come
+  // later. Returns a bridge-shaped result the child receives as its tool result.
+  function handleContactSupervisor(
+    childSessionId: string,
+    params: Record<string, unknown>,
+  ): { content: string; isError?: boolean } {
+    const route = childSupervisors.get(childSessionId);
+    if (!route) {
+      return { content: "No supervisor channel is available for this subagent.", isError: true };
+    }
+    const method = typeof params.method === "string" ? params.method : "";
+    if (method !== "progress_update") {
+      return {
+        content: `contact_supervisor: '${method || "(missing)"}' is not supported yet — use 'progress_update'.`,
+        isError: true,
+      };
+    }
+    const message = typeof params.message === "string" ? params.message.trim() : "";
+    if (!message) {
+      return { content: "contact_supervisor: 'message' is required.", isError: true };
+    }
+    const title =
+      typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
+    supervisor.record({
+      parentSessionId: route.parentSessionId,
+      cellId: route.cellId,
+      method: method as SupervisorMethod,
+      title,
+      message,
+    });
+    // Stream it into the parent's card (no-op if the parent/cell is gone).
+    sessions
+      .get(route.parentSessionId)
+      ?.appendSubagentProgress(route.cellId, title ? `${title}: ${message}` : message);
+    return { content: "Progress recorded." };
+  }
+
   // The app side of the bridge: a session's generated extension POSTs each
   // app-managed tool call here, and the registry dispatches it to the handler.
   // Loopback-only (the pi subprocess is local); the response maps to the pi
@@ -1588,6 +1694,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const expected = bridgeTokens.get(parsed.data.sessionId);
     if (!expected || expected !== parsed.data.token) {
       return reply.code(403).send({ error: "invalid bridge token" });
+    }
+    // A child subagent's contact_supervisor call routes to the supervisor channel
+    // (recorded + streamed into the parent's card), NOT the parent bridge registry.
+    if (parsed.data.tool === "contact_supervisor") {
+      return handleContactSupervisor(parsed.data.sessionId, parsed.data.params);
     }
     return await bridge.dispatch(parsed.data);
   });
@@ -1605,6 +1716,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     sessions,
     receipts,
     bridge,
+    supervisor,
     close: async () => {
       await resourceWatcher.close();
       await sessions.stopAll();

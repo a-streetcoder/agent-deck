@@ -25,6 +25,19 @@ export type { AgentSessionPlan, LaunchPlan };
 import { SessionPushBus } from "./pushBus.ts";
 import type { ReceiptBus } from "./receipts.ts";
 
+/**
+ * Builds a child subagent's `contact_supervisor` bridge for one run: returns the
+ * generated extension path (loaded via --extension) and a dispose() that tears
+ * down the child's bridge token + supervisor route + temp dir. Returns undefined
+ * when no supervisor channel is available (e.g. the bridge endpoint isn't bound),
+ * in which case the child runs tool-less as before. The server implements this;
+ * `route` tells it which parent transcript cell the child's progress flows into.
+ */
+export type ChildBridgeFactory = (
+  childSessionId: string,
+  route: { parentSessionId: string; cellId: string },
+) => { extension: string; dispose: () => void } | undefined;
+
 export interface CreateSessionOptions {
   cwd: string;
   plan: LaunchPlan;
@@ -87,6 +100,8 @@ export class ManagedSession {
     /** Temp dirs generated for this launch (bridge extension, memory append
      * file); removed once pi has exited. */
     private readonly tempDirs: string[] = [],
+    /** Builds a child subagent's contact_supervisor bridge (server-provided). */
+    private readonly childBridgeFactory?: ChildBridgeFactory,
   ) {
     pi.on("event", (piEvent) => {
       if (this.seedGate) {
@@ -123,6 +138,15 @@ export class ManagedSession {
   private emitDomain(event: DomainEvent): void {
     this.transcript = reduceTranscript(this.transcript, event);
     this.bus.append(event);
+  }
+
+  /**
+   * Append a child subagent's non-blocking progress update to its card in this
+   * (the parent's) transcript. Called by the server's supervisor handler when a
+   * child invokes contact_supervisor{progress_update}. No-op if the cell is gone.
+   */
+  appendSubagentProgress(cellId: string, message: string): void {
+    this.emitDomain({ type: "subagent_progress", cellId, message });
   }
 
   private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {
@@ -231,103 +255,144 @@ export class ManagedSession {
    * unchanged — the card is purely the visible surface. Runs concurrently under
    * managed_parallel: each child owns a distinct cell id, and the bus stamps
    * interleaved deltas in arrival order.
+   *
+   * The child also gets a single `contact_supervisor` tool (via a child bridge
+   * extension) so it can send non-blocking progress updates up to this card
+   * while it works. That is the ONLY tool it has (--tools allowlist of one),
+   * so it still cannot recurse into managed_subagent.
    */
   async runChildAgent(task: string): Promise<string> {
     const cellId = `subagent-${randomUUID()}`;
-    // The child system prompt is multi-line, so route it through a temp file —
-    // a multi-line --system-prompt literal is truncated by cmd.exe on Windows.
-    const promptDir = mkdtempSync(join(tmpdir(), "agent-deck-subagent-"));
-    // Outer try/finally so the temp dir is removed even if building the child
-    // (writeFileSync / resolvePiBinary / new PiSession) throws before the child
-    // exists.
+    // The child's supervisor bridge (server-provided): a distinct bridge session
+    // id whose contact_supervisor calls route back to THIS card. undefined when
+    // no channel is available — the child then runs tool-less (--no-tools).
+    const childSessionId = randomUUID();
+    const childBridge = this.childBridgeFactory?.(childSessionId, {
+      parentSessionId: this.meta.id,
+      cellId,
+    });
+    // Outermost try/finally disposes the child bridge no matter what — even if
+    // the mkdtempSync below throws before the inner (prompt-dir) try is entered,
+    // the bridge token/route/temp dir would otherwise leak.
     try {
-      const promptFile = join(promptDir, "system.md");
-      writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}\n\nTask:\n${task}`);
-
-      const child = new PiSession({
-        binPath: resolvePiBinary().path,
-        args: buildLaunchArgs({
-          kind: "agent",
-          systemPrompt: { mode: "replace", text: promptFile },
-          // No tools for v1 — the child just produces a text result (and, with
-          // tools:[] → --no-tools, cannot recurse into another managed_subagent).
-          tools: [],
-          provider: this.helperContext?.provider,
-          model: this.helperContext?.model,
-          // Provider-registration extensions only (ambient discovery disabled).
-          extensions: this.helperContext?.extensions,
-        }),
-        cwd: this.meta.cwd,
-        env: this.helperContext?.env,
-        requestTimeoutMs: SUBAGENT_TIMEOUT_MS,
-      });
-      // Open the Subagent card in the PARENT transcript before the child runs.
-      this.emitDomain({
-        type: "cell_open",
-        cell: { kind: "subagent", id: cellId, task, status: "running", text: "" },
-      });
-      let streamed = "";
+      // The child system prompt is multi-line, so route it through a temp file —
+      // a multi-line --system-prompt literal is truncated by cmd.exe on Windows.
+      const promptDir = mkdtempSync(join(tmpdir(), "agent-deck-subagent-"));
+      // Inner try/finally removes the prompt dir even if building the child
+      // (writeFileSync / resolvePiBinary / new PiSession) throws before it exists.
       try {
-        const idle = new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error("subagent timeout")),
-            SUBAGENT_TIMEOUT_MS,
-          );
-          timer.unref();
-          child.on("event", (event) => {
-            // Forward the child's assistant text into the parent card as it
-            // streams (best-effort visual; cell_final below is authoritative).
-            const e = event as {
-              type?: string;
-              assistantMessageEvent?: { type?: string; delta?: string };
-            };
-            if (
-              e.type === "message_update" &&
-              e.assistantMessageEvent?.type === "text_delta" &&
-              typeof e.assistantMessageEvent.delta === "string"
-            ) {
-              streamed += e.assistantMessageEvent.delta;
-              this.emitDomain({
-                type: "subagent_delta",
-                cellId,
-                delta: e.assistantMessageEvent.delta,
-              });
-            }
-            if (e.type === "agent_end") {
-              clearTimeout(timer);
-              resolve();
-            }
+        const promptFile = join(promptDir, "system.md");
+        writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}\n\nTask:\n${task}`);
+
+        const child = new PiSession({
+          binPath: resolvePiBinary().path,
+          args: buildLaunchArgs({
+            kind: "agent",
+            systemPrompt: { mode: "replace", text: promptFile },
+            // With a supervisor channel the child's ONLY tool is contact_supervisor
+            // (an allowlist of one — verified against real pi that an extension tool
+            // is callable this way while --no-tools would strip it). Without a
+            // channel it runs tool-less. Either way it can't reach managed_subagent.
+            tools: childBridge ? ["contact_supervisor"] : [],
+            provider: this.helperContext?.provider,
+            model: this.helperContext?.model,
+            // Provider-registration extensions (ambient discovery disabled), plus
+            // the child bridge that carries contact_supervisor.
+            extensions: childBridge
+              ? [...(this.helperContext?.extensions ?? []), childBridge.extension]
+              : this.helperContext?.extensions,
+          }),
+          cwd: this.meta.cwd,
+          env: this.helperContext?.env,
+          requestTimeoutMs: SUBAGENT_TIMEOUT_MS,
+        });
+        // Open the Subagent card in the PARENT transcript before the child runs.
+        this.emitDomain({
+          type: "cell_open",
+          cell: { kind: "subagent", id: cellId, task, status: "running", text: "", progress: [] },
+        });
+        let streamed = "";
+        try {
+          const idle = new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error("subagent timeout")),
+              SUBAGENT_TIMEOUT_MS,
+            );
+            timer.unref();
+            child.on("event", (event) => {
+              // Forward the child's assistant text into the parent card as it
+              // streams (best-effort visual; cell_final below is authoritative).
+              const e = event as {
+                type?: string;
+                assistantMessageEvent?: { type?: string; delta?: string };
+              };
+              if (
+                e.type === "message_update" &&
+                e.assistantMessageEvent?.type === "text_delta" &&
+                typeof e.assistantMessageEvent.delta === "string"
+              ) {
+                streamed += e.assistantMessageEvent.delta;
+                this.emitDomain({
+                  type: "subagent_delta",
+                  cellId,
+                  delta: e.assistantMessageEvent.delta,
+                });
+              }
+              if (e.type === "agent_end") {
+                clearTimeout(timer);
+                resolve();
+              }
+            });
+            child.on("exit", () => reject(new Error("subagent exited before finishing")));
           });
-          child.on("exit", () => reject(new Error("subagent exited before finishing")));
-        });
-        idle.catch(() => {});
-        child.start();
-        await child.prompt(task);
-        await idle;
-        const { text } = await child.request({ type: "get_last_assistant_text" });
-        const finalText = text ?? streamed;
-        this.emitDomain({
-          type: "cell_final",
-          cell: { kind: "subagent", id: cellId, task, status: "done", text: finalText },
-        });
-        return finalText;
-      } catch (error) {
-        // Mark the card failed (preserving whatever streamed) and re-throw so the
-        // bridge tool still renders the failure in its result.
-        this.emitDomain({
-          type: "cell_final",
-          cell: { kind: "subagent", id: cellId, task, status: "error", text: streamed },
-        });
-        throw error;
+          idle.catch(() => {});
+          child.start();
+          await child.prompt(task);
+          await idle;
+          const { text } = await child.request({ type: "get_last_assistant_text" });
+          const finalText = text ?? streamed;
+          this.emitDomain({
+            type: "cell_final",
+            cell: {
+              kind: "subagent",
+              id: cellId,
+              task,
+              status: "done",
+              text: finalText,
+              progress: [],
+            },
+          });
+          return finalText;
+        } catch (error) {
+          // Mark the card failed (preserving whatever streamed) and re-throw so the
+          // bridge tool still renders the failure in its result.
+          this.emitDomain({
+            type: "cell_final",
+            cell: {
+              kind: "subagent",
+              id: cellId,
+              task,
+              status: "error",
+              text: streamed,
+              progress: [],
+            },
+          });
+          throw error;
+        } finally {
+          await child.stop();
+        }
       } finally {
-        await child.stop();
+        // Remove the prompt temp dir once the child has exited (best-effort).
+        try {
+          rmSync(promptDir, { recursive: true, force: true });
+        } catch {
+          // Best-effort.
+        }
       }
     } finally {
-      try {
-        rmSync(promptDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort.
-      }
+      // Tear down the child bridge (token + supervisor route + temp dir) — runs
+      // even if mkdtempSync above threw before the inner try was entered.
+      childBridge?.dispose();
     }
   }
 
@@ -495,6 +560,12 @@ export class SessionManager {
       cwd: string,
       home: string,
     ) => { appends: string[]; cleanupDir?: string } = () => ({ appends: [] }),
+    /**
+     * Builds a child subagent's contact_supervisor bridge (server-provided).
+     * Threaded to each ManagedSession so runChildAgent can give its children a
+     * supervisor channel routed back to the right transcript cell.
+     */
+    private readonly childBridgeFactory?: ChildBridgeFactory,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -651,6 +722,7 @@ export class SessionManager {
       this.onMetaChange,
       helperContext,
       tempDirs,
+      this.childBridgeFactory,
     );
     // ManagedSession now owns tempDirs cleanup (on pi exit); no leak past here.
     markOwned();

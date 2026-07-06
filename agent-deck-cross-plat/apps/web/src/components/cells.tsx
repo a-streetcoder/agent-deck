@@ -74,6 +74,20 @@ function SubagentCellView({ cell }: { cell: SubagentCell }) {
           <div className="space-y-2">
             <div className="text-xs font-medium uppercase tracking-wide text-text-muted">Task</div>
             <div className="whitespace-pre-wrap text-xs text-text-muted">{cell.task}</div>
+            {cell.progress.length > 0 ? (
+              <ul className="space-y-1" data-testid="subagent-progress">
+                {cell.progress.map((message, index) => (
+                  <li
+                    key={index}
+                    className="flex gap-1.5 text-xs text-text-muted"
+                    data-testid="subagent-progress-item"
+                  >
+                    <span aria-hidden>→</span>
+                    <span className="whitespace-pre-wrap">{message}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {cell.text ? (
               <div
                 className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-text-secondary"

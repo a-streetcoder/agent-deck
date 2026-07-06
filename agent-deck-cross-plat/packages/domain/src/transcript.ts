@@ -67,6 +67,13 @@ export interface SubagentCell {
   task: string;
   status: "running" | "done" | "error";
   text: string;
+  /**
+   * Non-blocking progress updates the child sent up its supervisor channel
+   * (contact_supervisor → progress_update). Kept separate from `text` (the
+   * child's assistant output) and preserved across finalization, since progress
+   * arrives async while the child runs.
+   */
+  progress: string[];
 }
 
 export type TranscriptCell = UserCell | AssistantCell | ToolCell | QuestionCell | SubagentCell;
@@ -113,6 +120,7 @@ export type DomainEvent =
   | { type: "tool_update"; cellId: string; partialResult: unknown }
   | { type: "tool_end"; cellId: string; status: "done" | "error"; result: unknown }
   | { type: "subagent_delta"; cellId: string; delta: string }
+  | { type: "subagent_progress"; cellId: string; message: string }
   | { type: "question_answered"; cellId: string }
   | { type: "cell_final"; cell: TranscriptCell }
   | { type: "agent_status"; status: AgentStatus };
@@ -157,8 +165,22 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
     case "agent_status":
       return { ...state, agentStatus: event.status };
     case "cell_open":
-    case "cell_final":
       return { ...state, cells: upsertCell(state.cells, event.cell) };
+    case "cell_final": {
+      // Finalizing a subagent cell must not wipe its accumulated progress:
+      // progress arrives async up the supervisor channel while the child runs,
+      // and the finalizer (runChildAgent) doesn't have it. Carry it over.
+      if (event.cell.kind === "subagent") {
+        const prior = state.cells.find((c) => c.id === event.cell.id);
+        if (prior?.kind === "subagent" && prior.progress.length > 0) {
+          return {
+            ...state,
+            cells: upsertCell(state.cells, { ...event.cell, progress: prior.progress }),
+          };
+        }
+      }
+      return { ...state, cells: upsertCell(state.cells, event.cell) };
+    }
     case "cell_delta":
       return {
         ...state,
@@ -216,6 +238,14 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
       if (!cell || cell.kind !== "subagent") return state;
       const next = state.cells.slice();
       next[index] = { ...cell, text: cell.text + event.delta };
+      return { ...state, cells: next };
+    }
+    case "subagent_progress": {
+      const index = state.cells.findIndex((c) => c.id === event.cellId);
+      const cell = index === -1 ? undefined : state.cells[index];
+      if (!cell || cell.kind !== "subagent") return state;
+      const next = state.cells.slice();
+      next[index] = { ...cell, progress: [...cell.progress, event.message] };
       return { ...state, cells: next };
     }
     case "question_answered": {
