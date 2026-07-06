@@ -41,6 +41,9 @@ importers:
       '@agent-deck/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@agent-deck/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
       '@agent-deck/pi-host':
         specifier: workspace:*
         version: link:../../packages/pi-host

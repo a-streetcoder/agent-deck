@@ -31,6 +31,16 @@ export function projectMemoryDir(baseDir: string, projectPath: string): string {
   return path.join(baseDir, "projects", projectMemoryId(projectPath));
 }
 
+/**
+ * Whether an id is safe to turn into a filename. A memory id must be a single
+ * path segment with no separators or "..", so a caller-supplied id (from a tool
+ * call) can never traverse out of its project's memory directory into another
+ * project's files.
+ */
+export function isSafeMemoryId(id: string): boolean {
+  return id.length > 0 && !id.includes("..") && path.basename(id) === id;
+}
+
 export function memoryFilePath(baseDir: string, projectPath: string, id: string): string {
   return path.join(projectMemoryDir(baseDir, projectPath), `${id}.md`);
 }

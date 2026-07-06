@@ -219,4 +219,23 @@ describe("memory store", () => {
     expect(listMemories(store)).toHaveLength(1);
     expect(listMemories(other)).toHaveLength(0);
   });
+
+  it("rejects path-traversal ids so a call can't reach another project's files", () => {
+    writeMemory(store, { type: "context", title: "safe", summary: "s", body: "b" });
+    // A crafted id with separators / ".." must not read or update anything.
+    expect(getMemory(store, "../../etc/passwd")).toBeNull();
+    expect(getMemory(store, "sub/dir/id")).toBeNull();
+    const update = writeMemory(store, {
+      id: "../escape",
+      type: "context",
+      title: "x",
+      summary: "y",
+      body: "z",
+    });
+    expect(update.ok).toBe(false);
+    if (update.ok) throw new Error("unreachable");
+    expect(update.reason).toBe("not_found");
+    const stale = markStale(store, "../escape");
+    expect(stale.ok).toBe(false);
+  });
 });

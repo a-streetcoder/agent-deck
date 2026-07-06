@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseMemory, serializeMemory } from "./frontmatter.ts";
-import { memoryFilePath, projectMemoryDir } from "./paths.ts";
+import { isSafeMemoryId, memoryFilePath, projectMemoryDir } from "./paths.ts";
 import { scanForSecrets } from "./secrets.ts";
 import { informativeTerms, memoryTerms, overlapCoefficient, sharedTerms } from "./text.ts";
 import type {
@@ -92,7 +92,9 @@ export function listMemories(store: MemoryStore): MemoryRecord[] {
 }
 
 export function getMemory(store: MemoryStore, id: string): MemoryRecord | null {
-  if (!hasProject(store)) return null;
+  // Reject traversal ids before they reach a path join — this is what keeps a
+  // caller-supplied id (write-by-id, mark-stale) inside its own project's dir.
+  if (!hasProject(store) || !isSafeMemoryId(id)) return null;
   try {
     return parseMemory(readFileSync(memoryFilePath(store.baseDir, store.projectPath, id), "utf8"));
   } catch {

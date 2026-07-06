@@ -52,7 +52,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
 import { BridgeRegistry } from "./bridge.ts";
-import { ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
+import { registerMemoryTools } from "./memoryTools.ts";
+import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
 import {
   SessionManager,
@@ -249,6 +250,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   );
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
+
+  // Native memory (memory.md), on by default like the native app. Tools are
+  // registered on the bridge and scoped to each session's project via its cwd;
+  // set AGENT_DECK_MEMORY=0 to disable. Storage lives under the app data dir.
+  if (process.env.AGENT_DECK_MEMORY !== "0") {
+    registerMemoryTools(
+      bridge,
+      nodePath.join(options.dataDir ?? defaultDataDir(), "memory"),
+      (sessionId) => sessions.get(sessionId)?.meta.cwd,
+    );
+  }
+
   const fastify = Fastify({ logger: false });
 
   if (options.staticDir) {

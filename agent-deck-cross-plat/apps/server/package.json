@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@agent-deck/domain": "workspace:*",
+    "@agent-deck/memory": "workspace:*",
     "@agent-deck/pi-host": "workspace:*",
     "@agent-deck/resources": "workspace:*",
     "@fastify/static": "8.2.0",
