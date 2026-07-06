@@ -15,7 +15,6 @@ struct NativeToolGroupModel {
     var web: Web?
     var diff: Diff?
     var mcp: MCP?
-    var onDownloadRemoteImage: ((PiAgentTranscriptImageReference) -> Void)?
 
     /// Dedicated MCP card: every assigned-server tool call in this group, grouped
     /// under a single "MCP" header (mirrors the web/diff sub-cards). Built from the
@@ -69,8 +68,7 @@ extension NativeToolGroupModel {
     static func make(
         group: PiAgentThreadToolGroup,
         visibility: PiAgentTranscriptVisibilitySettings,
-        projectPath: String?,
-        onDownloadRemoteImage: ((PiAgentTranscriptImageReference) -> Void)? = nil
+        projectPath: String?
     ) -> NativeToolGroupModel? {
         let webActivities = group.activities.filter(\.isWebActivity)
         let mcpActivities = group.activities.filter(\.isMCPActivity)
@@ -132,7 +130,7 @@ extension NativeToolGroupModel {
         }
 
         guard web != nil || diff != nil || mcp != nil else { return nil }
-        return NativeToolGroupModel(web: web, diff: diff, mcp: mcp, onDownloadRemoteImage: onDownloadRemoteImage)
+        return NativeToolGroupModel(web: web, diff: diff, mcp: mcp)
     }
 
     private static func callCountText(_ activities: [PiAgentTranscriptActivity]) -> String {
@@ -566,51 +564,18 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         guard !references.isEmpty else { return nil }
         let stack = NSStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.orientation = .horizontal
-        stack.alignment = .top
-        stack.spacing = 6
+        stack.orientation = .vertical
+        stack.alignment = .width
+        stack.spacing = 8
         for reference in references.prefix(4) {
-            if let localPath = reference.localPath {
-                let imageView = NSImageView()
-                imageView.translatesAutoresizingMaskIntoConstraints = false
-                imageView.image = AgentImageLoader.image(at: URL(fileURLWithPath: localPath))
-                imageView.imageScaling = .scaleProportionallyUpOrDown
-                imageView.wantsLayer = true
-                imageView.layer?.cornerRadius = 6
-                imageView.layer?.cornerCurve = .continuous
-                imageView.layer?.masksToBounds = true
-                imageView.toolTip = reference.name
-                NSLayoutConstraint.activate([
-                    imageView.widthAnchor.constraint(equalToConstant: 72),
-                    imageView.heightAnchor.constraint(equalToConstant: 72)
-                ])
-                stack.addArrangedSubview(imageView)
-            } else if reference.isRemotePlaceholder {
-                let button = NSButton(title: "Download image", target: self, action: #selector(downloadRemoteImage(_:)))
-                button.bezelStyle = .rounded
-                button.controlSize = .small
-                button.font = NativeTranscriptFont.caption2(.semibold)
-                button.identifier = NSUserInterfaceItemIdentifier(reference.id.uuidString)
-                button.toolTip = reference.remoteURL ?? reference.name
-                button.translatesAutoresizingMaskIntoConstraints = false
-                NSLayoutConstraint.activate([
-                    button.widthAnchor.constraint(equalToConstant: 72),
-                    button.heightAnchor.constraint(equalToConstant: 72)
-                ])
-                stack.addArrangedSubview(button)
-            }
+            let image = PiAgentNativeTranscriptImageAttachmentView()
+            image.configure(reference: reference, caption: reference.name, width: 280)
+            stack.addArrangedSubview(image)
         }
         return stack
     }
 
     private var mcpResultByRowID: [String: (server: String, tool: String, result: String)] = [:]
-
-    @objc private func downloadRemoteImage(_ sender: NSButton) {
-        guard let id = sender.identifier?.rawValue,
-              let references = model?.mcp?.rows.flatMap(\.imageReferences),
-              let reference = references.first(where: { $0.id.uuidString == id }) else { return }
-        model?.onDownloadRemoteImage?(reference)
-    }
 
     /// Present the full MCP response in a modal (hosting the SwiftUI sheet — a modal
     /// is not a scroll hot path), mirroring how the diff "Open" button works.

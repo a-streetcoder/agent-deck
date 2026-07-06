@@ -135,14 +135,7 @@ final class PiAgentSessionStoreTests: XCTestCase {
     }
 
     func testRemoteTranscriptImageAutoDownloadMaterializesFile() async throws {
-        let originalSettings = AppSettingsStore.shared.settings
-        var enabledSettings = originalSettings
-        enabledSettings.autoDownloadRemoteTranscriptImages = true
-        AppSettingsStore.shared.settings = enabledSettings
-        defer {
-            AppSettingsStore.shared.settings = originalSettings
-            PiAgentSessionStore.remoteImageDownloaderForTesting = nil
-        }
+        defer { PiAgentSessionStore.remoteImageDownloaderForTesting = nil }
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
         PiAgentSessionStore.remoteImageDownloaderForTesting = { url in
             XCTAssertEqual(url.absoluteString, "https://example.com/pixel.png")
@@ -152,33 +145,6 @@ final class PiAgentSessionStoreTests: XCTestCase {
         let session = store.createSession(kind: .project, title: "Remote", project: try PiTestSupport.makeProject(), repository: nil)
 
         store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
-
-        let materialized = await PiTestSupport.waitUntilAsync {
-            guard let reference = store.transcriptsBySessionID[session.id]?.first?.imageReferences.first,
-                  let localPath = reference.localPath else { return false }
-            return FileManager.default.fileExists(atPath: localPath)
-        }
-        XCTAssertTrue(materialized)
-    }
-
-    func testManualRemoteTranscriptImageDownloadWorksWhenAutoDownloadIsOff() async throws {
-        let originalSettings = AppSettingsStore.shared.settings
-        var disabledSettings = originalSettings
-        disabledSettings.autoDownloadRemoteTranscriptImages = false
-        AppSettingsStore.shared.settings = disabledSettings
-        defer {
-            AppSettingsStore.shared.settings = originalSettings
-            PiAgentSessionStore.remoteImageDownloaderForTesting = nil
-        }
-        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
-        PiAgentSessionStore.remoteImageDownloaderForTesting = { _ in (png, "image/png") }
-        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
-        let session = store.createSession(kind: .project, title: "Remote", project: try PiTestSupport.makeProject(), repository: nil)
-        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
-        let placeholder = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
-        XCTAssertTrue(placeholder.isRemotePlaceholder)
-
-        store.downloadRemoteTranscriptImage(referenceID: placeholder.id, parentSessionID: session.id)
 
         let materialized = await PiTestSupport.waitUntilAsync {
             guard let reference = store.transcriptsBySessionID[session.id]?.first?.imageReferences.first,

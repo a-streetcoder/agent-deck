@@ -142,7 +142,217 @@ struct NativeBubblePayload {
     var isUserHugged: Bool = false
     /// Hover-revealed fork affordance (user questions only).
     var fork: ForkModel? = nil
-    var onDownloadRemoteImage: ((PiAgentTranscriptImageReference) -> Void)? = nil
+}
+
+// MARK: - Shared transcript image component
+
+/// Polished native image attachment used by assistant bubbles and MCP/tool rows.
+/// Keeps images session-owned (it only reads the materialized path), exposes the
+/// same preview/reveal/copy actions everywhere, and remains cheap to measure.
+final class PiAgentNativeTranscriptImageAttachmentView: NSView {
+    private let container = NSView()
+    private let imageView = NSImageView()
+    private let placeholder = NSTextField(labelWithString: "Downloading image…")
+    private let captionLabel = NSTextField(labelWithString: "")
+    private var reference: PiAgentTranscriptImageReference?
+    private var caption: String = ""
+    private var popover: NSPopover?
+    private var imageHeightC: NSLayoutConstraint!
+
+    private static let maxImageHeight: CGFloat = 220
+    private static let minImageHeight: CGFloat = 80
+    private static let captionGap: CGFloat = 6
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.wantsLayer = true
+        container.layer?.cornerRadius = 10
+        container.layer?.cornerCurve = .continuous
+        container.layer?.masksToBounds = true
+        container.layer?.borderWidth = 1
+        addSubview(container)
+
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        container.addSubview(imageView)
+
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        placeholder.font = NativeTranscriptFont.caption(.semibold)
+        placeholder.textColor = .secondaryLabelColor
+        placeholder.alignment = .center
+        container.addSubview(placeholder)
+
+        captionLabel.translatesAutoresizingMaskIntoConstraints = false
+        captionLabel.font = NativeTranscriptFont.caption2()
+        captionLabel.textColor = .secondaryLabelColor
+        captionLabel.lineBreakMode = .byTruncatingMiddle
+        captionLabel.maximumNumberOfLines = 1
+        addSubview(captionLabel)
+
+        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openPreview)))
+
+        imageHeightC = imageView.heightAnchor.constraint(equalToConstant: 120)
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: topAnchor),
+            container.leadingAnchor.constraint(equalTo: leadingAnchor),
+            container.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            container.widthAnchor.constraint(equalTo: widthAnchor),
+            imageView.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
+            imageHeightC,
+            imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
+            imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
+            placeholder.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            placeholder.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            placeholder.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 10),
+            placeholder.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10),
+            captionLabel.topAnchor.constraint(equalTo: container.bottomAnchor, constant: Self.captionGap),
+            captionLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            captionLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            captionLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var isFlipped: Bool { true }
+
+    func configure(reference: PiAgentTranscriptImageReference, caption: String, width: CGFloat) {
+        self.reference = reference
+        self.caption = caption.isEmpty ? reference.name : caption
+        imageHeightC.constant = Self.imageHeight(reference: reference, width: max(1, width))
+        captionLabel.stringValue = self.caption
+        toolTip = reference.source ?? reference.remoteURL ?? reference.localPath ?? reference.name
+        imageView.image = reference.localPath.flatMap { AgentImageLoader.image(at: URL(fileURLWithPath: $0)) }
+        imageView.isHidden = imageView.image == nil
+        placeholder.isHidden = imageView.image != nil
+        placeholder.stringValue = reference.isRemotePlaceholder ? "Downloading image…" : "Preview unavailable"
+        buildMenu()
+        applyColors()
+    }
+
+    static func measuredHeight(reference: PiAgentTranscriptImageReference, width: CGFloat) -> CGFloat {
+        let font = NativeTranscriptFont.caption2()
+        return imageHeight(reference: reference, width: width) + captionGap + ceil(font.ascender - font.descender + font.leading)
+    }
+
+    private static func imageHeight(reference: PiAgentTranscriptImageReference, width: CGFloat) -> CGFloat {
+        guard let path = reference.localPath,
+              let image = AgentImageLoader.image(at: URL(fileURLWithPath: path)),
+              image.size.width > 0 else { return 120 }
+        return min(maxImageHeight, max(minImageHeight, width * image.size.height / image.size.width))
+    }
+
+    override var intrinsicContentSize: NSSize {
+        guard let reference else { return NSSize(width: NSView.noIntrinsicMetric, height: 120) }
+        return NSSize(width: NSView.noIntrinsicMetric, height: Self.measuredHeight(reference: reference, width: max(1, bounds.width)))
+    }
+
+    override func layout() {
+        super.layout()
+        if let reference {
+            imageHeightC.constant = Self.imageHeight(reference: reference, width: max(1, bounds.width))
+        }
+        applyColors()
+    }
+
+    private func applyColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            container.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.55).cgColor
+            container.layer?.borderColor = AppTheme.ns(AppTheme.contentStroke).cgColor
+        }
+    }
+
+    private func buildMenu() {
+        let menu = NSMenu()
+        if reference?.localPath != nil {
+            menu.addItem(NSMenuItem(title: "Reveal in Finder", action: #selector(revealInFinder), keyEquivalent: ""))
+        }
+        menu.addItem(NSMenuItem(title: "Copy Path", action: #selector(copyPath), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Copy Source", action: #selector(copySource), keyEquivalent: ""))
+        for item in menu.items { item.target = self }
+        self.menu = menu
+    }
+
+    @objc private func openPreview() {
+        guard let reference, reference.localPath != nil else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = PiAgentTranscriptImagePopoverController(reference: reference, caption: caption)
+        self.popover = popover
+        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
+    }
+
+    @objc private func revealInFinder() {
+        guard let path = reference?.localPath else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    @objc private func copyPath() {
+        let value = reference?.localPath ?? reference?.remoteURL ?? reference?.source ?? ""
+        copy(value)
+    }
+
+    @objc private func copySource() {
+        let value = reference?.source ?? reference?.remoteURL ?? reference?.localPath ?? ""
+        copy(value)
+    }
+
+    private func copy(_ value: String) {
+        guard !value.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+    }
+}
+
+private final class PiAgentTranscriptImagePopoverController: NSViewController {
+    private let reference: PiAgentTranscriptImageReference
+    private let caption: String
+
+    init(reference: PiAgentTranscriptImageReference, caption: String) {
+        self.reference = reference
+        self.caption = caption
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let root = NSView()
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        root.addSubview(stack)
+
+        if let path = reference.localPath, let image = AgentImageLoader.image(at: URL(fileURLWithPath: path)) {
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.image = image
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            let width = min(640, max(260, image.size.width))
+            let height = min(480, max(160, width * image.size.height / max(image.size.width, 1)))
+            imageView.widthAnchor.constraint(equalToConstant: width).isActive = true
+            imageView.heightAnchor.constraint(equalToConstant: height).isActive = true
+            stack.addArrangedSubview(imageView)
+        }
+        let label = NSTextField(labelWithString: caption.isEmpty ? reference.name : caption)
+        label.font = NativeTranscriptFont.caption()
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingMiddle
+        stack.addArrangedSubview(label)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12)
+        ])
+        view = root
+    }
 }
 
 /// A full-width transcript row: a sized, role-tinted card plus hover-revealed
@@ -156,9 +366,9 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     private let iconView = NSImageView()
     private let headerLabel = NSTextField(labelWithString: "")
     private let prefixLabel = NSTextField(labelWithString: "")
-    private let markdownContainer = NativeMarkdownTextContainer()
-    private let markdownApplier = MarkdownSourceApplier()
-    private let imageStrip = NSStackView()
+    private let contentStack = NSStackView()
+    private var markdownContainers: [NativeMarkdownTextContainer] = []
+    private var markdownAppliers: [MarkdownSourceApplier] = []
 
     // Hover-revealed copy (+ fork) buttons, real Liquid Glass via NSGlassEffectView.
     // The glyphs are NSImageViews (not NSButtons) so we can drive the SF Symbol
@@ -217,25 +427,17 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         prefixLabel.textColor = .secondaryLabelColor
         prefixLabel.isHidden = true
 
-        markdownContainer.translatesAutoresizingMaskIntoConstraints = false
-        markdownContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        // The card width is authoritative; the markdown must yield to it rather
-        // than push the card wider (which would fight `cardWidthC` and let
-        // AppKit break a different constraint per relayout — a source of the
-        // card appearing to jump). Low compression resistance = always yields.
-        markdownContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        imageStrip.translatesAutoresizingMaskIntoConstraints = false
-        imageStrip.orientation = .horizontal
-        imageStrip.alignment = .top
-        imageStrip.spacing = 8
-        imageStrip.isHidden = true
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.orientation = .vertical
+        contentStack.alignment = .width
+        contentStack.spacing = 8
+        contentStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         cardView.addSubview(iconView)
         cardView.addSubview(headerLabel)
         cardView.addSubview(prefixLabel)
-        cardView.addSubview(markdownContainer)
-        cardView.addSubview(imageStrip)
+        cardView.addSubview(contentStack)
 
         setupButtons()
         buildConstraints()
@@ -270,12 +472,10 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     // inner content (pinned to cardView)
     private var iconLeadingC: NSLayoutConstraint!
     private var iconTopC: NSLayoutConstraint!
-    private var mdLeadingC: NSLayoutConstraint!
-    private var mdTrailingC: NSLayoutConstraint!
-    private var mdBottomC: NSLayoutConstraint!
-    private var mdTopC: NSLayoutConstraint!
-    private var imageTopC: NSLayoutConstraint!
-    private var imageBottomC: NSLayoutConstraint!
+    private var contentLeadingC: NSLayoutConstraint!
+    private var contentTrailingC: NSLayoutConstraint!
+    private var contentBottomC: NSLayoutConstraint!
+    private var contentTopC: NSLayoutConstraint!
     private var prefixTopC: NSLayoutConstraint!
     private var prefixLeadingC: NSLayoutConstraint!
     private var headerTrailingC: NSLayoutConstraint!
@@ -289,21 +489,16 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         headerTrailingC = headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: cardView.trailingAnchor, constant: -hPad)
         prefixLeadingC = prefixLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: hPad)
         prefixTopC = prefixLabel.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: headerSpacing)
-        mdLeadingC = markdownContainer.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: hPad)
-        mdTrailingC = markdownContainer.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -hPad)
-        mdBottomC = markdownContainer.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -vPad)
-        imageTopC = imageStrip.topAnchor.constraint(equalTo: markdownContainer.bottomAnchor, constant: 8)
-        imageBottomC = imageStrip.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -vPad)
-        imageTopC.isActive = false
-        imageBottomC.isActive = false
+        contentLeadingC = contentStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: hPad)
+        contentTrailingC = contentStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -hPad)
+        contentBottomC = contentStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -vPad)
         // The cell imposes a fixed height (NSView-Encapsulated-Layout-Height). If a
-        // measured height is even 1pt short of the markdown's required intrinsic
+        // measured height is even 1pt short of the content's required intrinsic
         // height, that fixed height vs. the required content height is unsatisfiable
         // and AppKit logs a constraint-conflict storm. Let this bottom pin yield
-        // (just below required) so the fixed cell height always wins gracefully —
-        // the measure is accurate, so in practice this never actually slacks.
-        mdBottomC.priority = NSLayoutConstraint.Priority(999)
-        mdTopC = markdownContainer.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: headerSpacing)
+        // (just below required) so the fixed cell height always wins gracefully.
+        contentBottomC.priority = NSLayoutConstraint.Priority(999)
+        contentTopC = contentStack.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: headerSpacing)
 
         NSLayoutConstraint.activate([
             cardView.topAnchor.constraint(equalTo: topAnchor),
@@ -316,9 +511,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             headerLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             headerTrailingC,
             prefixLeadingC,
-            mdLeadingC, mdTrailingC, mdTopC, mdBottomC,
-            imageStrip.leadingAnchor.constraint(equalTo: markdownContainer.leadingAnchor),
-            imageStrip.trailingAnchor.constraint(lessThanOrEqualTo: markdownContainer.trailingAnchor)
+            contentLeadingC, contentTrailingC, contentTopC, contentBottomC
         ])
         // The one and only horizontal placement constraint. Always active; its
         // constant is set per-configure (0 for replies, width−cardWidth for
@@ -335,9 +528,9 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         // rendered markdown needs more height than it was allocated, log the
         // exact deficit to /tmp so the automated harness can read it.
         guard Self.hoverDebug else { return }
-        let allocated = markdownContainer.bounds.height
+        let allocated = contentStack.bounds.height
         guard allocated > 1 else { return }
-        let needed = markdownContainer.renderedContentHeight
+        let needed = contentStack.fittingSize.height
         let deficit = needed - allocated
         guard deficit > 0.5 else { return }
         let line = "role=\(String(describing: payload?.role)) needed=\(Int(needed)) "
@@ -371,10 +564,9 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         iconTopC.constant = vPad
         headerTrailingC.constant = -hPad
         prefixLeadingC.constant = hPad
-        mdLeadingC.constant = hPad
-        mdTrailingC.constant = -hPad
-        mdBottomC.constant = -vPad
-        imageBottomC.constant = -vPad
+        contentLeadingC.constant = hPad
+        contentTrailingC.constant = -hPad
+        contentBottomC.constant = -vPad
 
         // Fix the card width and its single leading-offset constant from the
         // KNOWN row-width param (not a live frame): questions sit right-aligned
@@ -402,21 +594,20 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         if let prefix = payload.bodyPrefix, !prefix.isEmpty {
             prefixLabel.stringValue = prefix
             prefixLabel.isHidden = false
-            mdTopC.isActive = false
+            contentTopC.isActive = false
             prefixTopC.isActive = true
-            mdTopC = markdownContainer.topAnchor.constraint(equalTo: prefixLabel.bottomAnchor, constant: prefixSpacing)
-            mdTopC.isActive = true
+            contentTopC = contentStack.topAnchor.constraint(equalTo: prefixLabel.bottomAnchor, constant: prefixSpacing)
+            contentTopC.isActive = true
         } else {
             prefixLabel.isHidden = true
             prefixTopC.isActive = false
-            mdTopC.isActive = false
-            mdTopC = markdownContainer.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: headerSpacing)
-            mdTopC.isActive = true
+            contentTopC.isActive = false
+            contentTopC = contentStack.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: headerSpacing)
+            contentTopC.isActive = true
         }
 
-        // Body — routes through the shared applier (in-place streaming update).
-        markdownApplier.apply(source: payload.markdownSource, to: markdownContainer)
-        configureImageStrip(payload.imageReferences)
+        // Body — split around image tokens so attachments appear near their source.
+        configureContentBlocks(payload: payload, innerWidth: max(1, cardW - hPad * 2))
 
         // Buttons: presence, order, and which gutter they float in.
         forkGlass.isHidden = payload.fork == nil
@@ -503,77 +694,130 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         if let prefix = payload?.bodyPrefix, !prefix.isEmpty {
             h += ceil(prefixLabel.intrinsicContentSize.height) + prefixSpacing
         }
-        h += markdownContainer.measureHeight(forWidth: inner)
-        if payload?.imageReferences.isEmpty == false {
-            h += 8 + Self.thumbnailSide
+        let blocks = Self.contentBlocks(source: payload?.markdownSource ?? "", references: payload?.imageReferences ?? [])
+        var isFirst = true
+        var markdownIndex = 0
+        for block in blocks {
+            let blockHeight: CGFloat
+            switch block {
+            case .markdown(let text):
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                let container = markdownContainer(at: markdownIndex)
+                markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                markdownIndex += 1
+                blockHeight = container.measureHeight(forWidth: inner)
+            case .image(let reference, _):
+                blockHeight = PiAgentNativeTranscriptImageAttachmentView.measuredHeight(reference: reference, width: inner)
+            }
+            if !isFirst { h += contentStack.spacing }
+            h += blockHeight
+            isFirst = false
         }
         h += vPad
         return ceil(h)
     }
 
-    private static let thumbnailSide: CGFloat = 96
-
     private func headerRowHeight() -> CGFloat {
         max(16, ceil(headerLabel.intrinsicContentSize.height))
     }
 
-    private func configureImageStrip(_ references: [PiAgentTranscriptImageReference]) {
-        imageStrip.arrangedSubviews.forEach { view in
-            imageStrip.removeArrangedSubview(view)
+    private enum ContentBlock {
+        case markdown(String)
+        case image(PiAgentTranscriptImageReference, caption: String)
+    }
+
+    private func configureContentBlocks(payload: NativeBubblePayload, innerWidth: CGFloat) {
+        contentStack.arrangedSubviews.forEach { view in
+            contentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        guard !references.isEmpty else {
-            imageStrip.isHidden = true
-            mdBottomC.isActive = true
-            imageTopC.isActive = false
-            imageBottomC.isActive = false
-            return
-        }
-        imageStrip.isHidden = false
-        mdBottomC.isActive = false
-        imageTopC.isActive = true
-        imageBottomC.isActive = true
-        for reference in references.prefix(4) {
-            if let localPath = reference.localPath {
-                let imageView = NSImageView()
-                imageView.translatesAutoresizingMaskIntoConstraints = false
-                imageView.image = AgentImageLoader.image(at: URL(fileURLWithPath: localPath))
-                imageView.imageScaling = .scaleProportionallyUpOrDown
-                imageView.wantsLayer = true
-                imageView.layer?.cornerRadius = 8
-                imageView.layer?.cornerCurve = .continuous
-                imageView.layer?.masksToBounds = true
-                imageView.toolTip = reference.name
-                NSLayoutConstraint.activate([
-                    imageView.widthAnchor.constraint(equalToConstant: Self.thumbnailSide),
-                    imageView.heightAnchor.constraint(equalToConstant: Self.thumbnailSide)
-                ])
-                imageStrip.addArrangedSubview(imageView)
-            } else if reference.isRemotePlaceholder {
-                imageStrip.addArrangedSubview(remoteImagePlaceholder(reference, side: Self.thumbnailSide))
+        let blocks = Self.contentBlocks(source: payload.markdownSource, references: payload.imageReferences)
+        var markdownIndex = 0
+        for block in blocks {
+            switch block {
+            case .markdown(let text):
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                let container = markdownContainer(at: markdownIndex)
+                markdownApplier(at: markdownIndex).apply(source: text, to: container)
+                markdownIndex += 1
+                contentStack.addArrangedSubview(container)
+            case .image(let reference, let caption):
+                let image = PiAgentNativeTranscriptImageAttachmentView()
+                image.configure(reference: reference, caption: caption, width: innerWidth)
+                contentStack.addArrangedSubview(image)
             }
         }
+        while markdownContainers.count > markdownIndex {
+            markdownAppliers.removeLast().cancel()
+            markdownContainers.removeLast()
+        }
     }
 
-    private func remoteImagePlaceholder(_ reference: PiAgentTranscriptImageReference, side: CGFloat) -> NSView {
-        let button = NSButton(title: "Download image", target: self, action: #selector(downloadRemoteImage(_:)))
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.font = NativeTranscriptFont.caption2(.semibold)
-        button.identifier = NSUserInterfaceItemIdentifier(reference.id.uuidString)
-        button.toolTip = reference.remoteURL ?? reference.name
-        button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: side),
-            button.heightAnchor.constraint(equalToConstant: side)
-        ])
-        return button
+    private func markdownContainer(at index: Int) -> NativeMarkdownTextContainer {
+        while markdownContainers.count <= index {
+            let container = NativeMarkdownTextContainer()
+            container.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            container.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            markdownContainers.append(container)
+        }
+        return markdownContainers[index]
     }
 
-    @objc private func downloadRemoteImage(_ sender: NSButton) {
-        guard let id = sender.identifier?.rawValue,
-              let reference = payload?.imageReferences.first(where: { $0.id.uuidString == id }) else { return }
-        payload?.onDownloadRemoteImage?(reference)
+    private func markdownApplier(at index: Int) -> MarkdownSourceApplier {
+        while markdownAppliers.count <= index { markdownAppliers.append(MarkdownSourceApplier()) }
+        return markdownAppliers[index]
+    }
+
+    private static func contentBlocks(source: String, references: [PiAgentTranscriptImageReference]) -> [ContentBlock] {
+        guard !references.isEmpty else { return [.markdown(source)] }
+        let tokens = imageTokens(in: source)
+        var blocks: [ContentBlock] = []
+        var used = Set<UUID>()
+        var cursor = source.startIndex
+        for token in tokens {
+            guard let reference = references.first(where: { ref in
+                !used.contains(ref.id) && (ref.source == token.src || ref.remoteURL == token.src || ref.localPath == token.src || ref.name == URL(fileURLWithPath: token.src).lastPathComponent)
+            }) else { continue }
+            if cursor < token.range.lowerBound { blocks.append(.markdown(String(source[cursor..<token.range.lowerBound]))) }
+            used.insert(reference.id)
+            blocks.append(.image(reference, caption: token.caption.isEmpty ? reference.name : token.caption))
+            cursor = token.range.upperBound
+        }
+        if cursor < source.endIndex { blocks.append(.markdown(String(source[cursor...]))) }
+        for reference in references where !used.contains(reference.id) {
+            blocks.append(.image(reference, caption: reference.name))
+        }
+        return blocks.isEmpty ? [.markdown(source)] : blocks
+    }
+
+    private static func imageTokens(in source: String) -> [(range: Range<String.Index>, src: String, caption: String)] {
+        let patterns: [(String, Int, Int?)] = [
+            (#"!\[([^\]]*)\]\(([^\s\)]+)(?:\s+\"[^\"]*\")?\)"#, 2, 1),
+            (#"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>"#, 1, nil)
+        ]
+        var matches: [(range: Range<String.Index>, src: String, caption: String)] = []
+        for (pattern, srcGroup, captionGroup) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let nsRange = NSRange(source.startIndex..<source.endIndex, in: source)
+            for match in regex.matches(in: source, range: nsRange) {
+                guard let full = Range(match.range, in: source), let srcRange = Range(match.range(at: srcGroup), in: source) else { continue }
+                var caption = ""
+                if let captionGroup, match.range(at: captionGroup).location != NSNotFound, let capRange = Range(match.range(at: captionGroup), in: source) {
+                    caption = String(source[capRange])
+                } else if let alt = htmlAttribute("alt", in: String(source[full])) {
+                    caption = alt
+                }
+                matches.append((full, String(source[srcRange]), caption))
+            }
+        }
+        return matches.sorted { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
+    private static func htmlAttribute(_ name: String, in tag: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b\#(name)=[\"']([^\"']*)[\"']"#, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: tag, range: NSRange(tag.startIndex..<tag.endIndex, in: tag)),
+              let range = Range(match.range(at: 1), in: tag) else { return nil }
+        return String(tag[range])
     }
 
     // MARK: Copy / fork buttons (Liquid Glass)
@@ -811,7 +1055,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     // MARK: Teardown
 
     func prepareForReuseIfNeeded() {
-        markdownApplier.cancel()
+        markdownAppliers.forEach { $0.cancel() }
     }
 }
 

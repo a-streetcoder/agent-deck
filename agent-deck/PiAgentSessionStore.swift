@@ -197,6 +197,7 @@ final class PiAgentSessionStore {
     private var loopRecoverySessionIDs: Set<UUID> = []
     private var transcriptLoadTasksBySessionID: [UUID: Task<Void, Never>] = [:]
     private var subagentTranscriptLoadTasksByRunID: [UUID: Task<Void, Never>] = [:]
+    private var remoteTranscriptImageDownloadsInFlight: Set<UUID> = []
 
     init(fileManager: FileManager = .default) {
         let appSupport = URL.applicationSupportDirectory
@@ -3207,31 +3208,31 @@ final class PiAgentSessionStore {
         }
     }
 
-    func downloadRemoteTranscriptImage(referenceID: UUID, parentSessionID: UUID) {
-        scheduleRemoteTranscriptImageDownload(referenceID: referenceID, parentSessionID: parentSessionID, requiresAutoDownloadSetting: false)
+    private func scheduleRemoteTranscriptImageDownloads(in entry: PiAgentTranscriptEntry, parentSessionID: UUID) {
+        scheduleRemoteTranscriptImageDownloads(in: [entry], parentSessionID: parentSessionID)
     }
 
-    private func scheduleRemoteTranscriptImageDownloads(in entry: PiAgentTranscriptEntry, parentSessionID: UUID) {
-        guard AppSettingsStore.shared.settings.autoDownloadRemoteTranscriptImages else { return }
-        for reference in entry.imageReferences where reference.isRemotePlaceholder {
-            scheduleRemoteTranscriptImageDownload(referenceID: reference.id, parentSessionID: parentSessionID, requiresAutoDownloadSetting: true)
+    private func scheduleRemoteTranscriptImageDownloads(in entries: [PiAgentTranscriptEntry], parentSessionID: UUID) {
+        for entry in entries {
+            for reference in entry.imageReferences where reference.isRemotePlaceholder {
+                scheduleRemoteTranscriptImageDownload(referenceID: reference.id, parentSessionID: parentSessionID)
+            }
         }
     }
 
-    private func scheduleRemoteTranscriptImageDownload(referenceID: UUID, parentSessionID: UUID, requiresAutoDownloadSetting: Bool) {
-        guard let reference = transcriptImageReference(referenceID, parentSessionID: parentSessionID),
+    private func scheduleRemoteTranscriptImageDownload(referenceID: UUID, parentSessionID: UUID) {
+        guard !remoteTranscriptImageDownloadsInFlight.contains(referenceID),
+              let reference = transcriptImageReference(referenceID, parentSessionID: parentSessionID),
               reference.isRemotePlaceholder,
               let remote = reference.remoteURL,
               Self.isSafeRemoteImageURL(remote),
               let url = URL(string: remote) else { return }
+        remoteTranscriptImageDownloadsInFlight.insert(referenceID)
         Task { [weak self] in
-            if requiresAutoDownloadSetting {
-                let enabled = await MainActor.run { AppSettingsStore.shared.settings.autoDownloadRemoteTranscriptImages }
-                guard enabled else { return }
-            }
             let result = try? await Self.downloadRemoteImage(url)
-            guard let (data, mimeType) = result else { return }
             await MainActor.run {
+                self?.remoteTranscriptImageDownloadsInFlight.remove(referenceID)
+                guard let (data, mimeType) = result else { return }
                 self?.materializeDownloadedRemoteImage(referenceID: referenceID, parentSessionID: parentSessionID, data: data, mimeType: mimeType)
             }
         }
@@ -3390,6 +3391,7 @@ final class PiAgentSessionStore {
         guard transcriptsBySessionID[sessionID] == nil, persistedTranscriptSessionIDs.contains(sessionID) else { return }
         transcriptsBySessionID[sessionID] = (try? Self.readParentTranscript(from: parentTranscriptURL(sessionID))) ?? []
         hydrateLoopRunsFromTranscript(sessionID: sessionID)
+        scheduleRemoteTranscriptImageDownloads(in: transcriptsBySessionID[sessionID] ?? [], parentSessionID: sessionID)
     }
 
     private func finishRequestedTranscriptLoad(_ sessionID: UUID, entries: [PiAgentTranscriptEntry]) {
@@ -3401,6 +3403,7 @@ final class PiAgentSessionStore {
         if transcriptsBySessionID[sessionID] == nil {
             transcriptsBySessionID[sessionID] = entries
             hydrateLoopRunsFromTranscript(sessionID: sessionID)
+            scheduleRemoteTranscriptImageDownloads(in: entries, parentSessionID: sessionID)
         }
         transcriptRevisionsBySessionID[sessionID, default: 0] += 1
         markTranscriptSessionUsed(sessionID)
@@ -3414,6 +3417,9 @@ final class PiAgentSessionStore {
 
         if subagentTranscriptsByRunID[runID] == nil {
             subagentTranscriptsByRunID[runID] = entries
+            if let parentSessionID = subagentRunsBySessionID.first(where: { $0.value.contains(where: { $0.id == runID }) })?.key {
+                scheduleRemoteTranscriptImageDownloads(in: entries, parentSessionID: parentSessionID)
+            }
         }
         markSubagentTranscriptUsed(runID)
         evictTranscriptsIfNeeded(protectingSubagentRunID: runID)
@@ -3445,6 +3451,9 @@ final class PiAgentSessionStore {
     private func loadSubagentTranscriptIfNeeded(_ runID: UUID) {
         guard subagentTranscriptsByRunID[runID] == nil, persistedSubagentTranscriptRunIDs.contains(runID) else { return }
         subagentTranscriptsByRunID[runID] = (try? Self.readSubagentTranscript(from: subagentTranscriptURL(runID))) ?? []
+        if let parentSessionID = subagentRunsBySessionID.first(where: { $0.value.contains(where: { $0.id == runID }) })?.key {
+            scheduleRemoteTranscriptImageDownloads(in: subagentTranscriptsByRunID[runID] ?? [], parentSessionID: parentSessionID)
+        }
     }
 
     private func evictTranscriptsIfNeeded(protectingSessionID: UUID? = nil, protectingSubagentRunID: UUID? = nil) {

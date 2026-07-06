@@ -5804,10 +5804,7 @@ struct PiAgentScreen: View {
             copySide: .leading,
             isThreadChild: false,
             isUserHugged: true,
-            fork: fork,
-            onDownloadRemoteImage: { [store] reference in
-                store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: question.sessionID)
-            }
+            fork: fork
         ))
     }
 
@@ -5880,10 +5877,7 @@ struct PiAgentScreen: View {
                 copyText: entry.text,
                 copySide: .leading,
                 isThreadChild: false,
-                isUserHugged: true,
-                onDownloadRemoteImage: { [store] reference in
-                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: entry.sessionID)
-                }
+                isUserHugged: true
             ))
         case .status(let entry):
             if let recapMarker = LoopRunRecapCodec.decode(from: entry) {
@@ -5959,11 +5953,7 @@ struct PiAgentScreen: View {
             guard let model = NativeToolGroupModel.make(
                 group: group,
                 visibility: visibility,
-                projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
-                onDownloadRemoteImage: { [store] reference in
-                    guard let parentSessionID = group.entries.first?.sessionID else { return }
-                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: parentSessionID)
-                }
+                projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath }
             ) else {
 #if DEBUG
                 assertionFailure("Visible native tool group produced no display model: \(group.id)")
@@ -5994,10 +5984,7 @@ struct PiAgentScreen: View {
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
                 copySide: .trailing,
-                isThreadChild: true,
-                onDownloadRemoteImage: { [store] reference in
-                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: entry.sessionID)
-                }
+                isThreadChild: true
             )
         case .thinking(let entry):
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6010,10 +5997,7 @@ struct PiAgentScreen: View {
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,
-                isThreadChild: true,
-                onDownloadRemoteImage: { [store] reference in
-                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: entry.sessionID)
-                }
+                isThreadChild: true
             )
         default:
             return nil

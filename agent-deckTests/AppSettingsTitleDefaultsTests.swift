@@ -11,10 +11,6 @@ final class AppSettingsTitleDefaultsTests: XCTestCase {
         XCTAssertTrue(settings.autoUpdatePiAgentSessionTitles)
     }
 
-    func testRemoteTranscriptImageAutoDownloadIsOffByDefault() {
-        XCTAssertFalse(AppSettings().autoDownloadRemoteTranscriptImages)
-    }
-
     func testTitleModelDefaultsToNoExplicitPick() {
         // nil means "follow the Pi default model"; the Apple Foundation model
         // must not be pre-selected even on machines where it is available.
