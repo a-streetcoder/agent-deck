@@ -7,6 +7,7 @@ import {
   emptyTranscript,
   ingestPiEvent,
   reduceTranscript,
+  type DomainEvent,
   type IngestState,
   type SessionMeta,
   type TranscriptState,
@@ -113,13 +114,23 @@ export class ManagedSession {
     }
   }
 
+  /**
+   * Apply one domain event to the authoritative transcript and stamp it onto the
+   * ordered push bus. The single seam through which both pi-derived events and
+   * synthetic ones (native subagent cards) reach clients, so ordering stays in
+   * pi-stdout order — everything is synchronous up to the bus.
+   */
+  private emitDomain(event: DomainEvent): void {
+    this.transcript = reduceTranscript(this.transcript, event);
+    this.bus.append(event);
+  }
+
   private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {
     if (piEvent.type === "extension_ui_request") {
       this.pendingUiRequests.set(piEvent.id, piEvent.method);
     }
     for (const domainEvent of ingestPiEvent(this.ingest, piEvent)) {
-      this.transcript = reduceTranscript(this.transcript, domainEvent);
-      this.bus.append(domainEvent);
+      this.emitDomain(domainEvent);
       if (domainEvent.type === "cell_delta" && !this.sawFirstDelta) {
         this.sawFirstDelta = true;
         this.receipts.emit("first_delta", this.meta.id);
@@ -211,10 +222,18 @@ export class ManagedSession {
    * `pi --mode rpc` with the given task as its system prompt, no conversation
    * history and no tools, using the parent's provider/model/env (like the title
    * helper). Await the child's turn and return its final assistant text for the
-   * parent tool result. v1: text-returning only — streaming to a parent chat
-   * card, parallel runs, and the supervisor/plan tools are later slices.
+   * parent tool result.
+   *
+   * The child's transcript is ALSO streamed into the parent as a native
+   * "Subagent" card: a subagent cell opens when the child starts, accumulates
+   * the child's assistant text deltas, and finalizes with the child's
+   * authoritative output. The returned text (the tool result the model sees) is
+   * unchanged — the card is purely the visible surface. Runs concurrently under
+   * managed_parallel: each child owns a distinct cell id, and the bus stamps
+   * interleaved deltas in arrival order.
    */
   async runChildAgent(task: string): Promise<string> {
+    const cellId = `subagent-${randomUUID()}`;
     // The child system prompt is multi-line, so route it through a temp file —
     // a multi-line --system-prompt literal is truncated by cmd.exe on Windows.
     const promptDir = mkdtempSync(join(tmpdir(), "agent-deck-subagent-"));
@@ -242,6 +261,12 @@ export class ManagedSession {
         env: this.helperContext?.env,
         requestTimeoutMs: SUBAGENT_TIMEOUT_MS,
       });
+      // Open the Subagent card in the PARENT transcript before the child runs.
+      this.emitDomain({
+        type: "cell_open",
+        cell: { kind: "subagent", id: cellId, task, status: "running", text: "" },
+      });
+      let streamed = "";
       try {
         const idle = new Promise<void>((resolve, reject) => {
           const timer = setTimeout(
@@ -250,7 +275,25 @@ export class ManagedSession {
           );
           timer.unref();
           child.on("event", (event) => {
-            if ((event as { type: string }).type === "agent_end") {
+            // Forward the child's assistant text into the parent card as it
+            // streams (best-effort visual; cell_final below is authoritative).
+            const e = event as {
+              type?: string;
+              assistantMessageEvent?: { type?: string; delta?: string };
+            };
+            if (
+              e.type === "message_update" &&
+              e.assistantMessageEvent?.type === "text_delta" &&
+              typeof e.assistantMessageEvent.delta === "string"
+            ) {
+              streamed += e.assistantMessageEvent.delta;
+              this.emitDomain({
+                type: "subagent_delta",
+                cellId,
+                delta: e.assistantMessageEvent.delta,
+              });
+            }
+            if (e.type === "agent_end") {
               clearTimeout(timer);
               resolve();
             }
@@ -262,7 +305,20 @@ export class ManagedSession {
         await child.prompt(task);
         await idle;
         const { text } = await child.request({ type: "get_last_assistant_text" });
-        return text ?? "";
+        const finalText = text ?? streamed;
+        this.emitDomain({
+          type: "cell_final",
+          cell: { kind: "subagent", id: cellId, task, status: "done", text: finalText },
+        });
+        return finalText;
+      } catch (error) {
+        // Mark the card failed (preserving whatever streamed) and re-throw so the
+        // bridge tool still renders the failure in its result.
+        this.emitDomain({
+          type: "cell_final",
+          cell: { kind: "subagent", id: cellId, task, status: "error", text: streamed },
+        });
+        throw error;
       } finally {
         await child.stop();
       }
@@ -293,8 +349,7 @@ export class ManagedSession {
           type: "message_end",
           message,
         } as Parameters<typeof ingestPiEvent>[1])) {
-          this.transcript = reduceTranscript(this.transcript, domainEvent);
-          this.bus.append(domainEvent);
+          this.emitDomain(domainEvent);
         }
       }
     } finally {
@@ -354,9 +409,7 @@ export class ManagedSession {
     this.pendingUiRequests.delete(id);
     this.pi.respondToUiRequest(response as Parameters<PiSession["respondToUiRequest"]>[0]);
     // The card is answered from the transcript's point of view immediately.
-    const domainEvent = { type: "question_answered", cellId: `question-${id}` } as const;
-    this.transcript = reduceTranscript(this.transcript, domainEvent);
-    this.bus.append(domainEvent);
+    this.emitDomain({ type: "question_answered", cellId: `question-${id}` });
   }
 
   async getCommands(): Promise<Awaited<ReturnType<PiSession["getCommands"]>>> {

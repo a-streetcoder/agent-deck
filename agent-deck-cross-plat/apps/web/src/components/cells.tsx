@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   memoryToolCardLabel,
   type QuestionCell,
+  type SubagentCell,
   type ToolCell,
   type TranscriptCell,
 } from "@agent-deck/domain";
@@ -43,6 +44,44 @@ function ToolCellView({ cell }: { cell: ToolCell }) {
           <div className="space-y-2">
             {argsText}
             {resultText}
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+const SUBAGENT_STATUS: Record<SubagentCell["status"], ToolGroupStatus> = {
+  running: "running",
+  done: "result",
+  error: "failed",
+};
+
+/**
+ * A native subagent run streamed into the parent transcript (managed_subagent /
+ * managed_parallel). The child's task and its live/authoritative output render
+ * in an expandable card, mirroring the native "agent block".
+ */
+function SubagentCellView({ cell }: { cell: SubagentCell }) {
+  return (
+    <div data-testid="subagent-cell" data-status={cell.status}>
+      <ToolGroupCard
+        name="Subagent"
+        variant="generic"
+        status={SUBAGENT_STATUS[cell.status]}
+        defaultExpanded={cell.status === "running"}
+        body={
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-text-muted">Task</div>
+            <div className="whitespace-pre-wrap text-xs text-text-muted">{cell.task}</div>
+            {cell.text ? (
+              <div
+                className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-text-secondary"
+                data-testid="subagent-output"
+              >
+                {cell.text}
+              </div>
+            ) : null}
           </div>
         }
       />
@@ -194,6 +233,8 @@ export function CellView({ cell }: { cell: TranscriptCell }) {
       );
     case "tool":
       return <ToolCellView cell={cell} />;
+    case "subagent":
+      return <SubagentCellView cell={cell} />;
     case "question":
       return <QuestionCellView cell={cell} />;
   }

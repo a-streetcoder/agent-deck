@@ -54,7 +54,22 @@ export interface QuestionCell {
   answered: boolean;
 }
 
-export type TranscriptCell = UserCell | AssistantCell | ToolCell | QuestionCell;
+/**
+ * A native subagent run streamed into the PARENT transcript. The parent's
+ * ManagedSession opens this when it launches a child pi (managed_subagent /
+ * managed_parallel), appends the child's assistant text as it streams, and
+ * finalizes it with the child's authoritative output. The tool result the model
+ * receives is unaffected — this cell is purely the visible "Subagent" card.
+ */
+export interface SubagentCell {
+  kind: "subagent";
+  id: string;
+  task: string;
+  status: "running" | "done" | "error";
+  text: string;
+}
+
+export type TranscriptCell = UserCell | AssistantCell | ToolCell | QuestionCell | SubagentCell;
 
 /**
  * A friendly transcript-card label for an Agent Deck memory bridge tool call
@@ -97,6 +112,7 @@ export type DomainEvent =
   | { type: "block_end"; cellId: string; contentIndex: number; content: string }
   | { type: "tool_update"; cellId: string; partialResult: unknown }
   | { type: "tool_end"; cellId: string; status: "done" | "error"; result: unknown }
+  | { type: "subagent_delta"; cellId: string; delta: string }
   | { type: "question_answered"; cellId: string }
   | { type: "cell_final"; cell: TranscriptCell }
   | { type: "agent_status"; status: AgentStatus };
@@ -189,6 +205,17 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
       const next = state.cells.slice();
       // Merge, don't replace: tool_execution_end carries no args.
       next[index] = { ...cell, status: event.status, result: event.result };
+      return { ...state, cells: next };
+    }
+    case "subagent_delta": {
+      const index = state.cells.findIndex((c) => c.id === event.cellId);
+      const cell = index === -1 ? undefined : state.cells[index];
+      // Ignore deltas for an unknown/mismatched cell — cell_final replaces the
+      // whole cell with the child's authoritative text, so a lost open or delta
+      // can never corrupt the durable card (self-healing).
+      if (!cell || cell.kind !== "subagent") return state;
+      const next = state.cells.slice();
+      next[index] = { ...cell, text: cell.text + event.delta };
       return { ...state, cells: next };
     }
     case "question_answered": {
