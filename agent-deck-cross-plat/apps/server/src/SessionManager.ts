@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname } from "node:path";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   createIngestState,
   emptyTranscript,
@@ -431,6 +431,36 @@ export class SessionManager {
     // session. The session id is baked into the generated extension so its
     // calls come back tagged; helper launches never pass through here.
     const tempDirs: string[] = [];
+    // Until a ManagedSession is constructed (it owns tempDirs cleanup via the
+    // pi-exit handler), a throw here would leak the generated temp dirs — clean
+    // them up on any pre-construction failure.
+    let owned = false;
+    try {
+      return this.launchWithTemp(meta, plan, env, options, tempDirs, () => {
+        owned = true;
+      });
+    } catch (error) {
+      if (!owned) {
+        for (const dir of tempDirs) {
+          try {
+            rmSync(dir, { recursive: true, force: true });
+          } catch {
+            // Best-effort.
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  private launchWithTemp(
+    meta: SessionMeta,
+    plan: LaunchPlan,
+    env: Record<string, string | undefined> | undefined,
+    options: { holdLive?: boolean } | undefined,
+    tempDirs: string[],
+    markOwned: () => void,
+  ): ManagedSession {
     const bridgeExtension = this.bridgeExtensionFactory(meta.id);
     let launchPlan: LaunchPlan = bridgeExtension
       ? { ...plan, extensions: [...(plan.extensions ?? []), bridgeExtension] }
@@ -452,6 +482,23 @@ export class SessionManager {
         };
       }
       if (cleanupDir) tempDirs.push(cleanupDir);
+    }
+    // Agent-backed sessions pass the agent body as a --system-prompt /
+    // --append-system-prompt value. A MULTI-LINE literal is truncated on Windows
+    // (pi runs via a pi.cmd shim through cmd.exe, which cuts an argument at the
+    // first newline) — the same bug the memory block hit. pi reads a value that
+    // is an existing file path as a file, so route a multi-line agent body
+    // through a temp file (single-line bodies stay literal). The temp dir is
+    // cleaned up with the others on exit.
+    if (launchPlan.kind === "agent" && launchPlan.systemPrompt.text.includes("\n")) {
+      const dir = mkdtempSync(join(tmpdir(), "agent-deck-agent-prompt-"));
+      const file = join(dir, "system.md");
+      writeFileSync(file, launchPlan.systemPrompt.text);
+      launchPlan = {
+        ...launchPlan,
+        systemPrompt: { ...launchPlan.systemPrompt, text: file },
+      };
+      tempDirs.push(dir);
     }
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
@@ -475,6 +522,8 @@ export class SessionManager {
       helperContext,
       tempDirs,
     );
+    // ManagedSession now owns tempDirs cleanup (on pi exit); no leak past here.
+    markOwned();
     if (options?.holdLive) session.holdLiveEvents();
     this.sessions.set(meta.id, session);
     pi.start();
