@@ -2,21 +2,28 @@ import { McpClient, type StdioServerConfig } from "@agent-deck/mcp";
 import type { BridgeRegistry } from "./bridge.ts";
 
 /**
- * Proxies configured MCP servers' tools onto the bridge. pi has no native MCP,
- * so the app runs an MCP client per configured server, lists its tools, and
- * registers each on the bridge as `mcp__<server>__<tool>`, forwarding calls to
- * the client. Best-effort: a server that fails to connect is reported and
- * skipped, never breaking server startup.
+ * Proxies configured MCP servers' tools onto the bridge and owns their live
+ * connection lifecycle. pi has no native MCP, so the app runs an MCP client per
+ * configured server, lists its tools, and registers each on the bridge as
+ * `mcp__<server>__<tool>`, forwarding calls to the client. The manager tracks
+ * per-server state so the UI can show what connected and add/remove/refresh
+ * servers at runtime.
  */
 
 export interface McpServerConfig extends StdioServerConfig {
-  /** Stable id, used in the bridge tool name and for de-duplication. */
+  /** Stable id, used in the bridge tool name and as the map key. */
   id: string;
 }
 
-export interface McpRegistration {
-  /** Close all MCP clients (killing their subprocesses). */
-  close(): Promise<void>;
+/** Live state of one configured MCP server (for GET /mcp). */
+export interface McpServerStatus {
+  id: string;
+  transport: "stdio";
+  connected: boolean;
+  /** Bridge tool names (mcp__<id>__<tool>) currently registered for this server. */
+  toolNames: string[];
+  /** Present when the last connect/list attempt failed. */
+  error?: string;
 }
 
 /** How long to wait for a single MCP server to connect + list its tools. */
@@ -56,82 +63,145 @@ function normalizeParameters(inputSchema: Record<string, unknown>): Record<strin
   return { type: "object", properties: (inputSchema?.properties as unknown) ?? {} };
 }
 
-export async function registerMcpServers(
-  bridge: BridgeRegistry,
-  configs: McpServerConfig[],
-  onError: (serverId: string, error: unknown) => void = () => {},
-): Promise<McpRegistration> {
-  const clients: McpClient[] = [];
-  // Names already claimed on the bridge, so a sanitized-name collision (two
-  // servers/tools mapping to the same mcp__…__… name) is surfaced, not silently
-  // clobbered. Seed with what's already registered (e.g. the memory tools).
-  const takenNames = new Set(bridge.specs().map((spec) => spec.name));
-  const seenIds = new Set<string>();
-  const unique = configs.filter((config) => {
-    if (seenIds.has(config.id)) return false;
-    seenIds.add(config.id);
-    return true;
-  });
+interface ServerState {
+  config: McpServerConfig;
+  client?: McpClient;
+  /** Bridge names registered for this server (for unregister on teardown). */
+  toolNames: string[];
+  error?: string;
+}
 
-  // Connect all servers in parallel with a per-server timeout — one slow or
-  // hung server must not delay startup or block the others. Best-effort: a
-  // failure is reported and that server is skipped.
-  await Promise.allSettled(
-    unique.map(async (config) => {
-      let client: McpClient;
-      try {
-        client = await withTimeout(
-          McpClient.connectStdio(config),
-          MCP_CONNECT_TIMEOUT_MS,
-          `MCP connect "${config.id}"`,
-        );
-      } catch (error) {
-        onError(config.id, error);
-        return;
-      }
-      try {
-        const tools = await withTimeout(
-          client.listTools(),
-          MCP_CONNECT_TIMEOUT_MS,
-          `MCP listTools "${config.id}"`,
-        );
-        clients.push(client);
-        const safeServerId = sanitize(config.id);
-        for (const tool of tools) {
-          const name = bridgeToolName(config.id, tool.name);
-          if (!safeServerId || !sanitize(tool.name) || takenNames.has(name)) {
-            onError(
-              config.id,
-              new Error(`skipping tool with empty/colliding bridge name: ${name}`),
-            );
-            continue;
-          }
-          takenNames.add(name);
-          bridge.register(
-            {
-              name,
-              label: `${config.id}: ${tool.name}`,
-              description: tool.description,
-              parameters: normalizeParameters(tool.inputSchema),
-            },
-            // The original (unprefixed) MCP tool name + this server's client are
-            // captured here, so the forward always targets the right tool.
-            async (params) => {
-              const result = await client.callTool(tool.name, params);
-              return { content: result.content, isError: result.isError };
-            },
-          );
+export class McpManager {
+  private readonly servers = new Map<string, ServerState>();
+  /** Per-id operation chain so connect/refresh/remove for one id never interleave. */
+  private readonly locks = new Map<string, Promise<unknown>>();
+
+  constructor(private readonly bridge: BridgeRegistry) {}
+
+  /** Serialize an operation for one server id behind any in-flight op for it. */
+  private serialize<T>(id: string, op: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(id) ?? Promise.resolve();
+    const next = prev.then(op, op);
+    // Store a non-rejecting tail so the next op always runs after this settles.
+    this.locks.set(
+      id,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  }
+
+  /** Live state of every server the manager has attempted to connect. */
+  status(): McpServerStatus[] {
+    return [...this.servers.values()].map((state) => ({
+      id: state.config.id,
+      transport: "stdio",
+      connected: state.client !== undefined,
+      toolNames: [...state.toolNames],
+      error: state.error,
+    }));
+  }
+
+  has(id: string): boolean {
+    return this.servers.has(id);
+  }
+
+  /** Unregister a server's tools, close its client, and drop it. */
+  private async teardown(id: string): Promise<void> {
+    const state = this.servers.get(id);
+    if (!state) return;
+    for (const name of state.toolNames) this.bridge.unregister(name);
+    await state.client?.close().catch(() => {});
+    this.servers.delete(id);
+  }
+
+  /**
+   * Connect (or reconnect) one server: any prior registration for the id is torn
+   * down first. A connect/list failure is recorded on the state (not thrown), so
+   * one bad server never breaks the others or startup.
+   */
+  connect(config: McpServerConfig): Promise<McpServerStatus> {
+    return this.serialize(config.id, () => this.connectInner(config));
+  }
+
+  private async connectInner(config: McpServerConfig): Promise<McpServerStatus> {
+    await this.teardown(config.id);
+    const state: ServerState = { config, toolNames: [] };
+    this.servers.set(config.id, state);
+    try {
+      const client = await withTimeout(
+        McpClient.connectStdio(config),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP connect "${config.id}"`,
+      );
+      const tools = await withTimeout(
+        client.listTools(),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP listTools "${config.id}"`,
+      );
+      state.client = client;
+      const safeId = sanitize(config.id);
+      for (const tool of tools) {
+        const name = bridgeToolName(config.id, tool.name);
+        // Skip empty-segment or already-claimed names (memory tools, other
+        // servers) rather than silently clobber the bridge registry.
+        if (!safeId || !sanitize(tool.name) || this.bridge.specs().some((s) => s.name === name)) {
+          continue;
         }
-      } catch (error) {
-        onError(config.id, error);
+        state.toolNames.push(name);
+        this.bridge.register(
+          {
+            name,
+            label: `${config.id}: ${tool.name}`,
+            description: tool.description,
+            parameters: normalizeParameters(tool.inputSchema),
+          },
+          async (params) => {
+            const result = await client.callTool(tool.name, params);
+            return { content: result.content, isError: result.isError };
+          },
+        );
       }
-    }),
-  );
-  return {
-    close: async () => {
-      await Promise.all(clients.map((client) => client.close().catch(() => {})));
-    },
-  };
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    }
+    return this.status().find((s) => s.id === config.id)!;
+  }
+
+  /** Connect many servers in parallel (startup). Best-effort per server. */
+  async connectAll(configs: McpServerConfig[]): Promise<void> {
+    const seen = new Set<string>();
+    const unique = configs.filter((config) => {
+      if (seen.has(config.id)) return false;
+      seen.add(config.id);
+      return true;
+    });
+    await Promise.allSettled(unique.map((config) => this.connect(config)));
+  }
+
+  /** Reconnect a known server using its stored config. */
+  refresh(id: string): Promise<McpServerStatus | null> {
+    return this.serialize(id, async () => {
+      const config = this.servers.get(id)?.config;
+      // connectInner (not connect) — we already hold this id's lock.
+      return config ? await this.connectInner(config) : null;
+    });
+  }
+
+  /** Remove a server: unregister its tools and close its client. */
+  remove(id: string): Promise<boolean> {
+    return this.serialize(id, async () => {
+      if (!this.servers.has(id)) return false;
+      await this.teardown(id);
+      return true;
+    });
+  }
+
+  async close(): Promise<void> {
+    await Promise.all([...this.servers.keys()].map((id) => this.teardown(id)));
+  }
 }
 
 /** Parse AGENT_DECK_MCP_SERVERS (a JSON array of stdio server configs). */

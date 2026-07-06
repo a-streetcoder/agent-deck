@@ -24,8 +24,11 @@ import {
   appendSystemPromptPath,
   computeBuiltinOverride,
   defaultRoots,
+  deleteMcpServer,
   ensureDirs,
+  McpConfigError,
   readMcpServers,
+  writeMcpServer,
   mergeWithUnmanagedOverrideFields,
   parseAgentFile,
   projectWatchDirs,
@@ -67,7 +70,7 @@ import {
   type MemoryType,
 } from "@agent-deck/memory";
 import { BridgeRegistry } from "./bridge.ts";
-import { mcpServerConfigsFromEnv, registerMcpServers, type McpRegistration } from "./mcpTools.ts";
+import { McpManager, mcpServerConfigsFromEnv } from "./mcpTools.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
@@ -319,9 +322,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       ),
     ).values(),
   ];
-  const mcp: McpRegistration = await registerMcpServers(bridge, mcpConfigs, (id, error) =>
-    console.warn(`[agent-deck] MCP server "${id}" failed to connect: ${String(error)}`),
-  );
+  const mcp = new McpManager(bridge);
+  await mcp.connectAll(mcpConfigs);
 
   const fastify = Fastify({ logger: false });
 
@@ -577,6 +579,57 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };
+  });
+
+  // MCP servers: list live connection state, add/remove/refresh. Adds/removes
+  // are written to the app-owned global mcp.json and reflected on the bridge.
+  const mcpAddBody = z.object({
+    name: z.string().min(1),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string()).optional(),
+  });
+
+  fastify.get("/mcp", async () => {
+    return { servers: mcp.status() };
+  });
+
+  fastify.post("/mcp", async (request, reply) => {
+    const parsed = mcpAddBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });
+    const { name, command, args, env } = parsed.data;
+    try {
+      writeMcpServer(rootsFor(), "global", name, { command, args, env });
+    } catch (error) {
+      const message = error instanceof McpConfigError ? error.message : String(error);
+      return reply.code(400).send({ error: message });
+    }
+    const status = await mcp.connect({ id: name, command, args, env });
+    broadcast({ type: "resources_changed" });
+    return reply.code(201).send({ server: status });
+  });
+
+  fastify.delete("/mcp/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const removed = await mcp.remove(id);
+    // Also remove it from the config (it may be config-only if never connected,
+    // or manager-only if env-sourced). Succeed when EITHER had it.
+    let deletedConfig = false;
+    try {
+      deletedConfig = deleteMcpServer(rootsFor(), "global", id);
+    } catch {
+      // A malformed mcp.json is not the delete's problem — the live server is gone.
+    }
+    if (!removed && !deletedConfig) return reply.code(404).send({ error: "unknown MCP server" });
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  fastify.post("/mcp/:id/refresh", async (request, reply) => {
+    const status = await mcp.refresh((request.params as { id: string }).id);
+    if (!status) return reply.code(404).send({ error: "unknown MCP server" });
+    broadcast({ type: "resources_changed" });
+    return { server: status };
   });
 
   // Edit-safety contract: builtin agents are NEVER written — edits become a
