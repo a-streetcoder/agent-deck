@@ -117,8 +117,10 @@ const bridgeCallBody = z.object({
   params: z.record(z.unknown()).default({}),
 });
 
-/** Tools only bridge extensions provide — stripped until those bridges are ported (M2). */
-const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "managed_subagent", "ask_user"]);
+/** Tools only bridge extensions provide — stripped from an agent's --tools
+ * allowlist until those bridges are ported. managed_subagent is now a real
+ * bridge tool, so it's no longer stripped (an agent may allowlist it). */
+const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "ask_user"]);
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
@@ -302,6 +304,46 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   if (memoryEnabled) {
     registerMemoryTools(bridge, memoryBaseDir, (sessionId) => sessions.get(sessionId)?.meta.cwd);
   }
+
+  // Native subagents (native-subagent-bridge.md): a parent session can launch a
+  // focused child pi to complete one task and report back. v1 is text-returning
+  // (managed_subagent); parallel / supervisor / plan tools + the deck UI follow.
+  const subagentParams = z.object({ task: z.string().min(1) });
+  bridge.register(
+    {
+      name: "managed_subagent",
+      label: "Subagent",
+      description:
+        "Delegate a self-contained task to a fresh subagent (no conversation history) and get its result back. Use for focused, independent work you can hand off with a complete task description.",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description: "A complete, self-contained description of the task for the subagent.",
+          },
+        },
+        required: ["task"],
+        additionalProperties: false,
+      },
+      promptSnippet: "managed_subagent — delegate a self-contained task to a fresh subagent.",
+    },
+    async (params, ctx) => {
+      const parsed = subagentParams.safeParse(params);
+      if (!parsed.success) {
+        return {
+          content: `Invalid managed_subagent arguments: ${parsed.error.message}`,
+          isError: true,
+        };
+      }
+      try {
+        const result = await sessions.runSubagent(ctx.sessionId, parsed.data.task);
+        return { content: result || "(the subagent returned no output)" };
+      } catch (error) {
+        return { content: `Subagent failed: ${String(error)}`, isError: true };
+      }
+    },
+  );
 
   // Proxy configured MCP servers' tools onto the bridge (best-effort — a server
   // that fails to connect is skipped). Registered before listen so the tools are

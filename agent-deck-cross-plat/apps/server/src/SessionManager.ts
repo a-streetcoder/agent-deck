@@ -39,6 +39,13 @@ const TITLE_SYSTEM_PROMPT =
 
 const TITLE_TIMEOUT_MS = 20_000;
 
+const SUBAGENT_SYSTEM_PROMPT =
+  "You are a focused subagent launched by Agent Deck to complete one task and " +
+  "report back. You have no conversation history. Do the task, then give a " +
+  "concise, self-contained result the parent agent can use directly.";
+
+const SUBAGENT_TIMEOUT_MS = 120_000;
+
 function normalizeTitle(raw: string): string {
   const firstLine =
     raw
@@ -196,6 +203,75 @@ export class ManagedSession {
       this.titleStarted = false; // retry on a later idle
     } finally {
       await helper.stop();
+    }
+  }
+
+  /**
+   * Run a native subagent (native-subagent-bridge.md): launch a fresh child
+   * `pi --mode rpc` with the given task as its system prompt, no conversation
+   * history and no tools, using the parent's provider/model/env (like the title
+   * helper). Await the child's turn and return its final assistant text for the
+   * parent tool result. v1: text-returning only — streaming to a parent chat
+   * card, parallel runs, and the supervisor/plan tools are later slices.
+   */
+  async runChildAgent(task: string): Promise<string> {
+    // The child system prompt is multi-line, so route it through a temp file —
+    // a multi-line --system-prompt literal is truncated by cmd.exe on Windows.
+    const promptDir = mkdtempSync(join(tmpdir(), "agent-deck-subagent-"));
+    // Outer try/finally so the temp dir is removed even if building the child
+    // (writeFileSync / resolvePiBinary / new PiSession) throws before the child
+    // exists.
+    try {
+      const promptFile = join(promptDir, "system.md");
+      writeFileSync(promptFile, `${SUBAGENT_SYSTEM_PROMPT}\n\nTask:\n${task}`);
+
+      const child = new PiSession({
+        binPath: resolvePiBinary().path,
+        args: buildLaunchArgs({
+          kind: "agent",
+          systemPrompt: { mode: "replace", text: promptFile },
+          // No tools for v1 — the child just produces a text result (and, with
+          // tools:[] → --no-tools, cannot recurse into another managed_subagent).
+          tools: [],
+          provider: this.helperContext?.provider,
+          model: this.helperContext?.model,
+          // Provider-registration extensions only (ambient discovery disabled).
+          extensions: this.helperContext?.extensions,
+        }),
+        cwd: this.meta.cwd,
+        env: this.helperContext?.env,
+        requestTimeoutMs: SUBAGENT_TIMEOUT_MS,
+      });
+      try {
+        const idle = new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("subagent timeout")),
+            SUBAGENT_TIMEOUT_MS,
+          );
+          timer.unref();
+          child.on("event", (event) => {
+            if ((event as { type: string }).type === "agent_end") {
+              clearTimeout(timer);
+              resolve();
+            }
+          });
+          child.on("exit", () => reject(new Error("subagent exited before finishing")));
+        });
+        idle.catch(() => {});
+        child.start();
+        await child.prompt(task);
+        await idle;
+        const { text } = await child.request({ type: "get_last_assistant_text" });
+        return text ?? "";
+      } finally {
+        await child.stop();
+      }
+    } finally {
+      try {
+        rmSync(promptDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort.
+      }
     }
   }
 
@@ -535,6 +611,17 @@ export class SessionManager {
 
   get(id: string): ManagedSession | undefined {
     return this.sessions.get(id);
+  }
+
+  /**
+   * Run a native subagent for a parent session: launch a child pi with the task
+   * (inheriting the parent's provider/model/env) and return its final text.
+   * Throws if the parent session is unknown.
+   */
+  async runSubagent(parentSessionId: string, task: string): Promise<string> {
+    const parent = this.sessions.get(parentSessionId);
+    if (!parent) throw new Error(`unknown parent session: ${parentSessionId}`);
+    return await parent.runChildAgent(task);
   }
 
   list(): SessionMeta[] {
