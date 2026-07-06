@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "../state/store.ts";
 import { CellView } from "./cells.tsx";
+import { SessionPlanPanel } from "./SessionPlanPanel.tsx";
 import { SessionStartupCard } from "./SessionStartupCard.tsx";
 
 export function Transcript() {
@@ -31,6 +32,7 @@ export function Transcript() {
         pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
+      <SessionPlanPanel />
       {cells.length === 0 ? (
         isNewSession ? (
           <SessionStartupCard />

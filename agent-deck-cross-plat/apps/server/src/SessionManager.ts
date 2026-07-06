@@ -10,6 +10,8 @@ import {
   type DomainEvent,
   type IngestState,
   type SessionMeta,
+  type SessionPlanItem,
+  type SessionPlanUpdate,
   type TranscriptState,
 } from "@agent-deck/domain";
 import {
@@ -186,6 +188,21 @@ export class ManagedSession {
   /** Close a supervisor-request card WITHOUT an answer (timed out / subagent ended). */
   closeSupervisorQuestion(requestId: string, reason: string): void {
     this.emitDomain({ type: "supervisor_closed", cellId: `supervisor-${requestId}`, reason });
+  }
+
+  /** Replace this session's activity plan (set_session_plan). */
+  setPlan(items: SessionPlanItem[]): void {
+    this.emitDomain({ type: "plan_set", items });
+  }
+
+  /** Patch plan items by id (update_session_plan). */
+  updatePlan(updates: SessionPlanUpdate[]): void {
+    this.emitDomain({ type: "plan_update", updates });
+  }
+
+  /** The session's current activity plan. */
+  get plan(): SessionPlanItem[] {
+    return this.transcript.plan;
   }
 
   private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {

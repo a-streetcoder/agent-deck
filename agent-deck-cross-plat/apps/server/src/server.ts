@@ -18,6 +18,7 @@ import {
   clientMessageSchema,
   type ProjectMeta,
   type ServerMessage,
+  type SessionPlanItem,
   type SkillInfo,
 } from "@agent-deck/domain";
 import {
@@ -489,6 +490,142 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         })
         .join("\n\n");
       return { content: rendered, isError: !anyOk };
+    },
+  );
+
+  // Session activity plan (native activity-sidebar "Plan"): a PARENT agent
+  // maintains a per-session checklist. set_session_plan REPLACES the list;
+  // update_session_plan patches items by id. The plan rides the session's push
+  // bus as domain state (plan_set / plan_update), so clients mirror it.
+  const planStatus = z.enum(["todo", "in_progress", "done", "blocked", "skipped"]);
+  const setPlanParams = z.object({
+    items: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1).optional(),
+          title: z.string().trim().min(1),
+          status: planStatus.optional(),
+        }),
+      )
+      .max(50),
+  });
+  const updatePlanParams = z.object({
+    updates: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1),
+          title: z.string().trim().min(1).optional(),
+          status: planStatus.optional(),
+        }),
+      )
+      .min(1)
+      .max(50),
+  });
+  const renderPlan = (items: SessionPlanItem[]): string =>
+    items.length === 0
+      ? "(empty plan)"
+      : items.map((it) => `- [${it.status}] ${it.id}: ${it.title}`).join("\n");
+  bridge.register(
+    {
+      name: "set_session_plan",
+      label: "Set plan",
+      description:
+        "Set (replace) this session's activity plan — a short checklist of the steps you'll take. Each item has a title and an optional status (todo/in_progress/done/blocked/skipped, default todo). The result lists each item's assigned id; use those ids with update_session_plan.",
+      parameters: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            maxItems: 50,
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "Optional stable id; assigned if omitted." },
+                title: { type: "string" },
+                status: {
+                  type: "string",
+                  enum: ["todo", "in_progress", "done", "blocked", "skipped"],
+                },
+              },
+              required: ["title"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["items"],
+        additionalProperties: false,
+      },
+      promptSnippet: "set_session_plan — set/replace the session's activity plan checklist.",
+    },
+    (params, ctx) => {
+      const parsed = setPlanParams.safeParse(params);
+      if (!parsed.success) {
+        return {
+          content: `Invalid set_session_plan arguments: ${parsed.error.message}`,
+          isError: true,
+        };
+      }
+      const session = sessions.get(ctx.sessionId);
+      if (!session) return { content: "No such session for the plan.", isError: true };
+      // Ids MUST be unique: a duplicate id would make update_session_plan patch
+      // every matching item and collides React keys in the panel. Coin a fresh
+      // id for anything missing or duplicated.
+      const seen = new Set<string>();
+      const items: SessionPlanItem[] = parsed.data.items.map((it) => {
+        let id = it.id ?? randomUUID();
+        if (seen.has(id)) id = randomUUID();
+        seen.add(id);
+        return { id, title: it.title, status: it.status ?? "todo" };
+      });
+      session.setPlan(items);
+      return { content: `Plan set (${items.length} item(s)):\n${renderPlan(items)}` };
+    },
+  );
+  bridge.register(
+    {
+      name: "update_session_plan",
+      label: "Update plan",
+      description:
+        "Update items in this session's activity plan by id (from set_session_plan). Each update carries an id and a new status and/or title. Unknown ids are ignored.",
+      parameters: {
+        type: "object",
+        properties: {
+          updates: {
+            type: "array",
+            minItems: 1,
+            maxItems: 50,
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                title: { type: "string" },
+                status: {
+                  type: "string",
+                  enum: ["todo", "in_progress", "done", "blocked", "skipped"],
+                },
+              },
+              required: ["id"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["updates"],
+        additionalProperties: false,
+      },
+      promptSnippet: "update_session_plan — patch plan items by id (status/title).",
+    },
+    (params, ctx) => {
+      const parsed = updatePlanParams.safeParse(params);
+      if (!parsed.success) {
+        return {
+          content: `Invalid update_session_plan arguments: ${parsed.error.message}`,
+          isError: true,
+        };
+      }
+      const session = sessions.get(ctx.sessionId);
+      if (!session) return { content: "No such session for the plan.", isError: true };
+      session.updatePlan(parsed.data.updates);
+      return { content: `Plan updated.\n${renderPlan(session.plan)}` };
     },
   );
 

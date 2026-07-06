@@ -136,6 +136,25 @@ export function memoryToolCardLabel(
   return "Memory";
 }
 
+/**
+ * A per-session activity plan (native activity-sidebar "Plan" card), driven by a
+ * parent agent via the set_session_plan / update_session_plan bridge tools.
+ */
+export type PlanItemStatus = "todo" | "in_progress" | "done" | "blocked" | "skipped";
+
+export interface SessionPlanItem {
+  id: string;
+  title: string;
+  status: PlanItemStatus;
+}
+
+/** A patch to one plan item, addressed by id (title/status optional). */
+export interface SessionPlanUpdate {
+  id: string;
+  title?: string;
+  status?: PlanItemStatus;
+}
+
 export type AgentStatus = "idle" | "running";
 
 export type DomainEvent =
@@ -156,15 +175,19 @@ export type DomainEvent =
   | { type: "supervisor_closed"; cellId: string; reason: string }
   | { type: "question_answered"; cellId: string }
   | { type: "cell_final"; cell: TranscriptCell }
-  | { type: "agent_status"; status: AgentStatus };
+  | { type: "agent_status"; status: AgentStatus }
+  | { type: "plan_set"; items: SessionPlanItem[] }
+  | { type: "plan_update"; updates: SessionPlanUpdate[] };
 
 export interface TranscriptState {
   cells: TranscriptCell[];
   agentStatus: AgentStatus;
+  /** The session's activity plan (set_session_plan / update_session_plan). */
+  plan: SessionPlanItem[];
 }
 
 export function emptyTranscript(): TranscriptState {
-  return { cells: [], agentStatus: "idle" };
+  return { cells: [], agentStatus: "idle", plan: [] };
 }
 
 function upsertCell(cells: TranscriptCell[], cell: TranscriptCell): TranscriptCell[] {
@@ -197,6 +220,22 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
   switch (event.type) {
     case "agent_status":
       return { ...state, agentStatus: event.status };
+    case "plan_set":
+      // set_session_plan REPLACES the whole plan.
+      return { ...state, plan: event.items };
+    case "plan_update": {
+      // update_session_plan patches items by id; unknown ids are ignored.
+      const plan = state.plan.map((item) => {
+        const patch = event.updates.find((u) => u.id === item.id);
+        if (!patch) return item;
+        return {
+          ...item,
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+        };
+      });
+      return { ...state, plan };
+    }
     case "cell_open":
       return { ...state, cells: upsertCell(state.cells, event.cell) };
     case "cell_final": {
