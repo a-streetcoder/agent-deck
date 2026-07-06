@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync } from "node:fs";
+import { copyFileSync, rmSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   createIngestState,
   emptyTranscript,
@@ -74,6 +75,8 @@ export class ManagedSession {
       extensions?: string[];
       env?: Record<string, string | undefined>;
     },
+    /** Generated bridge extension file (its temp dir is removed on exit). */
+    private readonly bridgeExtensionPath?: string,
   ) {
     pi.on("event", (piEvent) => {
       if (this.seedGate) {
@@ -86,7 +89,18 @@ export class ManagedSession {
       this.exit = exit;
       this.meta.endedAt = new Date().toISOString();
       this.onMetaChange(this.meta);
+      this.cleanupBridgeExtension();
     });
+  }
+
+  /** Remove the generated bridge extension's temp dir once pi has exited. */
+  private cleanupBridgeExtension(): void {
+    if (!this.bridgeExtensionPath) return;
+    try {
+      rmSync(dirname(this.bridgeExtensionPath), { recursive: true, force: true });
+    } catch {
+      // Best-effort: a leftover temp dir is harmless.
+    }
   }
 
   private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {
@@ -326,6 +340,14 @@ export class SessionManager {
     private readonly onMetaChange: (meta: SessionMeta) => void = () => {},
     /** Provider-registration extensions — the ONLY ones helper launches load. */
     private readonly helperExtensions: () => string[] | undefined = () => undefined,
+    /**
+     * Generates a per-session bridge extension exposing app-managed tools (see
+     * apps/server/src/bridge.ts), or undefined when none are registered. Applied
+     * to real chat launches (create/resume/fork) but never to isolated helper
+     * launches, which stay resource-free per the launch-flag contract.
+     */
+    private readonly bridgeExtensionFactory: (sessionId: string) => string | undefined = () =>
+      undefined,
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -387,9 +409,16 @@ export class SessionManager {
     env?: Record<string, string | undefined>,
     options?: { holdLive?: boolean },
   ): ManagedSession {
+    // Inject the app-managed tool bridge (memory/mcp/subagents) for this
+    // session. The session id is baked into the generated extension so its
+    // calls come back tagged; helper launches never pass through here.
+    const bridgeExtension = this.bridgeExtensionFactory(meta.id);
+    const launchPlan: LaunchPlan = bridgeExtension
+      ? { ...plan, extensions: [...(plan.extensions ?? []), bridgeExtension] }
+      : plan;
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
-      args: buildLaunchArgs(plan),
+      args: buildLaunchArgs(launchPlan),
       cwd: meta.cwd,
       env,
     });
@@ -401,7 +430,14 @@ export class SessionManager {
       extensions: this.helperExtensions(),
       env,
     };
-    const session = new ManagedSession(meta, pi, this.receipts, this.onMetaChange, helperContext);
+    const session = new ManagedSession(
+      meta,
+      pi,
+      this.receipts,
+      this.onMetaChange,
+      helperContext,
+      bridgeExtension,
+    );
     if (options?.holdLive) session.holdLiveEvents();
     this.sessions.set(meta.id, session);
     pi.start();

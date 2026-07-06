@@ -37,6 +37,12 @@ export interface BridgeExtensionOptions {
   endpoint: string;
   /** Opaque session id echoed to the app so it can correlate the call. */
   sessionId: string;
+  /**
+   * Per-session secret baked into the extension and sent with every call. The
+   * app rejects calls whose token doesn't match the session's — so a local
+   * caller can't invoke another session's (project/session-scoped) tools.
+   */
+  token: string;
   /** The app-managed tools this bridge exposes to pi. */
   tools: BridgeToolSpec[];
 }
@@ -44,6 +50,8 @@ export interface BridgeExtensionOptions {
 /** The request body the bridge endpoint receives for each tool call. */
 export interface BridgeCallRequest {
   sessionId: string;
+  /** The per-session secret; the app validates it before dispatching. */
+  token: string;
   tool: string;
   toolCallId: string;
   params: Record<string, unknown>;
@@ -69,6 +77,7 @@ export function writeBridgeExtension(opts: BridgeExtensionOptions): string {
   const file = path.join(dir, "bridge.ts");
   const endpoint = JSON.stringify(opts.endpoint);
   const sessionId = JSON.stringify(opts.sessionId);
+  const token = JSON.stringify(opts.token);
   const tools = JSON.stringify(
     opts.tools.map((t) => ({
       name: t.name,
@@ -83,6 +92,7 @@ export function writeBridgeExtension(opts: BridgeExtensionOptions): string {
     `export default function (pi) {
   const endpoint = ${endpoint};
   const sessionId = ${sessionId};
+  const token = ${token};
   const tools = ${tools};
   // execute() has no way to set the error flag on its return, so a tool call
   // the app (or transport) reported as failed is recorded by id here and the
@@ -102,7 +112,7 @@ export function writeBridgeExtension(opts: BridgeExtensionOptions): string {
           res = await fetch(endpoint, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sessionId, tool: t.name, toolCallId, params }),
+            body: JSON.stringify({ sessionId, token, tool: t.name, toolCallId, params }),
             signal,
           });
         } catch (err) {

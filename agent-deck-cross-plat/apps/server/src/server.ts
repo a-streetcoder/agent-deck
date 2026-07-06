@@ -46,11 +46,12 @@ import {
   BUILTIN_AGENTS_DIR,
   type ResourceRoots,
 } from "@agent-deck/resources";
-import { runDoctor } from "@agent-deck/pi-host";
+import { runDoctor, writeBridgeExtension } from "@agent-deck/pi-host";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
+import { BridgeRegistry } from "./bridge.ts";
 import { ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
 import {
@@ -85,6 +86,15 @@ const createSessionBody = z.object({
   skills: z.array(z.string()).optional(),
   /** Extra env for the pi subprocess (tests use this for a hermetic HOME). */
   env: z.record(z.string()).optional(),
+});
+
+/** A tool call arriving from a session's generated bridge extension. */
+const bridgeCallBody = z.object({
+  sessionId: z.string(),
+  token: z.string(),
+  tool: z.string(),
+  toolCallId: z.string(),
+  params: z.record(z.unknown()).default({}),
 });
 
 /** Tools only bridge extensions provide — stripped until those bridges are ported (M2). */
@@ -186,6 +196,8 @@ export interface AgentDeckServer {
   port: number;
   sessions: SessionManager;
   receipts: ReceiptBus;
+  /** App-managed tool registry (memory/mcp/subagents register their tools here). */
+  bridge: BridgeRegistry;
   close(): Promise<void>;
 }
 
@@ -200,6 +212,16 @@ export interface StartServerOptions {
 export async function startServer(options: StartServerOptions = {}): Promise<AgentDeckServer> {
   const receipts = new ReceiptBus(process.env.AGENT_DECK_TEST === "1");
   const index = new SessionIndex(options.dataDir);
+  // App-managed tool bridge (memory/mcp/subagents register here). The endpoint
+  // is only known after listen(), so the factory reads it lazily and returns no
+  // extension until both a tool is registered and the address is bound.
+  const bridge = new BridgeRegistry();
+  // Filled in after listen() binds a port; the factory closure reads it lazily.
+  const bridgeAddress: { endpoint?: string } = {};
+  // Per-session secret baked into each generated bridge extension. The /bridge
+  // route requires a call's token to match its session's, so a local caller
+  // can't invoke another session's (project/session-scoped) tools.
+  const bridgeTokens = new Map<string, string>();
   const sessions = new SessionManager(
     receipts,
     (meta) => {
@@ -213,6 +235,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       broadcast({ type: "session_meta", session: meta });
     },
     () => envDefaults().providerExtensions,
+    (sessionId) => {
+      if (bridge.size === 0 || !bridgeAddress.endpoint) return undefined;
+      const token = randomUUID();
+      bridgeTokens.set(sessionId, token);
+      return writeBridgeExtension({
+        endpoint: bridgeAddress.endpoint,
+        sessionId,
+        token,
+        tools: bridge.specs(),
+      });
+    },
   );
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
@@ -912,6 +945,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     if (!meta) return reply.status(404).send({ error: "unknown session" });
     await sessions.destroy(id);
     index.remove(id);
+    bridgeTokens.delete(id);
     if (meta.piSessionFile) {
       try {
         rmSync(meta.piSessionFile, { force: true });
@@ -1229,15 +1263,35 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
+  // The app side of the bridge: a session's generated extension POSTs each
+  // app-managed tool call here, and the registry dispatches it to the handler.
+  // Loopback-only (the pi subprocess is local); the response maps to the pi
+  // tool result, including the error flag.
+  fastify.post("/bridge", async (request, reply) => {
+    const parsed = bridgeCallBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.message });
+    }
+    const expected = bridgeTokens.get(parsed.data.sessionId);
+    if (!expected || expected !== parsed.data.token) {
+      return reply.code(403).send({ error: "invalid bridge token" });
+    }
+    return await bridge.dispatch(parsed.data);
+  });
+
   await fastify.listen({ port: options.port ?? 0, host: options.host ?? "127.0.0.1" });
   const address = fastify.server.address();
   const port = typeof address === "object" && address !== null ? address.port : 0;
+  // Now that the port is bound, bridge extensions can target this server. The
+  // pi subprocess is always local, so loopback is correct regardless of host.
+  bridgeAddress.endpoint = `http://127.0.0.1:${port}/bridge`;
 
   return {
     fastify,
     port,
     sessions,
     receipts,
+    bridge,
     close: async () => {
       await resourceWatcher.close();
       await sessions.stopAll();

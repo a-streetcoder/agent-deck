@@ -63,6 +63,7 @@ beforeAll(async () => {
   const bridgeExt = writeBridgeExtension({
     endpoint,
     sessionId: SESSION_ID,
+    token: "test-token",
     tools: [
       {
         name: "agent_deck_echo",
@@ -121,6 +122,7 @@ describe("real pi + generated bridge extension: app-managed tool round-trip", ()
     expect(bridgeCalls.length).toBe(1);
     expect(bridgeCalls[0]).toMatchObject({
       sessionId: SESSION_ID,
+      token: "test-token",
       tool: "agent_deck_echo",
       params: { message: "ping" },
     });
