@@ -3,6 +3,7 @@ import {
   getDefaultEnvironment,
   StdioClientTransport,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 /**
@@ -36,6 +37,14 @@ export interface StdioServerConfig {
   cwd?: string;
 }
 
+/** A remote MCP server reached over Streamable HTTP (the modern MCP transport,
+ * which subsumes the older HTTP+SSE). */
+export interface HttpServerConfig {
+  url: string;
+  /** Extra request headers (e.g. Authorization) sent on every HTTP request. */
+  headers?: Record<string, string>;
+}
+
 function flattenContent(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
@@ -66,6 +75,14 @@ export class McpClient {
       // custom vars would otherwise drop them and the server couldn't launch.
       env: config.env ? { ...getDefaultEnvironment(), ...config.env } : undefined,
       cwd: config.cwd,
+    });
+    return await McpClient.connect(transport);
+  }
+
+  /** Connect to a remote MCP server over Streamable HTTP. */
+  static async connectHttp(config: HttpServerConfig): Promise<McpClient> {
+    const transport = new StreamableHTTPClientTransport(new URL(config.url), {
+      requestInit: config.headers ? { headers: config.headers } : undefined,
     });
     return await McpClient.connect(transport);
   }

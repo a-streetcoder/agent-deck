@@ -27,6 +27,7 @@ import {
   defaultRoots,
   deleteMcpServer,
   ensureDirs,
+  isValidHttpMcpUrl,
   McpConfigError,
   readMcpServers,
   writeMcpServer,
@@ -71,7 +72,7 @@ import {
   type MemoryType,
 } from "@agent-deck/memory";
 import { BridgeRegistry } from "./bridge.ts";
-import { McpManager, mcpServerConfigsFromEnv } from "./mcpTools.ts";
+import { McpManager, mcpServerConfigsFromEnv, type McpServerConfig } from "./mcpTools.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { SupervisorLog, type SupervisorMethod } from "./supervisor.ts";
@@ -633,14 +634,20 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // that fails to connect is skipped). Registered before listen so the tools are
   // available to the first session launch. AGENT_DECK_MCP_SERVERS is a JSON array
   // of stdio server configs { id, command, args?, env?, cwd? }.
-  // Source stdio MCP servers from the global mcp.json (~/.pi/agent/mcp.json),
-  // with AGENT_DECK_MCP_SERVERS overriding/adding by id (used by tests and as an
-  // escape hatch). http/sse entries are skipped until that transport lands.
-  // Skip the real-home read under AGENT_DECK_TEST so tests stay hermetic (they
-  // configure servers via the env override, never the developer's real mcp.json).
+  // Source MCP servers from the global mcp.json (~/.pi/agent/mcp.json), with
+  // AGENT_DECK_MCP_SERVERS overriding/adding by id (used by tests and as an
+  // escape hatch). Both stdio (command) and http (url, Streamable HTTP) entries
+  // are supported. Skip the real-home read under AGENT_DECK_TEST so tests stay
+  // hermetic (they configure servers via the env override, never the real mcp.json).
   const mcpFromConfig = (process.env.AGENT_DECK_TEST === "1" ? [] : readMcpServers(defaultRoots()))
-    .filter((entry) => entry.transport === "stdio" && entry.command)
-    .map((entry) => ({ id: entry.id, command: entry.command!, args: entry.args, env: entry.env }));
+    .map((entry): McpServerConfig | null => {
+      if (entry.transport === "http" && entry.url) return { id: entry.id, url: entry.url };
+      if (entry.command) {
+        return { id: entry.id, command: entry.command, args: entry.args, env: entry.env };
+      }
+      return null;
+    })
+    .filter((c): c is McpServerConfig => c !== null);
   const mcpConfigs = [
     ...new Map(
       [...mcpFromConfig, ...mcpServerConfigsFromEnv(process.env.AGENT_DECK_MCP_SERVERS)].map(
@@ -909,12 +916,19 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
 
   // MCP servers: list live connection state, add/remove/refresh. Adds/removes
   // are written to the app-owned global mcp.json and reflected on the bridge.
-  const mcpAddBody = z.object({
-    name: z.string().min(1),
-    command: z.string().min(1),
-    args: z.array(z.string()).optional(),
-    env: z.record(z.string()).optional(),
-  });
+  // Add either a stdio server (command [+ args/env]) or an http server (url).
+  const mcpAddBody = z.union([
+    z.object({
+      name: z.string().min(1),
+      command: z.string().min(1),
+      args: z.array(z.string()).optional(),
+      env: z.record(z.string()).optional(),
+    }),
+    z.object({
+      name: z.string().min(1),
+      url: z.string().refine(isValidHttpMcpUrl, "url must be a valid http(s) URL"),
+    }),
+  ]);
 
   fastify.get("/mcp", async () => {
     return { servers: mcp.status() };
@@ -923,14 +937,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   fastify.post("/mcp", async (request, reply) => {
     const parsed = mcpAddBody.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });
-    const { name, command, args, env } = parsed.data;
+    const data = parsed.data;
+    const input =
+      "url" in data ? { url: data.url } : { command: data.command, args: data.args, env: data.env };
     try {
-      writeMcpServer(rootsFor(), "global", name, { command, args, env });
+      writeMcpServer(rootsFor(), "global", data.name, input);
     } catch (error) {
       const message = error instanceof McpConfigError ? error.message : String(error);
       return reply.code(400).send({ error: message });
     }
-    const status = await mcp.connect({ id: name, command, args, env });
+    const status = await mcp.connect({ id: data.name, ...input });
     broadcast({ type: "resources_changed" });
     return reply.code(201).send({ server: status });
   });

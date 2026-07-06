@@ -14,6 +14,18 @@ import { piAgentHome, type ResourceRoots } from "./paths.ts";
 export type McpTransport = "stdio" | "http";
 export type McpConfigScope = "global" | "project";
 
+/** A configured http MCP `url` must be a well-formed http(s) URL — anything else
+ * (other schemes, garbage) is rejected before it can reach the MCP client. */
+export function isValidHttpMcpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** The shape a caller supplies to add/update a server (stdio or http). */
 export type McpServerInput =
   | { command: string; args?: string[]; env?: Record<string, string> }
@@ -77,10 +89,10 @@ function parseMcpFile(file: string, scope: McpConfigScope): McpServerEntry[] {
         env: asStringRecord(config.env),
         scope,
       });
-    } else if (typeof config.url === "string") {
+    } else if (isValidHttpMcpUrl(config.url)) {
       entries.push({ id, transport: "http", url: config.url, scope });
     }
-    // Neither command nor url → not a usable server; skip.
+    // Neither a command nor a valid http(s) url → not a usable server; skip.
   }
   return entries;
 }
@@ -158,8 +170,8 @@ export function writeMcpServer(
   if (!isValidMcpServerName(name)) throw new McpConfigError(`invalid MCP server name: ${name}`);
   if ("command" in config) {
     if (!config.command.trim()) throw new McpConfigError("stdio server needs a command");
-  } else if (!config.url.trim()) {
-    throw new McpConfigError("http server needs a url");
+  } else if (!isValidHttpMcpUrl(config.url)) {
+    throw new McpConfigError("http server needs a valid http(s) url");
   }
   const file = requireScopePath(roots, scope);
   const doc = readMcpDocument(file);

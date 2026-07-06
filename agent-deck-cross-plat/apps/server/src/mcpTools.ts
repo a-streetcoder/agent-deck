@@ -1,4 +1,5 @@
-import { McpClient, type StdioServerConfig } from "@agent-deck/mcp";
+import { McpClient, type HttpServerConfig, type StdioServerConfig } from "@agent-deck/mcp";
+import { isValidHttpMcpUrl } from "@agent-deck/resources";
 import type { BridgeRegistry } from "./bridge.ts";
 
 /**
@@ -10,15 +11,19 @@ import type { BridgeRegistry } from "./bridge.ts";
  * servers at runtime.
  */
 
-export interface McpServerConfig extends StdioServerConfig {
-  /** Stable id, used in the bridge tool name and as the map key. */
-  id: string;
+/** A configured MCP server: stdio (spawned) or http (remote Streamable HTTP),
+ * discriminated by whether it carries a `url`. */
+export type McpServerConfig = { id: string } & (StdioServerConfig | HttpServerConfig);
+
+/** True for an http (Streamable HTTP) server config. */
+function isHttpConfig(config: McpServerConfig): config is { id: string } & HttpServerConfig {
+  return "url" in config && typeof config.url === "string";
 }
 
 /** Live state of one configured MCP server (for GET /mcp). */
 export interface McpServerStatus {
   id: string;
-  transport: "stdio";
+  transport: "stdio" | "http";
   connected: boolean;
   /** Bridge tool names (mcp__<id>__<tool>) currently registered for this server. */
   toolNames: string[];
@@ -97,7 +102,7 @@ export class McpManager {
   status(): McpServerStatus[] {
     return [...this.servers.values()].map((state) => ({
       id: state.config.id,
-      transport: "stdio",
+      transport: isHttpConfig(state.config) ? "http" : "stdio",
       connected: state.client !== undefined,
       toolNames: [...state.toolNames],
       error: state.error,
@@ -132,7 +137,7 @@ export class McpManager {
     this.servers.set(config.id, state);
     try {
       const client = await withTimeout(
-        McpClient.connectStdio(config),
+        isHttpConfig(config) ? McpClient.connectHttp(config) : McpClient.connectStdio(config),
         MCP_CONNECT_TIMEOUT_MS,
         `MCP connect "${config.id}"`,
       );
@@ -204,7 +209,7 @@ export class McpManager {
   }
 }
 
-/** Parse AGENT_DECK_MCP_SERVERS (a JSON array of stdio server configs). */
+/** Parse AGENT_DECK_MCP_SERVERS (a JSON array of server configs, stdio or http). */
 export function mcpServerConfigsFromEnv(raw: string | undefined): McpServerConfig[] {
   if (!raw) return [];
   let parsed: unknown;
@@ -214,11 +219,16 @@ export function mcpServerConfigsFromEnv(raw: string | undefined): McpServerConfi
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (entry): entry is McpServerConfig =>
-      typeof entry === "object" &&
-      entry !== null &&
-      typeof (entry as McpServerConfig).id === "string" &&
-      typeof (entry as McpServerConfig).command === "string",
-  );
+  return parsed.filter((entry): entry is McpServerConfig => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const e = entry as { id?: unknown; command?: unknown; url?: unknown };
+    if (typeof e.id !== "string") return false;
+    const hasCommand = typeof e.command === "string";
+    const hasUrl = e.url !== undefined;
+    // Exactly one transport (never both/neither — a dual entry would silently
+    // drop `command` since url wins), and any http url must be well-formed http(s).
+    if (hasCommand === hasUrl) return false;
+    if (hasUrl) return isValidHttpMcpUrl(e.url);
+    return true;
+  });
 }

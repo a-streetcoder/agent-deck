@@ -15,6 +15,7 @@ export {
 } from "./paths.ts";
 export {
   deleteMcpServer,
+  isValidHttpMcpUrl,
   isValidMcpServerName,
   mcpConfigPath,
   McpConfigError,
