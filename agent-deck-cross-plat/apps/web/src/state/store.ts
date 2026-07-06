@@ -19,6 +19,7 @@ export type AppView =
   | "models"
   | "extensions"
   | "environment"
+  | "memory"
   | "doctor";
 
 export interface AppState {

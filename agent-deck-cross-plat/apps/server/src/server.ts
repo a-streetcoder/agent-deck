@@ -487,10 +487,35 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       message: "provide status or edit",
     });
 
+  const memoryCreateBody = z.object({
+    projectId: z.string(),
+    type: z.enum(["context", "decision", "runbook", "failure", "preference"]),
+    title: z.string().min(1),
+    summary: z.string().min(1),
+    body: z.string().min(1),
+    tags: z.array(z.string()).optional(),
+  });
+
   fastify.get("/memory", async (request, reply) => {
     const store = memoryStoreFor((request.query as { projectId?: string }).projectId);
     if (!store) return reply.code(400).send({ error: "memory requires a known project" });
     return { memories: listMemories(store) };
+  });
+
+  fastify.post("/memory", async (request, reply) => {
+    const parsed = memoryCreateBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });
+    const store = memoryStoreFor(parsed.data.projectId);
+    if (!store) return reply.code(400).send({ error: "memory requires a known project" });
+    // A manual UI create is deliberate — bypass the near-duplicate guard.
+    const result = writeMemory(store, {
+      ...parsed.data,
+      type: parsed.data.type as MemoryType,
+      confirmNew: true,
+    });
+    if (!result.ok) return reply.code(400).send({ error: result.message });
+    broadcast({ type: "resources_changed" });
+    return reply.code(201).send({ memory: result.record });
   });
 
   fastify.get("/memory/:id", async (request, reply) => {

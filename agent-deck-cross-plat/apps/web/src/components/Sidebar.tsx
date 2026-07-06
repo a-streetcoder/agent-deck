@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Brain,
   CircleDot,
   Cpu,
   FileText,
@@ -41,6 +42,7 @@ const WORKSPACE_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = 
   { id: "agents", label: "Agents", icon: Send },
   { id: "skills", label: "Skills", icon: WandSparkles },
   { id: "prompts", label: "Prompts", icon: MessageSquareText },
+  { id: "memory", label: "Memory", icon: Brain },
 ];
 
 const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [

@@ -64,6 +64,29 @@ describe("memory inspection routes", () => {
     expect(memories.map((m) => m.title).sort()).toEqual(["Run tests", "Use pnpm"]);
   });
 
+  it("creates a memory via POST (bypassing the near-duplicate guard)", async () => {
+    const res = await api("POST", "/memory", {
+      projectId,
+      type: "context",
+      title: "Manually added",
+      summary: "created from the inspection screen",
+      body: "b3",
+    });
+    expect(res.status).toBe(201);
+    const { memory } = (await res.json()) as { memory: MemoryRecord };
+    expect(memory).toMatchObject({ type: "context", title: "Manually added", status: "active" });
+    // It shows up in the list.
+    const { memories } = (await (await api("GET", `/memory?projectId=${projectId}`)).json()) as {
+      memories: MemoryRecord[];
+    };
+    expect(memories.some((m) => m.id === memory.id)).toBe(true);
+    // No project → 400.
+    expect(
+      (await api("POST", "/memory", { type: "context", title: "x", summary: "y", body: "z" }))
+        .status,
+    ).toBe(400);
+  });
+
   it("pins and re-activates via PATCH status", async () => {
     const list = (await (await api("GET", `/memory?projectId=${projectId}`)).json()) as {
       memories: MemoryRecord[];

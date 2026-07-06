@@ -7,6 +7,7 @@ import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { ExtensionsScreen } from "./screens/ExtensionsScreen.tsx";
 import { InstructionsScreen } from "./screens/InstructionsScreen.tsx";
 import { IssuesScreen } from "./screens/IssuesScreen.tsx";
+import { MemoryScreen } from "./screens/MemoryScreen.tsx";
 import { ModelsScreen } from "./screens/ModelsScreen.tsx";
 import { ProjectsScreen } from "./screens/ProjectsScreen.tsx";
 import { PromptsScreen } from "./screens/PromptsScreen.tsx";
@@ -38,6 +39,7 @@ const VIEW_TITLES: Record<string, string> = {
   models: "Models",
   extensions: "Extensions",
   environment: "Environment",
+  memory: "Memory",
   doctor: "Doctor",
 };
 
@@ -167,6 +169,8 @@ export function App() {
                 <ExtensionsScreen />
               ) : view === "environment" ? (
                 <EnvironmentScreen />
+              ) : view === "memory" ? (
+                <MemoryScreen />
               ) : (
                 <DoctorScreen />
               )}
