@@ -12,7 +12,7 @@ extension PiAgentSessionRecord {
     }
 
     func matchesActiveSessionsFilter(referenceDate: Date = Date(), hasPendingUIRequest: Bool = false) -> Bool {
-        hasRecentUserMessage(referenceDate: referenceDate) || needsAttention || hasPendingUIRequest
+        status == .draft || hasRecentUserMessage(referenceDate: referenceDate) || needsAttention || hasPendingUIRequest
     }
 
     func matchesSessionSearch(_ query: String) -> Bool {

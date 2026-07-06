@@ -11,12 +11,12 @@ struct PiAgentActiveSessionsFilterButton: View {
             style: isOn ? .soft : .neutral,
             tint: isOn ? AppTheme.brandAccent : AppTheme.mutedText,
             size: 30,
-            help: isOn ? "Showing recent or attention-needed sessions; click to show all sessions" : "Show recent or attention-needed sessions",
+            help: isOn ? "Showing focused sessions: recent, drafts, or needing attention; click to show all sessions" : "Show focused sessions: recent, drafts, or needing attention",
             action: { isOn.toggle() }
         ) {
-            Image(systemName: "bell.badge")
+            Image(systemName: "line.3.horizontal.decrease.circle")
         }
-        .accessibilityLabel("Recent or attention-needed sessions filter")
+        .accessibilityLabel("Focused sessions filter")
         .accessibilityValue(isOn ? "On" : "Off")
     }
 }
