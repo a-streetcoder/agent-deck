@@ -76,8 +76,9 @@ export class ManagedSession {
       extensions?: string[];
       env?: Record<string, string | undefined>;
     },
-    /** Generated bridge extension file (its temp dir is removed on exit). */
-    private readonly bridgeExtensionPath?: string,
+    /** Temp dirs generated for this launch (bridge extension, memory append
+     * file); removed once pi has exited. */
+    private readonly tempDirs: string[] = [],
   ) {
     pi.on("event", (piEvent) => {
       if (this.seedGate) {
@@ -90,17 +91,18 @@ export class ManagedSession {
       this.exit = exit;
       this.meta.endedAt = new Date().toISOString();
       this.onMetaChange(this.meta);
-      this.cleanupBridgeExtension();
+      this.cleanupTempDirs();
     });
   }
 
-  /** Remove the generated bridge extension's temp dir once pi has exited. */
-  private cleanupBridgeExtension(): void {
-    if (!this.bridgeExtensionPath) return;
-    try {
-      rmSync(dirname(this.bridgeExtensionPath), { recursive: true, force: true });
-    } catch {
-      // Best-effort: a leftover temp dir is harmless.
+  /** Remove this launch's generated temp dirs once pi has exited. */
+  private cleanupTempDirs(): void {
+    for (const dir of this.tempDirs) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // Best-effort: a leftover temp dir is harmless.
+      }
     }
   }
 
@@ -355,10 +357,15 @@ export class SessionManager {
      * parent launches only (create/resume/fork); returning empty leaves pi to
      * auto-discover APPEND_SYSTEM.md itself. `home` is the HOME the pi child will
      * actually see (env override, else the process home), so the GLOBAL
-     * APPEND_SYSTEM.md resolves against the right directory. See
-     * agent-deck-system-prompt-logic.md.
+     * APPEND_SYSTEM.md resolves against the right directory. `cleanupDir` is a
+     * temp dir the factory created (the memory block is passed as a file, not a
+     * multi-line literal — that is truncated by cmd.exe on Windows) to remove on
+     * exit. See agent-deck-system-prompt-logic.md.
      */
-    private readonly parentAppendFactory: (cwd: string, home: string) => string[] = () => [],
+    private readonly parentAppendFactory: (
+      cwd: string,
+      home: string,
+    ) => { appends: string[]; cleanupDir?: string } = () => ({ appends: [] }),
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -423,10 +430,12 @@ export class SessionManager {
     // Inject the app-managed tool bridge (memory/mcp/subagents) for this
     // session. The session id is baked into the generated extension so its
     // calls come back tagged; helper launches never pass through here.
+    const tempDirs: string[] = [];
     const bridgeExtension = this.bridgeExtensionFactory(meta.id);
     let launchPlan: LaunchPlan = bridgeExtension
       ? { ...plan, extensions: [...(plan.extensions ?? []), bridgeExtension] }
       : plan;
+    if (bridgeExtension) tempDirs.push(dirname(bridgeExtension));
     // Parent sessions get Agent Deck's system-prompt appends (preserved
     // APPEND_SYSTEM.md path, then the memory block). Any explicit append
     // suppresses pi's auto-discovery, so the factory re-adds APPEND_SYSTEM.md
@@ -435,13 +444,14 @@ export class SessionManager {
       // The HOME the pi child will actually see (cross-spawn merges env over
       // process.env), so global APPEND_SYSTEM.md resolves where pi would find it.
       const launchHome = env?.HOME ?? env?.USERPROFILE ?? homedir();
-      const appends = this.parentAppendFactory(meta.cwd, launchHome);
+      const { appends, cleanupDir } = this.parentAppendFactory(meta.cwd, launchHome);
       if (appends.length > 0) {
         launchPlan = {
           ...launchPlan,
           appendSystemPrompts: [...appends, ...(launchPlan.appendSystemPrompts ?? [])],
         };
       }
+      if (cleanupDir) tempDirs.push(cleanupDir);
     }
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
@@ -463,7 +473,7 @@ export class SessionManager {
       this.receipts,
       this.onMetaChange,
       helperContext,
-      bridgeExtension,
+      tempDirs,
     );
     if (options?.holdLive) session.holdLiveEvents();
     this.sessions.set(meta.id, session);

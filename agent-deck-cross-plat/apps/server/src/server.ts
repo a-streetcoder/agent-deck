@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   lstatSync,
+  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import type { IncomingMessage } from "node:http";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
 import {
   clientMessageSchema,
@@ -257,17 +258,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       // Parent system-prompt appends. When memory is off we add nothing, so pi
       // auto-discovers APPEND_SYSTEM.md itself. When on, we inject the memory
       // block — which suppresses that discovery — so we re-add the resolved
-      // APPEND_SYSTEM.md path FIRST (pi reads a path entry as a file), then the
-      // memory policy + index as literal text. `home` is the pi child's HOME so
-      // the global APPEND_SYSTEM.md resolves where pi would find it.
-      if (!memoryEnabled) return [];
+      // APPEND_SYSTEM.md path FIRST, then the memory block. Both are passed as
+      // FILE PATHS (pi reads a path entry as a file): a multi-line literal
+      // --append value is truncated on Windows, where pi runs via a .cmd shim
+      // through cmd.exe. `home` is the pi child's HOME so the global
+      // APPEND_SYSTEM.md resolves where pi would find it.
+      if (!memoryEnabled) return { appends: [] };
       const appends: string[] = [];
       const appendPath = appendSystemPromptPath({ home, projectPath: cwd });
       if (appendPath) appends.push(appendPath);
-      appends.push(
-        buildMemoryPreamble(injectableIndex({ baseDir: memoryBaseDir, projectPath: cwd })),
+      const block = buildMemoryPreamble(
+        injectableIndex({ baseDir: memoryBaseDir, projectPath: cwd }),
       );
-      return appends;
+      const cleanupDir = mkdtempSync(nodePath.join(tmpdir(), "agent-deck-mem-append-"));
+      const blockFile = nodePath.join(cleanupDir, "memory.md");
+      writeFileSync(blockFile, block, "utf8");
+      appends.push(blockFile);
+      return { appends, cleanupDir };
     },
   );
   const projects = new ProjectIndex(options.dataDir);
