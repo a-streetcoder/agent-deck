@@ -39,8 +39,29 @@ function sanitize(part: string): string {
   return part.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
+const MCP_TOOL_PREFIX = "mcp__";
+
 function bridgeToolName(serverId: string, toolName: string): string {
-  return `mcp__${sanitize(serverId)}__${sanitize(toolName)}`;
+  return `${MCP_TOOL_PREFIX}${sanitize(serverId)}__${sanitize(toolName)}`;
+}
+
+/**
+ * Per-session MCP scoping: keep every non-MCP bridge tool, but keep an MCP tool
+ * (mcp__<server>__<tool>) only if its server is in `allowedServerIds`. Used to
+ * expose ONLY the MCP servers an agent declared (agent.mcpServers) to its
+ * sessions; an empty allowlist drops all MCP tools. Pure + name-based so it needs
+ * no live manager state.
+ */
+export function scopeMcpBridgeSpecs<T extends { name: string }>(
+  specs: T[],
+  allowedServerIds: string[],
+): T[] {
+  const allowedPrefixes = allowedServerIds.map((id) => `${MCP_TOOL_PREFIX}${sanitize(id)}__`);
+  return specs.filter(
+    (spec) =>
+      !spec.name.startsWith(MCP_TOOL_PREFIX) ||
+      allowedPrefixes.some((prefix) => spec.name.startsWith(prefix)),
+  );
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {

@@ -18,6 +18,7 @@ import {
   clientMessageSchema,
   type ProjectMeta,
   type ServerMessage,
+  type SessionMeta,
   type SessionPlanItem,
   type SkillInfo,
 } from "@agent-deck/domain";
@@ -74,7 +75,12 @@ import {
   type MemoryType,
 } from "@agent-deck/memory";
 import { BridgeRegistry } from "./bridge.ts";
-import { McpManager, mcpServerConfigsFromEnv, type McpServerConfig } from "./mcpTools.ts";
+import {
+  McpManager,
+  mcpServerConfigsFromEnv,
+  scopeMcpBridgeSpecs,
+  type McpServerConfig,
+} from "./mcpTools.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { SupervisorLog, type SupervisorMethod } from "./supervisor.ts";
@@ -329,15 +335,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       broadcast({ type: "session_meta", session: meta });
     },
     () => envDefaults().providerExtensions,
-    (sessionId) => {
+    (meta) => {
       if (bridge.size === 0 || !bridgeAddress.endpoint) return undefined;
       const token = randomUUID();
-      bridgeTokens.set(sessionId, token);
+      bridgeTokens.set(meta.id, token);
+      // Per-session MCP scoping: an agent that DECLARES mcpServers sees only those
+      // servers' MCP tools; a plain session (no agent) or an agent that declares
+      // none sees all configured MCP tools. Non-MCP tools are always exposed.
+      let tools = bridge.specs();
+      const allow = mcpAllowlistForSession(meta);
+      if (allow) tools = scopeMcpBridgeSpecs(tools, allow);
       return writeBridgeExtension({
         endpoint: bridgeAddress.endpoint,
-        sessionId,
+        sessionId: meta.id,
         token,
-        tools: bridge.specs(),
+        tools,
         // Per-turn memory recall via a before_agent_start hook (only meaningful
         // when memory is on; the launch index carries just titles).
         recall: memoryEnabled,
@@ -682,6 +694,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     home: resourceHome(),
     projectPath: projectId ? projects.find((p) => p.id === projectId)?.path : undefined,
   });
+
+  // The MCP-server allowlist for a session (native explicit-assignment model):
+  // a PLAIN session (no agent) is unrestricted — undefined → all configured
+  // servers. An AGENT session is opt-in: it gets ONLY the servers it declares, so
+  // an agent that declares none, or one that was deleted/renamed since (no longer
+  // resolves), gets [] → no MCP tools (never silently widened to all). Function
+  // declaration so the bridge-extension factory (defined earlier) can call it —
+  // it only runs at launch time, after rootsFor is assigned.
+  function mcpAllowlistForSession(meta: SessionMeta): string[] | undefined {
+    if (!meta.agentName) return undefined;
+    const agent = scanAgents(rootsFor(meta.projectId)).find(
+      (a) => a.name === meta.agentName && !a.shadowed,
+    );
+    return agent?.mcpServers ?? [];
+  }
 
   fastify.get("/resources/agents", async (request) => {
     const { projectId } = request.query as { projectId?: string };

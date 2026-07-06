@@ -657,7 +657,7 @@ export class SessionManager {
      * to real chat launches (create/resume/fork) but never to isolated helper
      * launches, which stay resource-free per the launch-flag contract.
      */
-    private readonly bridgeExtensionFactory: (sessionId: string) => string | undefined = () =>
+    private readonly bridgeExtensionFactory: (meta: SessionMeta) => string | undefined = () =>
       undefined,
     /**
      * Extra --append-system-prompt values for a parent session, in order — the
@@ -778,7 +778,7 @@ export class SessionManager {
     tempDirs: string[],
     markOwned: () => void,
   ): ManagedSession {
-    const bridgeExtension = this.bridgeExtensionFactory(meta.id);
+    const bridgeExtension = this.bridgeExtensionFactory(meta);
     let launchPlan: LaunchPlan = bridgeExtension
       ? { ...plan, extensions: [...(plan.extensions ?? []), bridgeExtension] }
       : plan;
