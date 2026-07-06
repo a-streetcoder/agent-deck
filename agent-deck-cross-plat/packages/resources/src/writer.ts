@@ -1,4 +1,13 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import YAML from "yaml";
@@ -77,6 +86,65 @@ export function writePromptFile(
 /** Delete a global/project prompt-template .md file. */
 export function deletePromptFile(roots: ResourceRoots, scope: WritableScope, name: string): void {
   rmSync(promptFilePath(roots, scope, name), { force: true });
+}
+
+/** True when two paths refer to the same on-disk file (same device + inode). */
+function isSameFile(a: string, b: string): boolean {
+  try {
+    const sa = statSync(a);
+    const sb = statSync(b);
+    return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rename a prompt-template .md file within the same scope, preserving its body,
+ * description, and any unknown frontmatter, and updating the `name` field to
+ * match the new filename (pi exposes prompts as /prompt:<filename>). Throws
+ * "prompt_not_found" if the source is missing and "prompt_exists" if the target
+ * name is already taken — the caller maps these to 404 / 409.
+ */
+export function renamePromptFile(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+  newName: string,
+): string {
+  const from = promptFilePath(roots, scope, name);
+  const to = promptFilePath(roots, scope, newName);
+  if (from === to) return to; // no-op: nothing to rename
+  let parsed: { frontmatter: Record<string, unknown>; body: string };
+  try {
+    parsed = parseFrontmatter(readFileSync(from, "utf8"));
+  } catch {
+    throw new Error("prompt_not_found");
+  }
+  const content = `---\n${serializeFrontmatter({ ...parsed.frontmatter, name: newName })}\n---\n\n${parsed.body.trim()}\n`;
+
+  // A case-only rename (review→Review) is the one case where `to` can "exist"
+  // yet actually BE `from` — on a case-insensitive filesystem they share an
+  // inode. Guarding on case-only keeps a genuine name clash off this
+  // overwrite path; renameSync changes the stored case (a plain write wouldn't).
+  if (from.toLowerCase() === to.toLowerCase() && existsSync(to) && isSameFile(from, to)) {
+    renameSync(from, to);
+    writeFileSync(to, content);
+    return to;
+  }
+
+  // Otherwise claim the target with an exclusive create: it rejects a real name
+  // clash AND closes the check-then-write TOCTOU — a file appearing in the gap
+  // fails the write (EEXIST) instead of being clobbered.
+  mkdirSync(promptDirFor(roots, scope), { recursive: true });
+  try {
+    writeFileSync(to, content, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("prompt_exists");
+    throw error;
+  }
+  rmSync(from, { force: true });
+  return to;
 }
 
 const AGENT_FIELD_ORDER = [

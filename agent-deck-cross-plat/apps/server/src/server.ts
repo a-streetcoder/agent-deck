@@ -48,6 +48,7 @@ import {
   setAgentDisabledFile,
   deleteSkillDir,
   deletePromptFile,
+  renamePromptFile,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -804,6 +805,40 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       deletePromptFile(rootsFor(projectId), scope, name);
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Rename a prompt template on disk (native RenameResourceSheet). Same scope;
+  // 409 if the target name is taken, 404 if the source is gone.
+  fastify.post("/resources/prompts/rename", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        name: RESOURCE_NAME,
+        newName: RESOURCE_NAME,
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, newName } = parsed.data;
+    if (scope === "project" && !rootsFor(projectId).projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      renamePromptFile(rootsFor(projectId), scope, name, newName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "prompt_exists") {
+        return reply
+          .status(409)
+          .send({ error: `A ${scope} prompt named "${newName}" already exists.` });
+      }
+      if (message === "prompt_not_found") {
+        return reply.status(404).send({ error: `No ${scope} prompt named "${name}".` });
+      }
+      return reply.status(500).send({ error: message });
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };

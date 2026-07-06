@@ -58,8 +58,22 @@ test("create, edit, and delete a project prompt template", async ({ page }) => {
     .poll(() => readFileSync(file, "utf8"))
     .toContain("Please review the diff for security issues.");
 
-  // Delete.
-  await page.getByTestId("prompt-delete-review").click();
+  // Rename review → audit: the file moves on disk, /prompt:<name> follows.
+  await row.getByTestId("prompt-rename-review").click();
+  await page.getByTestId("prompt-rename-input-review").fill("audit");
+  await page.getByTestId("prompt-rename-confirm-review").click();
+
+  const renamed = page.locator('[data-prompt-name="audit"]');
+  await expect(renamed).toContainText("/prompt:audit");
   await expect(page.locator('[data-prompt-name="review"]')).toHaveCount(0);
+  const auditFile = path.join(project, ".pi", "prompts", "audit.md");
+  await expect.poll(() => existsSync(auditFile)).toBe(true);
   expect(existsSync(file)).toBe(false);
+  // Body carried across the rename.
+  expect(readFileSync(auditFile, "utf8")).toContain("Please review the diff for security issues.");
+
+  // Delete the renamed prompt.
+  await page.getByTestId("prompt-delete-audit").click();
+  await expect(page.locator('[data-prompt-name="audit"]')).toHaveCount(0);
+  expect(existsSync(auditFile)).toBe(false);
 });

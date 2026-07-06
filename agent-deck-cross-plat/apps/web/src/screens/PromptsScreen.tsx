@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { MessageSquareText, Plus, Trash2 } from "lucide-react";
+import { Check, MessageSquareText, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { PromptInfo } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
@@ -26,6 +26,12 @@ export function PromptsScreen() {
   const setError = useAppStore((state) => state.setError);
   const [prompts, setPrompts] = useState<PromptInfo[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Inline rename target (native RenameResourceSheet): the prompt being renamed.
+  const [renaming, setRenaming] = useState<{
+    name: string;
+    scope: PromptInfo["scope"];
+    value: string;
+  } | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
@@ -83,6 +89,35 @@ export function PromptsScreen() {
       });
       if (!response.ok) throw new Error(await response.text());
       setDraft(null);
+      await load();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const rename = async (): Promise<void> => {
+    if (!renaming) return;
+    const newName = renaming.value.trim();
+    if (!newName || newName === renaming.name) {
+      setRenaming(null);
+      return;
+    }
+    try {
+      const response = await fetch("/resources/prompts/rename", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: currentProjectId ?? undefined,
+          scope: renaming.scope,
+          name: renaming.name,
+          newName,
+        }),
+      });
+      if (!response.ok) {
+        const { error } = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(error ?? "Couldn't rename the prompt.");
+      }
+      setRenaming(null);
       await load();
     } catch (err) {
       setError(String(err));
@@ -197,42 +232,87 @@ export function PromptsScreen() {
               data-prompt-name={prompt.name}
               className="group flex items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5"
             >
-              <button
-                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                onClick={() => startEdit(prompt)}
-              >
-                <span
-                  className="font-mono text-sm font-medium text-text-primary"
-                  style={{ fontStretch: "expanded" }}
-                >
-                  /prompt:{prompt.name}
-                </span>
-                <span
-                  data-testid="scope-chip"
-                  data-scope={prompt.scope}
-                  className={cn(
-                    "rounded-capsule border px-1.5 text-[10px]",
-                    prompt.scope === "project"
-                      ? "border-border-strong text-text-secondary"
-                      : "border-border-subtle text-text-muted",
-                  )}
-                >
-                  {prompt.scope}
-                </span>
-                {prompt.description ? (
-                  <span className="min-w-0 flex-1 truncate text-xs text-text-muted">
-                    {prompt.description}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                data-testid={`prompt-delete-${prompt.name}`}
-                className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:text-[var(--color-role-error)] group-hover:opacity-100"
-                title="Delete"
-                onClick={() => void remove(prompt)}
-              >
-                <Trash2 size={13} />
-              </button>
+              {renaming?.name === prompt.name && renaming.scope === prompt.scope ? (
+                <>
+                  <span className="font-mono text-sm text-text-muted">/prompt:</span>
+                  <input
+                    autoFocus
+                    data-testid={`prompt-rename-input-${prompt.name}`}
+                    className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1 font-mono text-sm text-text-primary outline-none focus:border-accent"
+                    value={renaming.value}
+                    onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void rename();
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                  />
+                  <button
+                    data-testid={`prompt-rename-confirm-${prompt.name}`}
+                    className="rounded p-1 text-text-muted hover:text-[var(--color-brand-accent)]"
+                    title="Rename"
+                    onClick={() => void rename()}
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    data-testid={`prompt-rename-cancel-${prompt.name}`}
+                    className="rounded p-1 text-text-muted hover:text-text-primary"
+                    title="Cancel"
+                    onClick={() => setRenaming(null)}
+                  >
+                    <X size={14} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    onClick={() => startEdit(prompt)}
+                  >
+                    <span
+                      className="font-mono text-sm font-medium text-text-primary"
+                      style={{ fontStretch: "expanded" }}
+                    >
+                      /prompt:{prompt.name}
+                    </span>
+                    <span
+                      data-testid="scope-chip"
+                      data-scope={prompt.scope}
+                      className={cn(
+                        "rounded-capsule border px-1.5 text-[10px]",
+                        prompt.scope === "project"
+                          ? "border-border-strong text-text-secondary"
+                          : "border-border-subtle text-text-muted",
+                      )}
+                    >
+                      {prompt.scope}
+                    </span>
+                    {prompt.description ? (
+                      <span className="min-w-0 flex-1 truncate text-xs text-text-muted">
+                        {prompt.description}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    data-testid={`prompt-rename-${prompt.name}`}
+                    className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
+                    title="Rename"
+                    onClick={() =>
+                      setRenaming({ name: prompt.name, scope: prompt.scope, value: prompt.name })
+                    }
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    data-testid={`prompt-delete-${prompt.name}`}
+                    className="rounded p-1 text-text-muted opacity-0 transition-opacity hover:text-[var(--color-role-error)] group-hover:opacity-100"
+                    title="Delete"
+                    onClick={() => void remove(prompt)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              )}
             </div>
           ))}
           {prompts.length === 0 && !draft ? (
