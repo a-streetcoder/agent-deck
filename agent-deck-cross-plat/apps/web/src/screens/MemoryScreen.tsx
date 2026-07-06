@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Brain, Pin, RotateCcw, Trash2 } from "lucide-react";
+import { groupMemoriesByStatus, type MemoryStatus } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
 
@@ -13,7 +14,6 @@ import { useAppStore } from "../state/store.ts";
 
 const MEMORY_TYPES = ["context", "decision", "runbook", "failure", "preference"] as const;
 type MemoryType = (typeof MEMORY_TYPES)[number];
-type MemoryStatus = "active" | "pinned" | "stale" | "archived";
 
 interface MemoryItem {
   id: string;
@@ -257,80 +257,95 @@ export function MemoryScreen() {
           </div>
         ) : null}
 
-        <div className="space-y-1.5" data-testid="memory-list">
-          {memories.map((memory) => (
-            <div
-              key={memory.id}
-              data-testid={`memory-${memory.id}`}
-              data-status={memory.status}
-              className="group flex items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5"
-            >
-              <button
-                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                onClick={() => startEdit(memory)}
-              >
-                <span className="rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted">
-                  {memory.type}
+        <div className="space-y-4" data-testid="memory-list">
+          {groupMemoriesByStatus(memories).map((group) => (
+            <section key={group.status} data-testid={`memory-section-${group.status}`}>
+              <div className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                {group.label}
+                <span className="rounded-capsule border border-border-subtle px-1 tabular-nums normal-case">
+                  {group.memories.length}
                 </span>
-                <span
-                  data-testid="memory-status-chip"
-                  className={cn(
-                    "rounded-capsule border px-1.5 text-[10px]",
-                    STATUS_STYLE[memory.status],
-                  )}
-                >
-                  {memory.status}
-                </span>
-                <span className="truncate text-sm font-medium text-text-primary">
-                  {memory.title}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-xs text-text-muted">
-                  {memory.summary}
-                </span>
-              </button>
-              <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                <button
-                  data-testid={`memory-pin-${memory.id}`}
-                  className={cn(
-                    "rounded p-1 hover:text-accent",
-                    memory.status === "pinned" ? "text-accent" : "text-text-muted",
-                  )}
-                  title={memory.status === "pinned" ? "Unpin" : "Pin"}
-                  onClick={() =>
-                    void setStatus(memory.id, memory.status === "pinned" ? "active" : "pinned")
-                  }
-                >
-                  <Pin size={13} />
-                </button>
-                {memory.status === "stale" || memory.status === "archived" ? (
-                  <button
-                    data-testid={`memory-activate-${memory.id}`}
-                    className="rounded p-1 text-text-muted hover:text-accent"
-                    title="Re-activate"
-                    onClick={() => void setStatus(memory.id, "active")}
-                  >
-                    <RotateCcw size={13} />
-                  </button>
-                ) : (
-                  <button
-                    data-testid={`memory-archive-${memory.id}`}
-                    className="rounded p-1 text-text-muted hover:text-text-secondary"
-                    title="Archive"
-                    onClick={() => void setStatus(memory.id, "archived")}
-                  >
-                    <Archive size={13} />
-                  </button>
-                )}
-                <button
-                  data-testid={`memory-delete-${memory.id}`}
-                  className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
-                  title="Delete"
-                  onClick={() => void remove(memory.id)}
-                >
-                  <Trash2 size={13} />
-                </button>
               </div>
-            </div>
+              <div className="space-y-1.5">
+                {group.memories.map((memory) => (
+                  <div
+                    key={memory.id}
+                    data-testid={`memory-${memory.id}`}
+                    data-status={memory.status}
+                    className="group flex items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5"
+                  >
+                    <button
+                      className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                      onClick={() => startEdit(memory)}
+                    >
+                      <span className="rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted">
+                        {memory.type}
+                      </span>
+                      <span
+                        data-testid="memory-status-chip"
+                        className={cn(
+                          "rounded-capsule border px-1.5 text-[10px]",
+                          STATUS_STYLE[memory.status],
+                        )}
+                      >
+                        {memory.status}
+                      </span>
+                      <span className="truncate text-sm font-medium text-text-primary">
+                        {memory.title}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-xs text-text-muted">
+                        {memory.summary}
+                      </span>
+                    </button>
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        data-testid={`memory-pin-${memory.id}`}
+                        className={cn(
+                          "rounded p-1 hover:text-accent",
+                          memory.status === "pinned" ? "text-accent" : "text-text-muted",
+                        )}
+                        title={memory.status === "pinned" ? "Unpin" : "Pin"}
+                        onClick={() =>
+                          void setStatus(
+                            memory.id,
+                            memory.status === "pinned" ? "active" : "pinned",
+                          )
+                        }
+                      >
+                        <Pin size={13} />
+                      </button>
+                      {memory.status === "stale" || memory.status === "archived" ? (
+                        <button
+                          data-testid={`memory-activate-${memory.id}`}
+                          className="rounded p-1 text-text-muted hover:text-accent"
+                          title="Re-activate"
+                          onClick={() => void setStatus(memory.id, "active")}
+                        >
+                          <RotateCcw size={13} />
+                        </button>
+                      ) : (
+                        <button
+                          data-testid={`memory-archive-${memory.id}`}
+                          className="rounded p-1 text-text-muted hover:text-text-secondary"
+                          title="Archive"
+                          onClick={() => void setStatus(memory.id, "archived")}
+                        >
+                          <Archive size={13} />
+                        </button>
+                      )}
+                      <button
+                        data-testid={`memory-delete-${memory.id}`}
+                        className="rounded p-1 text-text-muted hover:text-[var(--color-role-error)]"
+                        title="Delete"
+                        onClick={() => void remove(memory.id)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
           {memories.length === 0 && !draft ? (
             <div className="py-8 text-center text-sm text-text-muted" data-testid="memory-empty">

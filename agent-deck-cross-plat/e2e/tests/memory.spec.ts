@@ -63,9 +63,16 @@ test("lists a project's memories and pins, edits, and deletes one", async ({ pag
   await expect(row).toContainText("Use pnpm workspaces");
   await expect(row).toHaveAttribute("data-status", "active");
 
-  // Pin it → the status chip flips to pinned.
+  // Status sections (native §11.1): the memory sits under Active, and no Pinned
+  // section exists yet.
+  await expect(page.getByTestId("memory-section-active")).toContainText("Use pnpm workspaces");
+  await expect(page.getByTestId("memory-section-pinned")).toHaveCount(0);
+
+  // Pin it → the status chip flips to pinned and it moves to the Pinned section.
   await page.getByTestId(`memory-pin-${memory.id}`).click();
   await expect(row).toHaveAttribute("data-status", "pinned");
+  await expect(page.getByTestId("memory-section-pinned")).toContainText("Use pnpm workspaces");
+  await expect(page.getByTestId("memory-section-active")).toHaveCount(0);
 
   // Edit the summary.
   await row.click();
