@@ -12,9 +12,10 @@ import SwiftUI
 // MARK: - Display models
 
 struct NativeToolGroupModel {
-    var web: Web?
-    var diff: Diff?
-    var mcp: MCP?
+    var web: Web? = nil
+    var diff: Diff? = nil
+    var mcp: MCP? = nil
+    var images: Images? = nil
 
     /// Dedicated MCP card: every assigned-server tool call in this group, grouped
     /// under a single "MCP" header (mirrors the web/diff sub-cards). Built from the
@@ -36,6 +37,11 @@ struct NativeToolGroupModel {
             /// inline on error rows so the failure reads at a glance without opening View.
             var errorSummary: String?
         }
+    }
+
+    struct Images {
+        var references: [PiAgentTranscriptImageReference]
+        var hiddenCount: Int
     }
 
     struct Web {
@@ -129,8 +135,14 @@ extension NativeToolGroupModel {
             }
         }
 
-        guard web != nil || diff != nil || mcp != nil else { return nil }
-        return NativeToolGroupModel(web: web, diff: diff, mcp: mcp)
+        let allImageReferences = toolActivities.flatMap(\.entries).flatMap(\.imageReferences)
+        let images = allImageReferences.isEmpty ? nil : Images(
+            references: Array(allImageReferences.prefix(8)),
+            hiddenCount: max(0, allImageReferences.count - 8)
+        )
+
+        guard web != nil || diff != nil || mcp != nil || images != nil else { return nil }
+        return NativeToolGroupModel(web: web, diff: diff, mcp: mcp, images: images)
     }
 
     private static func callCountText(_ activities: [PiAgentTranscriptActivity]) -> String {
@@ -385,6 +397,7 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         guard let model else { return }
         if let mcp = model.mcp { sections.addArrangedSubview(buildMCPCard(mcp)) }
         if let web = model.web { sections.addArrangedSubview(buildWebCard(web)) }
+        if let images = model.images { sections.addArrangedSubview(buildImagesCard(images)) }
         if let diff = model.diff { sections.addArrangedSubview(buildDiffCard(diff)) }
         for view in sections.arrangedSubviews {
             view.widthAnchor.constraint(equalTo: sections.widthAnchor).isActive = true
@@ -573,6 +586,37 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
             stack.addArrangedSubview(image)
         }
         return stack
+    }
+
+    private func buildImagesCard(_ images: NativeToolGroupModel.Images) -> NSView {
+        let card = makeSubCard()
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        let header = NSStackView()
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 7
+        header.addArrangedSubview(Self.headerGlyph("photo", tint: Self.muted))
+        header.addArrangedSubview(Self.label("Images", font: NativeTranscriptFont.caption(.semibold), color: .labelColor, wraps: false))
+        header.addArrangedSubview(Self.label(images.references.count == 1 ? "1 image" : "\(images.references.count) images", font: NativeTranscriptFont.caption2(), color: .secondaryLabelColor, wraps: false))
+        if images.hiddenCount > 0 {
+            header.addArrangedSubview(Self.label("+\(images.hiddenCount) more", font: NativeTranscriptFont.caption2(), color: .tertiaryLabelColor, wraps: false))
+        }
+        header.addArrangedSubview(NSView())
+        stack.addArrangedSubview(header)
+
+        let thumbnails = mcpImageStrip(images.references) ?? NSView()
+        stack.addArrangedSubview(thumbnails)
+        thumbnails.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 23).isActive = true
+        thumbnails.trailingAnchor.constraint(lessThanOrEqualTo: stack.trailingAnchor).isActive = true
+
+        embed(stack, in: card, hInset: 12, vInset: 10)
+        return card
     }
 
     private var mcpResultByRowID: [String: (server: String, tool: String, result: String)] = [:]

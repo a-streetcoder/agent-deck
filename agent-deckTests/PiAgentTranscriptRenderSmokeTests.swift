@@ -352,13 +352,29 @@ final class PiAgentTranscriptRenderSmokeTests: XCTestCase {
         mcpOff.showMCPCards = false
         XCTAssertNil(NativeToolGroupModel.make(group: group, visibility: mcpOff, projectPath: nil)?.mcp)
         XCTAssertTrue(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(group, visibility: .init(), projectPath: nil))
-        // Read alone isn't a diff/web/mcp section, so with mcp off the group hides.
         let mcpOnlyGroup = PiAgentThreadToolGroup(
             id: listStories.id,
             entries: [listStories, pipeline],
             activities: PiAgentTranscriptActivity.make(from: [listStories, pipeline])
         )
         XCTAssertFalse(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(mcpOnlyGroup, visibility: mcpOff, projectPath: nil))
+
+        let imageReference = PiAgentTranscriptImageReference(name: "preview.png", mimeType: "image/png", localPath: "/tmp/preview.png")
+        let readImageEntry = PiAgentTranscriptEntry(
+            sessionID: sessionID,
+            role: .tool,
+            title: "Tool: read",
+            text: "Read image file [image/png]",
+            imageReferences: [imageReference]
+        )
+        let imageGroup = PiAgentThreadToolGroup(
+            id: readImageEntry.id,
+            entries: [readImageEntry],
+            activities: PiAgentTranscriptActivity.make(from: [readImageEntry])
+        )
+        let imageModel = NativeToolGroupModel.make(group: imageGroup, visibility: .init(), projectPath: nil)
+        XCTAssertEqual(imageModel?.images?.references, [imageReference])
+        XCTAssertTrue(PiAgentTranscriptThreadCard.toolGroupHasVisibleContent(imageGroup, visibility: .init(), projectPath: nil))
 
         // MCP is excluded from the generic tool-call recap (only Read remains)...
         let toolRecap = NativeToolGroupModel.toolCallRecap(from: entries)
