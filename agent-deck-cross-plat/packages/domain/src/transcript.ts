@@ -205,6 +205,24 @@ export function deckRuns(state: TranscriptState): DeckRun[] {
     }));
 }
 
+/** The full detail behind one deck run: its subagent cell + any supervisor
+ * requests it raised (newest last, in transcript order). Pure — the deck's
+ * expanded row and any renderer read the same shape. `cell` is undefined if the
+ * id doesn't match a subagent cell. */
+export interface DeckRunDetail {
+  cell: SubagentCell | undefined;
+  questions: SupervisorQuestionCell[];
+}
+
+export function deckRunDetail(state: TranscriptState, runId: string): DeckRunDetail {
+  const cell = state.cells.find((c): c is SubagentCell => c.kind === "subagent" && c.id === runId);
+  const questions = state.cells.filter(
+    (c): c is SupervisorQuestionCell =>
+      c.kind === "supervisor_question" && c.subagentCellId === runId,
+  );
+  return { cell, questions };
+}
+
 export type DomainEvent =
   | { type: "cell_open"; cell: TranscriptCell }
   | {
