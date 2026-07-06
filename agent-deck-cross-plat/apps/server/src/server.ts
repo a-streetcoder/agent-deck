@@ -996,7 +996,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           return reply.status(404).send({ error: `unknown builtin agent: ${name}` });
         }
         const base = parseAgentFile(builtinFile, readFileSync(builtinFile, "utf8"), "builtin");
-        // Merge: fields this editor doesn't manage (disabled, mcpServers, …)
+        // Merge: fields this editor doesn't manage (disabled, native-only keys, …)
         // survive; managed fields are fully recomputed from the form state.
         const merged = mergeWithUnmanagedOverrideFields(
           readAgentOverrides(roots)[name],

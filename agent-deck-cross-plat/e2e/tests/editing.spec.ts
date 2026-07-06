@@ -62,6 +62,30 @@ test("editing a builtin writes an override and never mutates the builtin file", 
   expect(readFileSync(BUILTIN_CODER).equals(bytesBefore)).toBe(true);
 });
 
+test("editing an agent's MCP servers persists and round-trips through the editor", async ({
+  page,
+}) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId("nav-agents").click();
+  await page.locator('[data-agent-name="coder"]').click();
+  await page.getByTestId("agent-edit").click();
+
+  await page.getByTestId("editor-tab-mcp").click();
+  await page.getByTestId("editor-mcp").fill("github, linear");
+  await page.getByTestId("editor-save").click();
+  await expect(page.getByTestId("agent-editor")).toHaveCount(0);
+
+  // The selected agent's detail now surfaces the declared MCP servers.
+  const mcpCard = page.getByTestId("agent-mcp-servers");
+  await expect(mcpCard).toContainText("github");
+  await expect(mcpCard).toContainText("linear");
+
+  // Reopen the editor → MCP tab shows the persisted value (full round-trip).
+  await page.getByTestId("agent-edit").click();
+  await page.getByTestId("editor-tab-mcp").click();
+  await expect(page.getByTestId("editor-mcp")).toHaveValue("github, linear");
+});
+
 test("creating a project agent in the editor lands on disk and is pickable", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId(`project-${path.basename(project)}`).click();

@@ -272,7 +272,10 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
             <ChipList label="Skills" items={agent.skills?.length ? agent.skills : ["none"]} />
           </div>
           {agent.mcpServers?.length ? (
-            <div className="col-span-2 rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3">
+            <div
+              className="col-span-2 rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3"
+              data-testid="agent-mcp-servers"
+            >
               <ChipList label="MCP Servers" items={agent.mcpServers} />
             </div>
           ) : null}

@@ -10,12 +10,13 @@ import { AgentAvatar } from "./AgentAvatar.tsx";
  * icon tile + title) and a Config / Prompt / Tools / Skills tab strip.
  */
 
-type EditTab = "config" | "prompt" | "tools" | "skills";
+type EditTab = "config" | "prompt" | "tools" | "skills" | "mcp";
 const TABS: Array<{ id: EditTab; label: string }> = [
   { id: "config", label: "Config" },
   { id: "prompt", label: "Prompt" },
   { id: "tools", label: "Tools" },
   { id: "skills", label: "Skills" },
+  { id: "mcp", label: "MCP" },
 ];
 
 const inputClass =
@@ -42,6 +43,7 @@ export function AgentEditSheet({
   const [mode, setMode] = useState<"replace" | "append">(agent?.systemPromptMode ?? "replace");
   const [tools, setTools] = useState((agent?.tools ?? []).join(", "));
   const [skills, setSkills] = useState((agent?.skills ?? []).join(", "));
+  const [mcpServers, setMcpServers] = useState((agent?.mcpServers ?? []).join(", "));
   const [body, setBody] = useState(agent?.body ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -58,6 +60,7 @@ export function AgentEditSheet({
     mode: agent?.systemPromptMode ?? "replace",
     tools: (agent?.tools ?? []).join(", "),
     skills: (agent?.skills ?? []).join(", "),
+    mcpServers: (agent?.mcpServers ?? []).join(", "),
     body: agent?.body ?? "",
   }).current;
   const dirty =
@@ -68,6 +71,7 @@ export function AgentEditSheet({
     mode !== initial.mode ||
     tools !== initial.tools ||
     skills !== initial.skills ||
+    mcpServers !== initial.mcpServers ||
     body !== initial.body ||
     (!agent && name.trim() !== "");
 
@@ -134,6 +138,7 @@ export function AgentEditSheet({
               live.systemPromptMode !== initial.mode ||
               (live.tools ?? []).join(", ") !== initial.tools ||
               (live.skills ?? []).join(", ") !== initial.skills ||
+              (live.mcpServers ?? []).join(", ") !== initial.mcpServers ||
               live.body !== initial.body)
           ) {
             throw new Error(
@@ -157,6 +162,7 @@ export function AgentEditSheet({
             systemPromptMode: mode,
             tools: parseList(tools),
             skills: parseList(skills),
+            mcpServers: parseList(mcpServers),
             body,
           },
         }),
@@ -351,6 +357,19 @@ export function AgentEditSheet({
                 className={inputClass}
                 value={skills}
                 onChange={(e) => setSkills(e.target.value)}
+              />
+            </label>
+          ) : null}
+
+          {tab === "mcp" ? (
+            <label className="block text-xs text-text-muted">
+              MCP servers (comma-separated names from mcp.json this agent uses)
+              <input
+                data-testid="editor-mcp"
+                className={inputClass}
+                placeholder="github, linear…"
+                value={mcpServers}
+                onChange={(e) => setMcpServers(e.target.value)}
               />
             </label>
           ) : null}
