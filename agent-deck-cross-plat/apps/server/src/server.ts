@@ -20,6 +20,7 @@ import {
   type SkillInfo,
 } from "@agent-deck/domain";
 import {
+  appendSystemPromptPath,
   computeBuiltinOverride,
   ensureDirs,
   mergeWithUnmanagedOverrideFields,
@@ -51,6 +52,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
+import { buildMemoryPreamble, injectableIndex } from "@agent-deck/memory";
 import { BridgeRegistry } from "./bridge.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
@@ -223,6 +225,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // route requires a call's token to match its session's, so a local caller
   // can't invoke another session's (project/session-scoped) tools.
   const bridgeTokens = new Map<string, string>();
+  // Native memory (memory.md), on by default like the native app; storage under
+  // the app data dir. AGENT_DECK_MEMORY=0 disables it entirely.
+  const memoryEnabled = process.env.AGENT_DECK_MEMORY !== "0";
+  const memoryBaseDir = nodePath.join(options.dataDir ?? defaultDataDir(), "memory");
   const sessions = new SessionManager(
     receipts,
     (meta) => {
@@ -247,19 +253,31 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         tools: bridge.specs(),
       });
     },
+    (cwd, home) => {
+      // Parent system-prompt appends. When memory is off we add nothing, so pi
+      // auto-discovers APPEND_SYSTEM.md itself. When on, we inject the memory
+      // block — which suppresses that discovery — so we re-add the resolved
+      // APPEND_SYSTEM.md path FIRST (pi reads a path entry as a file), then the
+      // memory policy + index as literal text. `home` is the pi child's HOME so
+      // the global APPEND_SYSTEM.md resolves where pi would find it.
+      if (!memoryEnabled) return [];
+      const appends: string[] = [];
+      const appendPath = appendSystemPromptPath({ home, projectPath: cwd });
+      if (appendPath) appends.push(appendPath);
+      appends.push(
+        buildMemoryPreamble(injectableIndex({ baseDir: memoryBaseDir, projectPath: cwd })),
+      );
+      return appends;
+    },
   );
   const projects = new ProjectIndex(options.dataDir);
   const settings = new SettingsStore(options.dataDir);
 
-  // Native memory (memory.md), on by default like the native app. Tools are
-  // registered on the bridge and scoped to each session's project via its cwd;
-  // set AGENT_DECK_MEMORY=0 to disable. Storage lives under the app data dir.
-  if (process.env.AGENT_DECK_MEMORY !== "0") {
-    registerMemoryTools(
-      bridge,
-      nodePath.join(options.dataDir ?? defaultDataDir(), "memory"),
-      (sessionId) => sessions.get(sessionId)?.meta.cwd,
-    );
+  // Native memory tools (memory.md), registered on the bridge and scoped to each
+  // session's project via its cwd. The launch-time index/policy injection is
+  // handled by the parent-append factory above.
+  if (memoryEnabled) {
+    registerMemoryTools(bridge, memoryBaseDir, (sessionId) => sessions.get(sessionId)?.meta.cwd);
   }
 
   const fastify = Fastify({ logger: false });

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname } from "node:path";
 import {
   createIngestState,
@@ -348,6 +349,16 @@ export class SessionManager {
      */
     private readonly bridgeExtensionFactory: (sessionId: string) => string | undefined = () =>
       undefined,
+    /**
+     * Extra --append-system-prompt values for a parent session, in order — the
+     * preserved APPEND_SYSTEM.md path followed by the memory block. Applied to
+     * parent launches only (create/resume/fork); returning empty leaves pi to
+     * auto-discover APPEND_SYSTEM.md itself. `home` is the HOME the pi child will
+     * actually see (env override, else the process home), so the GLOBAL
+     * APPEND_SYSTEM.md resolves against the right directory. See
+     * agent-deck-system-prompt-logic.md.
+     */
+    private readonly parentAppendFactory: (cwd: string, home: string) => string[] = () => [],
   ) {}
 
   create(options: CreateSessionOptions): ManagedSession {
@@ -413,9 +424,25 @@ export class SessionManager {
     // session. The session id is baked into the generated extension so its
     // calls come back tagged; helper launches never pass through here.
     const bridgeExtension = this.bridgeExtensionFactory(meta.id);
-    const launchPlan: LaunchPlan = bridgeExtension
+    let launchPlan: LaunchPlan = bridgeExtension
       ? { ...plan, extensions: [...(plan.extensions ?? []), bridgeExtension] }
       : plan;
+    // Parent sessions get Agent Deck's system-prompt appends (preserved
+    // APPEND_SYSTEM.md path, then the memory block). Any explicit append
+    // suppresses pi's auto-discovery, so the factory re-adds APPEND_SYSTEM.md
+    // ahead of our own; empty leaves pi to discover it.
+    if (launchPlan.kind === "parent") {
+      // The HOME the pi child will actually see (cross-spawn merges env over
+      // process.env), so global APPEND_SYSTEM.md resolves where pi would find it.
+      const launchHome = env?.HOME ?? env?.USERPROFILE ?? homedir();
+      const appends = this.parentAppendFactory(meta.cwd, launchHome);
+      if (appends.length > 0) {
+        launchPlan = {
+          ...launchPlan,
+          appendSystemPrompts: [...appends, ...(launchPlan.appendSystemPrompts ?? [])],
+        };
+      }
+    }
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
       args: buildLaunchArgs(launchPlan),

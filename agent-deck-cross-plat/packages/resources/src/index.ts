@@ -1,5 +1,6 @@
 export {
   agentCatalogDirs,
+  appendSystemPromptPath,
   BUILTIN_AGENTS_DIR,
   defaultRoots,
   piAgentHome,
