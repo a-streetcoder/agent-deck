@@ -30,6 +30,7 @@ struct NativeToolGroupModel {
             var tool: String
             /// The full response text, shown in the "View" modal (never inline).
             var resultPreview: String?
+            var imageReferences: [PiAgentTranscriptImageReference] = []
             var isError: Bool
             /// A concise one-line error message (the text before any JSON body), shown
             /// inline on error rows so the failure reads at a glance without opening View.
@@ -118,6 +119,7 @@ extension NativeToolGroupModel {
                             server: call.server,
                             tool: call.tool,
                             resultPreview: call.resultPreview,
+                            imageReferences: call.imageReferences,
                             isError: call.isError,
                             errorSummary: call.isError ? mcpErrorSummary(call.resultPreview) : nil
                         )
@@ -528,17 +530,25 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
             titleRow.addArrangedSubview(viewBtn)
         }
 
-        // Success rows are just the headline; error rows add a concise red one-liner
-        // under it so the failure reads at a glance (full detail behind "View").
-        guard let summary = row.errorSummary, !summary.isEmpty else { return titleRow }
+        let thumbnails = mcpImageStrip(row.imageReferences)
+        guard (row.errorSummary?.isEmpty == false) || thumbnails != nil else { return titleRow }
         let rowStack = NSStackView()
         rowStack.translatesAutoresizingMaskIntoConstraints = false
         rowStack.orientation = .vertical
         rowStack.alignment = .leading
-        rowStack.spacing = 3
+        rowStack.spacing = 6
         rowStack.addArrangedSubview(titleRow)
         titleRow.widthAnchor.constraint(equalTo: rowStack.widthAnchor).isActive = true
 
+        if let thumbnails {
+            let imageIndent = NSStackView(views: [thumbnails])
+            imageIndent.translatesAutoresizingMaskIntoConstraints = false
+            imageIndent.orientation = .horizontal
+            imageIndent.edgeInsets = NSEdgeInsets(top: 0, left: 23, bottom: 0, right: 0)
+            rowStack.addArrangedSubview(imageIndent)
+        }
+
+        guard let summary = row.errorSummary, !summary.isEmpty else { return rowStack }
         let errorLabel = Self.label(summary, font: NativeTranscriptFont.callout(), color: AppTheme.ns(AppTheme.roleError), wraps: true)
         errorLabel.maximumNumberOfLines = 2
         // Align under the headline text (16pt icon + 7pt gap), matching the title inset.
@@ -548,6 +558,32 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
         rowStack.addArrangedSubview(indent)
         indent.widthAnchor.constraint(equalTo: rowStack.widthAnchor).isActive = true
         return rowStack
+    }
+
+    private func mcpImageStrip(_ references: [PiAgentTranscriptImageReference]) -> NSView? {
+        guard !references.isEmpty else { return nil }
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .horizontal
+        stack.alignment = .top
+        stack.spacing = 6
+        for reference in references.prefix(4) {
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.image = AgentImageLoader.image(at: URL(fileURLWithPath: reference.localPath))
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.wantsLayer = true
+            imageView.layer?.cornerRadius = 6
+            imageView.layer?.cornerCurve = .continuous
+            imageView.layer?.masksToBounds = true
+            imageView.toolTip = reference.name
+            NSLayoutConstraint.activate([
+                imageView.widthAnchor.constraint(equalToConstant: 72),
+                imageView.heightAnchor.constraint(equalToConstant: 72)
+            ])
+            stack.addArrangedSubview(imageView)
+        }
+        return stack
     }
 
     private var mcpResultByRowID: [String: (server: String, tool: String, result: String)] = [:]

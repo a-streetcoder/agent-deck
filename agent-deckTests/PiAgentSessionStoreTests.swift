@@ -74,6 +74,70 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(removed)
     }
 
+    func testTranscriptImagesMaterializeFromStructuredRawJSONAndPersistReference() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Images", project: try PiTestSupport.makeProject(), repository: nil)
+        let rawJSON = #"{"content":[{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}]}"#
+
+        firstStore.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "Here is an image", rawJSON: rawJSON))
+        let entry = try XCTUnwrap(firstStore.transcriptsBySessionID[session.id]?.first)
+        let reference = try XCTUnwrap(entry.imageReferences.first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reference.localPath))
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+        let reloadedEntry = try XCTUnwrap(reloadedStore.transcriptForCacheUpdate(session.id).first)
+        XCTAssertEqual(reloadedEntry.imageReferences.first?.name, "pixel.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reference.localPath))
+    }
+
+    func testDeletingSessionRemovesTranscriptImageStorage() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let store = PiAgentSessionStore(fileURL: fileURL)
+        let session = store.createSession(kind: .project, title: "Images", project: try PiTestSupport.makeProject(), repository: nil)
+        let rawJSON = #"{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}"#
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "Image", rawJSON: rawJSON))
+        let reference = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
+        let imageDirectory = URL(fileURLWithPath: reference.localPath).deletingLastPathComponent()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imageDirectory.path))
+
+        store.deleteSession(session.id)
+
+        let removed = await PiTestSupport.waitUntilAsync {
+            !FileManager.default.fileExists(atPath: imageDirectory.path)
+        }
+        XCTAssertTrue(removed)
+    }
+
+    func testTranscriptImagesAreNotMaterializedForStatusRows() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Images", project: try PiTestSupport.makeProject(), repository: nil)
+        let rawJSON = #"{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}"#
+
+        store.append(.init(sessionID: session.id, role: .status, title: "Status", text: "![pixel](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=)", rawJSON: rawJSON))
+
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertTrue(entry.imageReferences.isEmpty)
+    }
+
+    func testClearingTranscriptRemovesTranscriptImageStorage() async throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Images", project: try PiTestSupport.makeProject(), repository: nil)
+        let rawJSON = #"{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}"#
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "Image", rawJSON: rawJSON))
+        let reference = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
+        let imageDirectory = URL(fileURLWithPath: reference.localPath).deletingLastPathComponent()
+
+        store.clearTranscript(for: session.id)
+
+        let removed = await PiTestSupport.waitUntilAsync {
+            !FileManager.default.fileExists(atPath: imageDirectory.path)
+        }
+        XCTAssertTrue(removed)
+    }
+
     func testLazyTranscriptLoadingReloadsEvictedTranscriptFromDisk() async throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let firstStore = PiAgentSessionStore(fileURL: fileURL)

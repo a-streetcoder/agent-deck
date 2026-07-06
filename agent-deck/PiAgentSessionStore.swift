@@ -89,6 +89,7 @@ final class PiAgentSessionStore {
     private let transcriptPersistDebounceNanoseconds: UInt64 = 750_000_000
     private let fileURL: URL
     private let transcriptsDirectoryURL: URL
+    private let transcriptImagesDirectoryURL: URL
     private let transcriptManifestURL: URL
     private let saveQueue = DispatchQueue(label: "agent-deck.pi-agent-session-store.save", qos: .utility)
     private var pendingSaveTask: Task<Void, Never>?
@@ -124,8 +125,10 @@ final class PiAgentSessionStore {
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("agent-sessions.json")
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
+        transcriptImagesDirectoryURL = transcriptsDirectoryURL
         transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
         try? fileManager.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: transcriptImagesDirectoryURL, withIntermediateDirectories: true)
         scheduleLoad()
     }
 
@@ -133,9 +136,11 @@ final class PiAgentSessionStore {
         self.fileURL = fileURL
         let directory = fileURL.deletingLastPathComponent()
         transcriptsDirectoryURL = directory.appendingPathComponent("agent-session-transcripts", isDirectory: true)
+        transcriptImagesDirectoryURL = transcriptsDirectoryURL
         transcriptManifestURL = transcriptsDirectoryURL.appendingPathComponent("manifest.json")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: transcriptsDirectoryURL, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: transcriptImagesDirectoryURL, withIntermediateDirectories: true)
         scheduleLoad()
     }
 
@@ -2440,6 +2445,7 @@ final class PiAgentSessionStore {
     }
 
     func appendSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID) {
+        let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
         modifySubagentTranscriptEntries(for: runID) { entries in
             entries.append(entry)
             trimTranscriptEntries(&entries)
@@ -2451,9 +2457,14 @@ final class PiAgentSessionStore {
     }
 
     func upsertSubagentTranscript(_ entry: PiAgentTranscriptEntry, runID: UUID, parentSessionID: UUID, before beforeEntryID: UUID? = nil) {
+        let entry = materializedImageEntry(entry, parentSessionID: parentSessionID)
         modifySubagentTranscriptEntries(for: runID) { entries in
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-                entries[index] = entry
+                var next = entry
+                if next.imageReferences.isEmpty {
+                    next.imageReferences = entries[index].imageReferences
+                }
+                entries[index] = next
             } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
                 entries.insert(entry, at: beforeIndex)
             } else {
@@ -2495,10 +2506,13 @@ final class PiAgentSessionStore {
     func rewindSession(_ sessionID: UUID, fromEntryID: UUID, newPiSessionFile: String, newPiSessionId: String?) {
         loadTranscriptIfNeeded(sessionID)
         guard transcriptsBySessionID[sessionID] != nil else { return }
+        var removedImageReferences: [PiAgentTranscriptImageReference] = []
         modifyTranscriptEntries(for: sessionID) { entries in
             guard let index = entries.firstIndex(where: { $0.id == fromEntryID }) else { return }
+            removedImageReferences = entries[index...].flatMap(\.imageReferences)
             entries.removeSubrange(index...)
         }
+        deleteTranscriptImages(removedImageReferences)
         updateSession(sessionID) { record in
             record.piSessionFile = newPiSessionFile
             record.piSessionId = newPiSessionId
@@ -2509,6 +2523,7 @@ final class PiAgentSessionStore {
     }
 
     func append(_ entry: PiAgentTranscriptEntry) {
+        let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
         modifyTranscriptEntries(for: entry.sessionID) { entries in
             entries.append(entry)
             trimTranscriptEntries(&entries)
@@ -2522,11 +2537,16 @@ final class PiAgentSessionStore {
     }
 
     func upsert(_ entry: PiAgentTranscriptEntry, before beforeEntryID: UUID? = nil, persist: Bool = true) {
+        let entry = materializedImageEntry(entry, parentSessionID: entry.sessionID)
         let isNewEntry: Bool
         var insertedEntry = false
         modifyTranscriptEntries(for: entry.sessionID) { entries in
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-                entries[index] = entry
+                var next = entry
+                if next.imageReferences.isEmpty {
+                    next.imageReferences = entries[index].imageReferences
+                }
+                entries[index] = next
             } else if let beforeEntryID, let beforeIndex = entries.firstIndex(where: { $0.id == beforeEntryID }) {
                 entries.insert(entry, at: beforeIndex)
                 insertedEntry = true
@@ -2557,6 +2577,7 @@ final class PiAgentSessionStore {
         modifyTranscriptEntries(for: sessionID) { entries in
             guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
             mutate(&entries[index])
+            entries[index] = materializedImageEntry(entries[index], parentSessionID: sessionID)
             didUpdate = true
         }
         guard didUpdate else { return }
@@ -2602,6 +2623,7 @@ final class PiAgentSessionStore {
             sessionPlanEventsBySessionID[sessionID] = nil
             processingActivityBySessionID[sessionID] = nil
             deleteGeneralChatScratchFolders(for: sessionID)
+            deleteTranscriptImages(for: sessionID)
             sessionsTouchedThisRun.remove(sessionID)
         }
         if let currentSelectedSessionID = selectedSessionID, existingIDs.contains(currentSelectedSessionID) {
@@ -2635,6 +2657,7 @@ final class PiAgentSessionStore {
     func clearTranscript(for sessionID: UUID) {
         cancelTranscriptLoadTask(for: sessionID)
         transcriptsBySessionID[sessionID] = []
+        deleteTranscriptImages(for: sessionID)
         persistTranscript(sessionID)
         markTranscriptSessionUsed(sessionID)
         bumpTranscriptRevision(sessionID)
@@ -2922,6 +2945,196 @@ final class PiAgentSessionStore {
         save()
     }
 
+    private func materializedImageEntry(_ entry: PiAgentTranscriptEntry, parentSessionID: UUID) -> PiAgentTranscriptEntry {
+        guard entry.imageReferences.isEmpty, shouldMaterializeImages(for: entry) else { return entry }
+        let candidates = Self.transcriptImageCandidates(
+            text: entry.text,
+            rawJSON: entry.rawJSON
+        )
+        guard !candidates.isEmpty else { return entry }
+        var copy = entry
+        copy.imageReferences = candidates.prefix(Self.maxTranscriptImageCandidatesPerEntry).compactMap { materializeTranscriptImage($0, entryID: entry.id, parentSessionID: parentSessionID) }
+        return copy
+    }
+
+    private static let maxTranscriptImageCandidatesPerEntry = 8
+    private static let maxTranscriptImageBytes = 25 * 1024 * 1024
+
+    private struct TranscriptImageCandidate: Hashable {
+        var name: String?
+        var mimeType: String?
+        var data: String?
+        var localPath: String?
+        var source: String?
+    }
+
+    private nonisolated static func transcriptImageCandidates(text: String, rawJSON: String?) -> [TranscriptImageCandidate] {
+        var candidates = markdownImageCandidates(in: text)
+        if let rawJSON, let data = rawJSON.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data),
+           let value = JSONValue.fromFoundation(object) {
+            candidates.append(contentsOf: structuredImageCandidates(in: value))
+        }
+        var seen = Set<String>()
+        return candidates.filter { candidate in
+            let key = candidate.data.map { "data:\($0.prefix(80))" }
+                ?? candidate.localPath.map { "path:\($0)" }
+                ?? candidate.source
+                ?? candidate.name
+                ?? UUID().uuidString
+            return seen.insert(key).inserted
+        }
+    }
+
+    private nonisolated static func markdownImageCandidates(in text: String) -> [TranscriptImageCandidate] {
+        let patterns = [#"!\[[^\]]*\]\(([^\s\)]+)(?:\s+\"[^\"]*\")?\)"#, #"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>"#]
+        var out: [TranscriptImageCandidate] = []
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            for match in regex.matches(in: text, range: range) {
+                guard let srcRange = Range(match.range(at: 1), in: text) else { continue }
+                let src = String(text[srcRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let dataCandidate = dataURLCandidate(src) {
+                    out.append(dataCandidate)
+                } else if isLocalImageReference(src) {
+                    out.append(.init(name: URL(fileURLWithPath: src).lastPathComponent, mimeType: nil, data: nil, localPath: src, source: src))
+                }
+            }
+        }
+        return out
+    }
+
+    private nonisolated static func structuredImageCandidates(in value: JSONValue) -> [TranscriptImageCandidate] {
+        var out: [TranscriptImageCandidate] = []
+        func walk(_ value: JSONValue) {
+            switch value {
+            case let .object(object):
+                let type = object["type"]?.stringValue?.lowercased()
+                let mime = object["mimeType"]?.stringValue ?? object["mime_type"]?.stringValue ?? object["mediaType"]?.stringValue
+                let name = object["name"]?.stringValue ?? object["filename"]?.stringValue ?? object["fileName"]?.stringValue
+                if type == "image" || mime?.hasPrefix("image/") == true {
+                    if let data = object["data"]?.stringValue ?? object["base64"]?.stringValue {
+                        out.append(.init(name: name, mimeType: mime, data: data, localPath: nil, source: name))
+                    }
+                    if let src = object["url"]?.stringValue ?? object["uri"]?.stringValue ?? object["path"]?.stringValue {
+                        if let dataCandidate = dataURLCandidate(src) {
+                            out.append(dataCandidate)
+                        } else if isLocalImageReference(src) {
+                            out.append(.init(name: name ?? URL(fileURLWithPath: src).lastPathComponent, mimeType: mime, data: nil, localPath: src, source: src))
+                        }
+                    }
+                }
+                if let imageURL = object["image_url"] {
+                    if let src = imageURL.stringValue ?? imageURL["url"]?.stringValue {
+                        if let dataCandidate = dataURLCandidate(src) {
+                            out.append(dataCandidate)
+                        } else if isLocalImageReference(src) {
+                            out.append(.init(name: name ?? URL(fileURLWithPath: src).lastPathComponent, mimeType: mime, data: nil, localPath: src, source: src))
+                        }
+                    }
+                }
+                object.values.forEach(walk)
+            case let .array(values):
+                values.forEach(walk)
+            default:
+                break
+            }
+        }
+        walk(value)
+        return out
+    }
+
+    private nonisolated static func dataURLCandidate(_ value: String) -> TranscriptImageCandidate? {
+        guard value.lowercased().hasPrefix("data:image/"),
+              let comma = value.firstIndex(of: ",") else { return nil }
+        let header = String(value[..<comma])
+        let data = String(value[value.index(after: comma)...])
+        let mime = header.dropFirst("data:".count).split(separator: ";").first.map(String.init)
+        return .init(name: nil, mimeType: mime, data: data, localPath: nil, source: "data-url")
+    }
+
+    private nonisolated static func isLocalImageReference(_ value: String) -> Bool {
+        if value.lowercased().hasPrefix("http://") || value.lowercased().hasPrefix("https://") { return false }
+        let ext = URL(fileURLWithPath: value).pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "webp", "tiff", "tif", "heic"].contains(ext)
+    }
+
+    private func materializeTranscriptImage(_ candidate: TranscriptImageCandidate, entryID: UUID, parentSessionID: UUID) -> PiAgentTranscriptImageReference? {
+        let directory = transcriptImageDirectory(for: parentSessionID)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = Self.imageFileExtension(mimeType: candidate.mimeType, name: candidate.name ?? candidate.localPath) ?? "png"
+        let safeName = (candidate.name ?? "image").safeFilenameComponent
+        let destination = directory.appendingPathComponent("\(entryID.uuidString)-\(UUID().uuidString)-\(safeName)").appendingPathExtension(ext)
+        do {
+            if let base64 = candidate.data {
+                guard let data = Data(base64Encoded: base64, options: [.ignoreUnknownCharacters]),
+                      data.count <= Self.maxTranscriptImageBytes else { return nil }
+                try data.write(to: destination, options: .atomic)
+            } else if let localPath = candidate.localPath, let sourceURL = resolvedLocalImageURL(localPath, parentSessionID: parentSessionID) {
+                let size = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                guard size <= Self.maxTranscriptImageBytes else { return nil }
+                try FileManager.default.copyItem(at: sourceURL, to: destination)
+            } else {
+                return nil
+            }
+            return PiAgentTranscriptImageReference(
+                name: candidate.name ?? destination.lastPathComponent,
+                mimeType: candidate.mimeType,
+                localPath: destination.path,
+                source: candidate.source ?? candidate.localPath
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private nonisolated static func imageFileExtension(mimeType: String?, name: String?) -> String? {
+        if let ext = name.map({ URL(fileURLWithPath: $0).pathExtension.lowercased() }), !ext.isEmpty { return ext }
+        switch mimeType?.lowercased() {
+        case "image/jpeg", "image/jpg": return "jpg"
+        case "image/png": return "png"
+        case "image/gif": return "gif"
+        case "image/webp": return "webp"
+        case "image/tiff": return "tiff"
+        case "image/heic": return "heic"
+        default: return nil
+        }
+    }
+
+    private func resolvedLocalImageURL(_ value: String, parentSessionID: UUID) -> URL? {
+        guard let session = sessions.first(where: { $0.id == parentSessionID }) else { return nil }
+        let basePath = session.worktreePath?.isEmpty == false ? session.worktreePath! : session.projectPath
+        guard !basePath.isEmpty else { return nil }
+        let base = URL(fileURLWithPath: basePath, isDirectory: true).standardizedFileURL
+        let temp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).standardizedFileURL
+
+        let candidate: URL
+        if value.lowercased().hasPrefix("file://"), let url = URL(string: value) {
+            candidate = url.standardizedFileURL
+        } else {
+            let url = URL(fileURLWithPath: value)
+            candidate = url.path.hasPrefix("/") ? url.standardizedFileURL : base.appendingPathComponent(value).standardizedFileURL
+        }
+
+        guard FileManager.default.fileExists(atPath: candidate.path) else { return nil }
+        // Model/tool output is untrusted. Only snapshot images from the session's
+        // project/worktree or temporary artifact space; do not chase arbitrary
+        // absolute paths mentioned by an LLM into the user's home directory.
+        guard candidate.path.hasPrefix(base.path + "/") || candidate.path == base.path || candidate.path.hasPrefix(temp.path) else { return nil }
+        return candidate
+    }
+
+    private func transcriptImageDirectory(for sessionID: UUID) -> URL {
+        transcriptImagesDirectoryURL
+            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
+            .appendingPathComponent("images", isDirectory: true)
+    }
+
+    private func shouldMaterializeImages(for entry: PiAgentTranscriptEntry) -> Bool {
+        entry.role == .assistant || entry.role == .tool || entry.isToolError
+    }
+
     private func modifyTranscriptEntries(for sessionID: UUID, _ mutate: (inout [PiAgentTranscriptEntry]) -> Void) {
         loadTranscriptIfNeeded(sessionID)
         mutate(&transcriptsBySessionID[sessionID, default: []])
@@ -3162,6 +3375,23 @@ final class PiAgentSessionStore {
         saveQueue.async {
             for url in urls {
                 try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    private func deleteTranscriptImages(for sessionID: UUID) {
+        let url = transcriptImageDirectory(for: sessionID)
+        saveQueue.async {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func deleteTranscriptImages(_ references: [PiAgentTranscriptImageReference]) {
+        guard !references.isEmpty else { return }
+        let paths = references.map(\.localPath)
+        saveQueue.async {
+            for path in paths {
+                try? FileManager.default.removeItem(atPath: path)
             }
         }
     }

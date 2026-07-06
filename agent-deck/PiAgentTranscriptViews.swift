@@ -408,6 +408,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
         var tool: String
         var argsPreview: String?
         var resultPreview: String?
+        var imageReferences: [PiAgentTranscriptImageReference] = []
         var isError: Bool
     }
 
@@ -435,6 +436,7 @@ struct PiAgentTranscriptActivity: Identifiable, Hashable {
                 tool: address.tool,
                 argsPreview: PiAgentTranscriptActivity.mcpArgsPreview(args?["args"]),
                 resultPreview: resultText.isEmpty ? nil : resultText,
+                imageReferences: entry.imageReferences,
                 isError: isError
             )
         }

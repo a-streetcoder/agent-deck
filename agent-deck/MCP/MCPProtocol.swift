@@ -83,6 +83,9 @@ nonisolated struct MCPToolsListResult: Decodable, Hashable, Sendable {
 nonisolated struct MCPContentBlock: Decodable, Hashable, Sendable {
     var type: String
     var text: String?
+    var data: String?
+    var mimeType: String?
+    var url: String?
 }
 
 nonisolated struct MCPCallResult: Decodable, Hashable, Sendable {

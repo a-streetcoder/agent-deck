@@ -131,6 +131,7 @@ struct NativeBubblePayload {
     /// SF Symbol name for the header icon; `nil` renders the bundled "pi" logo.
     var iconSymbol: String?
     var markdownSource: String
+    var imageReferences: [PiAgentTranscriptImageReference] = []
     /// Small bold label above the body (e.g. "Reasoning" for thinking rows).
     var bodyPrefix: String?
     var copyText: String
@@ -156,6 +157,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     private let prefixLabel = NSTextField(labelWithString: "")
     private let markdownContainer = NativeMarkdownTextContainer()
     private let markdownApplier = MarkdownSourceApplier()
+    private let imageStrip = NSStackView()
 
     // Hover-revealed copy (+ fork) buttons, real Liquid Glass via NSGlassEffectView.
     // The glyphs are NSImageViews (not NSButtons) so we can drive the SF Symbol
@@ -222,10 +224,17 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         // card appearing to jump). Low compression resistance = always yields.
         markdownContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        imageStrip.translatesAutoresizingMaskIntoConstraints = false
+        imageStrip.orientation = .horizontal
+        imageStrip.alignment = .top
+        imageStrip.spacing = 8
+        imageStrip.isHidden = true
+
         cardView.addSubview(iconView)
         cardView.addSubview(headerLabel)
         cardView.addSubview(prefixLabel)
         cardView.addSubview(markdownContainer)
+        cardView.addSubview(imageStrip)
 
         setupButtons()
         buildConstraints()
@@ -264,6 +273,8 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     private var mdTrailingC: NSLayoutConstraint!
     private var mdBottomC: NSLayoutConstraint!
     private var mdTopC: NSLayoutConstraint!
+    private var imageTopC: NSLayoutConstraint!
+    private var imageBottomC: NSLayoutConstraint!
     private var prefixTopC: NSLayoutConstraint!
     private var prefixLeadingC: NSLayoutConstraint!
     private var headerTrailingC: NSLayoutConstraint!
@@ -280,6 +291,10 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         mdLeadingC = markdownContainer.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: hPad)
         mdTrailingC = markdownContainer.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -hPad)
         mdBottomC = markdownContainer.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -vPad)
+        imageTopC = imageStrip.topAnchor.constraint(equalTo: markdownContainer.bottomAnchor, constant: 8)
+        imageBottomC = imageStrip.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -vPad)
+        imageTopC.isActive = false
+        imageBottomC.isActive = false
         // The cell imposes a fixed height (NSView-Encapsulated-Layout-Height). If a
         // measured height is even 1pt short of the markdown's required intrinsic
         // height, that fixed height vs. the required content height is unsatisfiable
@@ -300,7 +315,9 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             headerLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             headerTrailingC,
             prefixLeadingC,
-            mdLeadingC, mdTrailingC, mdTopC, mdBottomC
+            mdLeadingC, mdTrailingC, mdTopC, mdBottomC,
+            imageStrip.leadingAnchor.constraint(equalTo: markdownContainer.leadingAnchor),
+            imageStrip.trailingAnchor.constraint(lessThanOrEqualTo: markdownContainer.trailingAnchor)
         ])
         // The one and only horizontal placement constraint. Always active; its
         // constant is set per-configure (0 for replies, width−cardWidth for
@@ -356,6 +373,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         mdLeadingC.constant = hPad
         mdTrailingC.constant = -hPad
         mdBottomC.constant = -vPad
+        imageBottomC.constant = -vPad
 
         // Fix the card width and its single leading-offset constant from the
         // KNOWN row-width param (not a live frame): questions sit right-aligned
@@ -397,6 +415,7 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
 
         // Body — routes through the shared applier (in-place streaming update).
         markdownApplier.apply(source: payload.markdownSource, to: markdownContainer)
+        configureImageStrip(payload.imageReferences)
 
         // Buttons: presence, order, and which gutter they float in.
         forkGlass.isHidden = payload.fork == nil
@@ -484,12 +503,51 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             h += ceil(prefixLabel.intrinsicContentSize.height) + prefixSpacing
         }
         h += markdownContainer.measureHeight(forWidth: inner)
+        if payload?.imageReferences.isEmpty == false {
+            h += 8 + Self.thumbnailSide
+        }
         h += vPad
         return ceil(h)
     }
 
+    private static let thumbnailSide: CGFloat = 96
+
     private func headerRowHeight() -> CGFloat {
         max(16, ceil(headerLabel.intrinsicContentSize.height))
+    }
+
+    private func configureImageStrip(_ references: [PiAgentTranscriptImageReference]) {
+        imageStrip.arrangedSubviews.forEach { view in
+            imageStrip.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        guard !references.isEmpty else {
+            imageStrip.isHidden = true
+            mdBottomC.isActive = true
+            imageTopC.isActive = false
+            imageBottomC.isActive = false
+            return
+        }
+        imageStrip.isHidden = false
+        mdBottomC.isActive = false
+        imageTopC.isActive = true
+        imageBottomC.isActive = true
+        for reference in references.prefix(4) {
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.image = AgentImageLoader.image(at: URL(fileURLWithPath: reference.localPath))
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.wantsLayer = true
+            imageView.layer?.cornerRadius = 8
+            imageView.layer?.cornerCurve = .continuous
+            imageView.layer?.masksToBounds = true
+            imageView.toolTip = reference.name
+            NSLayoutConstraint.activate([
+                imageView.widthAnchor.constraint(equalToConstant: Self.thumbnailSide),
+                imageView.heightAnchor.constraint(equalToConstant: Self.thumbnailSide)
+            ])
+            imageStrip.addArrangedSubview(imageView)
+        }
     }
 
     // MARK: Copy / fork buttons (Liquid Glass)

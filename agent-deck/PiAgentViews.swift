@@ -5872,6 +5872,7 @@ struct PiAgentScreen: View {
                 headerTitle: "Steering",
                 iconSymbol: "arrowshape.turn.up.forward.circle",
                 markdownSource: text,
+                imageReferences: entry.imageReferences,
                 bodyPrefix: nil,
                 copyText: entry.text,
                 copySide: .leading,
@@ -5977,6 +5978,7 @@ struct PiAgentScreen: View {
                 headerTitle: "Coding Agent",
                 iconSymbol: nil,
                 markdownSource: text,
+                imageReferences: entry.imageReferences,
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
                 copySide: .trailing,
@@ -5989,6 +5991,7 @@ struct PiAgentScreen: View {
                 headerTitle: entry.title,
                 iconSymbol: "brain.head.profile",
                 markdownSource: display.isEmpty ? "Pi has not emitted reasoning text yet." : display,
+                imageReferences: entry.imageReferences,
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,
@@ -6140,6 +6143,7 @@ struct PiAgentScreen: View {
         hasher.combine(entry.role)
         hasher.combine(entry.text.count)
         hasher.combine(entry.rawJSON?.count ?? 0)
+        hasher.combine(entry.imageReferences)
     }
 
     private func hashThreadRevision(_ thread: PiAgentTranscriptThread, into hasher: inout Hasher) {
@@ -6164,6 +6168,7 @@ struct PiAgentScreen: View {
         hasher.combine(entry.title)
         hasher.combine(entry.text.count)
         hasher.combine(entry.rawJSON?.count ?? 0)
+        hasher.combine(entry.imageReferences)
         hasher.combine(entry.timestamp)
     }
 

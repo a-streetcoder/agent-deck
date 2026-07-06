@@ -1397,6 +1397,24 @@ struct PiAgentUIRequest: Identifiable, Hashable {
     }
 }
 
+struct PiAgentTranscriptImageReference: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var name: String
+    var mimeType: String?
+    /// Session-owned local file path for the materialized image. Remote URLs are
+    /// intentionally not fetched by v1 and are therefore not persisted here.
+    var localPath: String
+    var source: String?
+
+    init(id: UUID = UUID(), name: String, mimeType: String? = nil, localPath: String, source: String? = nil) {
+        self.id = id
+        self.name = name
+        self.mimeType = mimeType
+        self.localPath = localPath
+        self.source = source
+    }
+}
+
 struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
     let id: UUID
     var sessionID: UUID
@@ -1405,6 +1423,18 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
     var text: String
     var rawJSON: String?
     var timestamp: Date
+    var imageReferences: [PiAgentTranscriptImageReference]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionID
+        case role
+        case title
+        case text
+        case rawJSON
+        case timestamp
+        case imageReferences
+    }
 
     init(
         id: UUID = UUID(),
@@ -1413,7 +1443,8 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
         title: String,
         text: String,
         rawJSON: String? = nil,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        imageReferences: [PiAgentTranscriptImageReference] = []
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -1422,6 +1453,19 @@ struct PiAgentTranscriptEntry: Identifiable, Codable, Hashable {
         self.text = text
         self.rawJSON = rawJSON
         self.timestamp = timestamp
+        self.imageReferences = imageReferences
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        sessionID = try container.decode(UUID.self, forKey: .sessionID)
+        role = try container.decode(PiAgentTranscriptRole.self, forKey: .role)
+        title = try container.decode(String.self, forKey: .title)
+        text = try container.decode(String.self, forKey: .text)
+        rawJSON = try container.decodeIfPresent(String.self, forKey: .rawJSON)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        imageReferences = try container.decodeIfPresent([PiAgentTranscriptImageReference].self, forKey: .imageReferences) ?? []
     }
 }
 
