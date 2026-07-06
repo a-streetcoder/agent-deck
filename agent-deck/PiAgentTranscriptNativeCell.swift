@@ -168,6 +168,7 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
     private static let minImageHeight: CGFloat = 72
     private static let tileWidth: CGFloat = 104
     private static let tileImageHeight: CGFloat = 58
+    private static let imageVInset: CGFloat = 6
     private static let captionGap: CGFloat = 6
 
     override init(frame frameRect: NSRect) {
@@ -209,8 +210,8 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
             container.leadingAnchor.constraint(equalTo: leadingAnchor),
             container.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             imageWidthC,
-            imageView.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
-            imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
+            imageView.topAnchor.constraint(equalTo: container.topAnchor, constant: Self.imageVInset),
+            imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Self.imageVInset),
             imageHeightC,
             imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
             imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
@@ -250,7 +251,9 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
 
     static func measuredHeight(reference: PiAgentTranscriptImageReference, width: CGFloat, style: DisplayStyle = .inline) -> CGFloat {
         let font = NativeTranscriptFont.caption2()
-        return imageHeight(reference: reference, width: thumbnailWidth(for: width, style: style), style: style) + captionGap + ceil(font.ascender - font.descender + font.leading)
+        let imageContentHeight = imageHeight(reference: reference, width: thumbnailWidth(for: width, style: style), style: style)
+        let containerHeight = imageContentHeight + imageVInset * 2
+        return containerHeight + captionGap + ceil(font.ascender - font.descender + font.leading)
     }
 
 
