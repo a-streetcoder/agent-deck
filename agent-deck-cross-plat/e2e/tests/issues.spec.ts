@@ -20,9 +20,23 @@ const project = mkdtempSync(path.join(tmpdir(), "proj-issues-"));
 test.beforeAll(async () => {
   // Stub gh so the test needs no network or real repo.
   const stub = path.join(mkdtempSync(path.join(tmpdir(), "gh-stub-")), "gh");
+  // Vary the returned issue by the --state the server forwards, so the e2e can
+  // prove the Open / Closed filter re-queries gh.
   writeFileSync(
     stub,
-    `#!/bin/sh\ncat <<'JSON'\n[{"number":7,"title":"Fix the flux capacitor","state":"OPEN","url":"https://github.com/x/y/issues/7","labels":[{"name":"bug"}]}]\nJSON\n`,
+    `#!/bin/sh
+state=open
+while [ $# -gt 0 ]; do case "$1" in --state) shift; state="$1" ;; esac; shift; done
+if [ "$state" = "closed" ]; then
+cat <<'JSON'
+[{"number":9,"title":"Old flux leak (fixed)","state":"CLOSED","url":"https://github.com/x/y/issues/9","labels":[]}]
+JSON
+else
+cat <<'JSON'
+[{"number":7,"title":"Fix the flux capacitor","state":"OPEN","url":"https://github.com/x/y/issues/7","labels":[{"name":"bug"}]}]
+JSON
+fi
+`,
   );
   chmodSync(stub, 0o755);
   process.env.AGENT_DECK_GH_BIN = stub;
@@ -61,4 +75,19 @@ test("lists a project's issues and starts a session seeded from one", async ({ p
   // Selecting it starts a chat with the composer seeded from the issue.
   await issue.click();
   await expect(page.getByTestId("composer-input")).toHaveValue(/issue #7: Fix the flux capacitor/);
+});
+
+test("the Open / Closed filter re-queries gh for the chosen state", async ({ page }) => {
+  await page.goto(harness.baseUrl);
+  await page.getByTestId(`project-${path.basename(project)}`).click();
+  await page.getByTestId("nav-issues").click();
+
+  // Defaults to open: the open issue shows, the closed one doesn't.
+  await expect(page.getByTestId("issue-7")).toBeVisible();
+  await expect(page.getByTestId("issue-9")).toHaveCount(0);
+
+  // Switching to Closed re-fetches with --state closed.
+  await page.getByTestId("issues-state-closed").click();
+  await expect(page.getByTestId("issue-9")).toContainText("Old flux leak");
+  await expect(page.getByTestId("issue-7")).toHaveCount(0);
 });

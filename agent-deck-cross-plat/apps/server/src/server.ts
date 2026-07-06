@@ -1460,11 +1460,26 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   fastify.get("/projects/:id/issues", async (request, reply) => {
     const project = projects.find((p) => p.id === (request.params as { id: string }).id);
     if (!project) return reply.status(404).send({ error: "unknown project" });
+    // Filter by issue state (native Issues screen's Open / Closed / All segmented control).
+    const stateParsed = z
+      .enum(["open", "closed", "all"])
+      .default("open")
+      .safeParse((request.query as { state?: string }).state);
+    if (!stateParsed.success) return reply.status(400).send({ error: "invalid state filter" });
     const ghBin = process.env.AGENT_DECK_GH_BIN || "gh";
     try {
       const { stdout } = await execFileAsync(
         ghBin,
-        ["issue", "list", "--json", "number,title,state,url,labels", "--limit", "50"],
+        [
+          "issue",
+          "list",
+          "--state",
+          stateParsed.data,
+          "--json",
+          "number,title,state,url,labels",
+          "--limit",
+          "50",
+        ],
         { cwd: project.path, timeout: 15_000, maxBuffer: 8_000_000 },
       );
       const raw = JSON.parse(stdout) as Array<{

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleDot, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
 import { newChat } from "../state/wsBridge.ts";
 
@@ -26,19 +27,31 @@ export function IssuesScreen() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [error, setLocalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Native Issues screen's Open / Closed / All segmented filter.
+  const [stateFilter, setStateFilter] = useState<"open" | "closed" | "all">("open");
+  // Monotonic request token: a slow fetch for a stale project/filter must not
+  // clobber the result of a newer one (the filter buttons stay clickable).
+  const reqRef = useRef(0);
 
-  const load = useCallback(async (projectId: string): Promise<void> => {
-    setLoading(true);
-    setLocalError(null);
-    try {
-      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/issues`);
-      const data = (await response.json()) as { issues?: Issue[]; error?: string };
-      setIssues(data.issues ?? []);
-      setLocalError(data.error ?? (response.ok ? null : "Couldn't load issues."));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (projectId: string): Promise<void> => {
+      const req = ++reqRef.current;
+      setLoading(true);
+      setLocalError(null);
+      try {
+        const response = await fetch(
+          `/projects/${encodeURIComponent(projectId)}/issues?state=${stateFilter}`,
+        );
+        const data = (await response.json()) as { issues?: Issue[]; error?: string };
+        if (reqRef.current !== req) return; // a newer load superseded this one
+        setIssues(data.issues ?? []);
+        setLocalError(data.error ?? (response.ok ? null : "Couldn't load issues."));
+      } finally {
+        if (reqRef.current === req) setLoading(false);
+      }
+    },
+    [stateFilter],
+  );
 
   useEffect(() => {
     if (currentProjectId) void load(currentProjectId);
@@ -81,17 +94,44 @@ export function IssuesScreen() {
               {project.name} · Issues
             </h2>
           </div>
-          <button
-            data-testid="issues-refresh"
-            className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-0.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
-            disabled={loading}
-            onClick={() => currentProjectId && void load(currentProjectId)}
-          >
-            <RefreshCw size={11} className={loading ? "animate-spin" : undefined} /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-0.5 rounded-capsule border border-border-subtle p-0.5"
+              role="group"
+              aria-label="Filter issues by state"
+            >
+              {(["open", "closed", "all"] as const).map((s) => (
+                <button
+                  key={s}
+                  data-testid={`issues-state-${s}`}
+                  aria-pressed={stateFilter === s}
+                  className={cn(
+                    "rounded-capsule px-2.5 py-0.5 text-xs capitalize transition-colors",
+                    stateFilter === s
+                      ? "bg-[var(--color-selection-fill)] text-text-primary"
+                      : "text-text-muted hover:text-text-primary",
+                  )}
+                  onClick={() => setStateFilter(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button
+              data-testid="issues-refresh"
+              className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-0.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+              disabled={loading}
+              onClick={() => currentProjectId && void load(currentProjectId)}
+            >
+              <RefreshCw size={11} className={loading ? "animate-spin" : undefined} /> Refresh
+            </button>
+          </div>
         </div>
         <p className="pb-3 text-xs text-text-muted">
-          Open GitHub issues for this project. Select one to start a session on it.
+          {stateFilter === "all"
+            ? "All GitHub issues for this project."
+            : `${stateFilter === "open" ? "Open" : "Closed"} GitHub issues for this project.`}{" "}
+          Select one to start a session on it.
         </p>
 
         {error ? (
@@ -128,7 +168,9 @@ export function IssuesScreen() {
               </button>
             ))}
             {issues.length === 0 && !loading ? (
-              <div className="py-8 text-center text-sm text-text-muted">No open issues.</div>
+              <div className="py-8 text-center text-sm text-text-muted">
+                {stateFilter === "all" ? "No issues." : `No ${stateFilter} issues.`}
+              </div>
             ) : null}
           </div>
         )}
