@@ -62,10 +62,12 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
 import {
   buildMemoryPreamble,
+  buildRecalledMemories,
   deleteMemory,
   getMemory,
   injectableIndex,
   listMemories,
+  searchMemories,
   setMemoryStatus,
   writeMemory,
   type MemoryStore,
@@ -335,6 +337,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         sessionId,
         token,
         tools: bridge.specs(),
+        // Per-turn memory recall via a before_agent_start hook (only meaningful
+        // when memory is on; the launch index carries just titles).
+        recall: memoryEnabled,
       });
     },
     (cwd, home) => {
@@ -1962,6 +1967,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     return true;
   }
 
+  // Memory recall for the before_agent_start hook: rank the session project's
+  // memories by lexical relevance to the user's message and return the top ones'
+  // full bodies as an injectable block (empty → the hook injects nothing). The
+  // launch index carries only titles; this surfaces the relevant bodies per turn.
+  const RECALL_LIMIT = 4;
+  function handleRecall(sessionId: string, params: Record<string, unknown>): { content: string } {
+    if (!memoryEnabled) return { content: "" };
+    const query = typeof params.query === "string" ? params.query : "";
+    const cwd = sessions.get(sessionId)?.meta.cwd;
+    if (!cwd || !query.trim()) return { content: "" };
+    const store: MemoryStore = { baseDir: memoryBaseDir, projectPath: cwd };
+    const hits = searchMemories(store, query, RECALL_LIMIT);
+    return { content: buildRecalledMemories(hits.map((h) => h.record)) };
+  }
+
   // The app side of the bridge: a session's generated extension POSTs each
   // app-managed tool call here, and the registry dispatches it to the handler.
   // Loopback-only (the pi subprocess is local); the response maps to the pi
@@ -1981,6 +2001,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     // disposed on child death, which releases the wait).
     if (parsed.data.tool === "contact_supervisor") {
       return await handleContactSupervisor(parsed.data.sessionId, parsed.data.params);
+    }
+    // The before_agent_start recall hook asks for the memories most relevant to
+    // the user's message (not a model-callable tool — an internal hook channel).
+    if (parsed.data.tool === "__recall__") {
+      return handleRecall(parsed.data.sessionId, parsed.data.params);
     }
     return await bridge.dispatch(parsed.data);
   });

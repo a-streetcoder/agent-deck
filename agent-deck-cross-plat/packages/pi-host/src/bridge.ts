@@ -45,6 +45,13 @@ export interface BridgeExtensionOptions {
   token: string;
   /** The app-managed tools this bridge exposes to pi. */
   tools: BridgeToolSpec[];
+  /**
+   * When true, also register a before_agent_start hook that asks the app (via
+   * the same endpoint, tool `__recall__`) for the memories most relevant to the
+   * user's message and appends them to the turn's system prompt. Off unless the
+   * app has memory recall enabled for this session.
+   */
+  recall?: boolean;
 }
 
 /** The request body the bridge endpoint receives for each tool call. */
@@ -145,7 +152,36 @@ export function writeBridgeExtension(opts: BridgeExtensionOptions): string {
       return { isError: true };
     }
   });
-}
+${
+  opts.recall
+    ? `  // Per-turn memory recall: ask the app for the memories most relevant to this
+  // message and append them to the turn's system prompt. Best-effort — any
+  // failure leaves the prompt unchanged.
+  pi.on("before_agent_start", async (event) => {
+    // Bounded: a hung recall must never stall the turn — abort after 5s.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, token, tool: "__recall__", toolCallId: "recall", params: { query: event.prompt } }),
+        signal: controller.signal,
+      });
+      if (!res.ok) return undefined;
+      const data = await res.json();
+      const block = data && typeof data.content === "string" ? data.content : "";
+      if (!block) return undefined;
+      return { systemPrompt: event.systemPrompt + "\\n\\n" + block };
+    } catch (err) {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+`
+    : ""
+}}
 `,
   );
   return file;

@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { buildMemoryPreamble } from "../src/preamble.ts";
+import { buildMemoryPreamble, buildRecalledMemories } from "../src/preamble.ts";
+
+describe("buildRecalledMemories", () => {
+  it("returns empty string for no records (so the hook injects nothing)", () => {
+    expect(buildRecalledMemories([])).toBe("");
+  });
+
+  it("fences the relevant memory bodies with title/type/id headers", () => {
+    const block = buildRecalledMemories([
+      { id: "mem_1", type: "runbook", title: "Rollback", body: "run the down script" },
+    ]);
+    expect(block).toContain('<memory-recall source="Agent Deck" scope="project">');
+    expect(block).toContain("### Rollback (runbook · mem_1)");
+    expect(block).toContain("run the down script");
+    expect(block).toContain("</memory-recall>");
+  });
+});
 
 describe("memory preamble", () => {
   it("fences the policy and lists the index lines when memories exist", () => {

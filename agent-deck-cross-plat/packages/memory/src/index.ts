@@ -20,7 +20,7 @@ export {
   type MemoryStore,
 } from "./store.ts";
 export { projectMemoryDir, projectMemoryId, standardizeProjectPath } from "./paths.ts";
-export { buildMemoryPreamble, type MemoryIndex } from "./preamble.ts";
+export { buildMemoryPreamble, buildRecalledMemories, type MemoryIndex } from "./preamble.ts";
 export { parseMemory, serializeMemory } from "./frontmatter.ts";
 export { scanForSecrets, type SecretScanResult } from "./secrets.ts";
 export { informativeTerms, memoryTerms, overlapCoefficient, sharedTerms } from "./text.ts";
