@@ -25,26 +25,43 @@ export interface DoctorReport {
   signedInProviders: string[];
 }
 
-async function piVersion(binPath: string): Promise<string | null> {
-  // cross-spawn, not node's execFile: on Windows the resolved binary is the npm
-  // `pi.cmd` shim, and Node refuses to run .cmd/.bat via execFile without
-  // shell:true (the CVE-2024-27980 mitigation → EINVAL). cross-spawn rewrites
-  // the invocation so the shim runs — the same mechanism PiProcess relies on.
+/**
+ * Run `cmd --version` (or the given args) and return its first stdout line, or
+ * null if the command is missing or fails. cross-spawn, not node's execFile: on
+ * Windows the resolved binary may be an npm `.cmd` shim, and Node refuses to run
+ * .cmd/.bat via execFile without shell:true (CVE-2024-27980 mitigation → EINVAL);
+ * cross-spawn rewrites the invocation — the same mechanism PiProcess relies on.
+ */
+function probeVersion(cmd: string, args: string[] = ["--version"]): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = spawn(binPath, ["--version"], { stdio: ["ignore", "pipe", "ignore"] });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      resolve(null);
+      return;
+    }
     let stdout = "";
-    const timer = setTimeout(() => child.kill(), 10_000);
+    let settled = false;
+    const settle = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    // Resolve on the timeout itself — killing alone doesn't guarantee a 'close'
+    // if the child ignores SIGTERM, which would hang runDoctor forever.
+    const timer = setTimeout(() => {
+      child.kill();
+      settle(null);
+    }, 10_000);
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolve(null);
-    });
+    child.on("error", () => settle(null));
     child.on("close", (code) => {
-      clearTimeout(timer);
       const first = stdout.trim().split("\n")[0];
-      resolve(code === 0 && first ? first : null);
+      settle(code === 0 && first ? first : null);
     });
   });
 }
@@ -88,7 +105,7 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
   }
 
   if (binPath) {
-    const version = await piVersion(binPath);
+    const version = await probeVersion(binPath);
     checks.push({
       id: "pi-version",
       label: "pi version",
@@ -97,6 +114,31 @@ export async function runDoctor(home: string = homedir()): Promise<DoctorReport>
     });
     void binSource;
   }
+
+  // bash on PATH: pi's shell tools run through bash, which is native on
+  // macOS/Linux but must come from Git Bash on Windows — a common cross-platform
+  // gotcha, so it is a first-class preflight check.
+  const bashVersion = await probeVersion("bash");
+  const onWindows = process.platform === "win32";
+  checks.push({
+    id: "bash",
+    label: "bash shell",
+    status: bashVersion ? "ok" : "error",
+    detail: bashVersion
+      ? bashVersion
+      : onWindows
+        ? "bash not on PATH — install Git Bash and add it to PATH (pi's shell tools need bash)"
+        : "bash not on PATH — pi's shell tools need bash",
+  });
+
+  // git: pi's version-control tools (and Agent Deck's fork/worktree flows) need it.
+  const gitVersion = await probeVersion("git");
+  checks.push({
+    id: "git",
+    label: "git",
+    status: gitVersion ? "ok" : "warn",
+    detail: gitVersion ?? "git not on PATH — version-control tools will be unavailable",
+  });
 
   const signedInProviders = readSignedInProviders(home);
   const authFile = path.join(home, ".pi", "agent", "auth.json");
