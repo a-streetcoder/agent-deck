@@ -4,7 +4,7 @@ import SwiftUI
 /// by the expanded panel's full list and the collapsed panel's recents so the
 /// toolbar search filters both identically.
 extension PiAgentSessionRecord {
-    static let activeUserMessageInterval: TimeInterval = 600
+    static let activeUserMessageInterval: TimeInterval = 1_800
 
     func hasRecentUserMessage(referenceDate: Date = Date()) -> Bool {
         guard let lastUserMessageAt else { return false }

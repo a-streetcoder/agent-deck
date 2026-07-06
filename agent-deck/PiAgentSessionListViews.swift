@@ -11,7 +11,7 @@ struct PiAgentActiveSessionsFilterButton: View {
             style: isOn ? .soft : .neutral,
             tint: isOn ? AppTheme.brandAccent : AppTheme.mutedText,
             size: 30,
-            help: isOn ? "Show all sessions" : "Show sessions with user activity in the last 10 minutes",
+            help: isOn ? "Show all sessions" : "Show sessions with user activity in the last 30 minutes",
             action: { isOn.toggle() }
         ) {
             Image(systemName: "clock.arrow.circlepath")
