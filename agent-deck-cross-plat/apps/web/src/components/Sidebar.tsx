@@ -10,6 +10,7 @@ import {
   Plug,
   Plus,
   Send,
+  Server,
   Stethoscope,
   WandSparkles,
 } from "lucide-react";
@@ -49,6 +50,7 @@ const RUNTIME_NAV: Array<{ id: AppView; label: string; icon: typeof Send }> = [
   { id: "models", label: "Models", icon: Cpu },
   { id: "environment", label: "Environment", icon: Key },
   { id: "extensions", label: "Extensions", icon: Plug },
+  { id: "mcp", label: "MCP", icon: Server },
   { id: "doctor", label: "Doctor", icon: Stethoscope },
 ];
 

@@ -20,6 +20,7 @@ export type AppView =
   | "extensions"
   | "environment"
   | "memory"
+  | "mcp"
   | "doctor";
 
 export interface AppState {
