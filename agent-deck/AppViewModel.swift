@@ -6608,6 +6608,11 @@ final class AppViewModel: NSObject {
         syncAppSettings()
     }
 
+    func setAutoDownloadRemoteTranscriptImages(_ isEnabled: Bool) {
+        guard appSettingsController.setAutoDownloadRemoteTranscriptImages(isEnabled) else { return }
+        syncAppSettings()
+    }
+
     func setAutoGenerateAgentAvatarPrompts(_ isEnabled: Bool) {
         guard appSettingsController.setAutoGenerateAgentAvatarPrompts(isEnabled) else { return }
         // No model auto-pick on enable: nil identifier = "Default model".

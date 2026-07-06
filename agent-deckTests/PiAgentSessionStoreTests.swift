@@ -83,14 +83,14 @@ final class PiAgentSessionStoreTests: XCTestCase {
         firstStore.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "Here is an image", rawJSON: rawJSON))
         let entry = try XCTUnwrap(firstStore.transcriptsBySessionID[session.id]?.first)
         let reference = try XCTUnwrap(entry.imageReferences.first)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: reference.localPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
         firstStore.flushForTesting()
 
         let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
         await reloadedStore.waitForLoadForTesting()
         let reloadedEntry = try XCTUnwrap(reloadedStore.transcriptForCacheUpdate(session.id).first)
         XCTAssertEqual(reloadedEntry.imageReferences.first?.name, "pixel.png")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: reference.localPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
     }
 
     func testDeletingSessionRemovesTranscriptImageStorage() async throws {
@@ -100,7 +100,7 @@ final class PiAgentSessionStoreTests: XCTestCase {
         let rawJSON = #"{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}"#
         store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "Image", rawJSON: rawJSON))
         let reference = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
-        let imageDirectory = URL(fileURLWithPath: reference.localPath).deletingLastPathComponent()
+        let imageDirectory = URL(fileURLWithPath: try XCTUnwrap(reference.localPath)).deletingLastPathComponent()
         XCTAssertTrue(FileManager.default.fileExists(atPath: imageDirectory.path))
 
         store.deleteSession(session.id)
@@ -122,13 +122,93 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(entry.imageReferences.isEmpty)
     }
 
+    func testRemoteTranscriptImageDefaultsToPersistedPlaceholder() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Remote", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
+
+        let reference = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
+        XCTAssertNil(reference.localPath)
+        XCTAssertEqual(reference.remoteURL, "https://example.com/pixel.png")
+        XCTAssertTrue(reference.isRemotePlaceholder)
+    }
+
+    func testRemoteTranscriptImageAutoDownloadMaterializesFile() async throws {
+        let originalSettings = AppSettingsStore.shared.settings
+        var enabledSettings = originalSettings
+        enabledSettings.autoDownloadRemoteTranscriptImages = true
+        AppSettingsStore.shared.settings = enabledSettings
+        defer {
+            AppSettingsStore.shared.settings = originalSettings
+            PiAgentSessionStore.remoteImageDownloaderForTesting = nil
+        }
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
+        PiAgentSessionStore.remoteImageDownloaderForTesting = { url in
+            XCTAssertEqual(url.absoluteString, "https://example.com/pixel.png")
+            return (png, "image/png")
+        }
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Remote", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
+
+        let materialized = await PiTestSupport.waitUntilAsync {
+            guard let reference = store.transcriptsBySessionID[session.id]?.first?.imageReferences.first,
+                  let localPath = reference.localPath else { return false }
+            return FileManager.default.fileExists(atPath: localPath)
+        }
+        XCTAssertTrue(materialized)
+    }
+
+    func testManualRemoteTranscriptImageDownloadWorksWhenAutoDownloadIsOff() async throws {
+        let originalSettings = AppSettingsStore.shared.settings
+        var disabledSettings = originalSettings
+        disabledSettings.autoDownloadRemoteTranscriptImages = false
+        AppSettingsStore.shared.settings = disabledSettings
+        defer {
+            AppSettingsStore.shared.settings = originalSettings
+            PiAgentSessionStore.remoteImageDownloaderForTesting = nil
+        }
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
+        PiAgentSessionStore.remoteImageDownloaderForTesting = { _ in (png, "image/png") }
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Remote", project: try PiTestSupport.makeProject(), repository: nil)
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
+        let placeholder = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
+        XCTAssertTrue(placeholder.isRemotePlaceholder)
+
+        store.downloadRemoteTranscriptImage(referenceID: placeholder.id, parentSessionID: session.id)
+
+        let materialized = await PiTestSupport.waitUntilAsync {
+            guard let reference = store.transcriptsBySessionID[session.id]?.first?.imageReferences.first,
+                  let localPath = reference.localPath else { return false }
+            return FileManager.default.fileExists(atPath: localPath)
+        }
+        XCTAssertTrue(materialized)
+    }
+
+    func testRemoteTranscriptImagePlaceholderPersistsAcrossReload() async throws {
+        let fileURL = PiTestSupport.temporaryStateFile()
+        let firstStore = PiAgentSessionStore(fileURL: fileURL)
+        let session = firstStore.createSession(kind: .project, title: "Remote", project: try PiTestSupport.makeProject(), repository: nil)
+        firstStore.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "![remote](https://example.com/pixel.png)"))
+        firstStore.flushForTesting()
+
+        let reloadedStore = PiAgentSessionStore(fileURL: fileURL)
+        await reloadedStore.waitForLoadForTesting()
+        let reference = try XCTUnwrap(reloadedStore.transcriptForCacheUpdate(session.id).first?.imageReferences.first)
+        XCTAssertNil(reference.localPath)
+        XCTAssertEqual(reference.remoteURL, "https://example.com/pixel.png")
+    }
+
     func testClearingTranscriptRemovesTranscriptImageStorage() async throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "Images", project: try PiTestSupport.makeProject(), repository: nil)
         let rawJSON = #"{"type":"image","mimeType":"image/png","name":"pixel.png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}"#
         store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "Image", rawJSON: rawJSON))
         let reference = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
-        let imageDirectory = URL(fileURLWithPath: reference.localPath).deletingLastPathComponent()
+        let imageDirectory = URL(fileURLWithPath: try XCTUnwrap(reference.localPath)).deletingLastPathComponent()
 
         store.clearTranscript(for: session.id)
 

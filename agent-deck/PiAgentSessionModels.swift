@@ -1401,17 +1401,21 @@ struct PiAgentTranscriptImageReference: Identifiable, Codable, Hashable, Sendabl
     var id: UUID
     var name: String
     var mimeType: String?
-    /// Session-owned local file path for the materialized image. Remote URLs are
-    /// intentionally not fetched by v1 and are therefore not persisted here.
-    var localPath: String
+    /// Session-owned local file path for the materialized image. Nil means this
+    /// is a persisted remote placeholder that has not been downloaded yet.
+    var localPath: String?
     var source: String?
+    var remoteURL: String?
 
-    init(id: UUID = UUID(), name: String, mimeType: String? = nil, localPath: String, source: String? = nil) {
+    var isRemotePlaceholder: Bool { localPath == nil && remoteURL != nil }
+
+    init(id: UUID = UUID(), name: String, mimeType: String? = nil, localPath: String?, source: String? = nil, remoteURL: String? = nil) {
         self.id = id
         self.name = name
         self.mimeType = mimeType
         self.localPath = localPath
         self.source = source
+        self.remoteURL = remoteURL
     }
 }
 

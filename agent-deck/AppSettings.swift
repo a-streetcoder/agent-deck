@@ -186,6 +186,9 @@ struct AppSettings: Codable, Hashable {
     var piAgentCommitMessageModelIdentifier: String?
     var piAgentSessionsUseWorktree: Bool = false
     var piAgentSessionsKeepWorktreeAfterMerge: Bool = true
+    /// When on, transcript image placeholders for safe HTTPS URLs are downloaded
+    /// automatically. Off by default because LLM/tool output is untrusted.
+    var autoDownloadRemoteTranscriptImages: Bool = false
     /// When on, the app silently updates Pi to the latest release once per
     /// launch if a newer version is available. Off by default: auto-updating a
     /// shared CLI binary is opt-in.
@@ -246,6 +249,7 @@ struct AppSettings: Codable, Hashable {
         case piAgentCommitMessageModelIdentifier
         case piAgentSessionsUseWorktree
         case piAgentSessionsKeepWorktreeAfterMerge
+        case autoDownloadRemoteTranscriptImages
         case piAgentAutoUpdateEnabled
         case autoGenerateAgentAvatarPrompts
         case agentAvatarPromptModelIdentifier
@@ -307,6 +311,7 @@ struct AppSettings: Codable, Hashable {
         piAgentCommitMessageModelIdentifier = try container.decodeIfPresent(String.self, forKey: .piAgentCommitMessageModelIdentifier)
         piAgentSessionsUseWorktree = try container.decodeIfPresent(Bool.self, forKey: .piAgentSessionsUseWorktree) ?? false
         piAgentSessionsKeepWorktreeAfterMerge = try container.decodeIfPresent(Bool.self, forKey: .piAgentSessionsKeepWorktreeAfterMerge) ?? true
+        autoDownloadRemoteTranscriptImages = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadRemoteTranscriptImages) ?? false
         piAgentAutoUpdateEnabled = try container.decodeIfPresent(Bool.self, forKey: .piAgentAutoUpdateEnabled) ?? false
         autoGenerateAgentAvatarPrompts = try container.decodeIfPresent(Bool.self, forKey: .autoGenerateAgentAvatarPrompts) ?? true
         agentAvatarPromptModelIdentifier = try container.decodeIfPresent(String.self, forKey: .agentAvatarPromptModelIdentifier)

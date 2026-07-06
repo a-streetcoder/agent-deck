@@ -837,6 +837,14 @@ final class AppSettingsController {
     }
 
     @discardableResult
+    func setAutoDownloadRemoteTranscriptImages(_ isEnabled: Bool) -> Bool {
+        guard settings.autoDownloadRemoteTranscriptImages != isEnabled else { return false }
+        settings.autoDownloadRemoteTranscriptImages = isEnabled
+        persist()
+        return true
+    }
+
+    @discardableResult
     func setPiAgentAutoUpdateEnabled(_ isEnabled: Bool) -> Bool {
         guard settings.piAgentAutoUpdateEnabled != isEnabled else { return false }
         settings.piAgentAutoUpdateEnabled = isEnabled

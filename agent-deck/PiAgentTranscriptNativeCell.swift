@@ -142,6 +142,7 @@ struct NativeBubblePayload {
     var isUserHugged: Bool = false
     /// Hover-revealed fork affordance (user questions only).
     var fork: ForkModel? = nil
+    var onDownloadRemoteImage: ((PiAgentTranscriptImageReference) -> Void)? = nil
 }
 
 /// A full-width transcript row: a sized, role-tinted card plus hover-revealed
@@ -533,21 +534,46 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         imageTopC.isActive = true
         imageBottomC.isActive = true
         for reference in references.prefix(4) {
-            let imageView = NSImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            imageView.image = AgentImageLoader.image(at: URL(fileURLWithPath: reference.localPath))
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.wantsLayer = true
-            imageView.layer?.cornerRadius = 8
-            imageView.layer?.cornerCurve = .continuous
-            imageView.layer?.masksToBounds = true
-            imageView.toolTip = reference.name
-            NSLayoutConstraint.activate([
-                imageView.widthAnchor.constraint(equalToConstant: Self.thumbnailSide),
-                imageView.heightAnchor.constraint(equalToConstant: Self.thumbnailSide)
-            ])
-            imageStrip.addArrangedSubview(imageView)
+            if let localPath = reference.localPath {
+                let imageView = NSImageView()
+                imageView.translatesAutoresizingMaskIntoConstraints = false
+                imageView.image = AgentImageLoader.image(at: URL(fileURLWithPath: localPath))
+                imageView.imageScaling = .scaleProportionallyUpOrDown
+                imageView.wantsLayer = true
+                imageView.layer?.cornerRadius = 8
+                imageView.layer?.cornerCurve = .continuous
+                imageView.layer?.masksToBounds = true
+                imageView.toolTip = reference.name
+                NSLayoutConstraint.activate([
+                    imageView.widthAnchor.constraint(equalToConstant: Self.thumbnailSide),
+                    imageView.heightAnchor.constraint(equalToConstant: Self.thumbnailSide)
+                ])
+                imageStrip.addArrangedSubview(imageView)
+            } else if reference.isRemotePlaceholder {
+                imageStrip.addArrangedSubview(remoteImagePlaceholder(reference, side: Self.thumbnailSide))
+            }
         }
+    }
+
+    private func remoteImagePlaceholder(_ reference: PiAgentTranscriptImageReference, side: CGFloat) -> NSView {
+        let button = NSButton(title: "Download image", target: self, action: #selector(downloadRemoteImage(_:)))
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.font = NativeTranscriptFont.caption2(.semibold)
+        button.identifier = NSUserInterfaceItemIdentifier(reference.id.uuidString)
+        button.toolTip = reference.remoteURL ?? reference.name
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: side),
+            button.heightAnchor.constraint(equalToConstant: side)
+        ])
+        return button
+    }
+
+    @objc private func downloadRemoteImage(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let reference = payload?.imageReferences.first(where: { $0.id.uuidString == id }) else { return }
+        payload?.onDownloadRemoteImage?(reference)
     }
 
     // MARK: Copy / fork buttons (Liquid Glass)

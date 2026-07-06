@@ -5804,7 +5804,10 @@ struct PiAgentScreen: View {
             copySide: .leading,
             isThreadChild: false,
             isUserHugged: true,
-            fork: fork
+            fork: fork,
+            onDownloadRemoteImage: { [store] reference in
+                store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: question.sessionID)
+            }
         ))
     }
 
@@ -5846,9 +5849,9 @@ struct PiAgentScreen: View {
     ) -> PiAgentTranscriptCellKind? {
         switch child {
         case .assistant:
-            return Self.nativeReplyPayload(for: child).map { .bubble($0) }
+            return nativeReplyPayload(for: child).map { .bubble($0) }
         case .thinking:
-            return Self.nativeReplyPayload(for: child).map { .bubble($0) }
+            return nativeReplyPayload(for: child).map { .bubble($0) }
         case .steering(let entry):
             // Steering messages are user messages, so they render right-aligned
             // like the initial user question. Chip-bearing ones use the native
@@ -5877,7 +5880,10 @@ struct PiAgentScreen: View {
                 copyText: entry.text,
                 copySide: .leading,
                 isThreadChild: false,
-                isUserHugged: true
+                isUserHugged: true,
+                onDownloadRemoteImage: { [store] reference in
+                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: entry.sessionID)
+                }
             ))
         case .status(let entry):
             if let recapMarker = LoopRunRecapCodec.decode(from: entry) {
@@ -5951,7 +5957,13 @@ struct PiAgentScreen: View {
             })
         case .toolGroup(let group):
             guard let model = NativeToolGroupModel.make(
-                group: group, visibility: visibility, projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath }
+                group: group,
+                visibility: visibility,
+                projectPath: store.selectedSession.map { $0.worktreePath ?? $0.projectPath },
+                onDownloadRemoteImage: { [store] reference in
+                    guard let parentSessionID = group.entries.first?.sessionID else { return }
+                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: parentSessionID)
+                }
             ) else {
 #if DEBUG
                 assertionFailure("Visible native tool group produced no display model: \(group.id)")
@@ -5969,7 +5981,7 @@ struct PiAgentScreen: View {
     /// rows (assistant / thinking). Returns nil for anything that still renders
     /// through the hosted SwiftUI path (subagent summaries, tool groups, status,
     /// errors, retries, steering — handled in later stages).
-    private static func nativeReplyPayload(for child: PiAgentThreadChild) -> NativeBubblePayload? {
+    private func nativeReplyPayload(for child: PiAgentThreadChild) -> NativeBubblePayload? {
         switch child {
         case .assistant(let entry):
             let text = entry.text
@@ -5982,7 +5994,10 @@ struct PiAgentScreen: View {
                 bodyPrefix: nil,
                 copyText: text.trimmingCharacters(in: .whitespacesAndNewlines),
                 copySide: .trailing,
-                isThreadChild: true
+                isThreadChild: true,
+                onDownloadRemoteImage: { [store] reference in
+                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: entry.sessionID)
+                }
             )
         case .thinking(let entry):
             let display = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5995,7 +6010,10 @@ struct PiAgentScreen: View {
                 bodyPrefix: nil,
                 copyText: display,
                 copySide: .trailing,
-                isThreadChild: true
+                isThreadChild: true,
+                onDownloadRemoteImage: { [store] reference in
+                    store.downloadRemoteTranscriptImage(referenceID: reference.id, parentSessionID: entry.sessionID)
+                }
             )
         default:
             return nil

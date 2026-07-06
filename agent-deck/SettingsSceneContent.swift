@@ -573,6 +573,15 @@ private struct AppearanceSettingsTab: View {
                     set: { viewModel.setPiAgentMarkdownHighlightingEnabled($0) }
                 )
             )
+            SettingsToggleRow(
+                title: "Remote images:",
+                label: "Automatically download HTTPS transcript images",
+                note: "Off shows an inline placeholder first. On downloads only direct HTTPS image responses without cookies or credentials.",
+                isOn: Binding(
+                    get: { viewModel.appSettings.autoDownloadRemoteTranscriptImages },
+                    set: { viewModel.setAutoDownloadRemoteTranscriptImages($0) }
+                )
+            )
         }
     }
 

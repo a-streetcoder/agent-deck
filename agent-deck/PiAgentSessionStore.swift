@@ -12,6 +12,85 @@ private extension String {
     }
 }
 
+private final class TranscriptRemoteImageDownloader: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
+    private let maxBytes: Int
+    private var data = Data()
+    private var mimeType: String?
+    private var continuation: CheckedContinuation<(Data, String?), Error>?
+
+    init(maxBytes: Int) {
+        self.maxBytes = maxBytes
+    }
+
+    func download(_ url: URL) async throws -> (Data, String?) {
+        guard url.scheme?.lowercased() == "https", url.user == nil, url.password == nil else { throw URLError(.unsupportedURL) }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 12)
+        request.httpShouldHandleCookies = false
+        request.setValue(nil, forHTTPHeaderField: "Cookie")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 12
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            session.dataTask(with: request).resume()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url,
+              url.scheme?.lowercased() == "https",
+              url.user == nil,
+              url.password == nil else {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        var next = request
+        next.httpShouldHandleCookies = false
+        next.setValue(nil, forHTTPHeaderField: "Cookie")
+        completionHandler(next)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              response.url?.scheme?.lowercased() == "https",
+              let type = response.mimeType?.lowercased(),
+              type.hasPrefix("image/") else {
+            completionHandler(.cancel)
+            continuation?.resume(throwing: URLError(.badServerResponse))
+            continuation = nil
+            return
+        }
+        mimeType = response.mimeType
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        data.append(chunk)
+        if data.count > maxBytes {
+            continuation?.resume(throwing: URLError(.dataLengthExceedsMaximum))
+            continuation = nil
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let continuation else { return }
+        self.continuation = nil
+        if let error {
+            continuation.resume(throwing: error)
+        } else {
+            continuation.resume(returning: (data, mimeType))
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class PiAgentSessionStore {
@@ -2450,6 +2529,7 @@ final class PiAgentSessionStore {
             entries.append(entry)
             trimTranscriptEntries(&entries)
         }
+        scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: parentSessionID)
         persistSubagentTranscript(runID)
         markSubagentTranscriptUsed(runID)
         evictTranscriptsIfNeeded()
@@ -2472,6 +2552,7 @@ final class PiAgentSessionStore {
             }
             trimTranscriptEntries(&entries)
         }
+        scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: parentSessionID)
         persistSubagentTranscript(runID)
         markSubagentTranscriptUsed(runID)
         evictTranscriptsIfNeeded()
@@ -2528,6 +2609,7 @@ final class PiAgentSessionStore {
             entries.append(entry)
             trimTranscriptEntries(&entries)
         }
+        scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: entry.sessionID)
         persistTranscript(entry.sessionID)
         markTranscriptSessionUsed(entry.sessionID)
         evictTranscriptsIfNeeded()
@@ -2556,6 +2638,7 @@ final class PiAgentSessionStore {
             }
             trimTranscriptEntries(&entries)
         }
+        scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: entry.sessionID)
         markTranscriptSessionUsed(entry.sessionID)
         isNewEntry = insertedEntry
         bumpTranscriptRevision(entry.sessionID)
@@ -2581,6 +2664,9 @@ final class PiAgentSessionStore {
             didUpdate = true
         }
         guard didUpdate else { return }
+        if let entry = transcriptsBySessionID[sessionID]?.first(where: { $0.id == entryID }) {
+            scheduleRemoteTranscriptImageDownloads(in: entry, parentSessionID: sessionID)
+        }
         markTranscriptSessionUsed(sessionID)
         bumpTranscriptRevision(sessionID)
         if persist {
@@ -2953,18 +3039,22 @@ final class PiAgentSessionStore {
         )
         guard !candidates.isEmpty else { return entry }
         var copy = entry
-        copy.imageReferences = candidates.prefix(Self.maxTranscriptImageCandidatesPerEntry).compactMap { materializeTranscriptImage($0, entryID: entry.id, parentSessionID: parentSessionID) }
+        copy.imageReferences = candidates.prefix(Self.maxTranscriptImageCandidatesPerEntry).compactMap { candidate in
+            materializeTranscriptImage(candidate, entryID: entry.id, parentSessionID: parentSessionID)
+        }
         return copy
     }
 
     private static let maxTranscriptImageCandidatesPerEntry = 8
     private static let maxTranscriptImageBytes = 25 * 1024 * 1024
+    nonisolated(unsafe) static var remoteImageDownloaderForTesting: ((URL) async throws -> (Data, String?))?
 
     private struct TranscriptImageCandidate: Hashable {
         var name: String?
         var mimeType: String?
         var data: String?
         var localPath: String?
+        var remoteURL: String?
         var source: String?
     }
 
@@ -2979,6 +3069,7 @@ final class PiAgentSessionStore {
         return candidates.filter { candidate in
             let key = candidate.data.map { "data:\($0.prefix(80))" }
                 ?? candidate.localPath.map { "path:\($0)" }
+                ?? candidate.remoteURL.map { "remote:\($0)" }
                 ?? candidate.source
                 ?? candidate.name
                 ?? UUID().uuidString
@@ -2998,7 +3089,9 @@ final class PiAgentSessionStore {
                 if let dataCandidate = dataURLCandidate(src) {
                     out.append(dataCandidate)
                 } else if isLocalImageReference(src) {
-                    out.append(.init(name: URL(fileURLWithPath: src).lastPathComponent, mimeType: nil, data: nil, localPath: src, source: src))
+                    out.append(.init(name: URL(fileURLWithPath: src).lastPathComponent, mimeType: nil, data: nil, localPath: src, remoteURL: nil, source: src))
+                } else if isSafeRemoteImageURL(src) {
+                    out.append(.init(name: remoteImageName(src), mimeType: nil, data: nil, localPath: nil, remoteURL: src, source: src))
                 }
             }
         }
@@ -3015,13 +3108,15 @@ final class PiAgentSessionStore {
                 let name = object["name"]?.stringValue ?? object["filename"]?.stringValue ?? object["fileName"]?.stringValue
                 if type == "image" || mime?.hasPrefix("image/") == true {
                     if let data = object["data"]?.stringValue ?? object["base64"]?.stringValue {
-                        out.append(.init(name: name, mimeType: mime, data: data, localPath: nil, source: name))
+                        out.append(.init(name: name, mimeType: mime, data: data, localPath: nil, remoteURL: nil, source: name))
                     }
                     if let src = object["url"]?.stringValue ?? object["uri"]?.stringValue ?? object["path"]?.stringValue {
                         if let dataCandidate = dataURLCandidate(src) {
                             out.append(dataCandidate)
                         } else if isLocalImageReference(src) {
-                            out.append(.init(name: name ?? URL(fileURLWithPath: src).lastPathComponent, mimeType: mime, data: nil, localPath: src, source: src))
+                            out.append(.init(name: name ?? URL(fileURLWithPath: src).lastPathComponent, mimeType: mime, data: nil, localPath: src, remoteURL: nil, source: src))
+                        } else if isSafeRemoteImageURL(src) {
+                            out.append(.init(name: name ?? remoteImageName(src), mimeType: mime, data: nil, localPath: nil, remoteURL: src, source: src))
                         }
                     }
                 }
@@ -3030,7 +3125,9 @@ final class PiAgentSessionStore {
                         if let dataCandidate = dataURLCandidate(src) {
                             out.append(dataCandidate)
                         } else if isLocalImageReference(src) {
-                            out.append(.init(name: name ?? URL(fileURLWithPath: src).lastPathComponent, mimeType: mime, data: nil, localPath: src, source: src))
+                            out.append(.init(name: name ?? URL(fileURLWithPath: src).lastPathComponent, mimeType: mime, data: nil, localPath: src, remoteURL: nil, source: src))
+                        } else if isSafeRemoteImageURL(src) {
+                            out.append(.init(name: name ?? remoteImageName(src), mimeType: mime, data: nil, localPath: nil, remoteURL: src, source: src))
                         }
                     }
                 }
@@ -3051,7 +3148,7 @@ final class PiAgentSessionStore {
         let header = String(value[..<comma])
         let data = String(value[value.index(after: comma)...])
         let mime = header.dropFirst("data:".count).split(separator: ";").first.map(String.init)
-        return .init(name: nil, mimeType: mime, data: data, localPath: nil, source: "data-url")
+        return .init(name: nil, mimeType: mime, data: data, localPath: nil, remoteURL: nil, source: "data-url")
     }
 
     private nonisolated static func isLocalImageReference(_ value: String) -> Bool {
@@ -3060,7 +3157,28 @@ final class PiAgentSessionStore {
         return ["png", "jpg", "jpeg", "gif", "webp", "tiff", "tif", "heic"].contains(ext)
     }
 
+    private nonisolated static func isSafeRemoteImageURL(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value), components.scheme?.lowercased() == "https" else { return false }
+        guard components.user == nil, components.password == nil else { return false }
+        let ext = URL(string: value)?.pathExtension.lowercased() ?? ""
+        return ["png", "jpg", "jpeg", "gif", "webp", "tiff", "tif", "heic"].contains(ext)
+    }
+
+    private nonisolated static func remoteImageName(_ value: String) -> String {
+        guard let url = URL(string: value), !url.lastPathComponent.isEmpty else { return "remote-image" }
+        return url.lastPathComponent
+    }
+
     private func materializeTranscriptImage(_ candidate: TranscriptImageCandidate, entryID: UUID, parentSessionID: UUID) -> PiAgentTranscriptImageReference? {
+        if let remoteURL = candidate.remoteURL {
+            return PiAgentTranscriptImageReference(
+                name: candidate.name ?? Self.remoteImageName(remoteURL),
+                mimeType: candidate.mimeType,
+                localPath: nil,
+                source: candidate.source ?? remoteURL,
+                remoteURL: remoteURL
+            )
+        }
         let directory = transcriptImageDirectory(for: parentSessionID)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ext = Self.imageFileExtension(mimeType: candidate.mimeType, name: candidate.name ?? candidate.localPath) ?? "png"
@@ -3087,6 +3205,107 @@ final class PiAgentSessionStore {
         } catch {
             return nil
         }
+    }
+
+    func downloadRemoteTranscriptImage(referenceID: UUID, parentSessionID: UUID) {
+        scheduleRemoteTranscriptImageDownload(referenceID: referenceID, parentSessionID: parentSessionID, requiresAutoDownloadSetting: false)
+    }
+
+    private func scheduleRemoteTranscriptImageDownloads(in entry: PiAgentTranscriptEntry, parentSessionID: UUID) {
+        guard AppSettingsStore.shared.settings.autoDownloadRemoteTranscriptImages else { return }
+        for reference in entry.imageReferences where reference.isRemotePlaceholder {
+            scheduleRemoteTranscriptImageDownload(referenceID: reference.id, parentSessionID: parentSessionID, requiresAutoDownloadSetting: true)
+        }
+    }
+
+    private func scheduleRemoteTranscriptImageDownload(referenceID: UUID, parentSessionID: UUID, requiresAutoDownloadSetting: Bool) {
+        guard let reference = transcriptImageReference(referenceID, parentSessionID: parentSessionID),
+              reference.isRemotePlaceholder,
+              let remote = reference.remoteURL,
+              Self.isSafeRemoteImageURL(remote),
+              let url = URL(string: remote) else { return }
+        Task { [weak self] in
+            if requiresAutoDownloadSetting {
+                let enabled = await MainActor.run { AppSettingsStore.shared.settings.autoDownloadRemoteTranscriptImages }
+                guard enabled else { return }
+            }
+            let result = try? await Self.downloadRemoteImage(url)
+            guard let (data, mimeType) = result else { return }
+            await MainActor.run {
+                self?.materializeDownloadedRemoteImage(referenceID: referenceID, parentSessionID: parentSessionID, data: data, mimeType: mimeType)
+            }
+        }
+    }
+
+    private func transcriptImageReference(_ referenceID: UUID, parentSessionID: UUID) -> PiAgentTranscriptImageReference? {
+        for entry in transcriptsBySessionID[parentSessionID] ?? [] {
+            if let reference = entry.imageReferences.first(where: { $0.id == referenceID }) { return reference }
+        }
+        for run in subagentRunsBySessionID[parentSessionID] ?? [] {
+            for entry in subagentTranscriptsByRunID[run.id] ?? [] {
+                if let reference = entry.imageReferences.first(where: { $0.id == referenceID }) { return reference }
+            }
+        }
+        return nil
+    }
+
+    private func materializeDownloadedRemoteImage(referenceID: UUID, parentSessionID: UUID, data: Data, mimeType: String?) {
+        guard data.count <= Self.maxTranscriptImageBytes else { return }
+        let directory = transcriptImageDirectory(for: parentSessionID)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var changedParentSessionIDs = Set<UUID>()
+        var changedRunIDs = Set<UUID>()
+        func updated(_ reference: PiAgentTranscriptImageReference) -> PiAgentTranscriptImageReference? {
+            guard reference.id == referenceID, reference.isRemotePlaceholder else { return nil }
+            let resolvedMime = mimeType ?? reference.mimeType
+            let ext = Self.imageFileExtension(mimeType: resolvedMime, name: reference.name) ?? "png"
+            let safeName = reference.name.safeFilenameComponent
+            let destination = directory.appendingPathComponent("remote-\(reference.id.uuidString)-\(safeName)").appendingPathExtension(ext)
+            do {
+                try data.write(to: destination, options: .atomic)
+                var copy = reference
+                copy.mimeType = resolvedMime
+                copy.localPath = destination.path
+                return copy
+            } catch {
+                return nil
+            }
+        }
+        modifyTranscriptEntries(for: parentSessionID) { entries in
+            for entryIndex in entries.indices {
+                for refIndex in entries[entryIndex].imageReferences.indices {
+                    if let copy = updated(entries[entryIndex].imageReferences[refIndex]) {
+                        entries[entryIndex].imageReferences[refIndex] = copy
+                        changedParentSessionIDs.insert(parentSessionID)
+                    }
+                }
+            }
+        }
+        for run in subagentRunsBySessionID[parentSessionID] ?? [] {
+            modifySubagentTranscriptEntries(for: run.id) { entries in
+                for entryIndex in entries.indices {
+                    for refIndex in entries[entryIndex].imageReferences.indices {
+                        if let copy = updated(entries[entryIndex].imageReferences[refIndex]) {
+                            entries[entryIndex].imageReferences[refIndex] = copy
+                            changedRunIDs.insert(run.id)
+                        }
+                    }
+                }
+            }
+        }
+        for sessionID in changedParentSessionIDs {
+            persistTranscript(sessionID)
+            bumpTranscriptRevision(sessionID)
+        }
+        for runID in changedRunIDs {
+            persistSubagentTranscript(runID)
+        }
+        if !changedParentSessionIDs.isEmpty || !changedRunIDs.isEmpty { save() }
+    }
+
+    private nonisolated static func downloadRemoteImage(_ url: URL) async throws -> (Data, String?) {
+        if let override = remoteImageDownloaderForTesting { return try await override(url) }
+        return try await TranscriptRemoteImageDownloader(maxBytes: maxTranscriptImageBytes).download(url)
     }
 
     private nonisolated static func imageFileExtension(mimeType: String?, name: String?) -> String? {
@@ -3388,7 +3607,7 @@ final class PiAgentSessionStore {
 
     private func deleteTranscriptImages(_ references: [PiAgentTranscriptImageReference]) {
         guard !references.isEmpty else { return }
-        let paths = references.map(\.localPath)
+        let paths = references.compactMap(\.localPath)
         saveQueue.async {
             for path in paths {
                 try? FileManager.default.removeItem(atPath: path)
