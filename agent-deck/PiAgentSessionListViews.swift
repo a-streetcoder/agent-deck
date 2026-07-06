@@ -3,6 +3,23 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct PiAgentActiveSessionsFilterButton: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        AppCircleIconButton(
+            style: isOn ? .soft : .neutral,
+            tint: isOn ? AppTheme.brandAccent : AppTheme.mutedText,
+            size: 30,
+            help: isOn ? "Show all sessions" : "Show sessions with user activity in the last 10 minutes",
+            action: { isOn.toggle() }
+        ) {
+            Image(systemName: "clock.arrow.circlepath")
+        }
+        .accessibilityLabel(isOn ? "Showing active sessions" : "Show active sessions")
+    }
+}
+
 struct PiAgentSessionSearchField: View {
     var placeholder = "Search all sessions"
     @Binding var text: String

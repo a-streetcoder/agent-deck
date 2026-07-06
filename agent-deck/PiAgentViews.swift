@@ -4224,6 +4224,7 @@ struct CodingAgentExpandedPanel: View {
         .onChange(of: store.sessionListRevision) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
+        .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.expandedProjects) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.collapsedProjects) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         // Projects load asynchronously after sessions on first launch; without
@@ -4281,8 +4282,16 @@ struct CodingAgentExpandedPanel: View {
                 .buttonStyle(.plain)
                 .help("Delete selected sessions")
             }
+            PiAgentActiveSessionsFilterButton(isOn: expandedPanelActiveFilterBinding)
             CodingAgentNewSessionControls(viewModel: viewModel)
         }
+    }
+
+    private var expandedPanelActiveFilterBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.showPiAgentActiveOnly },
+            set: { viewModel.showPiAgentActiveOnly = $0 }
+        )
     }
 
     private var scopedSessions: [PiAgentSessionRecord] {
@@ -4416,12 +4425,16 @@ struct CodingAgentExpandedPanel: View {
     private func computedSections(from scoped: [PiAgentSessionRecord]? = nil) -> [PiAgentSessionListSection] {
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let scopedSource = scoped ?? scopedSessions
-        let source = viewModel.showPiAgentAttentionOnly ? scopedSource.filter(\.needsAttention) : scopedSource
+        var source = viewModel.showPiAgentAttentionOnly ? scopedSource.filter(\.needsAttention) : scopedSource
+        if viewModel.showPiAgentActiveOnly {
+            let now = Date()
+            source = source.filter { $0.hasRecentUserMessage(referenceDate: now) }
+        }
         let filtered = query.isEmpty ? source : source.filter { $0.matchesSessionSearch(query) }
         // Cap previews only in All-Projects browsing — searching or filtering by
-        // attention bypasses the cap (the user is hunting), and a scoped project
-        // keeps its full flat list exactly as before.
-        let capPreviews = isAllProjects && query.isEmpty && !viewModel.showPiAgentAttentionOnly
+        // attention/active bypasses the cap (the user is hunting), and a scoped
+        // project keeps its full flat list exactly as before.
+        let capPreviews = isAllProjects && query.isEmpty && !viewModel.showPiAgentAttentionOnly && !viewModel.showPiAgentActiveOnly
         return PiAgentSessionGrouping.sections(
             from: filtered,
             projectByPath: viewModel.projectByPath,

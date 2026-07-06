@@ -4,6 +4,13 @@ import SwiftUI
 /// by the expanded panel's full list and the collapsed panel's recents so the
 /// toolbar search filters both identically.
 extension PiAgentSessionRecord {
+    static let activeUserMessageInterval: TimeInterval = 600
+
+    func hasRecentUserMessage(referenceDate: Date = Date()) -> Bool {
+        guard let lastUserMessageAt else { return false }
+        return lastUserMessageAt >= referenceDate.addingTimeInterval(-Self.activeUserMessageInterval)
+    }
+
     func matchesSessionSearch(_ query: String) -> Bool {
         [
             title,
@@ -106,6 +113,7 @@ struct CodingAgentCollapsedPanel: View {
                 isExpanded: false,
                 onToggle: { viewModel.expandCodingAgentPanel() }
             ) {
+                PiAgentActiveSessionsFilterButton(isOn: activeFilterBinding)
                 CodingAgentNewSessionControls(viewModel: viewModel)
             }
             // 8 (card) + 6 here = a 14pt content inset, matching the account
@@ -151,6 +159,7 @@ struct CodingAgentCollapsedPanel: View {
         .onChange(of: store.sessionListRevision) { _, _ in rebuildRecents() }
         .onChange(of: sessionSearchText) { _, _ in rebuildRecents() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildRecents() }
+        .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildRecents() }
         // The expanded panel stays mounted while this one shows (and vice
         // versa), so collapsing is the moment to re-sync this list's scroll
         // offset with whatever session was picked in the expanded list.
@@ -214,10 +223,21 @@ struct CodingAgentCollapsedPanel: View {
         })
     }
 
+    private var activeFilterBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.showPiAgentActiveOnly },
+            set: { viewModel.showPiAgentActiveOnly = $0 }
+        )
+    }
+
     private func rebuildRecents() {
         var scoped = store.sessions
         if viewModel.showPiAgentAttentionOnly {
             scoped = scoped.filter(\.needsAttention)
+        }
+        if viewModel.showPiAgentActiveOnly {
+            let now = Date()
+            scoped = scoped.filter { $0.hasRecentUserMessage(referenceDate: now) }
         }
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {

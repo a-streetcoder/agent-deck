@@ -952,6 +952,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     var lastSummary: String?
     var needsAttention: Bool
     var lastNotificationAt: Date?
+    var lastUserMessageAt: Date?
     var inputTokens: Int?
     var outputTokens: Int?
     var cacheReadTokens: Int?
@@ -1071,7 +1072,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, kind, title, projectPath, projectName, repository, issueNumber, issueURL, piSessionFile, piSessionId
         case model, modelProvider, modelOverrideID, modelOverrideProvider, commandInvocations, thinkingLevel, launchCommand, branchName, worktreePath, sourceBranch
-        case status, lastError, lastSummary, needsAttention, lastNotificationAt
+        case status, lastError, lastSummary, needsAttention, lastNotificationAt, lastUserMessageAt
         case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens, toolCalls, toolResults, contextTokens, contextWindow, contextPercent, contextBreakdown, cost, costBreakdown
         case finalSystemPrompt, finalSystemPromptCapturedAt
         case pendingSteeringMessages, pendingFollowUpMessages, subagentsEnabled, memoryEnabled, agentSelection, injectedExtensions, agentName, noProjectMode, isCompacting, isTitleUserEdited, createdAt, updatedAt
@@ -1105,6 +1106,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         lastSummary: String?,
         needsAttention: Bool,
         lastNotificationAt: Date?,
+        lastUserMessageAt: Date? = nil,
         inputTokens: Int?,
         outputTokens: Int?,
         cacheReadTokens: Int?,
@@ -1165,6 +1167,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
         self.lastSummary = lastSummary
         self.needsAttention = needsAttention
         self.lastNotificationAt = lastNotificationAt
+        self.lastUserMessageAt = lastUserMessageAt
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
@@ -1229,6 +1232,7 @@ struct PiAgentSessionRecord: Identifiable, Codable, Hashable {
             lastSummary: try container.decodeIfPresent(String.self, forKey: .lastSummary),
             needsAttention: try container.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false,
             lastNotificationAt: try container.decodeIfPresent(Date.self, forKey: .lastNotificationAt),
+            lastUserMessageAt: try container.decodeIfPresent(Date.self, forKey: .lastUserMessageAt),
             inputTokens: try container.decodeIfPresent(Int.self, forKey: .inputTokens),
             outputTokens: try container.decodeIfPresent(Int.self, forKey: .outputTokens),
             cacheReadTokens: try container.decodeIfPresent(Int.self, forKey: .cacheReadTokens),

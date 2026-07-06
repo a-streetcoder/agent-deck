@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class PiAgentSessionStoreTests: XCTestCase {
+    func testLastUserMessageTimestampTracksUserEntriesOnly() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Activity", project: try PiTestSupport.makeProject(), repository: nil)
+        let assistantDate = Date(timeIntervalSince1970: 100)
+        let olderUserDate = Date(timeIntervalSince1970: 200)
+        let newerUserDate = Date(timeIntervalSince1970: 300)
+
+        store.append(.init(sessionID: session.id, role: .assistant, title: "Assistant", text: "No activity", timestamp: assistantDate))
+        XCTAssertNil(store.sessions.first(where: { $0.id == session.id })?.lastUserMessageAt)
+
+        store.append(.init(sessionID: session.id, role: .user, title: "User", text: "Older", timestamp: olderUserDate))
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.lastUserMessageAt, olderUserDate)
+
+        store.append(.init(sessionID: session.id, role: .user, title: "User", text: "Newer", timestamp: newerUserDate))
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.lastUserMessageAt, newerUserDate)
+
+        store.append(.init(sessionID: session.id, role: .user, title: "User", text: "Older again", timestamp: olderUserDate))
+        XCTAssertEqual(store.sessions.first(where: { $0.id == session.id })?.lastUserMessageAt, newerUserDate)
+    }
+
     func testSessionPlanSetAndUpdateAreStableInPlace() throws {
         let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
         let session = store.createSession(kind: .project, title: "Smoke", project: try PiTestSupport.makeProject(), repository: nil)

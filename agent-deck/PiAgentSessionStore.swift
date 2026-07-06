@@ -714,6 +714,7 @@ final class PiAgentSessionStore {
         let preTitle = sessions[index].title
         let preProjectPath = sessions[index].projectPath
         let preStatus = sessions[index].status
+        let preLastUserMessageAt = sessions[index].lastUserMessageAt
         mutate(&sessions[index])
         if bumpUpdatedAt {
             sessions[index].updatedAt = Date()
@@ -729,7 +730,8 @@ final class PiAgentSessionStore {
             // `sessionListRevision` bump, so without this a stop (→ .stopped) left the
             // row showing a stale ACTIVE badge. Only transitions reach here (no change
             // → no bump), so streaming's steady .running stays cheap.
-            || sessions[index].status != preStatus {
+            || sessions[index].status != preStatus
+            || sessions[index].lastUserMessageAt != preLastUserMessageAt {
             bumpSessionListRevision()
         }
         save()
@@ -2616,6 +2618,7 @@ final class PiAgentSessionStore {
         evictTranscriptsIfNeeded()
         bumpTranscriptRevision(entry.sessionID)
         bumpGitActivityRevisionIfNeeded(for: entry)
+        cacheLastUserMessageTimestampIfNeeded(for: entry)
         touchSession(entry.sessionID, bumpUpdatedAt: true)
     }
 
@@ -2644,6 +2647,7 @@ final class PiAgentSessionStore {
         isNewEntry = insertedEntry
         bumpTranscriptRevision(entry.sessionID)
         bumpGitActivityRevisionIfNeeded(for: entry)
+        cacheLastUserMessageTimestampIfNeeded(for: entry)
         guard persist else { return }
         persistTranscript(entry.sessionID)
         evictTranscriptsIfNeeded()
@@ -3004,6 +3008,14 @@ final class PiAgentSessionStore {
         let label = count > 0 ? "\(count)" : nil
         if NSApp.dockTile.badgeLabel != label {
             NSApp.dockTile.badgeLabel = label
+        }
+    }
+
+    private func cacheLastUserMessageTimestampIfNeeded(for entry: PiAgentTranscriptEntry) {
+        guard entry.role == .user else { return }
+        updateSession(entry.sessionID) { record in
+            if let cached = record.lastUserMessageAt, cached >= entry.timestamp { return }
+            record.lastUserMessageAt = entry.timestamp
         }
     }
 
