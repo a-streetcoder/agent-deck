@@ -1,11 +1,8 @@
-import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import spawn from "cross-spawn";
 import { PiNotFoundError, resolvePiBinary } from "./resolve.ts";
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Environment health probe (native Doctor screen): is pi installed, what
@@ -29,12 +26,27 @@ export interface DoctorReport {
 }
 
 async function piVersion(binPath: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(binPath, ["--version"], { timeout: 10_000 });
-    return stdout.trim().split("\n")[0] ?? null;
-  } catch {
-    return null;
-  }
+  // cross-spawn, not node's execFile: on Windows the resolved binary is the npm
+  // `pi.cmd` shim, and Node refuses to run .cmd/.bat via execFile without
+  // shell:true (the CVE-2024-27980 mitigation → EINVAL). cross-spawn rewrites
+  // the invocation so the shim runs — the same mechanism PiProcess relies on.
+  return new Promise((resolve) => {
+    const child = spawn(binPath, ["--version"], { stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    const timer = setTimeout(() => child.kill(), 10_000);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const first = stdout.trim().split("\n")[0];
+      resolve(code === 0 && first ? first : null);
+    });
+  });
 }
 
 function readSignedInProviders(home: string): string[] {
