@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { piAgentHome, type ResourceRoots } from "./paths.ts";
 
@@ -7,12 +7,19 @@ import { piAgentHome, type ResourceRoots } from "./paths.ts";
  * ecosystem: `{ mcpServers: { "<name>": { command, args, env } | { url } } }`.
  * Read from the project (`<project>/.pi/mcp.json`) and global
  * (`~/.pi/agent/mcp.json`) locations; a project entry overrides a global one of
- * the same name. This is the read/merge half — the app-owned write path lands
- * with the config UI.
+ * the same name. The write path is app-owned and edits the file in place,
+ * preserving any unknown keys.
  */
 
 export type McpTransport = "stdio" | "http";
 export type McpConfigScope = "global" | "project";
+
+/** The shape a caller supplies to add/update a server (stdio or http). */
+export type McpServerInput =
+  | { command: string; args?: string[]; env?: Record<string, string> }
+  | { url: string };
+
+export class McpConfigError extends Error {}
 
 /** A normalized MCP server config resolved from an mcp.json entry. */
 export interface McpServerEntry {
@@ -90,4 +97,88 @@ export function readMcpServers(roots: ResourceRoots): McpServerEntry[] {
   if (projectPath)
     for (const entry of parseMcpFile(projectPath, "project")) byId.set(entry.id, entry);
   return [...byId.values()];
+}
+
+/** A server name is an object key, not a path — reject prototype/empty/odd names. */
+export function isValidMcpServerName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) &&
+    name !== "__proto__" &&
+    name !== "prototype" &&
+    name !== "constructor"
+  );
+}
+
+/**
+ * Read the mcp.json object for a read-modify-write. A MISSING file is an empty
+ * document (the write creates it); a present-but-unreadable/malformed file
+ * THROWS rather than resetting to {}, so a transient read error or a hand-broken
+ * file can never silently drop the user's existing servers.
+ */
+function readMcpDocument(
+  file: string,
+): { mcpServers: Record<string, unknown> } & Record<string, unknown> {
+  let doc: Record<string, unknown> = {};
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { mcpServers: {} };
+    throw new McpConfigError(`cannot read ${file}: ${String(error)}`);
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null) doc = parsed as Record<string, unknown>;
+  } catch {
+    throw new McpConfigError(`${file} is not valid JSON; refusing to overwrite it`);
+  }
+  const servers = doc.mcpServers;
+  return {
+    ...doc,
+    mcpServers:
+      typeof servers === "object" && servers !== null
+        ? { ...(servers as Record<string, unknown>) }
+        : {},
+  };
+}
+
+function requireScopePath(roots: ResourceRoots, scope: McpConfigScope): string {
+  const file = mcpConfigPath(roots, scope);
+  if (!file) throw new McpConfigError(`project scope needs an open project`);
+  return file;
+}
+
+/** Add or replace a server in the scope's mcp.json (preserving other keys). */
+export function writeMcpServer(
+  roots: ResourceRoots,
+  scope: McpConfigScope,
+  name: string,
+  config: McpServerInput,
+): void {
+  if (!isValidMcpServerName(name)) throw new McpConfigError(`invalid MCP server name: ${name}`);
+  if ("command" in config) {
+    if (!config.command.trim()) throw new McpConfigError("stdio server needs a command");
+  } else if (!config.url.trim()) {
+    throw new McpConfigError("http server needs a url");
+  }
+  const file = requireScopePath(roots, scope);
+  const doc = readMcpDocument(file);
+  doc.mcpServers[name] = config;
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
+}
+
+/** Remove a server from the scope's mcp.json. Returns false if it wasn't there. */
+export function deleteMcpServer(
+  roots: ResourceRoots,
+  scope: McpConfigScope,
+  name: string,
+): boolean {
+  if (!isValidMcpServerName(name)) return false;
+  const file = requireScopePath(roots, scope);
+  const doc = readMcpDocument(file);
+  if (!Object.prototype.hasOwnProperty.call(doc.mcpServers, name)) return false;
+  delete doc.mcpServers[name];
+  writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
+  return true;
 }

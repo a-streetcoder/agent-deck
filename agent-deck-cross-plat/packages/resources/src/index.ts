@@ -14,10 +14,15 @@ export {
   type SkillCatalogDir,
 } from "./paths.ts";
 export {
+  deleteMcpServer,
+  isValidMcpServerName,
   mcpConfigPath,
+  McpConfigError,
   readMcpServers,
+  writeMcpServer,
   type McpConfigScope,
   type McpServerEntry,
+  type McpServerInput,
   type McpTransport,
 } from "./mcp.ts";
 export { parseAgentFile, scanAgents, scanPrompts, scanSkills } from "./scanner.ts";
