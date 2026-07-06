@@ -49,6 +49,10 @@ nonisolated struct SlashUniverse: Hashable, Sendable {
     }
 
     var allItems: [SlashItem] { skills + prompts + commands + loops }
+
+    func item(withID id: String) -> SlashItem? {
+        allItems.first { $0.id == id }
+    }
 }
 
 extension SlashItem {
@@ -134,13 +138,37 @@ struct SlashSuggestionState: Equatable {
     var scrollTick: Int = 0
 }
 
+/// Lightweight render data for one item row in the `/` browser. Deliberately
+/// excludes the full `SlashItem.Payload` body so SwiftUI row identity/diffing and
+/// rendering never carry large skill or prompt text. Commit resolves the full
+/// item from the cached `SlashUniverse` by `itemID`.
+struct SlashSuggestionItemRow: Identifiable, Hashable {
+    let id: String
+    let itemID: String
+    let kind: SlashItemKind
+    let displayName: String
+    let description: String?
+    let scopeLabel: String?
+    let isActive: Bool
+
+    init(item: SlashItem) {
+        id = item.id
+        itemID = item.id
+        kind = item.kind
+        displayName = item.displayName
+        description = item.description
+        scopeLabel = item.scopeLabel
+        isActive = item.isActive
+    }
+}
+
 /// A renderable row in the `/` browser. Headers are non-selectable separators;
 /// categories and items advance the highlight.
 struct SlashSuggestionRow: Identifiable, Hashable {
     enum Kind: Hashable {
         case category(SlashItemKind)
         case header(String)
-        case item(SlashItem)
+        case item(SlashSuggestionItemRow)
     }
     let id: String
     let kind: Kind
@@ -188,7 +216,7 @@ enum SlashSuggestionRowBuilder {
             guard !matched.isEmpty else { continue }
             rows.append(SlashSuggestionRow(id: "global-head:\(kind.rawValue)", kind: .header(headerLabel(for: kind))))
             for item in matched.sorted(by: activeFirstThenAlpha) {
-                rows.append(SlashSuggestionRow(id: "item:\(item.id)", kind: .item(item)))
+                rows.append(SlashSuggestionRow(id: "item:\(item.id)", kind: .item(SlashSuggestionItemRow(item: item))))
             }
         }
         return rows
@@ -206,13 +234,13 @@ enum SlashSuggestionRowBuilder {
                 rows.append(SlashSuggestionRow(id: "head:active", kind: .header("Active")))
             }
             for item in active {
-                rows.append(SlashSuggestionRow(id: "item:\(item.id)", kind: .item(item)))
+                rows.append(SlashSuggestionRow(id: "item:\(item.id)", kind: .item(SlashSuggestionItemRow(item: item))))
             }
         }
         if !inactive.isEmpty {
             rows.append(SlashSuggestionRow(id: "head:available", kind: .header("Available")))
             for item in inactive {
-                rows.append(SlashSuggestionRow(id: "item:\(item.id)", kind: .item(item)))
+                rows.append(SlashSuggestionRow(id: "item:\(item.id)", kind: .item(SlashSuggestionItemRow(item: item))))
             }
         }
         return rows

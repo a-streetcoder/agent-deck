@@ -398,7 +398,7 @@ struct PiAgentSlashSuggestions: View {
         }
     }
 
-    private func itemRow(item: SlashItem, row: SlashSuggestionRow, highlighted: Bool, selectableIndex: Int?) -> some View {
+    private func itemRow(item: SlashSuggestionItemRow, row: SlashSuggestionRow, highlighted: Bool, selectableIndex: Int?) -> some View {
         Button { onSelect(row) } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon(for: item.kind))

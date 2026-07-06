@@ -8,6 +8,12 @@ import UniformTypeIdentifiers
 
 let piAgentLeakedToolNames: Set<String> = ["bash", "read", "edit", "write", "find", "grep", "subagent", "web_search", "fetch_content", "get_search_content", "web_fetch"]
 
+private struct SlashSuggestionRowsCacheKey: Equatable {
+    let universeRevision: Int
+    let screen: SlashSuggestionState.Screen
+    let query: String
+}
+
 @MainActor
 enum PiAgentRPCEventRenderCache {
     private static var cache: [String: PiAgentRPCEvent] = [:]
@@ -4614,6 +4620,10 @@ struct PiAgentScreen: View {
     /// typing nor scrolling re-walks the catalog.
     @State private var slashUniverse: SlashUniverse = .empty
     @State private var slashState = SlashSuggestionState()
+    @State private var slashUniverseRevision = 0
+    @State private var slashRowsCacheKey: SlashSuggestionRowsCacheKey?
+    @State private var cachedSlashRows: [SlashSuggestionRow] = []
+    @State private var cachedSlashSelectableRows: [SlashSuggestionRow] = []
     /// The picked slash item — when non-nil, the composer shows it as a glass
     /// capsule chip above the editor and includes it in the send payload.
     @State private var slashSelection: SlashItem?
@@ -6641,9 +6651,7 @@ struct PiAgentScreen: View {
         let isSlashTrigger: Bool = { if case .slash = suggestionTrigger { return true }; return false }()
         let fileItems = ComposerSuggestionItem.build(commands: [], skills: [], files: fileSuggestions)
         let showsFileSuggestions = !composerSuggestionsDismissed && isFileTrigger && !fileSuggestionResults.isEmpty
-        let slashRows = (!composerSuggestionsDismissed && isSlashTrigger)
-            ? SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
-            : []
+        let slashRows = (!composerSuggestionsDismissed && isSlashTrigger) ? cachedSlashRows : []
         let showsSlashSuggestions = !slashRows.isEmpty
         VStack(spacing: 6) {
             if showsFileSuggestions {
@@ -6723,6 +6731,7 @@ struct PiAgentScreen: View {
             composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
             refreshFileSuggestions()
             refreshSlashUniverseLifecycle()
+            rebuildSlashSuggestionCache()
         }
     }
 
@@ -6776,11 +6785,11 @@ struct PiAgentScreen: View {
     }
 
     private var slashSuggestionRows: [SlashSuggestionRow] {
-        SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
+        cachedSlashRows
     }
 
     private var slashSelectableCount: Int {
-        slashSuggestionRows.lazy.filter(\.isSelectable).count
+        cachedSlashSelectableRows.count
     }
 
     private var slashPanelTitle: String? {
@@ -6811,7 +6820,7 @@ struct PiAgentScreen: View {
     private var hasSlashSuggestions: Bool {
         if composerSuggestionsDismissed { return false }
         guard case .slash = composerSuggestionTrigger else { return false }
-        return !slashSuggestionRows.isEmpty
+        return !cachedSlashRows.isEmpty
     }
 
     private var hasComposerSuggestions: Bool {
@@ -6850,9 +6859,8 @@ struct PiAgentScreen: View {
 
     private func acceptComposerSuggestion() -> Bool {
         if hasSlashSuggestions {
-            let selectable = slashSuggestionRows.filter(\.isSelectable)
-            guard selectable.indices.contains(slashState.highlightedIndex) else { return false }
-            handleSlashRowSelect(selectable[slashState.highlightedIndex])
+            guard cachedSlashSelectableRows.indices.contains(slashState.highlightedIndex) else { return false }
+            handleSlashRowSelect(cachedSlashSelectableRows[slashState.highlightedIndex])
             return true
         }
         let items = composerSuggestionItems
@@ -6869,7 +6877,9 @@ struct PiAgentScreen: View {
             slashState.screen = .category(kind)
             slashState.highlightedIndex = 0
             slashState.scrollTick &+= 1
-        case .item(let item):
+            rebuildSlashSuggestionCache()
+        case .item(let itemRow):
+            guard let item = slashUniverse.item(withID: itemRow.itemID) else { return }
             commitSlashSelection(item)
         }
     }
@@ -6878,6 +6888,7 @@ struct PiAgentScreen: View {
         slashState.screen = .categoryPicker
         slashState.highlightedIndex = 0
         slashState.scrollTick &+= 1
+        rebuildSlashSuggestionCache()
     }
 
     private func commitSlashSelection(_ item: SlashItem) {
@@ -6946,10 +6957,42 @@ struct PiAgentScreen: View {
         composerSuggestionsDismissed = true
     }
 
+    private func rebuildSlashSuggestionCache(force: Bool = false) {
+        guard !composerSuggestionsDismissed, case .slash = composerSuggestionTrigger else {
+            clearSlashSuggestionCache()
+            return
+        }
+        let key = SlashSuggestionRowsCacheKey(
+            universeRevision: slashUniverseRevision,
+            screen: slashState.screen,
+            query: slashQueryString
+        )
+        guard force || slashRowsCacheKey != key else { return }
+
+        let rows = SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
+        cachedSlashRows = rows
+        cachedSlashSelectableRows = SlashSuggestionRowBuilder.selectableRows(rows)
+        slashRowsCacheKey = key
+
+        if cachedSlashSelectableRows.isEmpty {
+            slashState.highlightedIndex = 0
+        } else if slashState.highlightedIndex >= cachedSlashSelectableRows.count {
+            slashState.highlightedIndex = cachedSlashSelectableRows.count - 1
+        }
+    }
+
+    private func clearSlashSuggestionCache() {
+        cachedSlashRows = []
+        cachedSlashSelectableRows = []
+        slashRowsCacheKey = nil
+    }
+
     private func resetSlashComposerState() {
         slashSelection = nil
         slashUniverse = .empty
+        slashUniverseRevision &+= 1
         slashState = SlashSuggestionState()
+        clearSlashSuggestionCache()
         lastSlashTriggerActive = false
         composerSuggestionsDismissed = false
     }
@@ -6980,6 +7023,7 @@ struct PiAgentScreen: View {
             let buildStart = Date()
 #endif
             slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath, useSelectedProjectFallback: useSelectedProjectFallback)
+            slashUniverseRevision &+= 1
 #if DEBUG
             let durationMS = Date().timeIntervalSince(buildStart) * 1000
             SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
@@ -6990,7 +7034,9 @@ struct PiAgentScreen: View {
             SlashDebugLog.write("slash.lifecycle.exit", slashUniverse.debugLogFields(rowCount: slashSuggestionRows.count))
 #endif
             slashUniverse = .empty
+            slashUniverseRevision &+= 1
             slashState = SlashSuggestionState()
+            clearSlashSuggestionCache()
         }
         lastSlashTriggerActive = isSlashActive
     }
@@ -7550,6 +7596,10 @@ private struct PiAgentComposerPanel: View {
     @State private var fileScanTask: Task<Void, Never>?
     @State private var slashUniverse: SlashUniverse = .empty
     @State private var slashState = SlashSuggestionState()
+    @State private var slashUniverseRevision = 0
+    @State private var slashRowsCacheKey: SlashSuggestionRowsCacheKey?
+    @State private var cachedSlashRows: [SlashSuggestionRow] = []
+    @State private var cachedSlashSelectableRows: [SlashSuggestionRow] = []
     @State private var slashSelection: SlashItem?
     @State private var isLoopLaunchSheetPresented = false
     @State private var loopLaunchDraft = LoopDraft()
@@ -7585,9 +7635,7 @@ private struct PiAgentComposerPanel: View {
         let isSlashTrigger: Bool = { if case .slash = suggestionTrigger { return true }; return false }()
         let fileItems = ComposerSuggestionItem.build(commands: [], skills: [], files: fileSuggestions)
         let showsFileSuggestions = !composerSuggestionsDismissed && isFileTrigger && !fileSuggestionResults.isEmpty
-        let slashRows = (!composerSuggestionsDismissed && isSlashTrigger)
-            ? SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
-            : []
+        let slashRows = (!composerSuggestionsDismissed && isSlashTrigger) ? cachedSlashRows : []
         let showsSlashSuggestions = !slashRows.isEmpty
 
         VStack(spacing: 6) {
@@ -7741,6 +7789,7 @@ private struct PiAgentComposerPanel: View {
             composerSuggestionHoverSuppressedUntil = Date.now.addingTimeInterval(0.25)
             refreshFileSuggestions()
             refreshSlashUniverseLifecycle()
+            rebuildSlashSuggestionCache()
             // Mirror the draft into the session store on every keystroke so an
             // unsent message survives a window re-key (a theme change rebuilds
             // the view tree). `onAppear` below restores it into the new tree.
@@ -7857,11 +7906,11 @@ private struct PiAgentComposerPanel: View {
     }
 
     private var slashSuggestionRows: [SlashSuggestionRow] {
-        SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
+        cachedSlashRows
     }
 
     private var slashSelectableCount: Int {
-        slashSuggestionRows.lazy.filter(\.isSelectable).count
+        cachedSlashSelectableRows.count
     }
 
     private var slashPanelTitle: String? {
@@ -7892,7 +7941,7 @@ private struct PiAgentComposerPanel: View {
     private var hasSlashSuggestions: Bool {
         if composerSuggestionsDismissed { return false }
         guard case .slash = composerSuggestionTrigger else { return false }
-        return !slashSuggestionRows.isEmpty
+        return !cachedSlashRows.isEmpty
     }
 
     private var hasComposerSuggestions: Bool {
@@ -7931,9 +7980,8 @@ private struct PiAgentComposerPanel: View {
 
     private func acceptComposerSuggestion() -> Bool {
         if hasSlashSuggestions {
-            let selectable = slashSuggestionRows.filter(\.isSelectable)
-            guard selectable.indices.contains(slashState.highlightedIndex) else { return false }
-            handleSlashRowSelect(selectable[slashState.highlightedIndex])
+            guard cachedSlashSelectableRows.indices.contains(slashState.highlightedIndex) else { return false }
+            handleSlashRowSelect(cachedSlashSelectableRows[slashState.highlightedIndex])
             return true
         }
         let items = composerSuggestionItems
@@ -7950,7 +7998,9 @@ private struct PiAgentComposerPanel: View {
             slashState.screen = .category(kind)
             slashState.highlightedIndex = 0
             slashState.scrollTick &+= 1
-        case .item(let item):
+            rebuildSlashSuggestionCache()
+        case .item(let itemRow):
+            guard let item = slashUniverse.item(withID: itemRow.itemID) else { return }
             commitSlashSelection(item)
         }
     }
@@ -7959,6 +8009,7 @@ private struct PiAgentComposerPanel: View {
         slashState.screen = .categoryPicker
         slashState.highlightedIndex = 0
         slashState.scrollTick &+= 1
+        rebuildSlashSuggestionCache()
     }
 
     private func commitSlashSelection(_ item: SlashItem) {
@@ -8027,10 +8078,42 @@ private struct PiAgentComposerPanel: View {
         composerSuggestionsDismissed = true
     }
 
+    private func rebuildSlashSuggestionCache(force: Bool = false) {
+        guard !composerSuggestionsDismissed, case .slash = composerSuggestionTrigger else {
+            clearSlashSuggestionCache()
+            return
+        }
+        let key = SlashSuggestionRowsCacheKey(
+            universeRevision: slashUniverseRevision,
+            screen: slashState.screen,
+            query: slashQueryString
+        )
+        guard force || slashRowsCacheKey != key else { return }
+
+        let rows = SlashSuggestionRowBuilder.rows(universe: slashUniverse, state: slashState, query: slashQueryString)
+        cachedSlashRows = rows
+        cachedSlashSelectableRows = SlashSuggestionRowBuilder.selectableRows(rows)
+        slashRowsCacheKey = key
+
+        if cachedSlashSelectableRows.isEmpty {
+            slashState.highlightedIndex = 0
+        } else if slashState.highlightedIndex >= cachedSlashSelectableRows.count {
+            slashState.highlightedIndex = cachedSlashSelectableRows.count - 1
+        }
+    }
+
+    private func clearSlashSuggestionCache() {
+        cachedSlashRows = []
+        cachedSlashSelectableRows = []
+        slashRowsCacheKey = nil
+    }
+
     private func resetSlashComposerState() {
         slashSelection = nil
         slashUniverse = .empty
+        slashUniverseRevision &+= 1
         slashState = SlashSuggestionState()
+        clearSlashSuggestionCache()
         lastSlashTriggerActive = false
         composerSuggestionsDismissed = false
     }
@@ -8061,6 +8144,7 @@ private struct PiAgentComposerPanel: View {
             let buildStart = Date()
 #endif
             slashUniverse = viewModel.slashUniverse(forProjectPath: projectPath, useSelectedProjectFallback: useSelectedProjectFallback)
+            slashUniverseRevision &+= 1
 #if DEBUG
             let durationMS = Date().timeIntervalSince(buildStart) * 1000
             SlashDebugLog.write("slash.universe.build.end", slashUniverse.debugLogFields(durationMS: durationMS))
@@ -8071,7 +8155,9 @@ private struct PiAgentComposerPanel: View {
             SlashDebugLog.write("slash.lifecycle.exit", slashUniverse.debugLogFields(rowCount: slashSuggestionRows.count))
 #endif
             slashUniverse = .empty
+            slashUniverseRevision &+= 1
             slashState = SlashSuggestionState()
+            clearSlashSuggestionCache()
         }
         lastSlashTriggerActive = isSlashActive
     }
