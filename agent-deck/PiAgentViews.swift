@@ -4225,6 +4225,7 @@ struct CodingAgentExpandedPanel: View {
         .onChange(of: sessionSearchText) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
+        .onChange(of: store.uiRequestsBySessionID) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.expandedProjects) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         .onChange(of: viewModel.collapsedProjects) { _, _ in rebuildVisibleSessionsDeferredIfNeeded() }
         // Projects load asynchronously after sessions on first launch; without
@@ -4428,7 +4429,13 @@ struct CodingAgentExpandedPanel: View {
         var source = viewModel.showPiAgentAttentionOnly ? scopedSource.filter(\.needsAttention) : scopedSource
         if viewModel.showPiAgentActiveOnly {
             let now = Date()
-            source = source.filter { $0.hasRecentUserMessage(referenceDate: now) }
+            let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
+            source = source.filter {
+                $0.matchesActiveSessionsFilter(
+                    referenceDate: now,
+                    hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
+                )
+            }
         }
         let filtered = query.isEmpty ? source : source.filter { $0.matchesSessionSearch(query) }
         // Cap previews only in All-Projects browsing — searching or filtering by

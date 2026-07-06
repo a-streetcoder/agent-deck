@@ -11,6 +11,10 @@ extension PiAgentSessionRecord {
         return lastUserMessageAt >= referenceDate.addingTimeInterval(-Self.activeUserMessageInterval)
     }
 
+    func matchesActiveSessionsFilter(referenceDate: Date = Date(), hasPendingUIRequest: Bool = false) -> Bool {
+        hasRecentUserMessage(referenceDate: referenceDate) || needsAttention || hasPendingUIRequest
+    }
+
     func matchesSessionSearch(_ query: String) -> Bool {
         [
             title,
@@ -160,6 +164,7 @@ struct CodingAgentCollapsedPanel: View {
         .onChange(of: sessionSearchText) { _, _ in rebuildRecents() }
         .onChange(of: viewModel.showPiAgentAttentionOnly) { _, _ in rebuildRecents() }
         .onChange(of: viewModel.showPiAgentActiveOnly) { _, _ in rebuildRecents() }
+        .onChange(of: store.uiRequestsBySessionID) { _, _ in rebuildRecents() }
         // The expanded panel stays mounted while this one shows (and vice
         // versa), so collapsing is the moment to re-sync this list's scroll
         // offset with whatever session was picked in the expanded list.
@@ -237,7 +242,13 @@ struct CodingAgentCollapsedPanel: View {
         }
         if viewModel.showPiAgentActiveOnly {
             let now = Date()
-            scoped = scoped.filter { $0.hasRecentUserMessage(referenceDate: now) }
+            let pendingUIRequestSessionIDs = Set(store.uiRequestsBySessionID.keys)
+            scoped = scoped.filter {
+                $0.matchesActiveSessionsFilter(
+                    referenceDate: now,
+                    hasPendingUIRequest: pendingUIRequestSessionIDs.contains($0.id)
+                )
+            }
         }
         let query = sessionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
