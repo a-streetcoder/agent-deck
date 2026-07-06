@@ -3,13 +3,14 @@ import {
   memoryToolCardLabel,
   type QuestionCell,
   type SubagentCell,
+  type SupervisorQuestionCell,
   type ToolCell,
   type TranscriptCell,
 } from "@agent-deck/domain";
 import { balance } from "@/design-system/markdown/balancer";
 import { MessageBubble } from "@/components/transcript/MessageBubble";
 import { ToolGroupCard, type ToolGroupStatus } from "@/components/transcript/ToolGroupCard";
-import { sendUiResponse } from "../state/wsBridge.ts";
+import { sendSupervisorAnswer, sendUiResponse } from "../state/wsBridge.ts";
 
 const TOOL_STATUS: Record<ToolCell["status"], ToolGroupStatus> = {
   running: "running",
@@ -99,6 +100,86 @@ function SubagentCellView({ cell }: { cell: SubagentCell }) {
           </div>
         }
       />
+    </div>
+  );
+}
+
+/**
+ * A BLOCKING supervisor request a child subagent raised (need_decision /
+ * interview_request). The child is suspended until this is answered; answering
+ * POSTs to the supervisor answer route and resolves the child's tool call.
+ */
+function SupervisorQuestionCellView({ cell }: { cell: SupervisorQuestionCell }) {
+  const [inputValue, setInputValue] = useState("");
+  const resolved = cell.answered || cell.closed;
+  const answer = (response: string): void => {
+    if (!response.trim() || resolved) return;
+    void sendSupervisorAnswer(cell.requestId, response);
+  };
+
+  return (
+    <div
+      className="rounded-xl border px-4 py-3"
+      style={{
+        borderColor: "var(--color-selection-stroke)",
+        background: "var(--color-selection-fill)",
+      }}
+      data-testid="supervisor-question-cell"
+      data-answered={cell.answered ? "true" : "false"}
+      data-closed={cell.closed ? "true" : "false"}
+    >
+      <div className="text-xs font-medium uppercase tracking-wide text-text-muted">
+        Subagent needs input
+      </div>
+      <div className="mt-1 font-medium text-text-primary" style={{ fontStretch: "expanded" }}>
+        {cell.title}
+      </div>
+      {cell.message ? (
+        <div className="mt-1 whitespace-pre-wrap text-sm text-text-secondary">{cell.message}</div>
+      ) : null}
+      {cell.answered ? (
+        <div className="mt-2 text-sm text-text-muted" data-testid="supervisor-answer">
+          Answered: {cell.answer}
+        </div>
+      ) : cell.closed ? (
+        <div className="mt-2 text-sm text-text-muted" data-testid="supervisor-closed">
+          Closed: {cell.closedReason}
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2">
+          {cell.options && cell.options.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {cell.options.map((option) => (
+                <button
+                  key={option}
+                  data-testid={`supervisor-option-${option}`}
+                  className="rounded-capsule border border-border-strong px-3 py-1.5 text-sm text-text-primary hover:border-accent"
+                  onClick={() => answer(option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <textarea
+            data-testid="supervisor-input"
+            aria-label={cell.title}
+            className="min-h-[4rem] resize-y rounded-md border border-border-strong bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+            placeholder="Type a response…"
+            value={inputValue}
+            onChange={(event) => setInputValue(event.target.value)}
+          />
+          <button
+            data-testid="supervisor-submit"
+            className="self-end rounded-capsule bg-primary px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+            style={{ color: "var(--color-accent-foreground)" }}
+            disabled={!inputValue.trim()}
+            onClick={() => answer(inputValue)}
+          >
+            Send response
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -249,6 +330,8 @@ export function CellView({ cell }: { cell: TranscriptCell }) {
       return <ToolCellView cell={cell} />;
     case "subagent":
       return <SubagentCellView cell={cell} />;
+    case "supervisor_question":
+      return <SupervisorQuestionCellView cell={cell} />;
     case "question":
       return <QuestionCellView cell={cell} />;
   }

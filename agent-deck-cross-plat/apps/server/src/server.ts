@@ -125,30 +125,46 @@ const BRIDGE_ONLY_TOOLS = new Set(["contact_supervisor", "ask_user"]);
 
 /**
  * The child subagent's supervisor tool. Exposed ONLY through the per-child bridge
- * (never in the parent bridge's specs, so a parent never sees it). v1 handles the
- * non-blocking `progress_update`; the blocking methods are a later slice.
+ * (never in the parent bridge's specs, so a parent never sees it). Non-blocking
+ * `progress_update` acknowledges immediately; the BLOCKING `need_decision` /
+ * `interview_request` suspend the child until the supervisor answers, and the
+ * answer becomes this tool's result.
  */
 const CONTACT_SUPERVISOR_SPEC = {
   name: "contact_supervisor",
   label: "Contact supervisor",
   description:
-    "Report progress up to your supervisor while you work. Use method 'progress_update' with a short status message. Non-blocking — you get an immediate acknowledgement and keep going.",
+    "Talk to your supervisor. 'progress_update' reports a short status and returns immediately (non-blocking). 'need_decision' and 'interview_request' ASK the supervisor a question and BLOCK until they answer — the answer is returned to you as the tool result. Use a blocking method only when you genuinely cannot proceed without a decision.",
   parameters: {
     type: "object",
     properties: {
       method: {
         type: "string",
-        enum: ["progress_update"],
-        description: "The kind of message. Only 'progress_update' is supported.",
+        enum: ["progress_update", "need_decision", "interview_request"],
+        description:
+          "'progress_update' (non-blocking status), or 'need_decision' / 'interview_request' (block until answered).",
       },
-      message: { type: "string", description: "A short progress status for the supervisor." },
-      title: { type: "string", description: "Optional short title for the update." },
+      message: {
+        type: "string",
+        description:
+          "The status (progress_update) or the question/decision to put to the supervisor.",
+      },
+      title: { type: "string", description: "Optional short title for the request." },
+      options: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional suggested choices for a need_decision.",
+      },
     },
     required: ["method", "message"],
     additionalProperties: false,
   },
-  promptSnippet: "contact_supervisor — send a non-blocking progress update to your supervisor.",
+  promptSnippet:
+    "contact_supervisor — progress_update (non-blocking), or need_decision/interview_request (block for an answer).",
 } as const;
+
+/** How long a blocking supervisor request waits for an answer before giving up. */
+const SUPERVISOR_TIMEOUT_MS = 110_000;
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
@@ -280,6 +296,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // cell its progress flows into. v1 handles non-blocking progress_update only.
   const supervisor = new SupervisorLog();
   const childSupervisors = new Map<string, { parentSessionId: string; cellId: string }>();
+  // Blocking supervisor requests awaiting an answer: requestId → resolver. The
+  // child's contact_supervisor call is suspended on the /bridge request until
+  // answerSupervisor() (via POST /supervisor/:id/answer) settles it.
+  const pendingSupervisor = new Map<
+    string,
+    {
+      parentSessionId: string;
+      childSessionId: string;
+      settle: (result: { content: string; isError?: boolean }) => void;
+    }
+  >();
   // Native memory (memory.md), on by default like the native app; storage under
   // the app data dir. AGENT_DECK_MEMORY=0 disables it entirely.
   const memoryEnabled = process.env.AGENT_DECK_MEMORY !== "0";
@@ -351,6 +378,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       return {
         extension,
         dispose: () => {
+          // Release any still-pending blocking supervisor requests so a dead
+          // child's suspended tool call doesn't linger until the timeout.
+          cancelChildSupervisorRequests(childSessionId);
           bridgeTokens.delete(childSessionId);
           childSupervisors.delete(childSessionId);
           try {
@@ -1643,43 +1673,140 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
-  // Handle a child subagent's contact_supervisor call: record it and stream it
-  // into the parent's Subagent card. v1 supports only the non-blocking
-  // progress_update; blocking methods (need_decision/interview_request) come
-  // later. Returns a bridge-shaped result the child receives as its tool result.
-  function handleContactSupervisor(
+  // Handle a child subagent's contact_supervisor call. progress_update records +
+  // streams into the parent's Subagent card and returns immediately;
+  // need_decision / interview_request open a BLOCKING question card in the parent
+  // and suspend the child until answerSupervisor() settles it — the answer becomes
+  // the child's tool result. A pending wait is released either by an answer, a
+  // timeout, or the child's bridge being disposed (child death). Returns the
+  // bridge-shaped result the child receives.
+  async function handleContactSupervisor(
     childSessionId: string,
     params: Record<string, unknown>,
-  ): { content: string; isError?: boolean } {
+  ): Promise<{ content: string; isError?: boolean }> {
     const route = childSupervisors.get(childSessionId);
     if (!route) {
       return { content: "No supervisor channel is available for this subagent.", isError: true };
     }
-    const method = typeof params.method === "string" ? params.method : "";
-    if (method !== "progress_update") {
+    const rawMethod = typeof params.method === "string" ? params.method : "";
+    const validMethods: SupervisorMethod[] = [
+      "progress_update",
+      "need_decision",
+      "interview_request",
+    ];
+    if (!validMethods.includes(rawMethod as SupervisorMethod)) {
       return {
-        content: `contact_supervisor: '${method || "(missing)"}' is not supported yet — use 'progress_update'.`,
+        content: `contact_supervisor: unknown method '${rawMethod || "(missing)"}'.`,
         isError: true,
       };
     }
+    const method = rawMethod as SupervisorMethod;
     const message = typeof params.message === "string" ? params.message.trim() : "";
     if (!message) {
       return { content: "contact_supervisor: 'message' is required.", isError: true };
     }
     const title =
       typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
+    const parent = sessions.get(route.parentSessionId);
+
+    if (method === "progress_update") {
+      supervisor.record({
+        parentSessionId: route.parentSessionId,
+        cellId: route.cellId,
+        method,
+        title,
+        message,
+      });
+      parent?.appendSubagentProgress(route.cellId, title ? `${title}: ${message}` : message);
+      return { content: "Progress recorded." };
+    }
+
+    // Blocking: open a supervisor-question card and suspend until answered.
+    const requestId = randomUUID();
+    const options =
+      Array.isArray(params.options) && params.options.every((o) => typeof o === "string")
+        ? (params.options as string[])
+        : undefined;
     supervisor.record({
+      id: requestId,
       parentSessionId: route.parentSessionId,
       cellId: route.cellId,
-      method: method as SupervisorMethod,
+      method,
       title,
       message,
     });
-    // Stream it into the parent's card (no-op if the parent/cell is gone).
-    sessions
-      .get(route.parentSessionId)
-      ?.appendSubagentProgress(route.cellId, title ? `${title}: ${message}` : message);
-    return { content: "Progress recorded." };
+    parent?.openSupervisorQuestion({
+      requestId,
+      subagentCellId: route.cellId,
+      method,
+      title: title ?? (method === "need_decision" ? "Decision needed" : "Question"),
+      message,
+      options,
+    });
+    return await new Promise<{ content: string; isError?: boolean }>((resolve) => {
+      let settled = false;
+      const settle = (result: { content: string; isError?: boolean }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        pendingSupervisor.delete(requestId);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        markSupervisorCancelled(requestId, route.parentSessionId, "Timed out with no answer.");
+        settle({ content: "Supervisor request timed out with no answer.", isError: true });
+      }, SUPERVISOR_TIMEOUT_MS);
+      timer.unref();
+      pendingSupervisor.set(requestId, {
+        parentSessionId: route.parentSessionId,
+        childSessionId,
+        settle,
+      });
+    });
+  }
+
+  /** Mark a supervisor request cancelled in the log AND close its parent card,
+   * so a resolved-without-answer request never leaves stale interactive UI. */
+  function markSupervisorCancelled(
+    requestId: string,
+    parentSessionId: string,
+    reason: string,
+  ): void {
+    supervisor.markCancelled(requestId, reason);
+    sessions.get(parentSessionId)?.closeSupervisorQuestion(requestId, reason);
+  }
+
+  /**
+   * Release every blocking supervisor request still pending for a child whose
+   * bridge is being disposed (the child ended/timed out): mark each cancelled +
+   * close its card, then settle its (now-dead) tool call so it doesn't linger to
+   * the timeout.
+   */
+  function cancelChildSupervisorRequests(childSessionId: string): void {
+    for (const [id, entry] of pendingSupervisor) {
+      if (entry.childSessionId === childSessionId) {
+        markSupervisorCancelled(id, entry.parentSessionId, "The subagent ended.");
+        entry.settle({
+          content: "Supervisor request cancelled (the subagent ended).",
+          isError: true,
+        });
+        pendingSupervisor.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Deliver an answer to a pending blocking supervisor request: resolve the
+   * child's suspended tool call with `response`, mark the record answered, and
+   * flip the parent card to answered. Returns false if no such pending request.
+   */
+  function answerSupervisor(requestId: string, response: string): boolean {
+    const pending = pendingSupervisor.get(requestId);
+    if (!pending) return false;
+    supervisor.markAnswered(requestId, response);
+    sessions.get(pending.parentSessionId)?.answerSupervisorQuestion(requestId, response);
+    pending.settle({ content: response });
+    return true;
   }
 
   // The app side of the bridge: a session's generated extension POSTs each
@@ -1697,11 +1824,30 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
     // A child subagent's contact_supervisor call routes to the supervisor channel
     // (recorded + streamed into the parent's card), NOT the parent bridge registry.
+    // A blocking method suspends here until answered (or the child's bridge is
+    // disposed on child death, which releases the wait).
     if (parsed.data.tool === "contact_supervisor") {
-      return handleContactSupervisor(parsed.data.sessionId, parsed.data.params);
+      return await handleContactSupervisor(parsed.data.sessionId, parsed.data.params);
     }
     return await bridge.dispatch(parsed.data);
   });
+
+  // Answer a pending blocking supervisor request (need_decision / interview_request)
+  // raised by a child subagent. The "human out-of-band" path: the parent's
+  // managed_subagent tool call is itself blocked awaiting the child, so this
+  // answer arrives via the UI/REST while the child waits. Resolves the child's
+  // suspended tool call with the response.
+  const supervisorAnswerBody = z.object({ response: z.string() });
+  fastify.post<{ Params: { requestId: string } }>(
+    "/supervisor/:requestId/answer",
+    async (request, reply) => {
+      const parsed = supervisorAnswerBody.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });
+      const ok = answerSupervisor(request.params.requestId, parsed.data.response);
+      if (!ok) return reply.code(404).send({ error: "no pending supervisor request with that id" });
+      return { ok: true };
+    },
+  );
 
   await fastify.listen({ port: options.port ?? 0, host: options.host ?? "127.0.0.1" });
   const address = fastify.server.address();

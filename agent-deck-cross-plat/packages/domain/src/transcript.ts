@@ -76,7 +76,38 @@ export interface SubagentCell {
   progress: string[];
 }
 
-export type TranscriptCell = UserCell | AssistantCell | ToolCell | QuestionCell | SubagentCell;
+/**
+ * A BLOCKING supervisor request a child subagent raised via contact_supervisor
+ * ({need_decision, interview_request}). The child is suspended until this is
+ * answered; answering resolves the child's tool call with `answer` so it
+ * continues. Rendered as an interactive card under the parent's Subagent card.
+ */
+export interface SupervisorQuestionCell {
+  kind: "supervisor_question";
+  id: string;
+  requestId: string;
+  /** The Subagent cell this request belongs to (for visual grouping). */
+  subagentCellId: string;
+  method: "need_decision" | "interview_request";
+  title: string;
+  message?: string;
+  /** Suggested choices for need_decision; free text is always allowed. */
+  options?: string[];
+  answered: boolean;
+  answer?: string;
+  /** Resolved WITHOUT a human answer (the request timed out or the subagent
+   * ended); the card is no longer interactive. `closedReason` says why. */
+  closed?: boolean;
+  closedReason?: string;
+}
+
+export type TranscriptCell =
+  | UserCell
+  | AssistantCell
+  | ToolCell
+  | QuestionCell
+  | SubagentCell
+  | SupervisorQuestionCell;
 
 /**
  * A friendly transcript-card label for an Agent Deck memory bridge tool call
@@ -121,6 +152,8 @@ export type DomainEvent =
   | { type: "tool_end"; cellId: string; status: "done" | "error"; result: unknown }
   | { type: "subagent_delta"; cellId: string; delta: string }
   | { type: "subagent_progress"; cellId: string; message: string }
+  | { type: "supervisor_answered"; cellId: string; answer: string }
+  | { type: "supervisor_closed"; cellId: string; reason: string }
   | { type: "question_answered"; cellId: string }
   | { type: "cell_final"; cell: TranscriptCell }
   | { type: "agent_status"; status: AgentStatus };
@@ -246,6 +279,23 @@ export function reduceTranscript(state: TranscriptState, event: DomainEvent): Tr
       if (!cell || cell.kind !== "subagent") return state;
       const next = state.cells.slice();
       next[index] = { ...cell, progress: [...cell.progress, event.message] };
+      return { ...state, cells: next };
+    }
+    case "supervisor_answered": {
+      const index = state.cells.findIndex((c) => c.id === event.cellId);
+      const cell = index === -1 ? undefined : state.cells[index];
+      if (!cell || cell.kind !== "supervisor_question") return state;
+      const next = state.cells.slice();
+      next[index] = { ...cell, answered: true, answer: event.answer };
+      return { ...state, cells: next };
+    }
+    case "supervisor_closed": {
+      const index = state.cells.findIndex((c) => c.id === event.cellId);
+      const cell = index === -1 ? undefined : state.cells[index];
+      // A human answer wins over a close — don't overwrite an answered card.
+      if (!cell || cell.kind !== "supervisor_question" || cell.answered) return state;
+      const next = state.cells.slice();
+      next[index] = { ...cell, closed: true, closedReason: event.reason };
       return { ...state, cells: next };
     }
     case "question_answered": {

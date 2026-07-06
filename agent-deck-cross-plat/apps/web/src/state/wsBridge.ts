@@ -308,6 +308,15 @@ export async function deleteSkill(scope: string, name: string): Promise<void> {
   });
 }
 
+/** Answer a blocking supervisor-request card raised by a child subagent. */
+export async function sendSupervisorAnswer(requestId: string, response: string): Promise<void> {
+  await fetch(`/supervisor/${encodeURIComponent(requestId)}/answer`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ response }),
+  });
+}
+
 /** Answer a question card. */
 export function sendUiResponse(requestId: string, response: Record<string, unknown>): void {
   if (currentSessionId) {

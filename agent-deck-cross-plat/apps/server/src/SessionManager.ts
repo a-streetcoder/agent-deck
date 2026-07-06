@@ -149,6 +149,45 @@ export class ManagedSession {
     this.emitDomain({ type: "subagent_progress", cellId, message });
   }
 
+  /**
+   * Open a BLOCKING supervisor-request card in this (the parent's) transcript
+   * when a child raises contact_supervisor{need_decision|interview_request}. The
+   * child stays suspended until the card is answered.
+   */
+  openSupervisorQuestion(req: {
+    requestId: string;
+    subagentCellId: string;
+    method: "need_decision" | "interview_request";
+    title: string;
+    message?: string;
+    options?: string[];
+  }): void {
+    this.emitDomain({
+      type: "cell_open",
+      cell: {
+        kind: "supervisor_question",
+        id: `supervisor-${req.requestId}`,
+        requestId: req.requestId,
+        subagentCellId: req.subagentCellId,
+        method: req.method,
+        title: req.title,
+        message: req.message,
+        options: req.options,
+        answered: false,
+      },
+    });
+  }
+
+  /** Mark a supervisor-request card answered (with the answer text) in this transcript. */
+  answerSupervisorQuestion(requestId: string, answer: string): void {
+    this.emitDomain({ type: "supervisor_answered", cellId: `supervisor-${requestId}`, answer });
+  }
+
+  /** Close a supervisor-request card WITHOUT an answer (timed out / subagent ended). */
+  closeSupervisorQuestion(requestId: string, reason: string): void {
+    this.emitDomain({ type: "supervisor_closed", cellId: `supervisor-${requestId}`, reason });
+  }
+
   private applyPiEvent(piEvent: Parameters<typeof ingestPiEvent>[1]): void {
     if (piEvent.type === "extension_ui_request") {
       this.pendingUiRequests.set(piEvent.id, piEvent.method);
