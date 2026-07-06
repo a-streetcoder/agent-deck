@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  deleteMemory,
   getMemory,
   injectableIndex,
   listMemories,
   markStale,
   searchMemories,
+  setMemoryStatus,
   writeMemory,
   type MemoryStore,
 } from "../src/index.ts";
@@ -218,6 +220,49 @@ describe("memory store", () => {
     writeMemory(store, { type: "context", title: "Only here", summary: "s", body: "b" });
     expect(listMemories(store)).toHaveLength(1);
     expect(listMemories(other)).toHaveLength(0);
+  });
+
+  it("changes status (pin / archive / re-activate) and reflects it in injection", () => {
+    const created = writeMemory(store, {
+      type: "preference",
+      title: "Tabs vs spaces",
+      summary: "This project uses two-space indent",
+      body: "x",
+    });
+    if (!created.ok) throw new Error("unreachable");
+    const id = created.record.id;
+
+    expect(setMemoryStatus(store, id, "pinned").ok).toBe(true);
+    expect(getMemory(store, id)!.status).toBe("pinned");
+    // Pinned memories are still injected.
+    expect(injectableIndex(store).lines).toHaveLength(1);
+
+    // Archiving removes it from injection but keeps the file.
+    expect(setMemoryStatus(store, id, "archived").ok).toBe(true);
+    expect(injectableIndex(store).lines).toHaveLength(0);
+    expect(listMemories(store)).toHaveLength(1);
+
+    // Re-activating brings it back.
+    expect(setMemoryStatus(store, id, "active").ok).toBe(true);
+    expect(injectableIndex(store).lines).toHaveLength(1);
+
+    expect(setMemoryStatus(store, "no-such-id", "pinned").ok).toBe(false);
+  });
+
+  it("deletes a memory file (and reports whether it existed)", () => {
+    const created = writeMemory(store, {
+      type: "context",
+      title: "Delete me",
+      summary: "s",
+      body: "b",
+    });
+    if (!created.ok) throw new Error("unreachable");
+    expect(deleteMemory(store, created.record.id)).toBe(true);
+    expect(getMemory(store, created.record.id)).toBeNull();
+    expect(listMemories(store)).toHaveLength(0);
+    // Deleting a missing or traversal id is a no-op returning false.
+    expect(deleteMemory(store, created.record.id)).toBe(false);
+    expect(deleteMemory(store, "../escape")).toBe(false);
   });
 
   it("rejects path-traversal ids so a call can't reach another project's files", () => {

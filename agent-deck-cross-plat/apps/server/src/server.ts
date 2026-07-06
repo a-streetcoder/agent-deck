@@ -53,7 +53,17 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import { z } from "zod";
-import { buildMemoryPreamble, injectableIndex } from "@agent-deck/memory";
+import {
+  buildMemoryPreamble,
+  deleteMemory,
+  getMemory,
+  injectableIndex,
+  listMemories,
+  setMemoryStatus,
+  writeMemory,
+  type MemoryStore,
+  type MemoryType,
+} from "@agent-deck/memory";
 import { BridgeRegistry } from "./bridge.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
@@ -445,6 +455,75 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const parsed = z.object({ path: z.string().min(1) }).safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
     settings.removeExtension(parsed.data.path);
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Memory inspection: browse and manage a project's stored memories (the
+  // visible half of memory.md). Project-scoped by the project's path — the same
+  // key its sessions write under — so one project never sees another's.
+  const memoryStoreFor = (projectId?: string): MemoryStore | null => {
+    if (!memoryEnabled || !projectId) return null;
+    const project = projects.find((p) => p.id === projectId);
+    return project ? { baseDir: memoryBaseDir, projectPath: project.path } : null;
+  };
+
+  const memoryPatchBody = z
+    .object({
+      projectId: z.string(),
+      status: z.enum(["active", "pinned", "stale", "archived"]).optional(),
+      edit: z
+        .object({
+          type: z.enum(["context", "decision", "runbook", "failure", "preference"]),
+          title: z.string().min(1),
+          summary: z.string().min(1),
+          body: z.string().min(1),
+          tags: z.array(z.string()).optional(),
+        })
+        .optional(),
+    })
+    // A PATCH must change something — status or edit — else it's a bad request.
+    .refine((v) => v.status !== undefined || v.edit !== undefined, {
+      message: "provide status or edit",
+    });
+
+  fastify.get("/memory", async (request, reply) => {
+    const store = memoryStoreFor((request.query as { projectId?: string }).projectId);
+    if (!store) return reply.code(400).send({ error: "memory requires a known project" });
+    return { memories: listMemories(store) };
+  });
+
+  fastify.get("/memory/:id", async (request, reply) => {
+    const store = memoryStoreFor((request.query as { projectId?: string }).projectId);
+    if (!store) return reply.code(400).send({ error: "memory requires a known project" });
+    const memory = getMemory(store, (request.params as { id: string }).id);
+    if (!memory) return reply.code(404).send({ error: "unknown memory" });
+    return { memory };
+  });
+
+  fastify.patch("/memory/:id", async (request, reply) => {
+    const parsed = memoryPatchBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message });
+    const store = memoryStoreFor(parsed.data.projectId);
+    if (!store) return reply.code(400).send({ error: "memory requires a known project" });
+    const { id } = request.params as { id: string };
+    // The schema guarantees status or edit is present.
+    const result = parsed.data.edit
+      ? writeMemory(store, { id, ...parsed.data.edit, type: parsed.data.edit.type as MemoryType })
+      : setMemoryStatus(store, id, parsed.data.status!);
+    if (!result.ok) {
+      return reply.code(result.reason === "not_found" ? 404 : 400).send({ error: result.message });
+    }
+    broadcast({ type: "resources_changed" });
+    return { memory: result.record };
+  });
+
+  fastify.delete("/memory/:id", async (request, reply) => {
+    const store = memoryStoreFor((request.query as { projectId?: string }).projectId);
+    if (!store) return reply.code(400).send({ error: "memory requires a known project" });
+    if (!deleteMemory(store, (request.params as { id: string }).id)) {
+      return reply.code(404).send({ error: "unknown memory" });
+    }
     broadcast({ type: "resources_changed" });
     return { ok: true };
   });

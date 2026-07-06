@@ -9,11 +9,13 @@ export {
   type MemoryWriteResult,
 } from "./types.ts";
 export {
+  deleteMemory,
   getMemory,
   injectableIndex,
   listMemories,
   markStale,
   searchMemories,
+  setMemoryStatus,
   writeMemory,
   type MemoryStore,
 } from "./store.ts";

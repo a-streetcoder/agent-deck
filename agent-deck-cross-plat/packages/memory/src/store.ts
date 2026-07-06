@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseMemory, serializeMemory } from "./frontmatter.ts";
 import { isSafeMemoryId, memoryFilePath, projectMemoryDir } from "./paths.ts";
@@ -8,6 +8,7 @@ import { informativeTerms, memoryTerms, overlapCoefficient, sharedTerms } from "
 import type {
   MemoryRecord,
   MemorySearchHit,
+  MemoryStatus,
   MemoryType,
   MemoryWriteInput,
   MemoryWriteResult,
@@ -189,19 +190,37 @@ export function writeMemory(store: MemoryStore, input: MemoryWriteInput): Memory
   return { ok: true, record, created: true };
 }
 
-/** Mark a memory stale so it stops being injected (kept for inspection). */
-export function markStale(store: MemoryStore, id: string): MemoryWriteResult {
+/** Change a memory's status (pin / stale / archive / re-activate). */
+export function setMemoryStatus(
+  store: MemoryStore,
+  id: string,
+  status: MemoryStatus,
+): MemoryWriteResult {
   const existing = getMemory(store, id);
   if (!existing) {
     return { ok: false, reason: "not_found", message: `No memory with id ${id}.` };
   }
-  const updated: MemoryRecord = {
-    ...existing,
-    status: "stale",
-    updatedAt: new Date().toISOString(),
-  };
+  const updated: MemoryRecord = { ...existing, status, updatedAt: new Date().toISOString() };
   writeRecord(store, updated);
   return { ok: true, record: updated, created: false };
+}
+
+/** Mark a memory stale so it stops being injected (kept for inspection). */
+export function markStale(store: MemoryStore, id: string): MemoryWriteResult {
+  return setMemoryStatus(store, id, "stale");
+}
+
+/** Permanently delete a memory file. Returns false if it didn't exist. */
+export function deleteMemory(store: MemoryStore, id: string): boolean {
+  // getMemory enforces the project guard + rejects traversal ids, so an unsafe
+  // id can never reach unlink with a path outside the project dir.
+  if (!getMemory(store, id)) return false;
+  try {
+    rmSync(memoryFilePath(store.baseDir, store.projectPath, id), { force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
