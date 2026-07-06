@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { QuestionCell, ToolCell, TranscriptCell } from "@agent-deck/domain";
+import {
+  memoryToolCardLabel,
+  type QuestionCell,
+  type ToolCell,
+  type TranscriptCell,
+} from "@agent-deck/domain";
 import { balance } from "@/design-system/markdown/balancer";
 import { MessageBubble } from "@/components/transcript/MessageBubble";
 import { ToolGroupCard, type ToolGroupStatus } from "@/components/transcript/ToolGroupCard";
@@ -24,10 +29,14 @@ function ToolCellView({ cell }: { cell: ToolCell }) {
         {typeof cell.result === "string" ? cell.result : JSON.stringify(cell.result, null, 2)}
       </pre>
     );
+  // Agent Deck memory tools render as native "Memory Stored / Searched / …"
+  // cards (Brain icon, friendly label) instead of the raw tool name.
+  const memoryLabel = memoryToolCardLabel(cell);
   return (
-    <div data-testid="tool-cell">
+    <div data-testid="tool-cell" data-memory-card={memoryLabel ?? undefined}>
       <ToolGroupCard
-        name={cell.toolName}
+        name={memoryLabel ?? cell.toolName}
+        variant={memoryLabel ? "memory" : "generic"}
         status={TOOL_STATUS[cell.status]}
         defaultExpanded={cell.status === "running"}
         body={

@@ -1,5 +1,5 @@
 import { forwardRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Diff, Globe, Plug, Terminal } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, Diff, Globe, Plug, Terminal } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { AppLabelTag, type AppLabelTagVariant } from "@/design-system/components/AppLabelTag";
@@ -14,7 +14,7 @@ export type ToolGroupStatus = "starting" | "running" | "result" | "failed";
  * Sub-card transport — drives the leading glyph and a `data-variant`
  * mark consumed by the transcript dispatch.
  */
-export type ToolGroupVariant = "generic" | "web" | "diff" | "mcp";
+export type ToolGroupVariant = "generic" | "web" | "diff" | "mcp" | "memory";
 
 export interface ToolGroupCardProps {
   /** Tool name (`bash`, `Edit`, `web_search`, …). */
@@ -53,6 +53,7 @@ const VARIANT_ICON: Record<ToolGroupVariant, (props: { className: string }) => R
   web: ({ className }) => <Globe className={className} aria-hidden="true" />,
   diff: ({ className }) => <Diff className={className} aria-hidden="true" />,
   mcp: ({ className }) => <Plug className={className} aria-hidden="true" />,
+  memory: ({ className }) => <Brain className={className} aria-hidden="true" />,
 };
 
 /**

@@ -56,6 +56,33 @@ export interface QuestionCell {
 
 export type TranscriptCell = UserCell | AssistantCell | ToolCell | QuestionCell;
 
+/**
+ * A friendly transcript-card label for an Agent Deck memory bridge tool call
+ * (native "Memory Stored / Searched / …" cards), or null for any other tool.
+ * Pure so the web and any renderer agree on the label and it stays testable.
+ */
+export function memoryToolCardLabel(
+  cell: Pick<ToolCell, "toolName" | "status" | "result">,
+): string | null {
+  if (!cell.toolName.startsWith("agent_deck_memory_")) return null;
+  if (cell.toolName === "agent_deck_memory_search") return "Memory Searched";
+  if (cell.toolName === "agent_deck_memory_mark_stale") return "Memory Marked Stale";
+  if (cell.toolName === "agent_deck_memory_write") {
+    const result = typeof cell.result === "string" ? cell.result : "";
+    // Match the server's exact result-message PREFIXES, not a bare regex over
+    // the whole string — the memory title is interpolated into the result
+    // ("Stored memory <id>: <title>"), so a title containing "updated" or
+    // "blocked" must not flip the label. Secret / no-project are isError; a held
+    // near-duplicate comes back non-error with its guidance message.
+    if (cell.status === "error" || result.startsWith("This looks like a near-duplicate")) {
+      return "Memory Blocked";
+    }
+    if (result.startsWith("Updated memory ")) return "Memory Edited";
+    return "Memory Stored";
+  }
+  return "Memory";
+}
+
 export type AgentStatus = "idle" | "running";
 
 export type DomainEvent =
