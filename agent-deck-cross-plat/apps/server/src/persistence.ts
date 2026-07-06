@@ -81,6 +81,8 @@ export interface AppSettings {
   extensions: string[];
   /** Extensions turned off: kept in the list but excluded from --extension. */
   disabledExtensions: string[];
+  /** Models the user hid from the picker, by "<provider>:<id>" key. */
+  disabledModels: string[];
 }
 
 /** App-level settings (app-settings.json), atomic writes like the indexes. */
@@ -92,6 +94,7 @@ export class SettingsStore {
     projectRoots: [],
     extensions: [],
     disabledExtensions: [],
+    disabledModels: [],
   };
 
   constructor(dataDir: string = defaultDataDir()) {
@@ -112,6 +115,9 @@ export class SettingsStore {
           extensions: Array.isArray(record.extensions) ? record.extensions.map(String) : [],
           disabledExtensions: Array.isArray(record.disabledExtensions)
             ? record.disabledExtensions.map(String)
+            : [],
+          disabledModels: Array.isArray(record.disabledModels)
+            ? record.disabledModels.map(String)
             : [],
         };
       }
@@ -184,6 +190,16 @@ export class SettingsStore {
     if (disabled) next.add(extPath);
     else next.delete(extPath);
     this.settings = { ...this.settings, disabledExtensions: [...next] };
+    this.flush();
+    return this.settings;
+  }
+
+  /** Hide/show a model in the picker, by its "<provider>:<id>" key. */
+  setModelDisabled(key: string, disabled: boolean): AppSettings {
+    const next = new Set(this.settings.disabledModels);
+    if (disabled) next.add(key);
+    else next.delete(key);
+    this.settings = { ...this.settings, disabledModels: [...next] };
     this.flush();
     return this.settings;
   }

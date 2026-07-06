@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Cpu, Sparkles } from "lucide-react";
+import { Check, Cpu, Eye, EyeOff, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "../state/store.ts";
 import { sendSetModel } from "../state/wsBridge.ts";
@@ -17,6 +17,8 @@ interface CatalogModel {
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
+  /** Hidden from the picker (app-level curation). */
+  disabled?: boolean;
 }
 
 interface ActiveModel {
@@ -90,6 +92,15 @@ export function ModelsScreen() {
     }, 500);
   };
 
+  const toggleDisabled = async (model: CatalogModel): Promise<void> => {
+    await fetch("/runtime/models/disabled", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: model.provider, id: model.id, disabled: !model.disabled }),
+    });
+    if (sessionId) void load(sessionId); // re-fetch so the row reflects the new state
+  };
+
   const byProvider = new Map<string, CatalogModel[]>();
   for (const model of models) {
     byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model]);
@@ -131,47 +142,70 @@ export function ModelsScreen() {
                     const isActive = active?.provider === provider && active?.id === model.id;
                     const ctx = formatTokens(model.contextWindow);
                     return (
-                      <button
+                      <div
                         key={model.id}
                         data-testid={`model-${model.id}`}
                         data-active={isActive}
+                        data-disabled={model.disabled ? "true" : "false"}
                         className={cn(
-                          "flex w-full items-center gap-3 rounded-[14px] border px-3.5 py-2.5 text-left transition-colors",
+                          "flex items-center gap-1 rounded-[14px] border transition-colors",
                           isActive
                             ? "border-[var(--color-brand-accent)] bg-[var(--color-selection-fill)]"
-                            : "border-border-subtle bg-surface hover:bg-[var(--color-hover-fill)]",
+                            : "border-border-subtle bg-surface",
+                          model.disabled && "opacity-45",
                         )}
-                        onClick={() => select(model)}
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="truncate text-sm font-medium text-text-primary"
-                              style={{ fontStretch: "expanded" }}
-                            >
-                              {model.name ?? model.id}
-                            </span>
-                            {model.reasoning ? (
+                        <button
+                          type="button"
+                          data-testid={`model-select-${model.id}`}
+                          disabled={model.disabled}
+                          className={cn(
+                            "flex min-w-0 flex-1 items-center gap-3 rounded-l-[14px] px-3.5 py-2.5 text-left",
+                            !model.disabled && !isActive && "hover:bg-[var(--color-hover-fill)]",
+                            model.disabled && "cursor-default",
+                          )}
+                          onClick={() => select(model)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
                               <span
-                                data-testid="reasoning-badge"
-                                className="flex items-center gap-0.5 rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-secondary"
+                                className="truncate text-sm font-medium text-text-primary"
+                                style={{ fontStretch: "expanded" }}
                               >
-                                <Sparkles size={9} aria-hidden /> reasoning
+                                {model.name ?? model.id}
                               </span>
+                              {model.reasoning ? (
+                                <span
+                                  data-testid="reasoning-badge"
+                                  className="flex items-center gap-0.5 rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-secondary"
+                                >
+                                  <Sparkles size={9} aria-hidden /> reasoning
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="truncate font-mono text-[11px] text-text-muted">
+                              {model.id}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3 text-[11px] text-text-muted">
+                            {ctx ? <span title="Context window">{ctx} ctx</span> : null}
+                            {model.input?.includes("image") ? <span>image</span> : null}
+                            {isActive ? (
+                              <Check size={15} style={{ color: "var(--color-brand-accent)" }} />
                             ) : null}
                           </div>
-                          <div className="truncate font-mono text-[11px] text-text-muted">
-                            {model.id}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-3 text-[11px] text-text-muted">
-                          {ctx ? <span title="Context window">{ctx} ctx</span> : null}
-                          {model.input?.includes("image") ? <span>image</span> : null}
-                          {isActive ? (
-                            <Check size={15} style={{ color: "var(--color-brand-accent)" }} />
-                          ) : null}
-                        </div>
-                      </button>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`model-toggle-${model.id}`}
+                          aria-label={model.disabled ? "Enable model" : "Disable model"}
+                          title={model.disabled ? "Show in picker" : "Hide from picker"}
+                          className="shrink-0 rounded-r-[14px] px-3 py-2.5 text-text-muted hover:bg-[var(--color-hover-fill)] hover:text-text-primary"
+                          onClick={() => void toggleDisabled(model)}
+                        >
+                          {model.disabled ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
                     );
                   })}
                 </div>

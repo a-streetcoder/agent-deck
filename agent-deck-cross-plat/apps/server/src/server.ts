@@ -1353,10 +1353,29 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     const session = sessions.get(id);
     if (!session) return reply.status(404).send({ error: "unknown session" });
     try {
-      return { models: await session.getAvailableModels() };
+      const models = await session.getAvailableModels();
+      // Mark models the user hid from the picker (app-level, native "Disabled").
+      const disabled = new Set(settings.get().disabledModels);
+      return {
+        models: models.map((m) => ({
+          ...m,
+          disabled: disabled.has(`${m.provider}:${m.id}`),
+        })),
+      };
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
     }
+  });
+
+  // Hide/show a model in the picker (app-level curation, the native Enabled/Disabled toggle).
+  fastify.post("/runtime/models/disabled", async (request, reply) => {
+    const parsed = z
+      .object({ provider: z.string().min(1), id: z.string().min(1), disabled: z.boolean() })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    settings.setModelDisabled(`${parsed.data.provider}:${parsed.data.id}`, parsed.data.disabled);
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
   });
 
   // Session slash commands (skills/prompts pi actually loaded) — also how
