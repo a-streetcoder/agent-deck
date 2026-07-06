@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BUILTIN_AGENTS_DIR } from "../src/paths.ts";
-import { computeBuiltinOverride, writeBuiltinAgentOverride } from "../src/overrides.ts";
+import {
+  computeBuiltinOverride,
+  mergeWithUnmanagedOverrideFields,
+  readAgentOverrides,
+  writeBuiltinAgentOverride,
+} from "../src/overrides.ts";
 import { scanAgents } from "../src/scanner.ts";
 import { writeAgentFile, writeSkillFile } from "../src/writer.ts";
 
@@ -113,6 +118,47 @@ describe("agent/skill file writer", () => {
       tools: ["read"],
       body: "You are helper.",
     });
+  });
+
+  it("round-trips an agent's declared mcpServers through write + scan", () => {
+    const home = makeHome();
+    const project = mkdtempSync(path.join(tmpdir(), "edit-proj-"));
+    const roots = { home, projectPath: project };
+
+    const filePath = writeAgentFile(roots, "project", "researcher", {
+      description: "Researches",
+      mcpServers: ["github", "linear"],
+      body: "You research.",
+    });
+    // Serialized to frontmatter as a comma list.
+    expect(readFileSync(filePath, "utf8")).toContain("mcpServers: github, linear");
+
+    const agent = scanAgents(roots).find((a) => a.name === "researcher")!;
+    expect(agent.mcpServers).toEqual(["github", "linear"]);
+
+    // Clearing removes the field.
+    writeAgentFile(roots, "project", "researcher", { mcpServers: [] });
+    expect(readFileSync(filePath, "utf8")).not.toContain("mcpServers:");
+    expect(scanAgents(roots).find((a) => a.name === "researcher")!.mcpServers).toBeUndefined();
+  });
+
+  it("surfaces a builtin's mcpServers override and preserves it across an edit (unmanaged)", () => {
+    const home = makeHome();
+    // An external / native writer set an mcpServers override for a builtin.
+    writeBuiltinAgentOverride({ home }, "coder", { mcpServers: ["github"] });
+    expect(scanAgents({ home }).find((a) => a.name === "coder")!.mcpServers).toEqual(["github"]);
+
+    // Editing a MANAGED field (description) must not drop the unmanaged mcpServers.
+    const base = scanAgents({ home }).find((a) => a.name === "coder" && a.scope === "builtin")!;
+    const merged = mergeWithUnmanagedOverrideFields(
+      readAgentOverrides({ home }).coder,
+      computeBuiltinOverride(base, { description: "Edited coder" }),
+    );
+    writeBuiltinAgentOverride({ home }, "coder", merged);
+
+    const coder = scanAgents({ home }).find((a) => a.name === "coder")!;
+    expect(coder.mcpServers).toEqual(["github"]);
+    expect(coder.description).toBe("Edited coder");
   });
 
   it("creates a skill SKILL.md discoverable by pi's loader", () => {

@@ -180,6 +180,7 @@ const agentEditFields = z.object({
   systemPromptMode: z.enum(["replace", "append"]).optional(),
   tools: z.array(z.string()).optional(),
   skills: z.array(z.string()).optional(),
+  mcpServers: z.array(z.string()).optional(),
   body: z.string().optional(),
 });
 

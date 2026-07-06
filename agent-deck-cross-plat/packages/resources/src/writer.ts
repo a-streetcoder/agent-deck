@@ -88,6 +88,7 @@ const AGENT_FIELD_ORDER = [
   "systemPromptMode",
   "tools",
   "skills",
+  "mcpServers",
 ] as const;
 
 function serializeFrontmatter(record: Record<string, unknown>): string {
@@ -139,6 +140,10 @@ export function writeAgentFile(
   if (edit.skills !== undefined) {
     if (edit.skills.length > 0) frontmatter.skills = edit.skills.join(", ");
     else delete frontmatter.skills;
+  }
+  if (edit.mcpServers !== undefined) {
+    if (edit.mcpServers.length > 0) frontmatter.mcpServers = edit.mcpServers.join(", ");
+    else delete frontmatter.mcpServers;
   }
   if (edit.body !== undefined) body = edit.body.trim();
 

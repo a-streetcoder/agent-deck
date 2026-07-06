@@ -58,6 +58,7 @@ export function parseAgentFile(
     tools: asList(frontmatter.tools),
     skills: asList(frontmatter.skills),
     extensions: asList(frontmatter.extensions),
+    mcpServers: asList(frontmatter.mcpServers),
     scope,
     filePath,
     body: body.trim(),

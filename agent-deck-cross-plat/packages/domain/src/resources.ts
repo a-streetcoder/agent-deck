@@ -24,6 +24,8 @@ export interface AgentInfo {
   tools?: string[];
   skills?: string[];
   extensions?: string[];
+  /** MCP server names (from mcp.json) this agent declares for its sessions. */
+  mcpServers?: string[];
   scope: ResourceScope;
   filePath: string;
   /** Markdown body = the agent system prompt. */
