@@ -5647,6 +5647,10 @@ struct PiAgentScreen: View {
                         // Native rendering for the supported child types; the
                         // rest (tool groups, subagent/memory cards) still hosted.
                         let revision = appKitChildBlockRevision(child, contextRevision: contextRevision, subagentRuns: subagentRuns)
+                        let toolGroupEstimateModel: NativeToolGroupModel? = {
+                            guard case let .toolGroup(group) = child else { return nil }
+                            return NativeToolGroupModel.make(group: group, visibility: visibility, projectPath: projectPath)
+                        }()
                         memoizedBlockIDs.insert(child.id)
                         let nativeKind = transcriptCache.cachedBlockKind(id: child.id, revision: revision) {
                             nativeChildKind(
@@ -5658,7 +5662,7 @@ struct PiAgentScreen: View {
                             view: nil,
                             kind: nativeKind,
                             baseRevision: revision,
-                            estimatedContentHeight: { Self.estimatedChildHeight(child, width: $0) },
+                            estimatedContentHeight: { Self.estimatedChildHeight(child, width: $0, toolGroupModel: toolGroupEstimateModel) },
                             threadID: item.id,
                             isThreadQuestion: false
                         ))
@@ -6025,17 +6029,18 @@ struct PiAgentScreen: View {
         }
     }
 
-    private static func estimatedChildHeight(_ child: PiAgentThreadChild, width: CGFloat) -> CGFloat {
+    private static func estimatedChildHeight(_ child: PiAgentThreadChild, width: CGFloat, toolGroupModel: NativeToolGroupModel? = nil) -> CGFloat {
         let cardWidth = max(width - 32, 200)
         let charsPerLine = max(Int(cardWidth / 7), 20)
         switch child {
         case let .assistant(entry), let .steering(entry), let .thinking(entry):
             let lines = max(1, (entry.text.count + charsPerLine - 1) / charsPerLine)
             return CGFloat(min(lines, 40)) * 18 + 48
-        case let .toolGroup(group):
-            // One row per activity — a flat estimate made a multi-tool group
-            // pop hard the first time it appeared (before the cell re-measures).
-            return CGFloat(max(group.activities.count, 1)) * 40 + 16
+        case .toolGroup:
+            // Estimate from the same capped display model the native tool card
+            // renders, not from raw activity count. MCP/web/diff groups can contain
+            // many underlying updates while displaying only a compact card.
+            return toolGroupModel?.estimatedContentHeight(forWidth: width) ?? 1
         case .status, .error, .retry:
             return 56
         }

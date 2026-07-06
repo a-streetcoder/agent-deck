@@ -145,6 +145,109 @@ extension NativeToolGroupModel {
         return NativeToolGroupModel(web: web, diff: diff, mcp: mcp, images: images)
     }
 
+    /// Fast, pure estimate for the native tool-group card before AppKit has built
+    /// and measured the real row. Keep this model-based: `heightOfRow` can call it
+    /// on the scroll path, so it must not instantiate views or force layout.
+    func estimatedContentHeight(forWidth rowWidth: CGFloat) -> CGFloat {
+        let sectionWidth = max(1, min(rowWidth, PiAgentBubbleWidth.replyCap(for: rowWidth)))
+        let sections: [CGFloat] = [
+            mcp.map { Self.estimatedMCPHeight($0, width: sectionWidth) },
+            web.map { Self.estimatedWebHeight($0, width: sectionWidth) },
+            images.map { Self.estimatedImagesHeight($0, width: sectionWidth) },
+            diff.map { Self.estimatedDiffHeight($0, width: sectionWidth) }
+        ].compactMap { $0 }
+        guard !sections.isEmpty else { return 1 }
+        return sections.reduce(0, +) + CGFloat(sections.count - 1) * Self.estimateSectionSpacing
+    }
+
+    private static let estimateSectionSpacing: CGFloat = 8
+    private static let estimateHeaderHeight: CGFloat = 18
+    private static let estimateTitleRowHeight: CGFloat = 26
+    private static let estimateLineHeight: CGFloat = 18
+    private static let estimateSmallLineHeight: CGFloat = 16
+    private static let estimateMCPImageTileWidth: CGFloat = 104
+    private static let estimateMCPImageTileHeight: CGFloat = 104
+    private static let estimateMCPImageSpacing: CGFloat = 8
+    private static let estimateInlineLinkLimit = 5
+
+    private static func estimatedMCPHeight(_ mcp: MCP, width: CGFloat) -> CGFloat {
+        var items = [estimateHeaderHeight]
+        items.append(contentsOf: mcp.rows.map { estimatedMCPRowHeight($0, width: width - AppTheme.Chat.cardHPadding * 2) })
+        if mcp.hiddenCount > 0 { items.append(estimateLineHeight) }
+        return estimatedSubcardHeight(items: items, spacing: 10, vInset: AppTheme.Chat.cardVPadding)
+    }
+
+    private static func estimatedMCPRowHeight(_ row: MCP.Row, width: CGFloat) -> CGFloat {
+        var height = estimateTitleRowHeight
+        if !row.imageReferences.isEmpty {
+            height += 6 + estimatedImageStripHeight(count: min(row.imageReferences.count, 6), width: max(1, width - 23))
+            if row.imageReferences.count > 6 { height += 5 + estimateSmallLineHeight }
+        }
+        if let summary = row.errorSummary, !summary.isEmpty {
+            height += 6 + estimatedWrappedTextHeight(summary, width: max(1, width - 23), maxLines: 2)
+        }
+        return height
+    }
+
+    private static func estimatedWebHeight(_ web: Web, width: CGFloat) -> CGFloat {
+        var items = [estimateHeaderHeight]
+        items.append(contentsOf: web.rows.map { estimatedWebRowHeight($0) })
+        if web.hiddenCount > 0 { items.append(estimateLineHeight) }
+        return estimatedSubcardHeight(items: items, spacing: 10, vInset: AppTheme.Chat.cardVPadding)
+    }
+
+    private static func estimatedWebRowHeight(_ row: Web.Row) -> CGFloat {
+        guard !row.links.isEmpty else { return estimateTitleRowHeight }
+        let shownLinks = min(row.links.count, estimateInlineLinkLimit)
+        let moreHeight: CGFloat = row.links.count > estimateInlineLinkLimit ? 24 : 0
+        return estimateTitleRowHeight + 6 + CGFloat(shownLinks) * 22 + moreHeight
+    }
+
+    private static func estimatedImagesHeight(_ images: Images, width: CGFloat) -> CGFloat {
+        let innerWidth = max(1, width - 24)
+        let strip = estimatedImageStripHeight(count: min(images.references.count, 6), width: max(1, innerWidth - 23))
+        let hidden: CGFloat = images.references.count > 6 ? 5 + estimateSmallLineHeight : 0
+        return estimatedSubcardHeight(items: [estimateHeaderHeight, strip + hidden], spacing: 8, vInset: 10)
+    }
+
+    private static func estimatedDiffHeight(_ diff: Diff, width: CGFloat) -> CGFloat {
+        var items = [estimateHeaderHeight]
+        items.append(contentsOf: diff.rows.map { estimatedDiffRowHeight($0, width: width - AppTheme.Chat.cardHPadding * 2) })
+        return estimatedSubcardHeight(items: items, spacing: 7, vInset: AppTheme.Chat.cardVPadding)
+    }
+
+    private static func estimatedDiffRowHeight(_ row: PiAgentThreadDiffSummaryView.Row, width: CGFloat) -> CGFloat {
+        let meaningfulLineCount = estimatedMeaningfulDiffLineCount(row.diff)
+        let visibleLines = min(meaningfulLineCount, 10)
+        let expander: CGFloat = meaningfulLineCount > 10 ? 27 : 0
+        return estimateTitleRowHeight + 4 + CGFloat(visibleLines) * 22 + expander
+    }
+
+    private static func estimatedSubcardHeight(items: [CGFloat], spacing: CGFloat, vInset: CGFloat) -> CGFloat {
+        guard !items.isEmpty else { return 0 }
+        return vInset * 2 + items.reduce(0, +) + CGFloat(items.count - 1) * spacing
+    }
+
+    private static func estimatedImageStripHeight(count: Int, width: CGFloat) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let perRow = max(1, Int((width + estimateMCPImageSpacing) / (estimateMCPImageTileWidth + estimateMCPImageSpacing)))
+        let rows = (count + perRow - 1) / perRow
+        return CGFloat(rows) * estimateMCPImageTileHeight + CGFloat(max(0, rows - 1)) * estimateMCPImageSpacing
+    }
+
+    private static func estimatedWrappedTextHeight(_ text: String, width: CGFloat, maxLines: Int) -> CGFloat {
+        let charsPerLine = max(Int(width / 7), 18)
+        let lines = min(maxLines, max(1, (text.count + charsPerLine - 1) / charsPerLine))
+        return CGFloat(lines) * estimateLineHeight
+    }
+
+    private static func estimatedMeaningfulDiffLineCount(_ diff: String) -> Int {
+        diff.split(separator: "\n", omittingEmptySubsequences: false).filter { raw in
+            guard !raw.hasPrefix("diff --git"), !raw.hasPrefix("index "), !raw.hasPrefix("---"), !raw.hasPrefix("+++") else { return false }
+            return raw.hasPrefix("+") || raw.hasPrefix("-") || raw.hasPrefix("@@")
+        }.count
+    }
+
     private static func callCountText(_ activities: [PiAgentTranscriptActivity]) -> String {
         let count = activities.reduce(0) { $0 + $1.count }
         return count == 1 ? "1 call" : "\(count) calls"
