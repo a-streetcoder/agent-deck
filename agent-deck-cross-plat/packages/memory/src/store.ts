@@ -4,7 +4,13 @@ import path from "node:path";
 import { parseMemory, serializeMemory } from "./frontmatter.ts";
 import { isSafeMemoryId, memoryFilePath, projectMemoryDir } from "./paths.ts";
 import { scanForSecrets } from "./secrets.ts";
-import { informativeTerms, memoryTerms, overlapCoefficient, sharedTerms } from "./text.ts";
+import {
+  fuzzyMatchedTerms,
+  informativeTerms,
+  memoryTerms,
+  overlapCoefficient,
+  sharedTerms,
+} from "./text.ts";
 import type {
   MemoryRecord,
   MemorySearchHit,
@@ -22,8 +28,17 @@ import type {
 
 /** Overlap coefficient at/above which a new write is held as a near-duplicate. */
 const DUPLICATE_OVERLAP = 0.6;
-/** A memory must share at least this many informative terms to be a search hit. */
+/** A memory must share at least this many EXACT informative terms to be a hit. */
 const MIN_SHARED_TERMS = 1;
+/**
+ * With no exact overlap, a memory needs at least this many one-edit near-misses
+ * to be a hit. A LONE near-miss is too weak — one coincidental edit-distance-1
+ * pair (e.g. "stale"/"scale") would otherwise surface an unrelated memory — so a
+ * fuzzy-only recall requires corroboration.
+ */
+const MIN_FUZZY_ONLY = 2;
+/** A one-edit (typo/near-miss) term match counts for less than an exact one. */
+const FUZZY_WEIGHT = 0.5;
 const DEFAULT_SEARCH_LIMIT = 8;
 /** Cap on the injected project memory index (memory.md: 40 for parents). */
 const DEFAULT_INDEX_CAP = 40;
@@ -224,10 +239,15 @@ export function deleteMemory(store: MemoryStore, id: string): boolean {
 }
 
 /**
- * Lexical recall over active/pinned memories: rank by the number of informative
- * terms the query shares with each memory's title/summary/tags, with a small
- * pinned boost and recency as the tie-breaker. Abstains (empty) when the query
- * carries no informative terms or nothing shares one.
+ * Lexical recall over active/pinned memories: rank by the informative terms the
+ * query shares with each memory's title/summary/tags, plus a smaller credit for
+ * one-edit typo/near-miss matches (so "postgress migation" still recalls a
+ * "Postgres migration" memory that exact overlap would miss). Small pinned
+ * boost, recency as the tie-breaker. A fuzzy-only hit needs ≥ MIN_FUZZY_ONLY
+ * near-misses so one coincidental near-miss can't surface an unrelated memory.
+ * Abstains (empty) when the query carries no informative terms or nothing
+ * matches. `sharedTerms` on a hit stays the EXACT overlap — fuzzy matches lift
+ * the score but aren't reported as shared.
  */
 export function searchMemories(
   store: MemoryStore,
@@ -238,11 +258,14 @@ export function searchMemories(
   if (queryTerms.size === 0) return [];
   const hits: MemorySearchHit[] = [];
   for (const record of injectable(listMemories(store))) {
-    const shared = sharedTerms(queryTerms, memoryTerms(record));
-    if (shared.length < MIN_SHARED_TERMS) continue;
+    const memTerms = memoryTerms(record);
+    const shared = sharedTerms(queryTerms, memTerms);
+    const fuzzy = fuzzyMatchedTerms(queryTerms, memTerms);
+    // An exact match alone qualifies; a fuzzy-only hit needs corroboration.
+    if (shared.length < MIN_SHARED_TERMS && fuzzy.length < MIN_FUZZY_ONLY) continue;
     hits.push({
       record,
-      score: shared.length + (record.status === "pinned" ? 0.5 : 0),
+      score: shared.length + FUZZY_WEIGHT * fuzzy.length + (record.status === "pinned" ? 0.5 : 0),
       sharedTerms: shared,
     });
   }

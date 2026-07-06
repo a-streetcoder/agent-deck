@@ -23,4 +23,12 @@ export { projectMemoryDir, projectMemoryId, standardizeProjectPath } from "./pat
 export { buildMemoryPreamble, buildRecalledMemories, type MemoryIndex } from "./preamble.ts";
 export { parseMemory, serializeMemory } from "./frontmatter.ts";
 export { scanForSecrets, type SecretScanResult } from "./secrets.ts";
-export { informativeTerms, memoryTerms, overlapCoefficient, sharedTerms } from "./text.ts";
+export {
+  FUZZY_MIN_LEN,
+  fuzzyMatchedTerms,
+  informativeTerms,
+  memoryTerms,
+  overlapCoefficient,
+  sharedTerms,
+  withinOneEdit,
+} from "./text.ts";

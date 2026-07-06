@@ -152,6 +152,54 @@ export function sharedTerms(a: Set<string>, b: Set<string>): string[] {
 }
 
 /**
+ * Only terms at least this long may fuzzy-match. Short words are excluded
+ * because a single edit flips too many unrelated ones into each other
+ * (cat/car, code/core, add/aid) — the false-positive rate isn't worth it.
+ */
+export const FUZZY_MIN_LEN = 5;
+
+/**
+ * True when `a` and `b` differ by at most one single-character edit
+ * (substitution, insertion, or deletion). A linear one-pass check — no DP
+ * matrix — that early-exits on a length gap > 1. Equal strings count as 0
+ * edits (true); callers that only want genuine near-misses exclude exact
+ * matches themselves.
+ */
+export function withinOneEdit(a: string, b: string): boolean {
+  const la = a.length;
+  const lb = b.length;
+  if (Math.abs(la - lb) > 1) return false;
+  // Skip the common prefix.
+  let i = 0;
+  while (i < la && i < lb && a[i] === b[i]) i++;
+  if (i === la && i === lb) return true; // identical
+  if (la === lb) return a.slice(i + 1) === b.slice(i + 1); // substitution
+  if (la > lb) return a.slice(i + 1) === b.slice(i); // deletion from a
+  return a.slice(i) === b.slice(i + 1); // insertion into a
+}
+
+/**
+ * Query terms that are NOT an exact match but land within one edit of some
+ * memory term, with both sides at least FUZZY_MIN_LEN — the typo / near-miss
+ * signal ("postgress" → "postgres", "migation" → "migration"). Ranked BELOW
+ * exact overlap by the caller; de-duplicated on the query side.
+ */
+export function fuzzyMatchedTerms(queryTerms: Set<string>, memTerms: Set<string>): string[] {
+  const out: string[] = [];
+  for (const q of queryTerms) {
+    if (q.length < FUZZY_MIN_LEN || memTerms.has(q)) continue;
+    for (const m of memTerms) {
+      if (m.length < FUZZY_MIN_LEN) continue;
+      if (withinOneEdit(q, m)) {
+        out.push(q);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Overlap coefficient |A∩B| / min(|A|,|B|) — the near-duplicate signal. It is 1
  * when one term set is a subset of the other, so it catches a re-write that
  * adds detail without changing the topic. Empty sets score 0.

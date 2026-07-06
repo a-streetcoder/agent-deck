@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { informativeTerms, memoryTerms, overlapCoefficient, sharedTerms } from "../src/text.ts";
+import {
+  fuzzyMatchedTerms,
+  informativeTerms,
+  memoryTerms,
+  overlapCoefficient,
+  sharedTerms,
+  withinOneEdit,
+} from "../src/text.ts";
 
 describe("lexical text primitives", () => {
   it("drops stopwords and 1-char tokens, keeps informative terms", () => {
@@ -49,5 +56,38 @@ describe("lexical text primitives", () => {
   it("overlap coefficient is 0 for disjoint or empty sets", () => {
     expect(overlapCoefficient(informativeTerms("apples"), informativeTerms("oranges"))).toBe(0);
     expect(overlapCoefficient(new Set(), informativeTerms("anything"))).toBe(0);
+  });
+
+  it("withinOneEdit accepts a single substitution / insertion / deletion", () => {
+    expect(withinOneEdit("postgres", "postgres")).toBe(true); // identical (0 edits)
+    expect(withinOneEdit("postgres", "postgress")).toBe(true); // insertion
+    expect(withinOneEdit("migration", "migated")).toBe(false); // > 1 edit
+    expect(withinOneEdit("server", "serber")).toBe(true); // substitution
+    expect(withinOneEdit("cache", "cach")).toBe(true); // deletion
+    expect(withinOneEdit("cache", "queue")).toBe(false); // unrelated
+    expect(withinOneEdit("abc", "abcde")).toBe(false); // length gap > 1
+  });
+
+  it("fuzzyMatchedTerms flags near-misses ≥ 5 chars but ignores short words and exacts", () => {
+    const mem = memoryTerms({
+      title: "Postgres migration rollback",
+      summary: "revert the database schema",
+      tags: [],
+    });
+    // Both query terms are one typo away from a memory term (len ≥ 5), and both
+    // survive stemming unchanged so the edit distance is measured cleanly.
+    expect(fuzzyMatchedTerms(informativeTerms("migation databse"), mem).sort()).toEqual([
+      "databse",
+      "migation",
+    ]);
+    // An exact term is NOT double-counted as fuzzy.
+    expect(fuzzyMatchedTerms(informativeTerms("migration"), mem)).toEqual([]);
+    // Short words never fuzzy-match, even one edit apart (guards cat/car, code/core).
+    expect(
+      fuzzyMatchedTerms(
+        informativeTerms("core"),
+        memoryTerms({ title: "code", summary: "", tags: [] }),
+      ),
+    ).toEqual([]);
   });
 });

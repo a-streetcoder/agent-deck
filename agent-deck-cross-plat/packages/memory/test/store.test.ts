@@ -5,11 +5,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   deleteMemory,
   getMemory,
+  informativeTerms,
   injectableIndex,
   listMemories,
   markStale,
+  memoryTerms,
   searchMemories,
   setMemoryStatus,
+  sharedTerms,
   writeMemory,
   type MemoryStore,
 } from "../src/index.ts";
@@ -169,6 +172,47 @@ describe("memory store", () => {
 
     // A query with no informative overlap returns nothing (no "hello" recall).
     expect(searchMemories(store, "hello there")).toHaveLength(0);
+  });
+
+  it("recalls on typo/near-miss terms that exact lexical overlap misses", () => {
+    const rollback = writeMemory(store, {
+      type: "runbook",
+      title: "Postgres migration rollback",
+      summary: "How to revert the database schema",
+      body: "x",
+      tags: [],
+    });
+    if (!rollback.ok) throw new Error("unreachable");
+    // A distinct memory that shares nothing with the typo'd query.
+    const css = writeMemory(store, {
+      type: "decision",
+      title: "Tailwind spacing scale",
+      summary: "Use the 4px spacing tokens for padding",
+      body: "y",
+    });
+    if (!css.ok) throw new Error("unreachable");
+
+    // Both query words are one typo away from a memory term, so EXACT overlap
+    // finds nothing — proving the fuzzy path is what recalls it.
+    const typoQuery = "migation databse";
+    expect(sharedTerms(informativeTerms(typoQuery), memoryTerms(rollback.record))).toEqual([]);
+
+    const hits = searchMemories(store, typoQuery);
+    expect(hits.map((h) => h.record.id)).toEqual([rollback.record.id]);
+    // The unrelated memory is not dragged in, and the score reflects fuzzy
+    // credit (2 near-misses × 0.5), strictly below a single exact match.
+    expect(hits[0]!.score).toBeCloseTo(1, 5);
+    expect(hits[0]!.score).toBeLessThan(1.0001);
+
+    // Control: "scal" is one edit from the real memory term "scale", but is
+    // under the length floor, so it must NOT recall (guards short-word false
+    // positives like cat/car, code/core).
+    expect(searchMemories(store, "scal")).toHaveLength(0);
+
+    // Control: a LONE near-miss must not recall — "stale" is one edit from the
+    // css memory's "scale", but a single coincidental fuzzy match is too weak
+    // (needs corroboration), so nothing is surfaced.
+    expect(searchMemories(store, "stale")).toHaveLength(0);
   });
 
   it("builds a bodyless project memory index of injectable memories", () => {
