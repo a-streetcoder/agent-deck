@@ -193,11 +193,28 @@ export class ManagedSession {
   /** Replace this session's activity plan (set_session_plan). */
   setPlan(items: SessionPlanItem[]): void {
     this.emitDomain({ type: "plan_set", items });
+    this.persistPlan();
   }
 
   /** Patch plan items by id (update_session_plan). */
   updatePlan(updates: SessionPlanUpdate[]): void {
     this.emitDomain({ type: "plan_update", updates });
+    this.persistPlan();
+  }
+
+  /**
+   * Restore a persisted plan into a resumed session's transcript (the plan is
+   * app state, not in pi's session file, so seedFromHistory can't rebuild it).
+   */
+  restorePlan(items: SessionPlanItem[]): void {
+    if (items.length === 0) return;
+    this.emitDomain({ type: "plan_set", items });
+  }
+
+  /** Mirror the current plan onto the meta so the session index persists it. */
+  private persistPlan(): void {
+    this.meta.plan = this.transcript.plan;
+    this.onMetaChange(this.meta);
   }
 
   /** The session's current activity plan. */
@@ -707,6 +724,9 @@ export class SessionManager {
       const revived: SessionMeta = { ...meta, endedAt: undefined };
       const session = this.launch(revived, plan, env, { holdLive: true });
       await session.seedFromHistory();
+      // The activity plan is app state (not in pi's session file), so restore it
+      // from the persisted meta after the pi history is rebuilt.
+      if (revived.plan && revived.plan.length > 0) session.restorePlan(revived.plan);
       this.onMetaChange(revived);
       return session;
     })();
@@ -880,6 +900,7 @@ export class SessionManager {
       launchPlan: source.launchPlan,
       piSessionFile: copyTo,
       title: source.title ? `${source.title} (fork)` : undefined,
+      plan: source.plan,
     };
     const original = (source.launchPlan as LaunchPlan | undefined) ?? { kind: "parent" };
     let plan: LaunchPlan;
@@ -892,6 +913,7 @@ export class SessionManager {
     }
     const session = this.launch(meta, plan, env, { holdLive: true });
     await session.seedFromHistory();
+    if (meta.plan && meta.plan.length > 0) session.restorePlan(meta.plan);
     this.onMetaChange(meta);
     return session;
   }

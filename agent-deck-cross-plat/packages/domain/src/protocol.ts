@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DomainEvent, TranscriptState } from "./transcript.ts";
+import type { DomainEvent, SessionPlanItem, TranscriptState } from "./transcript.ts";
 
 /**
  * WebSocket wire contract. Client→server messages are zod-validated at the
@@ -127,6 +127,12 @@ export interface SessionMeta {
    * system prompt/tools/skills, project assignments, provider/model.
    */
   launchPlan?: unknown;
+  /**
+   * The session's activity plan (set_session_plan / update_session_plan),
+   * persisted so a resumed session restores it — the plan is app state, not part
+   * of pi's session file. Absent until a plan is set.
+   */
+  plan?: SessionPlanItem[];
 }
 
 export type ServerMessage =
