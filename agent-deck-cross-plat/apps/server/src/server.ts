@@ -23,7 +23,9 @@ import {
 import {
   appendSystemPromptPath,
   computeBuiltinOverride,
+  defaultRoots,
   ensureDirs,
+  readMcpServers,
   mergeWithUnmanagedOverrideFields,
   parseAgentFile,
   projectWatchDirs,
@@ -302,11 +304,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // that fails to connect is skipped). Registered before listen so the tools are
   // available to the first session launch. AGENT_DECK_MCP_SERVERS is a JSON array
   // of stdio server configs { id, command, args?, env?, cwd? }.
-  const mcp: McpRegistration = await registerMcpServers(
-    bridge,
-    mcpServerConfigsFromEnv(process.env.AGENT_DECK_MCP_SERVERS),
-    (id, error) =>
-      console.warn(`[agent-deck] MCP server "${id}" failed to connect: ${String(error)}`),
+  // Source stdio MCP servers from the global mcp.json (~/.pi/agent/mcp.json),
+  // with AGENT_DECK_MCP_SERVERS overriding/adding by id (used by tests and as an
+  // escape hatch). http/sse entries are skipped until that transport lands.
+  // Skip the real-home read under AGENT_DECK_TEST so tests stay hermetic (they
+  // configure servers via the env override, never the developer's real mcp.json).
+  const mcpFromConfig = (process.env.AGENT_DECK_TEST === "1" ? [] : readMcpServers(defaultRoots()))
+    .filter((entry) => entry.transport === "stdio" && entry.command)
+    .map((entry) => ({ id: entry.id, command: entry.command!, args: entry.args, env: entry.env }));
+  const mcpConfigs = [
+    ...new Map(
+      [...mcpFromConfig, ...mcpServerConfigsFromEnv(process.env.AGENT_DECK_MCP_SERVERS)].map(
+        (config) => [config.id, config],
+      ),
+    ).values(),
+  ];
+  const mcp: McpRegistration = await registerMcpServers(bridge, mcpConfigs, (id, error) =>
+    console.warn(`[agent-deck] MCP server "${id}" failed to connect: ${String(error)}`),
   );
 
   const fastify = Fastify({ logger: false });

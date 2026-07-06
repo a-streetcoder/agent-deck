@@ -13,6 +13,13 @@ export {
   type ResourceRoots,
   type SkillCatalogDir,
 } from "./paths.ts";
+export {
+  mcpConfigPath,
+  readMcpServers,
+  type McpConfigScope,
+  type McpServerEntry,
+  type McpTransport,
+} from "./mcp.ts";
 export { parseAgentFile, scanAgents, scanPrompts, scanSkills } from "./scanner.ts";
 export { ensureDirs, watchResources } from "./watcher.ts";
 export {
