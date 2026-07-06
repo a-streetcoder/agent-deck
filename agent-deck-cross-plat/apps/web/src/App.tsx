@@ -1,4 +1,5 @@
 import { Composer } from "./components/Composer.tsx";
+import { DeckPanel } from "./components/DeckPanel.tsx";
 import { OnboardingOverlay } from "./components/OnboardingOverlay.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { Transcript } from "./components/Transcript.tsx";
@@ -48,13 +49,16 @@ const VIEW_TITLES: Record<string, string> = {
 function ChatColumn() {
   const agentStatus = useAppStore((state) => state.transcript.agentStatus);
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <Transcript />
-      <PiAgentProcessingIndicatorBar
-        message={agentStatus === "running" ? "Pi is working…" : null}
-        className="px-6"
-      />
-      <Composer />
+    <div className="flex h-full min-w-0">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <Transcript />
+        <PiAgentProcessingIndicatorBar
+          message={agentStatus === "running" ? "Pi is working…" : null}
+          className="px-6"
+        />
+        <Composer />
+      </div>
+      <DeckPanel />
     </div>
   );
 }

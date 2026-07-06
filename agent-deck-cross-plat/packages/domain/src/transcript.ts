@@ -157,6 +157,40 @@ export interface SessionPlanUpdate {
 
 export type AgentStatus = "idle" | "running";
 
+/**
+ * One native-subagent run as the deck/activity panel sees it — derived purely
+ * from the transcript's subagent + supervisor cells (no separate server state in
+ * v1). `needsInput` is true while a blocking supervisor request for this run is
+ * still open (unanswered and not closed).
+ */
+export interface DeckRun {
+  id: string;
+  task: string;
+  status: SubagentCell["status"];
+  progressCount: number;
+  needsInput: boolean;
+}
+
+/**
+ * Aggregate the session's subagent runs for the deck, in transcript order. Pure
+ * so the web and any renderer agree and it stays unit-testable.
+ */
+export function deckRuns(state: TranscriptState): DeckRun[] {
+  const openQuestions = state.cells.filter(
+    (c): c is SupervisorQuestionCell =>
+      c.kind === "supervisor_question" && !c.answered && !c.closed,
+  );
+  return state.cells
+    .filter((c): c is SubagentCell => c.kind === "subagent")
+    .map((cell) => ({
+      id: cell.id,
+      task: cell.task,
+      status: cell.status,
+      progressCount: cell.progress.length,
+      needsInput: openQuestions.some((q) => q.subagentCellId === cell.id),
+    }));
+}
+
 export type DomainEvent =
   | { type: "cell_open"; cell: TranscriptCell }
   | {
