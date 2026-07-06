@@ -10,6 +10,7 @@ import {
 import { balance } from "@/design-system/markdown/balancer";
 import { MessageBubble } from "@/components/transcript/MessageBubble";
 import { ToolGroupCard, type ToolGroupStatus } from "@/components/transcript/ToolGroupCard";
+import { RunMeta } from "./RunMeta.tsx";
 import { sendSupervisorAnswer, sendUiResponse } from "../state/wsBridge.ts";
 
 const TOOL_STATUS: Record<ToolCell["status"], ToolGroupStatus> = {
@@ -97,6 +98,12 @@ function SubagentCellView({ cell }: { cell: SubagentCell }) {
                 {cell.text}
               </div>
             ) : null}
+            <RunMeta
+              model={cell.model}
+              inputTokens={cell.inputTokens}
+              outputTokens={cell.outputTokens}
+              durationMs={cell.durationMs}
+            />
           </div>
         }
       />

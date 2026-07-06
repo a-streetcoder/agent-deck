@@ -367,7 +367,27 @@ export class ManagedSession {
           type: "cell_open",
           cell: { kind: "subagent", id: cellId, task, status: "running", text: "", progress: [] },
         });
+        const startedAt = Date.now();
         let streamed = "";
+        // Run metadata captured from the child's assistant turns (native
+        // PiSubagentRunRecord parity): the model it used + token usage ACCUMULATED
+        // across turns (a contact_supervisor round-trip produces two assistant
+        // turns, and the run's total token cost is their sum).
+        let childModel: string | undefined;
+        let childInputTokens = 0;
+        let childOutputTokens = 0;
+        let sawUsage = false;
+        const metadata = (): {
+          model?: string;
+          inputTokens?: number;
+          outputTokens?: number;
+          durationMs: number;
+        } => ({
+          model: childModel,
+          inputTokens: sawUsage ? childInputTokens : undefined,
+          outputTokens: sawUsage ? childOutputTokens : undefined,
+          durationMs: Date.now() - startedAt,
+        });
         try {
           const idle = new Promise<void>((resolve, reject) => {
             const timer = setTimeout(
@@ -380,6 +400,11 @@ export class ManagedSession {
               // streams (best-effort visual; cell_final below is authoritative).
               const e = event as {
                 type?: string;
+                message?: {
+                  role?: string;
+                  model?: unknown;
+                  usage?: { input?: number; output?: number };
+                };
                 assistantMessageEvent?: { type?: string; delta?: string };
               };
               if (
@@ -393,6 +418,20 @@ export class ManagedSession {
                   cellId,
                   delta: e.assistantMessageEvent.delta,
                 });
+              }
+              // Capture model + token usage from each of the child's assistant
+              // turns; accumulate tokens so a tool round-trip counts every turn.
+              if (e.type === "message_end" && e.message?.role === "assistant") {
+                if (typeof e.message.model === "string") childModel = e.message.model;
+                if (e.message.usage) {
+                  if (typeof e.message.usage.input === "number") {
+                    childInputTokens += e.message.usage.input;
+                  }
+                  if (typeof e.message.usage.output === "number") {
+                    childOutputTokens += e.message.usage.output;
+                  }
+                  sawUsage = true;
+                }
               }
               if (e.type === "agent_end") {
                 clearTimeout(timer);
@@ -416,6 +455,7 @@ export class ManagedSession {
               status: "done",
               text: finalText,
               progress: [],
+              ...metadata(),
             },
           });
           return finalText;
@@ -431,6 +471,7 @@ export class ManagedSession {
               status: "error",
               text: streamed,
               progress: [],
+              ...metadata(),
             },
           });
           throw error;

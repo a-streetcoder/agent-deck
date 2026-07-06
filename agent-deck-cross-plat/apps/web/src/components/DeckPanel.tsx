@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { deckRuns, type DeckRun } from "@agent-deck/domain";
+import { RunMeta } from "./RunMeta.tsx";
 import { useAppStore } from "../state/store.ts";
 
 /**
@@ -55,6 +56,13 @@ function RunRow({ run }: { run: DeckRun }) {
         ) : null}
       </div>
       <div className="mt-1.5 line-clamp-3 text-xs text-text-secondary">{run.task}</div>
+      <RunMeta
+        className="mt-1.5"
+        model={run.model}
+        inputTokens={run.inputTokens}
+        outputTokens={run.outputTokens}
+        durationMs={run.durationMs}
+      />
     </li>
   );
 }

@@ -74,6 +74,12 @@ export interface SubagentCell {
    * arrives async while the child runs.
    */
   progress: string[];
+  /** Run metadata, captured on completion (like the native PiSubagentRunRecord).
+   * All optional — absent while running or if the provider doesn't report them. */
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  durationMs?: number;
 }
 
 /**
@@ -169,6 +175,10 @@ export interface DeckRun {
   status: SubagentCell["status"];
   progressCount: number;
   needsInput: boolean;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  durationMs?: number;
 }
 
 /**
@@ -188,6 +198,10 @@ export function deckRuns(state: TranscriptState): DeckRun[] {
       status: cell.status,
       progressCount: cell.progress.length,
       needsInput: openQuestions.some((q) => q.subagentCellId === cell.id),
+      model: cell.model,
+      inputTokens: cell.inputTokens,
+      outputTokens: cell.outputTokens,
+      durationMs: cell.durationMs,
     }));
 }
 
