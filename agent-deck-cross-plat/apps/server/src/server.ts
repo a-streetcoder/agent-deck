@@ -308,7 +308,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   // Native subagents (native-subagent-bridge.md): a parent session can launch a
   // focused child pi to complete one task and report back. v1 is text-returning
   // (managed_subagent); parallel / supervisor / plan tools + the deck UI follow.
-  const subagentParams = z.object({ task: z.string().min(1) });
+  const subagentParams = z.object({ task: z.string().trim().min(1) });
   bridge.register(
     {
       name: "managed_subagent",
@@ -342,6 +342,56 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       } catch (error) {
         return { content: `Subagent failed: ${String(error)}`, isError: true };
       }
+    },
+  );
+
+  // Fan out several subagents at once. Each runs as its own child pi; the count
+  // is capped so a single call can't spawn an unbounded number of processes.
+  const parallelParams = z.object({ tasks: z.array(z.string().trim().min(1)).min(1).max(8) });
+  bridge.register(
+    {
+      name: "managed_parallel",
+      label: "Parallel subagents",
+      description:
+        "Run several self-contained tasks in parallel, each in its own fresh subagent, and get all their results back together. Use when the tasks are independent.",
+      parameters: {
+        type: "object",
+        properties: {
+          tasks: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 8,
+            description: "Independent, self-contained task descriptions (max 8).",
+          },
+        },
+        required: ["tasks"],
+        additionalProperties: false,
+      },
+      promptSnippet: "managed_parallel — run several independent tasks in parallel subagents.",
+    },
+    async (params, ctx) => {
+      const parsed = parallelParams.safeParse(params);
+      if (!parsed.success) {
+        return {
+          content: `Invalid managed_parallel arguments: ${parsed.error.message}`,
+          isError: true,
+        };
+      }
+      // allSettled: one failing subagent doesn't drop the others' results.
+      const settled = await Promise.allSettled(
+        parsed.data.tasks.map((task) => sessions.runSubagent(ctx.sessionId, task)),
+      );
+      const anyOk = settled.some((r) => r.status === "fulfilled");
+      const rendered = settled
+        .map((result, index) => {
+          const label = `### Subagent ${index + 1}`;
+          return result.status === "fulfilled"
+            ? `${label}\n${result.value || "(no output)"}`
+            : `${label} (failed)\n${String(result.reason)}`;
+        })
+        .join("\n\n");
+      return { content: rendered, isError: !anyOk };
     },
   );
 
