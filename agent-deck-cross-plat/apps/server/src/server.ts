@@ -50,6 +50,7 @@ import {
   deletePromptFile,
   renamePromptFile,
   renameAgentFile,
+  renameSkillDir,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -755,6 +756,68 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Rename a global/project skill directory (native RenameResourceSheet 7.x),
+  // re-pointing every reference (app-level default/disabled lists + per-project
+  // assignments) so the rename never silently drops an assignment.
+  fastify.post("/resources/skills/rename", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        name: RESOURCE_NAME,
+        newName: RESOURCE_NAME,
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, newName } = parsed.data;
+    const roots = rootsFor(projectId);
+    if (scope === "project" && !roots.projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      renameSkillDir(roots, scope, name, newName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "skill_exists") {
+        return reply
+          .status(409)
+          .send({ error: `A ${scope} skill named "${newName}" already exists.` });
+      }
+      if (message === "skill_not_found") {
+        return reply.status(404).send({ error: `No ${scope} skill named "${name}".` });
+      }
+      return reply.status(500).send({ error: message });
+    }
+    // Re-point references. A project skill is visible only to its own project; a
+    // global one, only where a same-named project skill doesn't shadow it.
+    const hasProjectSkill = (projectPath: string): boolean =>
+      existsSync(nodePath.join(projectPath, ".pi", "skills", name, "SKILL.md"));
+    // The app-level default/disabled lists are FLAT, but a bare skill name
+    // resolves per-project (a project skill shadows a global one). So re-point
+    // them only when the old name no longer resolves to ANY skill anywhere —
+    // then the swap can't misdirect a project that still has its own same-named
+    // skill (nor leave a project-scoped default dangling).
+    const globalSkillDir = nodePath.join(resourceHome(), ".pi", "agent", "skills");
+    const nameStillResolves =
+      existsSync(nodePath.join(globalSkillDir, name, "SKILL.md")) ||
+      projects.list().some((p) => hasProjectSkill(p.path));
+    if (!nameStillResolves) {
+      settings.renameSkill(name, newName);
+    }
+    for (const project of projects.list()) {
+      if (!project.assignedSkills?.includes(name)) continue;
+      const applies =
+        scope === "project" ? project.path === roots.projectPath : !hasProjectSkill(project.path);
+      if (!applies) continue;
+      projects.upsert({
+        ...project,
+        assignedSkills: [...new Set(project.assignedSkills.map((s) => (s === name ? newName : s)))],
+      });
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };

@@ -336,3 +336,65 @@ export function deleteSkillDir(roots: ResourceRoots, scope: WritableScope, name:
     // Non-fatal.
   }
 }
+
+/** Defense-in-depth: the resolved skill dir must stay inside the catalog. */
+function skillDirPath(roots: ResourceRoots, scope: WritableScope, name: string): string {
+  const catalog = skillDirFor(roots, scope);
+  const dir = path.join(catalog, name);
+  if (!path.resolve(dir).startsWith(path.resolve(catalog) + path.sep)) {
+    throw new Error("refusing to touch outside the skill catalog");
+  }
+  return dir;
+}
+
+/**
+ * Rename a global/project skill DIRECTORY (a skill is a folder holding SKILL.md
+ * plus any assets), preserving every file and syncing SKILL.md's `name` to the
+ * new directory name. Throws "skill_not_found" / "skill_exists" (→ 404 / 409);
+ * the caller re-points any project assignments.
+ */
+export function renameSkillDir(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+  newName: string,
+): string {
+  const from = skillDirPath(roots, scope, name);
+  const to = skillDirPath(roots, scope, newName);
+  if (from === to) return to; // no-op: nothing to rename
+  if (!existsSync(from)) throw new Error("skill_not_found");
+
+  // A case-only rename (skill→Skill) resolves `to` onto `from` on a
+  // case-insensitive filesystem (same inode) — not a real clash.
+  const caseOnly =
+    from.toLowerCase() === to.toLowerCase() && existsSync(to) && isSameFile(from, to);
+  if (!caseOnly && existsSync(to)) throw new Error("skill_exists");
+  try {
+    renameSync(from, to);
+  } catch (error) {
+    // Backstop for a target that races into the gap after the existsSync check:
+    // a non-empty dir throws ENOTEMPTY/EEXIST (POSIX) or EPERM (Windows). A real
+    // skill dir is always non-empty (it holds SKILL.md), so a genuine clash
+    // always lands here. The one residual race — an EMPTY dir appearing at `to`
+    // on POSIX — is replaced silently, but loses nothing (it was empty).
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOTEMPTY" || code === "EEXIST" || code === "EPERM") {
+      throw new Error("skill_exists");
+    }
+    throw error;
+  }
+
+  // Keep SKILL.md's name field in step with the directory name.
+  const skillFile = path.join(to, "SKILL.md");
+  try {
+    const parsed = parseFrontmatter(readFileSync(skillFile, "utf8"));
+    const frontmatter = { ...parsed.frontmatter, name: newName };
+    writeFileSync(
+      skillFile,
+      `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n\n${parsed.body.trim()}\n`,
+    );
+  } catch {
+    // No SKILL.md to update — the directory move is still the rename.
+  }
+  return to;
+}

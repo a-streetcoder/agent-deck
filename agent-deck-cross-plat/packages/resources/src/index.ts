@@ -48,6 +48,7 @@ export {
   deletePromptFile,
   renamePromptFile,
   renameAgentFile,
+  renameSkillDir,
   type WritableScope,
 } from "./writer.ts";
 export { scanEnv, writeEnvVar, type EnvEntry, type EnvScope } from "./env.ts";

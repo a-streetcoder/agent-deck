@@ -221,6 +221,21 @@ export class SettingsStore {
     return this.settings;
   }
 
+  /** Re-point a renamed skill in every app-level list (default + disabled). */
+  renameSkill(oldName: string, newName: string): AppSettings {
+    const swap = (list: string[]): string[] => {
+      const next = list.map((s) => (s === oldName ? newName : s));
+      return [...new Set(next)]; // collapse a dup if newName was already present
+    };
+    this.settings = {
+      ...this.settings,
+      defaultSkills: swap(this.settings.defaultSkills),
+      disabledSkills: swap(this.settings.disabledSkills),
+    };
+    this.flush();
+    return this.settings;
+  }
+
   /** Add or remove a discovery root (atomic membership op). */
   setProjectRoot(root: string, present: boolean): AppSettings {
     const next = new Set(this.settings.projectRoots);

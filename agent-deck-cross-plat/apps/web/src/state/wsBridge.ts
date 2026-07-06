@@ -329,6 +329,27 @@ export async function deleteSkill(scope: string, name: string): Promise<void> {
   });
 }
 
+/** Rename a global/project skill; returns true on success (the caller closes
+ *  the inline editor), false after surfacing the server error (409/404/…). */
+export async function renameSkill(scope: string, name: string, newName: string): Promise<boolean> {
+  const projectId = useAppStore.getState().currentProjectId ?? undefined;
+  try {
+    const response = await fetch("/resources/skills/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, scope, name, newName }),
+    });
+    if (!response.ok) {
+      const { error } = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(error ?? "Couldn't rename the skill.");
+    }
+    return true;
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+    return false;
+  }
+}
+
 /** Answer a blocking supervisor-request card raised by a child subagent. */
 export async function sendSupervisorAnswer(requestId: string, response: string): Promise<void> {
   await fetch(`/supervisor/${encodeURIComponent(requestId)}/answer`, {

@@ -104,4 +104,17 @@ test("skills screen live-updates when a SKILL.md appears on disk", async ({ page
   const row = page.locator('[data-skill-name="release-notes"]');
   await expect(row).toBeVisible({ timeout: 15_000 });
   await expect(row.getByTestId("scope-chip")).toHaveAttribute("data-scope", "project");
+
+  // Rename the skill via the detail pane: the whole directory moves on disk.
+  await row.click();
+  await expect(page.getByTestId("skill-detail")).toBeVisible();
+  await page.getByTestId("skill-rename").click();
+  await page.getByTestId("skill-rename-input").fill("changelog");
+  await page.getByTestId("skill-rename-confirm").click();
+
+  await expect(page.locator('[data-skill-name="changelog"]')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-skill-name="release-notes"]')).toHaveCount(0);
+  const movedSkill = path.join(project, ".pi", "skills", "changelog", "SKILL.md");
+  await expect.poll(() => existsSync(movedSkill)).toBe(true);
+  expect(existsSync(path.join(project, ".pi", "skills", "release-notes"))).toBe(false);
 });

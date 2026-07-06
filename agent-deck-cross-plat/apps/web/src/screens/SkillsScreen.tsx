@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Grid3x3, Pencil, Power, PowerOff, Plus, Trash2, WandSparkles, X } from "lucide-react";
+import {
+  Check,
+  Grid3x3,
+  Pencil,
+  Power,
+  PowerOff,
+  Plus,
+  Tag,
+  Trash2,
+  WandSparkles,
+  X,
+} from "lucide-react";
 import type { SkillInfo } from "@agent-deck/domain";
 import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAppStore } from "../state/store.ts";
-import { deleteSkill, setSkillDisabled, updateProject } from "../state/wsBridge.ts";
+import { deleteSkill, renameSkill, setSkillDisabled, updateProject } from "../state/wsBridge.ts";
 import { ScopeChip } from "../components/ScopeChip.tsx";
 
 /**
@@ -313,6 +324,8 @@ export function SkillsScreen() {
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [editing, setEditing] = useState<SkillDraft | null>(null);
+  // Inline rename of the selected skill; value === null when not renaming.
+  const [renameValue, setRenameValue] = useState<string | null>(null);
 
   useEffect(() => {
     const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
@@ -347,6 +360,12 @@ export function SkillsScreen() {
 
   const selected = visible.find((s) => s.filePath === selectedKey) ?? visible[0] ?? null;
 
+  // Close an open rename if the selected skill changes, so a pending value can't
+  // apply to a different skill.
+  useEffect(() => {
+    setRenameValue(null);
+  }, [selected?.filePath]);
+
   const editDraft = (skill: SkillInfo): SkillDraft => ({
     name: skill.name,
     scope: skill.scope === "project" ? "project" : "global",
@@ -354,6 +373,15 @@ export function SkillsScreen() {
     body: skill.body,
     isNew: false,
   });
+
+  const submitRename = async (skill: SkillInfo): Promise<void> => {
+    const newName = (renameValue ?? "").trim();
+    if (!newName || newName === skill.name) {
+      setRenameValue(null);
+      return;
+    }
+    if (await renameSkill(skill.scope, skill.name, newName)) setRenameValue(null);
+  };
 
   return (
     <div className="flex min-h-0 flex-1" data-testid="skills-screen">
@@ -484,17 +512,57 @@ export function SkillsScreen() {
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h2
-                  className="truncate text-xl font-bold text-text-primary"
-                  style={{ fontStretch: "expanded" }}
-                >
-                  {selected.name}
-                </h2>
+                {renameValue !== null ? (
+                  <>
+                    <input
+                      autoFocus
+                      data-testid="skill-rename-input"
+                      className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1 text-lg font-bold text-text-primary outline-none focus:border-accent"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void submitRename(selected);
+                        if (e.key === "Escape") setRenameValue(null);
+                      }}
+                    />
+                    <button
+                      data-testid="skill-rename-confirm"
+                      className="rounded p-1 text-text-muted hover:text-[var(--color-brand-accent)]"
+                      title="Rename"
+                      onClick={() => void submitRename(selected)}
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      data-testid="skill-rename-cancel"
+                      className="rounded p-1 text-text-muted hover:text-text-primary"
+                      title="Cancel"
+                      onClick={() => setRenameValue(null)}
+                    >
+                      <X size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <h2
+                    className="truncate text-xl font-bold text-text-primary"
+                    style={{ fontStretch: "expanded" }}
+                  >
+                    {selected.name}
+                  </h2>
+                )}
                 <ScopeChip scope={selected.scope} />
               </div>
               <p className="mt-0.5 text-sm text-text-secondary">{selected.description}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <button
+                data-testid="skill-rename"
+                className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                onClick={() => setRenameValue(selected.name)}
+              >
+                <Tag size={12} />
+                Rename
+              </button>
               <button
                 data-testid="skill-disable"
                 className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
