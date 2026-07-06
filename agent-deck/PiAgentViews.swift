@@ -5812,6 +5812,7 @@ struct PiAgentScreen: View {
             headerTitle: "You",
             iconSymbol: "person.crop.circle",
             markdownSource: text,
+            imageReferences: question.imageReferences,
             bodyPrefix: nil,
             copyText: question.text,
             copySide: .leading,

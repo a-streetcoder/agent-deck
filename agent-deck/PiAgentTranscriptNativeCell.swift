@@ -158,9 +158,11 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
     private var caption: String = ""
     private var popover: NSPopover?
     private var imageHeightC: NSLayoutConstraint!
+    private var imageWidthC: NSLayoutConstraint!
 
-    private static let maxImageHeight: CGFloat = 220
-    private static let minImageHeight: CGFloat = 80
+    private static let maxImageWidth: CGFloat = 180
+    private static let maxImageHeight: CGFloat = 140
+    private static let minImageHeight: CGFloat = 72
     private static let captionGap: CGFloat = 6
 
     override init(frame frameRect: NSRect) {
@@ -196,11 +198,12 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
         addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openPreview)))
 
         imageHeightC = imageView.heightAnchor.constraint(equalToConstant: 120)
+        imageWidthC = container.widthAnchor.constraint(equalToConstant: Self.maxImageWidth)
         NSLayoutConstraint.activate([
             container.topAnchor.constraint(equalTo: topAnchor),
             container.leadingAnchor.constraint(equalTo: leadingAnchor),
             container.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
-            container.widthAnchor.constraint(equalTo: widthAnchor),
+            imageWidthC,
             imageView.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
             imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
             imageHeightC,
@@ -223,7 +226,9 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
     func configure(reference: PiAgentTranscriptImageReference, caption: String, width: CGFloat) {
         self.reference = reference
         self.caption = caption.isEmpty ? reference.name : caption
-        imageHeightC.constant = Self.imageHeight(reference: reference, width: max(1, width))
+        let thumbnailWidth = Self.thumbnailWidth(for: width)
+        imageWidthC.constant = thumbnailWidth
+        imageHeightC.constant = Self.imageHeight(reference: reference, width: thumbnailWidth)
         captionLabel.stringValue = self.caption
         toolTip = reference.source ?? reference.remoteURL ?? reference.localPath ?? reference.name
         imageView.image = reference.localPath.flatMap { AgentImageLoader.image(at: URL(fileURLWithPath: $0)) }
@@ -236,13 +241,17 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
 
     static func measuredHeight(reference: PiAgentTranscriptImageReference, width: CGFloat) -> CGFloat {
         let font = NativeTranscriptFont.caption2()
-        return imageHeight(reference: reference, width: width) + captionGap + ceil(font.ascender - font.descender + font.leading)
+        return imageHeight(reference: reference, width: thumbnailWidth(for: width)) + captionGap + ceil(font.ascender - font.descender + font.leading)
+    }
+
+    private static func thumbnailWidth(for width: CGFloat) -> CGFloat {
+        max(96, min(maxImageWidth, width))
     }
 
     private static func imageHeight(reference: PiAgentTranscriptImageReference, width: CGFloat) -> CGFloat {
         guard let path = reference.localPath,
               let image = AgentImageLoader.image(at: URL(fileURLWithPath: path)),
-              image.size.width > 0 else { return 120 }
+              image.size.width > 0 else { return 96 }
         return min(maxImageHeight, max(minImageHeight, width * image.size.height / image.size.width))
     }
 
@@ -254,7 +263,9 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
     override func layout() {
         super.layout()
         if let reference {
-            imageHeightC.constant = Self.imageHeight(reference: reference, width: max(1, bounds.width))
+            let thumbnailWidth = Self.thumbnailWidth(for: max(1, bounds.width))
+            imageWidthC.constant = thumbnailWidth
+            imageHeightC.constant = Self.imageHeight(reference: reference, width: thumbnailWidth)
         }
         applyColors()
     }
@@ -776,7 +787,13 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
         var cursor = source.startIndex
         for token in tokens {
             guard let reference = references.first(where: { ref in
-                !used.contains(ref.id) && (ref.source == token.src || ref.remoteURL == token.src || ref.localPath == token.src || ref.name == URL(fileURLWithPath: token.src).lastPathComponent)
+                !used.contains(ref.id) && (
+                    ref.source == token.src
+                        || (ref.source == "data-url" && token.src.lowercased().hasPrefix("data:image/"))
+                        || ref.remoteURL == token.src
+                        || ref.localPath == token.src
+                        || ref.name == URL(fileURLWithPath: token.src).lastPathComponent
+                )
             }) else { continue }
             if cursor < token.range.lowerBound { blocks.append(.markdown(String(source[cursor..<token.range.lowerBound]))) }
             used.insert(reference.id)
@@ -793,14 +810,20 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
     private static func imageTokens(in source: String) -> [(range: Range<String.Index>, src: String, caption: String)] {
         let patterns: [(String, Int, Int?)] = [
             (#"!\[([^\]]*)\]\(([^\s\)]+)(?:\s+\"[^\"]*\")?\)"#, 2, 1),
-            (#"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>"#, 1, nil)
+            (#"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>"#, 1, nil),
+            (#"data:image/[^\s\)>\"']+"#, 0, nil),
+            (#"https://[^\s\)>\"']+"#, 0, nil)
         ]
         var matches: [(range: Range<String.Index>, src: String, caption: String)] = []
+        let protectedRanges = plainImageURLProtectedRanges(in: source)
         for (pattern, srcGroup, captionGroup) in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
             let nsRange = NSRange(source.startIndex..<source.endIndex, in: source)
             for match in regex.matches(in: source, range: nsRange) {
-                guard let full = Range(match.range, in: source), let srcRange = Range(match.range(at: srcGroup), in: source) else { continue }
+                let isPlainURLPattern = srcGroup == 0
+                guard (!isPlainURLPattern || !protectedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 })),
+                      let full = Range(match.range, in: source),
+                      let srcRange = Range(match.range(at: srcGroup), in: source) else { continue }
                 var caption = ""
                 if let captionGroup, match.range(at: captionGroup).location != NSNotFound, let capRange = Range(match.range(at: captionGroup), in: source) {
                     caption = String(source[capRange])
@@ -811,6 +834,19 @@ final class PiAgentNativeBubbleView: NSView, PiAgentNativeRowContent {
             }
         }
         return matches.sorted { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
+    private static func plainImageURLProtectedRanges(in source: String) -> [NSRange] {
+        let patterns = [
+            #"(?s)```.*?```"#,
+            #"`[^`]*`"#,
+            #"(?<!!)\[[^\]]+\]\([^\)]*\)"#
+        ]
+        let fullRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        return patterns.flatMap { pattern -> [NSRange] in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+            return regex.matches(in: source, range: fullRange).map(\.range)
+        }
     }
 
     private static func htmlAttribute(_ name: String, in tag: String) -> String? {

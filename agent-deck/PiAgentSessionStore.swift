@@ -3093,22 +3093,48 @@ final class PiAgentSessionStore {
     private nonisolated static func markdownImageCandidates(in text: String) -> [TranscriptImageCandidate] {
         let patterns = [#"!\[[^\]]*\]\(([^\s\)]+)(?:\s+\"[^\"]*\")?\)"#, #"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>"#]
         var out: [TranscriptImageCandidate] = []
+        func appendSource(_ src: String) {
+            let src = src.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let dataCandidate = dataURLCandidate(src) {
+                out.append(dataCandidate)
+            } else if isLocalImageReference(src) {
+                out.append(.init(name: URL(fileURLWithPath: src).lastPathComponent, mimeType: nil, data: nil, localPath: src, remoteURL: nil, source: src))
+            } else if isSafeRemoteImageURL(src) {
+                out.append(.init(name: remoteImageName(src), mimeType: nil, data: nil, localPath: nil, remoteURL: src, source: src))
+            }
+        }
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             for match in regex.matches(in: text, range: range) {
                 guard let srcRange = Range(match.range(at: 1), in: text) else { continue }
-                let src = String(text[srcRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if let dataCandidate = dataURLCandidate(src) {
-                    out.append(dataCandidate)
-                } else if isLocalImageReference(src) {
-                    out.append(.init(name: URL(fileURLWithPath: src).lastPathComponent, mimeType: nil, data: nil, localPath: src, remoteURL: nil, source: src))
-                } else if isSafeRemoteImageURL(src) {
-                    out.append(.init(name: remoteImageName(src), mimeType: nil, data: nil, localPath: nil, remoteURL: src, source: src))
-                }
+                appendSource(String(text[srcRange]))
+            }
+        }
+        let protectedRanges = plainImageURLProtectedRanges(in: text)
+        for pattern in [#"data:image/[^\s\)>\"']+"#, #"https://[^\s\)>\"']+"#] {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            for match in regex.matches(in: text, range: range) {
+                guard !protectedRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
+                      let srcRange = Range(match.range, in: text) else { continue }
+                appendSource(String(text[srcRange]))
             }
         }
         return out
+    }
+
+    private nonisolated static func plainImageURLProtectedRanges(in text: String) -> [NSRange] {
+        let patterns = [
+            #"(?s)```.*?```"#,
+            #"`[^`]*`"#,
+            #"(?<!!)\[[^\]]+\]\([^\)]*\)"#
+        ]
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return patterns.flatMap { pattern -> [NSRange] in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+            return regex.matches(in: text, range: fullRange).map(\.range)
+        }
     }
 
     private nonisolated static func structuredImageCandidates(in value: JSONValue) -> [TranscriptImageCandidate] {
@@ -3364,7 +3390,7 @@ final class PiAgentSessionStore {
     }
 
     private func shouldMaterializeImages(for entry: PiAgentTranscriptEntry) -> Bool {
-        entry.role == .assistant || entry.role == .tool || entry.isToolError
+        entry.role == .user || entry.role == .assistant || entry.role == .tool || entry.isToolError
     }
 
     private func modifyTranscriptEntries(for sessionID: UUID, _ mutate: (inout [PiAgentTranscriptEntry]) -> Void) {

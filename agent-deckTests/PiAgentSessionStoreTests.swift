@@ -113,6 +113,48 @@ final class PiAgentSessionStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(reference.localPath)))
     }
 
+    func testUserTranscriptImagesMaterializeFromMarkdownAndPlainDataURLs() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "User Images", project: try PiTestSupport.makeProject(), repository: nil)
+        let dataURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+
+        store.append(.init(sessionID: session.id, role: .user, title: "You", text: "![pixel](\(dataURL))\n\(dataURL)"))
+
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertFalse(entry.imageReferences.isEmpty)
+        XCTAssertTrue(entry.imageReferences.allSatisfy { reference in
+            guard let localPath = reference.localPath else { return false }
+            return FileManager.default.fileExists(atPath: localPath)
+        })
+    }
+
+    func testUserTranscriptRemoteImageUsesPlaceholderAndSafeDownloadPath() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "User Remote", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(sessionID: session.id, role: .user, title: "You", text: "Screenshot: https://example.com/pixel.png"))
+
+        let reference = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first?.imageReferences.first)
+        XCTAssertNil(reference.localPath)
+        XCTAssertEqual(reference.remoteURL, "https://example.com/pixel.png")
+        XCTAssertTrue(reference.isRemotePlaceholder)
+    }
+
+    func testPlainImageURLDetectionSkipsLinksAndCode() throws {
+        let store = PiAgentSessionStore(fileURL: PiTestSupport.temporaryStateFile())
+        let session = store.createSession(kind: .project, title: "Protected URLs", project: try PiTestSupport.makeProject(), repository: nil)
+
+        store.append(.init(
+            sessionID: session.id,
+            role: .user,
+            title: "You",
+            text: "[watch](https://example.com/pixel.png) `https://example.com/inline.png`\n```\nhttps://example.com/fenced.png\n```"
+        ))
+
+        let entry = try XCTUnwrap(store.transcriptsBySessionID[session.id]?.first)
+        XCTAssertTrue(entry.imageReferences.isEmpty)
+    }
+
     func testDeletingSessionRemovesTranscriptImageStorage() async throws {
         let fileURL = PiTestSupport.temporaryStateFile()
         let store = PiAgentSessionStore(fileURL: fileURL)
