@@ -492,13 +492,14 @@ export class SessionManager {
     // cleaned up with the others on exit.
     if (launchPlan.kind === "agent" && launchPlan.systemPrompt.text.includes("\n")) {
       const dir = mkdtempSync(join(tmpdir(), "agent-deck-agent-prompt-"));
+      // Track before the write so a writeFileSync failure still cleans up the dir.
+      tempDirs.push(dir);
       const file = join(dir, "system.md");
       writeFileSync(file, launchPlan.systemPrompt.text);
       launchPlan = {
         ...launchPlan,
         systemPrompt: { ...launchPlan.systemPrompt, text: file },
       };
-      tempDirs.push(dir);
     }
     const pi = new PiSession({
       binPath: resolvePiBinary().path,
