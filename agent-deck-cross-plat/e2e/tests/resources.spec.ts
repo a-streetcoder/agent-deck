@@ -64,6 +64,12 @@ test("agents screen lists builtins and live-updates when files appear on disk", 
   await expect(page.getByTestId("agent-row")).toHaveCount(1);
   await page.getByTestId("agent-filter-builtin").click();
   await expect(page.locator('[data-agent-name="tester"]')).toHaveCount(0);
+
+  // The "overridden" chip renders and filters: no builtin here carries a
+  // settings.json override, so it lists nothing (the true-positive path is
+  // unit + resources-integration tested).
+  await page.getByTestId("agent-filter-overridden").click();
+  await expect(page.getByTestId("agent-row")).toHaveCount(0);
 });
 
 test("skills screen live-updates when a SKILL.md appears on disk", async ({ page }) => {

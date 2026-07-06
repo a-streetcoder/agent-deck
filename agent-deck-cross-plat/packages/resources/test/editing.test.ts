@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { agentMatchesFilter } from "@agent-deck/domain";
 import { describe, expect, it } from "vitest";
 import { BUILTIN_AGENTS_DIR } from "../src/paths.ts";
 import {
@@ -42,6 +43,12 @@ describe("builtin override edit safety", () => {
     });
     // Body untouched by this override.
     expect(coder.body).toBe(base.body);
+
+    // The scanned override flows through to the Agents screen "overridden" chip,
+    // while a pristine builtin from the same scan does not.
+    expect(agentMatchesFilter(coder, "overridden")).toBe(true);
+    const pristine = scanAgents({ home }).find((a) => a.scope === "builtin" && !a.overridden)!;
+    expect(agentMatchesFilter(pristine, "overridden")).toBe(false);
   });
 
   it("preserves unknown settings.json keys and prunes empty overrides", () => {

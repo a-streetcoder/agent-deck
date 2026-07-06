@@ -68,6 +68,7 @@ export type AgentFilter =
   | "global"
   | "library"
   | "project"
+  | "overridden"
   | "replaced"
   | "custom"
   | "disabled";
@@ -78,6 +79,7 @@ export const AGENT_FILTERS: AgentFilter[] = [
   "global",
   "library",
   "project",
+  "overridden",
   "replaced",
   "custom",
   "disabled",
@@ -92,6 +94,9 @@ export function agentMatchesFilter(agent: AgentInfo, filter: AgentFilter): boole
     case "library":
     case "project":
       return agent.scope === filter;
+    case "overridden":
+      // A builtin whose values are partly redefined by a settings.json override.
+      return agent.overridden === true;
     case "replaced":
       return agent.replacesBuiltin || (agent.scope === "builtin" && agent.shadowed);
     case "custom":
