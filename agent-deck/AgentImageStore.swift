@@ -130,6 +130,50 @@ private extension JSONEncoder {
     }
 }
 
+struct TranscriptImageLoader {
+    private nonisolated(unsafe) static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    nonisolated static func image(at url: URL?, maxPixelSize: Int) -> NSImage? {
+        guard let url else { return nil }
+        let key = "\(url.path)#\(maxPixelSize)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let image = decodeImage(at: url, maxPixelSize: maxPixelSize) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+
+    nonisolated static func previewImage(at url: URL?) -> NSImage? {
+        // Popovers can be ~760pt wide on Retina displays, so keep substantially
+        // more pixels than the thumbnail path without decoding unbounded originals.
+        image(at: url, maxPixelSize: 2400)
+    }
+
+    nonisolated static func thumbnailImage(at url: URL?) -> NSImage? {
+        image(at: url, maxPixelSize: 512)
+    }
+
+    nonisolated private static func decodeImage(at url: URL, maxPixelSize: Int) -> NSImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
+            return NSImage(contentsOf: url)
+        }
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return NSImage(contentsOf: url)
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+
 struct AgentImageLoader {
     /// Disk-loaded agent images, keyed by URL. `AgentImageStore` names every
     /// saved image with a fresh UUID and deletes the old file on reassignment,

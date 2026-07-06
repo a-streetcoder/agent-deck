@@ -150,12 +150,15 @@ struct NativeBubblePayload {
 /// Keeps images session-owned (it only reads the materialized path), exposes the
 /// same preview/reveal/copy actions everywhere, and remains cheap to measure.
 final class PiAgentNativeTranscriptImageAttachmentView: NSView {
+    enum DisplayStyle { case inline, tile }
+
     private let container = NSView()
     private let imageView = NSImageView()
     private let placeholder = NSTextField(labelWithString: "Downloading image…")
     private let captionLabel = NSTextField(labelWithString: "")
     private var reference: PiAgentTranscriptImageReference?
     private var caption: String = ""
+    private var displayStyle: DisplayStyle = .inline
     private var popover: NSPopover?
     private var imageHeightC: NSLayoutConstraint!
     private var imageWidthC: NSLayoutConstraint!
@@ -163,6 +166,8 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
     private static let maxImageWidth: CGFloat = 180
     private static let maxImageHeight: CGFloat = 140
     private static let minImageHeight: CGFloat = 72
+    private static let tileWidth: CGFloat = 104
+    private static let tileImageHeight: CGFloat = 58
     private static let captionGap: CGFloat = 6
 
     override init(frame frameRect: NSRect) {
@@ -215,6 +220,7 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
             placeholder.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -10),
             captionLabel.topAnchor.constraint(equalTo: container.bottomAnchor, constant: Self.captionGap),
             captionLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            captionLabel.widthAnchor.constraint(equalTo: container.widthAnchor),
             captionLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             captionLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
@@ -223,15 +229,18 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
 
-    func configure(reference: PiAgentTranscriptImageReference, caption: String, width: CGFloat) {
+    func configure(reference: PiAgentTranscriptImageReference, caption: String, width: CGFloat, style: DisplayStyle = .inline) {
+        popover?.close()
+        popover = nil
         self.reference = reference
         self.caption = caption.isEmpty ? reference.name : caption
-        let thumbnailWidth = Self.thumbnailWidth(for: width)
+        self.displayStyle = style
+        let thumbnailWidth = Self.thumbnailWidth(for: width, style: style)
         imageWidthC.constant = thumbnailWidth
-        imageHeightC.constant = Self.imageHeight(reference: reference, width: thumbnailWidth)
+        imageHeightC.constant = Self.imageHeight(reference: reference, width: thumbnailWidth, style: style)
         captionLabel.stringValue = self.caption
         toolTip = reference.source ?? reference.remoteURL ?? reference.localPath ?? reference.name
-        imageView.image = reference.localPath.flatMap { AgentImageLoader.image(at: URL(fileURLWithPath: $0)) }
+        imageView.image = reference.localPath.flatMap { TranscriptImageLoader.thumbnailImage(at: URL(fileURLWithPath: $0)) }
         imageView.isHidden = imageView.image == nil
         placeholder.isHidden = imageView.image != nil
         placeholder.stringValue = reference.isRemotePlaceholder ? "Downloading image…" : "Preview unavailable"
@@ -239,33 +248,38 @@ final class PiAgentNativeTranscriptImageAttachmentView: NSView {
         applyColors()
     }
 
-    static func measuredHeight(reference: PiAgentTranscriptImageReference, width: CGFloat) -> CGFloat {
+    static func measuredHeight(reference: PiAgentTranscriptImageReference, width: CGFloat, style: DisplayStyle = .inline) -> CGFloat {
         let font = NativeTranscriptFont.caption2()
-        return imageHeight(reference: reference, width: thumbnailWidth(for: width)) + captionGap + ceil(font.ascender - font.descender + font.leading)
+        return imageHeight(reference: reference, width: thumbnailWidth(for: width, style: style), style: style) + captionGap + ceil(font.ascender - font.descender + font.leading)
     }
 
-    private static func thumbnailWidth(for width: CGFloat) -> CGFloat {
-        max(96, min(maxImageWidth, width))
+
+    private static func thumbnailWidth(for width: CGFloat, style: DisplayStyle) -> CGFloat {
+        switch style {
+        case .inline: return max(96, min(maxImageWidth, width))
+        case .tile: return tileWidth
+        }
     }
 
-    private static func imageHeight(reference: PiAgentTranscriptImageReference, width: CGFloat) -> CGFloat {
+    private static func imageHeight(reference: PiAgentTranscriptImageReference, width: CGFloat, style: DisplayStyle) -> CGFloat {
+        if style == .tile { return tileImageHeight }
         guard let path = reference.localPath,
-              let image = AgentImageLoader.image(at: URL(fileURLWithPath: path)),
+              let image = TranscriptImageLoader.thumbnailImage(at: URL(fileURLWithPath: path)),
               image.size.width > 0 else { return 96 }
         return min(maxImageHeight, max(minImageHeight, width * image.size.height / image.size.width))
     }
 
     override var intrinsicContentSize: NSSize {
         guard let reference else { return NSSize(width: NSView.noIntrinsicMetric, height: 120) }
-        return NSSize(width: NSView.noIntrinsicMetric, height: Self.measuredHeight(reference: reference, width: max(1, bounds.width)))
+        return NSSize(width: NSView.noIntrinsicMetric, height: Self.measuredHeight(reference: reference, width: max(1, bounds.width), style: displayStyle))
     }
 
     override func layout() {
         super.layout()
         if let reference {
-            let thumbnailWidth = Self.thumbnailWidth(for: max(1, bounds.width))
+            let thumbnailWidth = Self.thumbnailWidth(for: max(1, bounds.width), style: displayStyle)
             imageWidthC.constant = thumbnailWidth
-            imageHeightC.constant = Self.imageHeight(reference: reference, width: thumbnailWidth)
+            imageHeightC.constant = Self.imageHeight(reference: reference, width: thumbnailWidth, style: displayStyle)
         }
         applyColors()
     }
@@ -339,13 +353,16 @@ private final class PiAgentTranscriptImagePopoverController: NSViewController {
         stack.spacing = 8
         root.addSubview(stack)
 
-        if let path = reference.localPath, let image = AgentImageLoader.image(at: URL(fileURLWithPath: path)) {
+        if let path = reference.localPath, let image = TranscriptImageLoader.previewImage(at: URL(fileURLWithPath: path)) {
             let imageView = NSImageView()
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.image = image
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            let width = min(640, max(260, image.size.width))
-            let height = min(480, max(160, width * image.size.height / max(image.size.width, 1)))
+            imageView.imageScaling = .scaleProportionallyDown
+            let nativeWidth = max(1, image.size.width)
+            let nativeHeight = max(1, image.size.height)
+            let scale = min(1, min(760 / nativeWidth, 560 / nativeHeight))
+            let width = ceil(nativeWidth * scale)
+            let height = ceil(nativeHeight * scale)
             imageView.widthAnchor.constraint(equalToConstant: width).isActive = true
             imageView.heightAnchor.constraint(equalToConstant: height).isActive = true
             stack.addArrangedSubview(imageView)

@@ -575,17 +575,29 @@ final class PiAgentNativeToolGroupView: PiAgentNativeCardRowView {
 
     private func mcpImageStrip(_ references: [PiAgentTranscriptImageReference]) -> NSView? {
         guard !references.isEmpty else { return nil }
-        let stack = NSStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.orientation = .vertical
-        stack.alignment = .width
-        stack.spacing = 8
-        for reference in references.prefix(4) {
+        let wrap = NSStackView()
+        wrap.translatesAutoresizingMaskIntoConstraints = false
+        wrap.orientation = .vertical
+        wrap.alignment = .leading
+        wrap.spacing = 5
+
+        let flow = NativeFlowLayoutView()
+        flow.hSpacing = 8
+        flow.vSpacing = 8
+        let tiles = references.prefix(6).map { reference in
             let image = PiAgentNativeTranscriptImageAttachmentView()
-            image.configure(reference: reference, caption: reference.name, width: 280)
-            stack.addArrangedSubview(image)
+            image.configure(reference: reference, caption: reference.name, width: 104, style: .tile)
+            return image
         }
-        return stack
+        flow.setItems(tiles)
+        wrap.addArrangedSubview(flow)
+        flow.widthAnchor.constraint(equalTo: wrap.widthAnchor).isActive = true
+
+        let hidden = references.count - tiles.count
+        if hidden > 0 {
+            wrap.addArrangedSubview(Self.label("+\(hidden) more", font: NativeTranscriptFont.caption2(), color: .tertiaryLabelColor, wraps: false))
+        }
+        return wrap
     }
 
     private func buildImagesCard(_ images: NativeToolGroupModel.Images) -> NSView {
