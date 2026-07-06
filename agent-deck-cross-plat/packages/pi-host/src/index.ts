@@ -10,6 +10,13 @@ export {
 } from "./PiSession.ts";
 export { runDoctor, type CheckStatus, type DoctorReport, type HealthCheck } from "./doctor.ts";
 export {
+  writeBridgeExtension,
+  type BridgeCallRequest,
+  type BridgeCallResponse,
+  type BridgeExtensionOptions,
+  type BridgeToolSpec,
+} from "./bridge.ts";
+export {
   buildLaunchArgs,
   type AgentSessionPlan,
   type HelperPlan,

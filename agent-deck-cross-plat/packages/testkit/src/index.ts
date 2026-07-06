@@ -3,6 +3,7 @@ export {
   type ChatCompletionRequest,
   type MockProviderOptions,
   type MockProviderServer,
+  type MockToolCall,
 } from "./mockProvider.ts";
 export {
   MOCK_MODEL_ID,

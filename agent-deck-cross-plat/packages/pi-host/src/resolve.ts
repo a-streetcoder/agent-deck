@@ -40,7 +40,11 @@ function findInDir(dir: string, platform: NodeJS.Platform): string | undefined {
   const names = platform === "win32" ? WINDOWS_EXTENSIONS.map((ext) => `pi${ext}`) : ["pi"];
   for (const name of names) {
     const candidate = path.join(dir, name);
-    if (isExecutableFile(candidate)) return candidate;
+    // Always return an ABSOLUTE path: a PATH entry can be relative (pnpm adds
+    // "node_modules/.bin" relatively), and the binary is later spawned with an
+    // arbitrary cwd (a session's project dir, a temp dir, Electron) — a relative
+    // path would then resolve against the wrong directory and fail ENOENT.
+    if (isExecutableFile(candidate)) return path.resolve(candidate);
   }
   return undefined;
 }
@@ -116,7 +120,7 @@ export function resolvePiBinary(
           `${key} is set to "${override}" but no file exists there. ${PI_INSTALL_HINT}`,
         );
       }
-      return { path: override, source: "env" };
+      return { path: path.resolve(override), source: "env" };
     }
   }
 

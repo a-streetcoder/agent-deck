@@ -33,6 +33,17 @@ describe("resolvePiBinary", () => {
     expect(resolved).toEqual({ path: fake, source: "path" });
   });
 
+  it("returns an absolute path even when the PATH entry is relative", () => {
+    // pnpm puts a relative "node_modules/.bin" on PATH; the resolved binary is
+    // later spawned with an arbitrary cwd, so a relative result would ENOENT.
+    const dir = mkdtempSync(path.join(tmpdir(), "pi-resolve-"));
+    const fake = makeFakePi(dir);
+    const relDir = path.relative(process.cwd(), dir);
+    const resolved = resolvePiBinary({ PATH: relDir });
+    expect(path.isAbsolute(resolved.path)).toBe(true);
+    expect(resolved).toEqual({ path: fake, source: "path" });
+  });
+
   it("prefers the env override over PATH", () => {
     const overrideDir = mkdtempSync(path.join(tmpdir(), "pi-resolve-"));
     const pathDir = mkdtempSync(path.join(tmpdir(), "pi-resolve-"));
