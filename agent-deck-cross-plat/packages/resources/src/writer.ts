@@ -39,6 +39,16 @@ function skillDirFor(roots: ResourceRoots, scope: WritableScope): string {
   return dir;
 }
 
+/** Defense-in-depth: the resolved .md must stay inside the agent catalog. */
+function agentFilePath(roots: ResourceRoots, scope: WritableScope, name: string): string {
+  const dir = agentDirFor(roots, scope);
+  const filePath = path.join(dir, `${name}.md`);
+  if (!path.resolve(filePath).startsWith(path.resolve(dir) + path.sep)) {
+    throw new Error("refusing to write outside the agent catalog");
+  }
+  return filePath;
+}
+
 function promptDirFor(roots: ResourceRoots, scope: WritableScope): string {
   const dir = promptCatalogDirs(roots).find((d) => d.scope === scope)?.dir;
   if (!dir) throw new Error(`no ${scope} prompt directory (is a project selected?)`);
@@ -106,45 +116,63 @@ function isSameFile(a: string, b: string): boolean {
  * "prompt_not_found" if the source is missing and "prompt_exists" if the target
  * name is already taken — the caller maps these to 404 / 409.
  */
-export function renamePromptFile(
-  roots: ResourceRoots,
-  scope: WritableScope,
-  name: string,
+/**
+ * Move a resource .md file within its scope dir, preserving the body and any
+ * unknown frontmatter and setting `name` to the new filename. Handles a
+ * case-only rename on case-insensitive filesystems (renameSync changes the
+ * stored case, which a plain write wouldn't) and otherwise claims the target
+ * with an exclusive create — which both rejects a real name clash AND closes
+ * the check-then-write TOCTOU (a file appearing in the gap fails the write
+ * instead of being clobbered). Throws `${kind}_not_found` / `${kind}_exists`.
+ */
+function renameMarkdownFile(
+  from: string,
+  to: string,
+  dir: string,
+  kind: "prompt" | "agent",
   newName: string,
 ): string {
-  const from = promptFilePath(roots, scope, name);
-  const to = promptFilePath(roots, scope, newName);
   if (from === to) return to; // no-op: nothing to rename
   let parsed: { frontmatter: Record<string, unknown>; body: string };
   try {
     parsed = parseFrontmatter(readFileSync(from, "utf8"));
   } catch {
-    throw new Error("prompt_not_found");
+    throw new Error(`${kind}_not_found`);
   }
   const content = `---\n${serializeFrontmatter({ ...parsed.frontmatter, name: newName })}\n---\n\n${parsed.body.trim()}\n`;
 
   // A case-only rename (review→Review) is the one case where `to` can "exist"
-  // yet actually BE `from` — on a case-insensitive filesystem they share an
-  // inode. Guarding on case-only keeps a genuine name clash off this
-  // overwrite path; renameSync changes the stored case (a plain write wouldn't).
+  // yet actually BE `from` (same inode on a case-insensitive filesystem).
   if (from.toLowerCase() === to.toLowerCase() && existsSync(to) && isSameFile(from, to)) {
     renameSync(from, to);
     writeFileSync(to, content);
     return to;
   }
 
-  // Otherwise claim the target with an exclusive create: it rejects a real name
-  // clash AND closes the check-then-write TOCTOU — a file appearing in the gap
-  // fails the write (EEXIST) instead of being clobbered.
-  mkdirSync(promptDirFor(roots, scope), { recursive: true });
+  mkdirSync(dir, { recursive: true });
   try {
     writeFileSync(to, content, { flag: "wx" });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("prompt_exists");
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${kind}_exists`);
     throw error;
   }
   rmSync(from, { force: true });
   return to;
+}
+
+export function renamePromptFile(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+  newName: string,
+): string {
+  return renameMarkdownFile(
+    promptFilePath(roots, scope, name),
+    promptFilePath(roots, scope, newName),
+    promptDirFor(roots, scope),
+    "prompt",
+    newName,
+  );
 }
 
 const AGENT_FIELD_ORDER = [
@@ -253,6 +281,27 @@ export function writeSkillFile(
 export function deleteAgentFile(roots: ResourceRoots, scope: WritableScope, name: string): void {
   const filePath = path.join(agentDirFor(roots, scope), `${name}.md`);
   rmSync(filePath, { force: true });
+}
+
+/**
+ * Rename a global/project agent's .md file, preserving its body + frontmatter
+ * and syncing the `name` field. Builtins can't be renamed (their name is the
+ * override key). Throws "agent_not_found" / "agent_exists" (→ 404 / 409); the
+ * caller is responsible for re-pointing any project defaults at the new name.
+ */
+export function renameAgentFile(
+  roots: ResourceRoots,
+  scope: WritableScope,
+  name: string,
+  newName: string,
+): string {
+  return renameMarkdownFile(
+    agentFilePath(roots, scope, name),
+    agentFilePath(roots, scope, newName),
+    agentDirFor(roots, scope),
+    "agent",
+    newName,
+  );
 }
 
 /** Set the `disabled` frontmatter flag on a global/project agent file. */

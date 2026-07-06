@@ -49,6 +49,7 @@ import {
   deleteSkillDir,
   deletePromptFile,
   renamePromptFile,
+  renameAgentFile,
   scanEnv,
   writeEnvVar,
   discoverProjects,
@@ -1152,6 +1153,62 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
       }
     } catch (error) {
       return reply.status(500).send({ error: String(error) });
+    }
+    broadcast({ type: "resources_changed" });
+    return { ok: true };
+  });
+
+  // Rename a global/project agent on disk (native RenameResourceSheet 6.5).
+  // Builtins can't be renamed (their name is the override key). Any project
+  // whose default pointed at the old name is re-pointed at the new one.
+  fastify.post("/resources/agents/rename", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.string().optional(),
+        scope: z.enum(["global", "project"]),
+        name: RESOURCE_NAME,
+        newName: RESOURCE_NAME,
+      })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.message });
+    const { projectId, scope, name, newName } = parsed.data;
+    const roots = rootsFor(projectId);
+    if (scope === "project" && !roots.projectPath) {
+      return reply.status(400).send({ error: "projectId required for project scope" });
+    }
+    try {
+      renameAgentFile(roots, scope, name, newName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "agent_exists") {
+        return reply
+          .status(409)
+          .send({ error: `A ${scope} agent named "${newName}" already exists.` });
+      }
+      if (message === "agent_not_found") {
+        return reply.status(404).send({ error: `No ${scope} agent named "${name}".` });
+      }
+      return reply.status(500).send({ error: message });
+    }
+    // Re-point project defaults, but ONLY where this rename actually changes the
+    // effective default — bare-name resolution respects scope shadowing (a
+    // project-scoped agent shadows a same-named global one). Over-broad matching
+    // would silently redirect a default onto a different, live agent.
+    const hasProjectAgent = (projectPath: string): boolean =>
+      existsSync(nodePath.join(projectPath, ".pi", "agents", `${name}.md`)) ||
+      existsSync(nodePath.join(projectPath, ".agents", `${name}.md`));
+    for (const project of projects.list()) {
+      if (project.defaultAgentName !== name) continue;
+      if (scope === "project") {
+        // A project agent is visible only to its own project.
+        if (project.path === roots.projectPath) {
+          projects.upsert({ ...project, defaultAgentName: newName });
+        }
+      } else if (!hasProjectAgent(project.path)) {
+        // Global rename: skip projects whose own project-scoped agent of that
+        // name shadows the global (their default resolves to the project one).
+        projects.upsert({ ...project, defaultAgentName: newName });
+      }
     }
     broadcast({ type: "resources_changed" });
     return { ok: true };

@@ -291,6 +291,27 @@ export async function deleteAgent(scope: string, name: string): Promise<void> {
   });
 }
 
+/** Rename a global/project agent; returns true on success (the caller closes
+ *  the inline editor), false after surfacing the server error (409/404/…). */
+export async function renameAgent(scope: string, name: string, newName: string): Promise<boolean> {
+  const projectId = useAppStore.getState().currentProjectId ?? undefined;
+  try {
+    const response = await fetch("/resources/agents/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, scope, name, newName }),
+    });
+    if (!response.ok) {
+      const { error } = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(error ?? "Couldn't rename the agent.");
+    }
+    return true;
+  } catch (error) {
+    useAppStore.getState().setError(String(error));
+    return false;
+  }
+}
+
 export async function setSkillDisabled(name: string, disabled: boolean): Promise<void> {
   await resourceAction("/settings", {
     method: "PATCH",

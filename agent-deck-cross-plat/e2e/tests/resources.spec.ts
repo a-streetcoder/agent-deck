@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
@@ -70,6 +70,21 @@ test("agents screen lists builtins and live-updates when files appear on disk", 
   // unit + resources-integration tested).
   await page.getByTestId("agent-filter-overridden").click();
   await expect(page.getByTestId("agent-row")).toHaveCount(0);
+
+  // Rename the project agent via the detail view: the file moves on disk and
+  // the row follows the new name.
+  await page.getByTestId("agent-filter-project").click();
+  await page.locator('[data-agent-name="tester"]').click();
+  await expect(page.getByTestId("agent-detail")).toBeVisible();
+  await page.getByTestId("agent-rename").click();
+  await page.getByTestId("agent-rename-input").fill("tester2");
+  await page.getByTestId("agent-rename-confirm").click();
+
+  await expect(page.locator('[data-agent-name="tester2"]')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-agent-name="tester"]')).toHaveCount(0);
+  const renamedFile = path.join(project, ".pi", "agents", "tester2.md");
+  await expect.poll(() => existsSync(renamedFile)).toBe(true);
+  expect(existsSync(path.join(project, ".pi", "agents", "tester.md"))).toBe(false);
 });
 
 test("skills screen live-updates when a SKILL.md appears on disk", async ({ page }) => {

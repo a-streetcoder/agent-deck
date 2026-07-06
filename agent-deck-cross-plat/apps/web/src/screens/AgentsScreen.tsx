@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pencil, Power, PowerOff, Plus, Star, Trash2 } from "lucide-react";
+import { Check, Pencil, Power, PowerOff, Plus, Star, Tag, Trash2, X } from "lucide-react";
 import {
   agentMatchesFilter,
   AGENT_FILTERS,
@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAgents } from "../state/useAgents.ts";
 import { useAppStore } from "../state/store.ts";
-import { deleteAgent, setAgentDisabled, updateProject } from "../state/wsBridge.ts";
+import { deleteAgent, renameAgent, setAgentDisabled, updateProject } from "../state/wsBridge.ts";
 import { AgentAvatar, agentSourceColor } from "../components/agents/AgentAvatar.tsx";
 import { AgentEditSheet } from "../components/agents/AgentEditSheet.tsx";
 import { ScopeChip } from "../components/ScopeChip.tsx";
@@ -143,6 +143,17 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const currentProject = projects.find((p) => p.id === currentProjectId);
   const isDefault = currentProject?.defaultAgentName === agent.name;
+  // Inline rename (native RenameResourceSheet); value === null when not renaming.
+  const [renameValue, setRenameValue] = useState<string | null>(null);
+
+  const submitRename = async (): Promise<void> => {
+    const newName = (renameValue ?? "").trim();
+    if (!newName || newName === agent.name) {
+      setRenameValue(null);
+      return;
+    }
+    if (await renameAgent(agent.scope, agent.name, newName)) setRenameValue(null);
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="agent-detail">
@@ -150,12 +161,44 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
         <AgentAvatar agent={agent} size={56} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2
-              className="truncate text-xl font-bold text-text-primary"
-              style={{ fontStretch: "expanded" }}
-            >
-              {agent.name}
-            </h2>
+            {renameValue !== null ? (
+              <>
+                <input
+                  autoFocus
+                  data-testid="agent-rename-input"
+                  className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1 text-lg font-bold text-text-primary outline-none focus:border-accent"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void submitRename();
+                    if (e.key === "Escape") setRenameValue(null);
+                  }}
+                />
+                <button
+                  data-testid="agent-rename-confirm"
+                  className="rounded p-1 text-text-muted hover:text-[var(--color-brand-accent)]"
+                  title="Rename"
+                  onClick={() => void submitRename()}
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  data-testid="agent-rename-cancel"
+                  className="rounded p-1 text-text-muted hover:text-text-primary"
+                  title="Cancel"
+                  onClick={() => setRenameValue(null)}
+                >
+                  <X size={16} />
+                </button>
+              </>
+            ) : (
+              <h2
+                className="truncate text-xl font-bold text-text-primary"
+                style={{ fontStretch: "expanded" }}
+              >
+                {agent.name}
+              </h2>
+            )}
             <ScopeChip scope={agent.scope} />
             {agent.replacesBuiltin ? (
               <span className="text-xs" style={{ color: "var(--color-warning)" }}>
@@ -210,6 +253,18 @@ function AgentDetail({ agent, onEdit }: { agent: AgentInfo; onEdit: () => void }
                 <Pencil size={12} />
                 Edit
               </button>
+              {/* Rename moves a custom agent's file and re-points project
+                  defaults. Builtins keep their name (it's the override key). */}
+              {agent.scope !== "builtin" ? (
+                <button
+                  data-testid="agent-rename"
+                  className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary"
+                  onClick={() => setRenameValue(agent.name)}
+                >
+                  <Tag size={12} />
+                  Rename
+                </button>
+              ) : null}
               {/* Delete removes a custom agent's file. Builtins are bundled
                   and can only be reset — offered just when overridden, so its
                   effect ("clear all overrides") is unambiguous. */}
