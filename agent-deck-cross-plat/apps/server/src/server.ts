@@ -1662,6 +1662,49 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     }
   });
 
+  // A single issue's detail (native GitHubIssueDetailView 10.6): title + state +
+  // labels + assignees + author + Markdown body, for the detail pane.
+  fastify.get("/projects/:id/issues/:number", async (request, reply) => {
+    const { id, number } = request.params as { id: string; number: string };
+    const project = projects.find((p) => p.id === id);
+    if (!project) return reply.status(404).send({ error: "unknown project" });
+    if (!/^\d+$/.test(number)) return reply.status(400).send({ error: "invalid issue number" });
+    const ghBin = process.env.AGENT_DECK_GH_BIN || "gh";
+    try {
+      const { stdout } = await execFileAsync(
+        ghBin,
+        ["issue", "view", number, "--json", "number,title,body,state,url,labels,assignees,author"],
+        { cwd: project.path, timeout: 15_000, maxBuffer: 8_000_000 },
+      );
+      const raw = JSON.parse(stdout) as {
+        number: number;
+        title: string;
+        body?: string;
+        state: string;
+        url: string;
+        labels?: Array<{ name: string }>;
+        assignees?: Array<{ login: string }>;
+        author?: { login: string };
+      };
+      return {
+        issue: {
+          number: raw.number,
+          title: raw.title,
+          body: raw.body ?? "",
+          state: raw.state,
+          url: raw.url,
+          labels: (raw.labels ?? []).map((l) => l.name),
+          assignees: (raw.assignees ?? []).map((a) => a.login),
+          author: raw.author?.login ?? null,
+        },
+      };
+    } catch {
+      return reply.status(502).send({
+        error: "Couldn't load the issue — needs the gh CLI installed, authenticated, and a remote.",
+      });
+    }
+  });
+
   fastify.get("/sessions", async (request) => {
     const { projectId } = request.query as { projectId?: string };
     // Live sessions win over persisted index entries (same id).

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { CircleDot, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowLeft, CircleDot, RefreshCw, Sparkles, User } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { MarkdownDocument } from "@/design-system/markdown/MarkdownDocument";
 import { useAppStore } from "../state/store.ts";
 import { newChat } from "../state/wsBridge.ts";
 
@@ -15,6 +16,12 @@ interface Issue {
   state: string;
   url: string;
   labels: string[];
+}
+
+interface IssueDetail extends Issue {
+  body: string;
+  assignees: string[];
+  author: string | null;
 }
 
 export function IssuesScreen() {
@@ -32,6 +39,11 @@ export function IssuesScreen() {
   // Monotonic request token: a slow fetch for a stale project/filter must not
   // clobber the result of a newer one (the filter buttons stay clickable).
   const reqRef = useRef(0);
+  // The open issue detail pane (native GitHubIssueDetailView), or null for the list.
+  const [detail, setDetail] = useState<IssueDetail | null>(null);
+  const [detailNumber, setDetailNumber] = useState<number | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const detailReq = useRef(0);
 
   const load = useCallback(
     async (projectId: string): Promise<void> => {
@@ -57,6 +69,20 @@ export function IssuesScreen() {
     if (currentProjectId) void load(currentProjectId);
   }, [currentProjectId, load]);
 
+  // Switching projects: everything on screen (list rows AND any open detail)
+  // belonged to the old repo. Reset in a LAYOUT effect so it lands before the
+  // browser paints — no stale-issue flash — and abandon any in-flight fetches
+  // so a slow response for the old project can't repopulate the new one.
+  useLayoutEffect(() => {
+    reqRef.current++;
+    detailReq.current++;
+    setIssues([]);
+    setDetailNumber(null);
+    setDetail(null);
+    setDetailError(null);
+    setLocalError(null);
+  }, [currentProjectId]);
+
   const start = async (issue: Issue): Promise<void> => {
     setView("chat");
     // Wait for the new session to become active before seeding its composer,
@@ -66,6 +92,35 @@ export function IssuesScreen() {
       `Work on GitHub issue #${issue.number}: ${issue.title}\n${issue.url}\n\n` +
         `Investigate the issue and propose a fix.`,
     );
+  };
+
+  // Load a single issue's detail (title/state/labels/assignees/author/body).
+  const openDetail = async (number: number): Promise<void> => {
+    if (!currentProjectId) return;
+    const req = ++detailReq.current;
+    setDetailNumber(number);
+    setDetail(null);
+    setDetailError(null);
+    try {
+      const res = await fetch(`/projects/${encodeURIComponent(currentProjectId)}/issues/${number}`);
+      if (detailReq.current !== req) return; // a newer open superseded this one
+      if (!res.ok) {
+        const { error } = (await res.json().catch(() => ({}))) as { error?: string };
+        setDetailError(error ?? "Couldn't load the issue.");
+        return;
+      }
+      const { issue } = (await res.json()) as { issue: IssueDetail };
+      if (detailReq.current === req) setDetail(issue);
+    } catch (err) {
+      if (detailReq.current === req) setDetailError(String(err));
+    }
+  };
+
+  const closeDetail = (): void => {
+    detailReq.current++; // abandon any in-flight detail fetch
+    setDetailNumber(null);
+    setDetail(null);
+    setDetailError(null);
   };
 
   if (!project) {
@@ -84,95 +139,183 @@ export function IssuesScreen() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-testid="issues-screen">
       <div className="mx-auto max-w-3xl">
-        <div className="flex items-center justify-between pb-1">
-          <div className="flex items-center gap-2">
-            <CircleDot size={16} className="text-text-secondary" aria-hidden />
-            <h2
-              className="text-base font-semibold text-text-primary"
-              style={{ fontStretch: "expanded" }}
-            >
-              {project.name} · Issues
-            </h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <div
-              className="flex items-center gap-0.5 rounded-capsule border border-border-subtle p-0.5"
-              role="group"
-              aria-label="Filter issues by state"
-            >
-              {(["open", "closed", "all"] as const).map((s) => (
-                <button
-                  key={s}
-                  data-testid={`issues-state-${s}`}
-                  aria-pressed={stateFilter === s}
-                  className={cn(
-                    "rounded-capsule px-2.5 py-0.5 text-xs capitalize transition-colors",
-                    stateFilter === s
-                      ? "bg-[var(--color-selection-fill)] text-text-primary"
-                      : "text-text-muted hover:text-text-primary",
-                  )}
-                  onClick={() => setStateFilter(s)}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+        {detailNumber !== null ? (
+          <div data-testid="issue-detail">
             <button
-              data-testid="issues-refresh"
-              className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-0.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
-              disabled={loading}
-              onClick={() => currentProjectId && void load(currentProjectId)}
+              data-testid="issue-detail-back"
+              className="flex items-center gap-1 pb-3 text-xs text-text-muted hover:text-text-primary"
+              onClick={closeDetail}
             >
-              <RefreshCw size={11} className={loading ? "animate-spin" : undefined} /> Refresh
+              <ArrowLeft size={13} /> Back to issues
             </button>
-          </div>
-        </div>
-        <p className="pb-3 text-xs text-text-muted">
-          {stateFilter === "all"
-            ? "All GitHub issues for this project."
-            : `${stateFilter === "open" ? "Open" : "Closed"} GitHub issues for this project.`}{" "}
-          Select one to start a session on it.
-        </p>
-
-        {error ? (
-          <div
-            className="rounded-2xl border border-border-subtle bg-surface px-4 py-6 text-center text-sm text-text-muted"
-            data-testid="issues-error"
-          >
-            {error}
-          </div>
-        ) : (
-          <div className="space-y-1.5" data-testid="issues-list">
-            {issues.map((issue) => (
-              <button
-                key={issue.number}
-                data-testid={`issue-${issue.number}`}
-                className="flex w-full items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5 text-left hover:bg-[var(--color-hover-fill)]"
-                onClick={() => void start(issue)}
+            {detailError ? (
+              <div
+                className="rounded-2xl border border-border-subtle bg-surface px-4 py-6 text-center text-sm text-text-muted"
+                data-testid="issue-detail-error"
               >
-                <span className="font-mono text-xs text-text-muted">#{issue.number}</span>
-                <span
-                  className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary"
+                {detailError}
+              </div>
+            ) : !detail ? (
+              <div className="py-8 text-center text-sm text-text-muted">
+                Loading issue #{detailNumber}…
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 pb-1">
+                  <span
+                    data-testid="issue-detail-state"
+                    data-state={detail.state.toLowerCase()}
+                    className={cn(
+                      "rounded-capsule border px-2 py-0.5 text-[11px] capitalize",
+                      detail.state.toLowerCase() === "open"
+                        ? "border-[var(--color-role-success)] text-[var(--color-role-success)]"
+                        : "border-border-strong text-text-muted",
+                    )}
+                  >
+                    {detail.state.toLowerCase()}
+                  </span>
+                  <span className="font-mono text-xs text-text-muted">#{detail.number}</span>
+                </div>
+                <h2
+                  className="text-lg font-semibold text-text-primary"
                   style={{ fontStretch: "expanded" }}
                 >
-                  {issue.title}
-                </span>
-                {issue.labels.slice(0, 3).map((label) => (
-                  <span
-                    key={label}
-                    className="shrink-0 rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted"
-                  >
-                    {label}
-                  </span>
-                ))}
-              </button>
-            ))}
-            {issues.length === 0 && !loading ? (
-              <div className="py-8 text-center text-sm text-text-muted">
-                {stateFilter === "all" ? "No issues." : `No ${stateFilter} issues.`}
-              </div>
-            ) : null}
+                  {detail.title}
+                </h2>
+                <div className="flex flex-wrap items-center gap-2 pt-1.5 text-[11px] text-text-muted">
+                  {detail.author ? (
+                    <span className="flex items-center gap-1">
+                      <User size={11} /> {detail.author}
+                    </span>
+                  ) : null}
+                  {detail.assignees.length ? (
+                    <span data-testid="issue-detail-assignees">
+                      assigned: {detail.assignees.join(", ")}
+                    </span>
+                  ) : null}
+                  {detail.labels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-capsule border border-border-subtle px-1.5"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  data-testid="issue-open-in-pi"
+                  className="mt-3 flex items-center gap-1.5 rounded-capsule px-3 py-1 text-xs font-medium shadow-capsule"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, var(--color-brand-accent-bright), var(--color-brand-accent))",
+                    color: "var(--color-accent-foreground)",
+                  }}
+                  onClick={() => void start(detail)}
+                >
+                  <Sparkles size={13} /> Open in Pi
+                </button>
+                <div
+                  className="mt-4 rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3"
+                  data-testid="issue-detail-body"
+                >
+                  <MarkdownDocument source={detail.body || "_No description provided._"} />
+                </div>
+              </>
+            )}
           </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between pb-1">
+              <div className="flex items-center gap-2">
+                <CircleDot size={16} className="text-text-secondary" aria-hidden />
+                <h2
+                  className="text-base font-semibold text-text-primary"
+                  style={{ fontStretch: "expanded" }}
+                >
+                  {project.name} · Issues
+                </h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="flex items-center gap-0.5 rounded-capsule border border-border-subtle p-0.5"
+                  role="group"
+                  aria-label="Filter issues by state"
+                >
+                  {(["open", "closed", "all"] as const).map((s) => (
+                    <button
+                      key={s}
+                      data-testid={`issues-state-${s}`}
+                      aria-pressed={stateFilter === s}
+                      className={cn(
+                        "rounded-capsule px-2.5 py-0.5 text-xs capitalize transition-colors",
+                        stateFilter === s
+                          ? "bg-[var(--color-selection-fill)] text-text-primary"
+                          : "text-text-muted hover:text-text-primary",
+                      )}
+                      onClick={() => setStateFilter(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  data-testid="issues-refresh"
+                  className="flex items-center gap-1.5 rounded-capsule border border-border-strong px-2.5 py-0.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  disabled={loading}
+                  onClick={() => currentProjectId && void load(currentProjectId)}
+                >
+                  <RefreshCw size={11} className={loading ? "animate-spin" : undefined} /> Refresh
+                </button>
+              </div>
+            </div>
+            <p className="pb-3 text-xs text-text-muted">
+              {stateFilter === "all"
+                ? "All GitHub issues for this project."
+                : `${stateFilter === "open" ? "Open" : "Closed"} GitHub issues for this project.`}{" "}
+              Select one to start a session on it.
+            </p>
+
+            {error ? (
+              <div
+                className="rounded-2xl border border-border-subtle bg-surface px-4 py-6 text-center text-sm text-text-muted"
+                data-testid="issues-error"
+              >
+                {error}
+              </div>
+            ) : (
+              <div className="space-y-1.5" data-testid="issues-list">
+                {issues.map((issue) => (
+                  <button
+                    key={issue.number}
+                    data-testid={`issue-${issue.number}`}
+                    className="flex w-full items-center gap-3 rounded-[14px] border border-border-subtle bg-surface px-3.5 py-2.5 text-left hover:bg-[var(--color-hover-fill)]"
+                    onClick={() => void openDetail(issue.number)}
+                  >
+                    <span className="font-mono text-xs text-text-muted">#{issue.number}</span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary"
+                      style={{ fontStretch: "expanded" }}
+                    >
+                      {issue.title}
+                    </span>
+                    {issue.labels.slice(0, 3).map((label) => (
+                      <span
+                        key={label}
+                        className="shrink-0 rounded-capsule border border-border-subtle px-1.5 text-[10px] text-text-muted"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </button>
+                ))}
+                {issues.length === 0 && !loading ? (
+                  <div className="py-8 text-center text-sm text-text-muted">
+                    {stateFilter === "all" ? "No issues." : `No ${stateFilter} issues.`}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

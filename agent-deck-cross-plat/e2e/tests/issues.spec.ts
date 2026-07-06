@@ -20,14 +20,21 @@ const project = mkdtempSync(path.join(tmpdir(), "proj-issues-"));
 test.beforeAll(async () => {
   // Stub gh so the test needs no network or real repo.
   const stub = path.join(mkdtempSync(path.join(tmpdir(), "gh-stub-")), "gh");
-  // Vary the returned issue by the --state the server forwards, so the e2e can
-  // prove the Open / Closed filter re-queries gh.
+  // Branches on the subcommand: `issue view <n>` returns one issue's detail;
+  // `issue list` varies by the --state the server forwards (proves the filter
+  // re-queries gh).
   writeFileSync(
     stub,
     `#!/bin/sh
+sub="$2"
+num="$3"
 state=open
 while [ $# -gt 0 ]; do case "$1" in --state) shift; state="$1" ;; esac; shift; done
-if [ "$state" = "closed" ]; then
+if [ "$sub" = "view" ]; then
+cat <<JSON
+{"number":$num,"title":"Fix the flux capacitor","body":"Steps to reproduce the flux leak.","state":"OPEN","url":"https://github.com/x/y/issues/$num","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}],"author":{"login":"doc"}}
+JSON
+elif [ "$state" = "closed" ]; then
 cat <<'JSON'
 [{"number":9,"title":"Old flux leak (fixed)","state":"CLOSED","url":"https://github.com/x/y/issues/9","labels":[]}]
 JSON
@@ -61,7 +68,7 @@ test("the Default workspace prompts to pick a project", async ({ page }) => {
   await expect(page.getByTestId("issues-no-project")).toBeVisible();
 });
 
-test("lists a project's issues and starts a session seeded from one", async ({ page }) => {
+test("opens an issue's detail and starts a seeded session from it", async ({ page }) => {
   await page.goto(harness.baseUrl);
   await page.getByTestId(`project-${path.basename(project)}`).click();
   await expect(page.getByTestId("session-cwd")).toHaveText(project);
@@ -72,8 +79,20 @@ test("lists a project's issues and starts a session seeded from one", async ({ p
   await expect(issue).toContainText("Fix the flux capacitor");
   await expect(issue).toContainText("bug");
 
-  // Selecting it starts a chat with the composer seeded from the issue.
+  // Clicking opens the detail pane (native GitHubIssueDetailView): body,
+  // author, and state all rendered from `gh issue view`.
   await issue.click();
+  const detail = page.getByTestId("issue-detail");
+  await expect(detail).toBeVisible();
+  await expect(page.getByTestId("issue-detail-body")).toContainText("Steps to reproduce");
+  await expect(detail).toContainText("doc"); // author
+  await expect(page.getByTestId("issue-detail-state")).toHaveText("open");
+
+  // Back returns to the list; re-open and use "Open in Pi" to seed a session.
+  await page.getByTestId("issue-detail-back").click();
+  await expect(page.getByTestId("issues-list")).toBeVisible();
+  await page.getByTestId("issue-7").click();
+  await page.getByTestId("issue-open-in-pi").click();
   await expect(page.getByTestId("composer-input")).toHaveValue(/issue #7: Fix the flux capacitor/);
 });
 
