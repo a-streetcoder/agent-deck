@@ -12,3 +12,4 @@ export {
   writeQuestionCommandExtension,
   writeUiCardsExtension,
 } from "./extension.ts";
+export { mockMcpServerLaunch } from "./mockMcpServer.ts";

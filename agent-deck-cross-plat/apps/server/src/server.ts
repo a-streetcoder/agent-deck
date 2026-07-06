@@ -65,6 +65,7 @@ import {
   type MemoryType,
 } from "@agent-deck/memory";
 import { BridgeRegistry } from "./bridge.ts";
+import { mcpServerConfigsFromEnv, registerMcpServers, type McpRegistration } from "./mcpTools.ts";
 import { registerMemoryTools } from "./memoryTools.ts";
 import { defaultDataDir, ProjectIndex, SessionIndex, SettingsStore } from "./persistence.ts";
 import { ReceiptBus } from "./receipts.ts";
@@ -296,6 +297,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
   if (memoryEnabled) {
     registerMemoryTools(bridge, memoryBaseDir, (sessionId) => sessions.get(sessionId)?.meta.cwd);
   }
+
+  // Proxy configured MCP servers' tools onto the bridge (best-effort — a server
+  // that fails to connect is skipped). Registered before listen so the tools are
+  // available to the first session launch. AGENT_DECK_MCP_SERVERS is a JSON array
+  // of stdio server configs { id, command, args?, env?, cwd? }.
+  const mcp: McpRegistration = await registerMcpServers(
+    bridge,
+    mcpServerConfigsFromEnv(process.env.AGENT_DECK_MCP_SERVERS),
+    (id, error) =>
+      console.warn(`[agent-deck] MCP server "${id}" failed to connect: ${String(error)}`),
+  );
 
   const fastify = Fastify({ logger: false });
 
@@ -1437,6 +1449,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
     close: async () => {
       await resourceWatcher.close();
       await sessions.stopAll();
+      await mcp.close();
       wss.close();
       await fastify.close();
     },

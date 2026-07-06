@@ -41,6 +41,9 @@ importers:
       '@agent-deck/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@agent-deck/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@agent-deck/memory':
         specifier: workspace:*
         version: link:../../packages/memory
@@ -233,6 +236,13 @@ importers:
         version: 22.15.29
 
   packages/testkit:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.12.1
+        version: 1.12.1
+      zod:
+        specifier: 3.25.67
+        version: 3.25.67
     devDependencies:
       '@agent-deck/domain':
         specifier: workspace:*
