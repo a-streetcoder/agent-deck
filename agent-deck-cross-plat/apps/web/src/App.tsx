@@ -19,6 +19,7 @@ import { cn } from "@/lib/cn";
 import { isMacDesktop } from "@/lib/native";
 import { projectDisplayName, sessionDisplayTitle } from "@/lib/sessionTitle";
 import { useAppStore } from "./state/store.ts";
+import { useKeyboardShortcuts } from "./state/useKeyboardShortcuts.ts";
 import { useMenuCommands } from "./state/useMenuCommands.ts";
 
 /**
@@ -75,6 +76,7 @@ export function App() {
     ? sessionDisplayTitle(session.title, projectDisplayName(projects, session.projectId))
     : "Pi Agent";
   useMenuCommands();
+  useKeyboardShortcuts();
   // The frameless macOS window needs a drag region across the top bar so the
   // window can be moved by its header (the sidebar strip is already draggable).
   const macDesktop = isMacDesktop();
@@ -102,6 +104,7 @@ export function App() {
             <h1
               className="text-sm font-semibold text-text-primary"
               style={{ fontStretch: "expanded" }}
+              data-testid="app-view-title"
             >
               {isChat ? chatTitle : VIEW_TITLES[view]}
             </h1>
