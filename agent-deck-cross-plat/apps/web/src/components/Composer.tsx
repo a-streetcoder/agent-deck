@@ -75,6 +75,10 @@ export function Composer() {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest-wins token for the two stats refresh triggers (idle + compaction).
   const statsSeqRef = useRef(0);
+  // Previous values so stats refresh only on genuine transitions (a turn
+  // completing / a compaction), never on the fresh/initial session state.
+  const prevAgentStatusRef = useRef<"idle" | "running" | null>(null);
+  const prevContextRevisionRef = useRef(0);
 
   const refreshPiState = useCallback(async (): Promise<void> => {
     if (!sessionId) return;
@@ -126,9 +130,9 @@ export function Composer() {
     setPiState(null);
     setModels([]);
     setContextUsage(null);
+    prevAgentStatusRef.current = null;
     if (!sessionId) return;
     void refreshPiState();
-    void refreshStats();
     void fetch(`/sessions/${encodeURIComponent(sessionId)}/models`)
       .then((response) => (response.ok ? response.json() : { models: [] }))
       .then((data: { models: Array<{ provider: string; id: string }> }) => {
@@ -140,17 +144,25 @@ export function Composer() {
     return () => {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [sessionId, refreshPiState, refreshStats]);
+  }, [sessionId, refreshPiState]);
 
-  // Re-read the context fill on the two things that change it: a completed turn
-  // (agent returns to idle) and a compaction (contextRevision bumps — pi runs
-  // threshold auto-compaction AFTER agent_end, which the ingest surfaces from
-  // the runtime `compaction_end` event as a context_changed → contextRevision).
+  // Re-read the context fill ONLY on the two events that change it: a completed
+  // TURN (a genuine running→idle transition) and a COMPACTION (contextRevision
+  // actually increases — pi runs threshold auto-compaction AFTER agent_end, which
+  // the ingest surfaces from the runtime `compaction_end` event). Gating on the
+  // transition (not the bare idle/mount state) is deliberate: calling
+  // get_session_stats on a FRESH, pre-first-turn session (e.g. just after picking
+  // an agent) serialises ahead of the user's prompt in pi's RPC pipeline and can
+  // stall the turn — so we never touch stats until a turn has actually run.
   useEffect(() => {
-    if (agentStatus === "idle" && sessionId) void refreshStats();
+    const prev = prevAgentStatusRef.current;
+    prevAgentStatusRef.current = agentStatus;
+    if (prev === "running" && agentStatus === "idle" && sessionId) void refreshStats();
   }, [agentStatus, sessionId, refreshStats]);
   useEffect(() => {
-    if (sessionId) void refreshStats();
+    const prev = prevContextRevisionRef.current;
+    prevContextRevisionRef.current = contextRevision;
+    if (contextRevision > prev && sessionId) void refreshStats();
   }, [contextRevision, sessionId, refreshStats]);
 
   const suggestions = useSuggestions(sessionId);
