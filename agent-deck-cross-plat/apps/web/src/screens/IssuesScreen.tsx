@@ -588,6 +588,17 @@ export function IssuesScreen() {
                     >
                       {issue.title}
                     </span>
+                    {/* Native list-row meta leads with the author (GitHubIssuesViews
+                        .swift:143-145): who filed the issue. */}
+                    {issue.author ? (
+                      <span
+                        data-testid="issue-author"
+                        className="flex shrink-0 items-center gap-1 text-[11px] text-text-muted"
+                      >
+                        <User size={11} className="shrink-0" />
+                        <span className="max-w-[16ch] truncate">{issue.author}</span>
+                      </span>
+                    ) : null}
                     {issue.labels.slice(0, 3).map((label) => (
                       <span
                         key={label}

@@ -42,7 +42,7 @@ cat <<'JSON'
 JSON
 else
 cat <<'JSON'
-[{"number":7,"title":"Fix the flux capacitor","state":"OPEN","url":"https://github.com/x/y/issues/7","labels":[{"name":"bug"}]}]
+[{"number":7,"title":"Fix the flux capacitor","state":"OPEN","url":"https://github.com/x/y/issues/7","labels":[{"name":"bug"}],"author":{"login":"doc"}}]
 JSON
 fi
 `,
@@ -80,6 +80,8 @@ test("opens an issue's detail and starts a seeded session from it", async ({ pag
   await expect(issue).toBeVisible();
   await expect(issue).toContainText("Fix the flux capacitor");
   await expect(issue).toContainText("bug");
+  // The list row leads its meta with the author (native GitHubIssuesViews meta row).
+  await expect(issue.getByTestId("issue-author")).toHaveText("doc");
 
   // Clicking opens the detail pane (native GitHubIssueDetailView): body,
   // author, and state all rendered from `gh issue view`.
