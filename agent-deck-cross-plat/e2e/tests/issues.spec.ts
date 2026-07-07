@@ -42,7 +42,7 @@ cat <<'JSON'
 JSON
 else
 cat <<'JSON'
-[{"number":7,"title":"Fix the flux capacitor","state":"OPEN","url":"https://github.com/x/y/issues/7","labels":[{"name":"bug"}],"author":{"login":"doc"}}]
+[{"number":7,"title":"Fix the flux capacitor","state":"OPEN","url":"https://github.com/x/y/issues/7","labels":[{"name":"bug"}],"author":{"login":"doc"},"updatedAt":"2026-02-01T09:30:00Z"}]
 JSON
 fi
 `,
@@ -80,8 +80,13 @@ test("opens an issue's detail and starts a seeded session from it", async ({ pag
   await expect(issue).toBeVisible();
   await expect(issue).toContainText("Fix the flux capacitor");
   await expect(issue).toContainText("bug");
-  // The list row leads its meta with the author (native GitHubIssuesViews meta row).
+  // The list row shows the author and a relative last-updated time (native meta row).
   await expect(issue.getByTestId("issue-author")).toHaveText("doc");
+  // A fixed past updatedAt renders as a relative "N units ago" caption. The
+  // formatter uses the runtime's default locale (native-faithful), so assert a
+  // digit — present in every locale with numeric:"always" ("5 months ago",
+  // "il y a 5 mois", …) — rather than the English word "ago".
+  await expect(issue.getByTestId("issue-updated")).toHaveText(/\d/);
 
   // Clicking opens the detail pane (native GitHubIssueDetailView): body,
   // author, and state all rendered from `gh issue view`.

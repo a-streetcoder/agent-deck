@@ -1814,7 +1814,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           // native client-side assignee + author facet filters (native
           // filteredBoardItems) and search over the already-loaded board
           // without a per-filter re-query.
-          "number,title,state,url,labels,assignees,author",
+          "number,title,state,url,labels,assignees,author,updatedAt",
           "--limit",
           "50",
         ],
@@ -1828,6 +1828,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
         labels?: Array<{ name: string }>;
         assignees?: Array<{ login: string }>;
         author?: { login: string } | null;
+        updatedAt?: string;
       }>;
       return {
         issues: raw.map((i) => ({
@@ -1838,6 +1839,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Age
           labels: (i.labels ?? []).map((l) => l.name),
           assignees: (i.assignees ?? []).map((a) => a.login),
           author: i.author?.login ?? null,
+          updatedAt: i.updatedAt ?? null,
         })),
       };
     } catch {

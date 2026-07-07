@@ -26,6 +26,7 @@ interface StubIssue {
   labels: string[];
   assignees: string[];
   author: string | null;
+  updatedAt: string | null;
 }
 
 async function issuesFor(
@@ -51,7 +52,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 cat <<JSON
-[{"number":1,"title":"state=$state","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}],"author":{"login":"doc"}}]
+[{"number":1,"title":"state=$state","state":"OPEN","url":"https://x/1","labels":[{"name":"bug"}],"assignees":[{"login":"marty"}],"author":{"login":"doc"},"updatedAt":"2026-02-01T09:30:00Z"}]
 JSON
 `,
   );
@@ -100,5 +101,7 @@ describe.skipIf(isWindows)("issues state filter", () => {
     expect(issues[0]!.labels).toEqual(["bug"]);
     expect(issues[0]!.assignees).toEqual(["marty"]);
     expect(issues[0]!.author).toEqual("doc");
+    // updatedAt drives the native issue-row relative "N ago" caption.
+    expect(issues[0]!.updatedAt).toEqual("2026-02-01T09:30:00Z");
   });
 });

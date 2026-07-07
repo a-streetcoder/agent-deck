@@ -28,6 +28,7 @@ interface Issue {
   labels: string[];
   assignees: string[];
   author: string | null;
+  updatedAt: string | null;
 }
 
 interface IssueComment {
@@ -48,6 +49,25 @@ function formatDate(iso: string | null): string {
   return Number.isNaN(d.getTime())
     ? ""
     : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/**
+ * ISO timestamp → a relative "N units ago" string, matching native's issue-row
+ * updatedAt (RelativeDateTimeFormatter). `numeric: "always"` keeps it uniform
+ * ("1 day ago", not "yesterday"). Returns "" if absent/unparseable.
+ */
+function formatRelative(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const sec = Math.round((then - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+  const abs = Math.abs(sec);
+  if (abs < 3600) return rtf.format(Math.round(sec / 60), "minute");
+  if (abs < 86400) return rtf.format(Math.round(sec / 3600), "hour");
+  if (abs < 2592000) return rtf.format(Math.round(sec / 86400), "day");
+  if (abs < 31536000) return rtf.format(Math.round(sec / 2592000), "month");
+  return rtf.format(Math.round(sec / 31536000), "year");
 }
 
 export function IssuesScreen() {
@@ -597,6 +617,16 @@ export function IssuesScreen() {
                       >
                         <User size={11} className="shrink-0" />
                         <span className="max-w-[16ch] truncate">{issue.author}</span>
+                      </span>
+                    ) : null}
+                    {/* Relative last-updated time (native meta row, after author). */}
+                    {issue.updatedAt ? (
+                      <span
+                        data-testid="issue-updated"
+                        className="shrink-0 whitespace-nowrap text-[11px] text-text-muted"
+                        title={formatDate(issue.updatedAt)}
+                      >
+                        {formatRelative(issue.updatedAt)}
                       </span>
                     ) : null}
                     {issue.labels.slice(0, 3).map((label) => (
