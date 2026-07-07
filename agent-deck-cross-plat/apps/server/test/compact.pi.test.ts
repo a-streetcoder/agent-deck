@@ -58,14 +58,22 @@ describe("manual compaction (native Compact context)", () => {
 
     // pi only compacts history BEYOND its recent-token window (keepRecentTokens
     // = 20000), so build several large-message turns to exceed it — otherwise pi
-    // rejects with "Nothing to compact (session too small)". Serialize on the
-    // assistant-cell count (the one-shot receipt bus can't gate a loop).
+    // rejects with "Nothing to compact (session too small)". Serialize the turns
+    // (the one-shot receipt bus can't gate a loop): a turn is DONE only when its
+    // assistant cell has appeared AND pi has returned to idle. Gating on the cell
+    // count alone races — the cell is created on the first text_delta while pi is
+    // still "running", so the next prompt could fire mid-turn and pi rejects with
+    // "Agent is already processing" (flaky on the slower CI runners).
     const assistantCount = (): number =>
       managed.snapshot().state.cells.filter((c) => c.kind === "assistant").length;
+    const turnSettled = (done: number): boolean => {
+      const { state } = managed.snapshot();
+      return assistantCount() > done && state.agentStatus === "idle";
+    };
     for (let i = 0; i < 5; i += 1) {
       const done = assistantCount();
       await managed.prompt(`turn ${i}: ${`word `.repeat(8000)}`);
-      await expect.poll(assistantCount, { timeout: 20_000 }).toBeGreaterThan(done);
+      await expect.poll(() => turnSettled(done), { timeout: 20_000 }).toBe(true);
     }
     const before = managed.snapshot().state.contextRevision;
 
